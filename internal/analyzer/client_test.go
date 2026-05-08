@@ -25,10 +25,11 @@ func TestNewClientAppliesOptionsAndAutoStarts(t *testing.T) {
 	defer restore()
 
 	client, err := NewClient(ClientOptions{
-		CopilotHome:     `C:\Users\User\.copilot`,
-		UseLoggedInUser: true,
-		AutoStart:       true,
-		Model:           "gpt-5",
+		CopilotHome:      `C:\Users\User\.copilot`,
+		UseLoggedInUser:  true,
+		AutoStart:        true,
+		Model:            "gpt-5.3-codex",
+		WorkingDirectory: `C:\Users\User\code\dreamer`,
 	})
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
@@ -82,7 +83,7 @@ func TestClientSessionRunUsesSendAndWaitAndTimeout(t *testing.T) {
 	})
 	defer restore()
 
-	client, err := NewClient(ClientOptions{Model: "gpt-5"})
+	client, err := NewClient(ClientOptions{Model: "gpt-5.3-codex"})
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -105,10 +106,123 @@ func TestClientSessionRunUsesSendAndWaitAndTimeout(t *testing.T) {
 	if !fakeSession.hadDeadline {
 		t.Fatalf("expected Run context to include deadline when timeout is provided")
 	}
-	if fakeClient.sessionConfig == nil || fakeClient.sessionConfig.Model != "gpt-5" {
-		t.Fatalf("session model = %q, want %q", fakeClient.sessionConfig.Model, "gpt-5")
+	if fakeClient.sessionConfig == nil || fakeClient.sessionConfig.Model != "gpt-5.3-codex" {
+		t.Fatalf("session model = %q, want %q", fakeClient.sessionConfig.Model, "gpt-5.3-codex")
 	}
 	if fakeClient.sessionConfig.OnPermissionRequest == nil {
+		t.Fatalf("OnPermissionRequest should be configured")
+	}
+}
+
+func TestClientNewSessionFallsBackToAutoModelWhenRequestedModelFails(t *testing.T) {
+	fakeClient := &fakeSDKClient{
+		createErrs: []error{
+			errors.New("requested model unavailable"),
+			nil,
+		},
+	}
+
+	restore := setSDKClientFactory(func(options *copilot.ClientOptions) sdkClient {
+		return fakeClient
+	})
+	defer restore()
+
+	client, err := NewClient(ClientOptions{Model: "gpt-5.3-codex"})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	session, err := client.NewSession(context.Background())
+	if err != nil {
+		t.Fatalf("NewSession returned error: %v", err)
+	}
+	if session == nil {
+		t.Fatalf("NewSession returned nil session")
+	}
+
+	if got, want := len(fakeClient.sessionConfigs), 2; got != want {
+		t.Fatalf("CreateSession call count = %d, want %d", got, want)
+	}
+	if got, want := fakeClient.sessionConfigs[0].Model, "gpt-5.3-codex"; got != want {
+		t.Fatalf("first session model = %q, want %q", got, want)
+	}
+	if got, want := fakeClient.sessionConfigs[1].Model, ""; got != want {
+		t.Fatalf("fallback session model = %q, want empty model", got)
+	}
+}
+
+func TestReadOnlyPermissionHandlerApprovesAndRejectsExpectedRequests(t *testing.T) {
+	handler := buildReadOnlyPermissionHandler(`C:\repo`)
+
+	approvedCases := []copilot.PermissionRequest{
+		{Kind: copilot.PermissionRequestKindRead, Path: stringPointer(`C:\repo\README.md`)},
+		{Kind: copilot.PermissionRequestKindURL},
+		{
+			Kind:          copilot.PermissionRequestKindShell,
+			Commands:      []copilot.PermissionRequestShellCommand{{Identifier: "git", ReadOnly: true}},
+			PossiblePaths: []string{`C:\repo`},
+		},
+		{
+			Kind:     copilot.PermissionRequestKindMcp,
+			ReadOnly: copilot.Bool(true),
+		},
+	}
+
+	for _, request := range approvedCases {
+		result, err := handler(request, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatalf("handler returned error for kind %q: %v", request.Kind, err)
+		}
+		if result.Kind != copilot.PermissionRequestResultKindApproved {
+			t.Fatalf("permission result kind = %q, want %q for request kind %q", result.Kind, copilot.PermissionRequestResultKindApproved, request.Kind)
+		}
+	}
+
+	rejectedCases := []copilot.PermissionRequest{
+		{Kind: copilot.PermissionRequestKindWrite},
+		{Kind: copilot.PermissionRequestKindMemory},
+		{
+			Kind: copilot.PermissionRequestKindShell,
+			Commands: []copilot.PermissionRequestShellCommand{
+				{Identifier: "git", ReadOnly: true},
+				{Identifier: "rm", ReadOnly: false},
+			},
+		},
+		{
+			Kind:                    copilot.PermissionRequestKindShell,
+			HasWriteFileRedirection: copilot.Bool(true),
+		},
+		{
+			Kind: copilot.PermissionRequestKindRead,
+			Path: stringPointer(`C:\other\outside.md`),
+		},
+		{
+			Kind:          copilot.PermissionRequestKindShell,
+			Commands:      []copilot.PermissionRequestShellCommand{{Identifier: "grep", ReadOnly: true}},
+			PossiblePaths: []string{`C:\repo`, `C:\outside`},
+		},
+	}
+
+	for _, request := range rejectedCases {
+		result, err := handler(request, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatalf("handler returned error for kind %q: %v", request.Kind, err)
+		}
+		if result.Kind != copilot.PermissionRequestResultKindRejected {
+			t.Fatalf("permission result kind = %q, want %q for request kind %q", result.Kind, copilot.PermissionRequestResultKindRejected, request.Kind)
+		}
+	}
+}
+
+func TestBuildSessionConfigSetsWorkingDirectoryAndPrompt(t *testing.T) {
+	config := buildSessionConfig("gpt-5.3-codex", `C:\repo`)
+	if config.WorkingDirectory != `C:\repo` {
+		t.Fatalf("WorkingDirectory = %q, want %q", config.WorkingDirectory, `C:\repo`)
+	}
+	if config.SystemMessage == nil || !strings.Contains(config.SystemMessage.Content, "Scope boundary") {
+		t.Fatalf("expected scope boundary prompt guidance")
+	}
+	if config.OnPermissionRequest == nil {
 		t.Fatalf("OnPermissionRequest should be configured")
 	}
 }
@@ -148,12 +262,14 @@ func TestClientAndSessionCloseWrapErrors(t *testing.T) {
 }
 
 type fakeSDKClient struct {
-	startCalls    int
-	startErr      error
-	session       sdkSession
-	sessionConfig *copilot.SessionConfig
-	createErr     error
-	stopErr       error
+	startCalls     int
+	startErr       error
+	session        sdkSession
+	sessionConfig  *copilot.SessionConfig
+	sessionConfigs []*copilot.SessionConfig
+	createErrs     []error
+	createErr      error
+	stopErr        error
 }
 
 func (f *fakeSDKClient) Start(ctx context.Context) error {
@@ -162,7 +278,18 @@ func (f *fakeSDKClient) Start(ctx context.Context) error {
 }
 
 func (f *fakeSDKClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (sdkSession, error) {
-	f.sessionConfig = config
+	if config != nil {
+		copied := *config
+		f.sessionConfig = &copied
+		f.sessionConfigs = append(f.sessionConfigs, &copied)
+	} else {
+		f.sessionConfig = nil
+		f.sessionConfigs = append(f.sessionConfigs, nil)
+	}
+	callIndex := len(f.sessionConfigs) - 1
+	if callIndex < len(f.createErrs) && f.createErrs[callIndex] != nil {
+		return nil, f.createErrs[callIndex]
+	}
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -213,4 +340,8 @@ func setSDKClientFactory(factory sdkClientFactory) func() {
 	return func() {
 		newSDKClient = previous
 	}
+}
+
+func stringPointer(value string) *string {
+	return &value
 }

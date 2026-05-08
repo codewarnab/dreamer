@@ -120,7 +120,7 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 		return analyzeResult{}, err
 	}
 
-	client, err := analyzer.NewClient(analyzerClientOptionsFromConfig(cfg))
+	client, err := analyzer.NewClient(analyzerClientOptionsFromConfig(cfg, project.Path))
 	if err != nil {
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
@@ -202,6 +202,9 @@ func buildAnalysisInput(sources []chat.ChatSource) (string, []string, int, error
 			return "", nil, 0, err
 		}
 		if len(messages) == 0 {
+			if source.Tool == chat.SourceTypeAntigravityGemini {
+				continue
+			}
 			return "", nil, 0, fmt.Errorf("chat source %q did not contain readable messages", source.Path)
 		}
 
@@ -240,8 +243,14 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 			return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
 		}
 		return messages, nil
+	case ".pb", ".pbtxt":
+		messages, err := readers.ReadProtobuf(source.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read protobuf chat source %q: %w", source.Path, err)
+		}
+		return messages, nil
 	default:
-		return nil, fmt.Errorf("unsupported chat source file %q (supported: .jsonl)", source.Path)
+		return nil, fmt.Errorf("unsupported chat source file %q (supported: .jsonl, .pb, .pbtxt)", source.Path)
 	}
 }
 
@@ -286,7 +295,7 @@ func mergeRuleOverrides(cfg *config.Config) []analyzer.AnalysisRule {
 	return rules
 }
 
-func analyzerClientOptionsFromConfig(cfg *config.Config) analyzer.ClientOptions {
+func analyzerClientOptionsFromConfig(cfg *config.Config, projectPath string) analyzer.ClientOptions {
 	options := analyzer.ClientOptions{}
 	if cfg == nil {
 		return options
@@ -301,6 +310,7 @@ func analyzerClientOptionsFromConfig(cfg *config.Config) analyzer.ClientOptions 
 	if cfg.Analyzer.AutoStart != nil {
 		options.AutoStart = *cfg.Analyzer.AutoStart
 	}
+	options.WorkingDirectory = strings.TrimSpace(projectPath)
 	return options
 }
 
