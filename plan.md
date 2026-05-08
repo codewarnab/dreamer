@@ -17,6 +17,60 @@ The tool has 4 independent **vertical slices** (each a complete feature-to-outpu
 
 Each slice is a deep module: simple public interface, hidden complexity.
 
+### Copilot SDK Specifications
+
+The **GitHub Copilot Go SDK** (public preview) provides programmatic access to Copilot agent sessions. Key points:
+
+**Installation & Client Lifecycle**
+```bash
+go get github.com/github/copilot-sdk/go
+```
+
+**Client pattern:**
+- `NewClient(ClientOptions)` — Create with config (CLIPath, CopilotHome, UseLoggedInUser, etc.)
+- `Start(ctx)` — Spawn or connect to Copilot CLI
+- `Stop()` — Graceful shutdown; `ForceStop()` for unresponsive CLI
+- `CreateSession(ctx, SessionConfig)` — Create agent session with model, tools, streaming
+- `ResumeSession(sessionId)` — Resume persisted session (state stored in `~/.copilot/session-state/{sessionId}/`)
+- `ListSessions()`, `DeleteSession(sessionId)`, `GetLastSessionID()`
+
+**Session workflow:**
+- Sessions emit events: `AssistantMessageData`, `AssistantMessageDeltaData` (streaming), `SessionIdleData` (completion)
+- Register handlers with `session.On(func(event SessionEvent) {...})`
+- Send prompts with `session.Send(ctx, MessageOptions{Prompt: "..."})`
+- Call `session.Disconnect()` to finalize state
+
+**Key Config Options**
+- `CopilotHome`: Override default `~/.copilot` for session storage
+- `UseLoggedInUser`: Use system keychain authentication (recommended for CLI)
+- `CLIUrl`: Connect to headless Copilot CLI server (e.g., `localhost:4321`) for backend/daemon use
+- `LogLevel`: "error", "warn", "info", "debug"
+- `Streaming`: true → receive incremental `MessageDeltaData` events
+- `OnPermissionRequest`: Handle tool/permission prompts (PermissionHandler.ApproveAll for automated)
+
+**Headless / Backend Mode (for daemon)**
+- Run `copilot --headless --port 4321` as persistent CLI server
+- SDK connects via `CLIUrl: "localhost:4321"` (no per-session CLI spawn overhead)
+- Multiple SDK clients can share single headless CLI
+- Recommended for long-running daemons to avoid resource churn
+
+**Tools / Function Calling**
+- Define tools with `DefineTool(name, desc, handler)` for type-safe params and JSON schema auto-generation
+- Pass tools to `SessionConfig{Tools: []copilot.Tool{...}}`
+- Copilot calls registered tools; await responses in event loop
+- Mark read-only tools to skip permission prompts
+
+**Model & Session Persistence**
+- Currently supports `gpt-4.1` and `gpt-5` (or latest SDK default)
+- Sessions persist in `~/.copilot/session-state/{sessionId}/` when client properly disconnects
+- Can resume interrupted sessions via `ResumeSession(sessionId)`
+
+**Error Handling**
+- Auth failures: `Start()` returns error if keychain unavailable or user not authenticated
+- Network timeouts: Configure via context timeout
+- SDK errors: Check error returns from each call; streaming errors arrive as events
+- Rate limits: No explicit rate-limit headers; SDK may queue requests internally
+
 ### Steps
 
 **Phase 1: Project Foundation & Configuration** *(sequential, enables all others)*
@@ -50,10 +104,13 @@ Each slice is a deep module: simple public interface, hidden complexity.
 
 **Phase 3: Copilot SDK Analysis Engine** *(parallel with Phase 2, depends on config auth)*
 7. Set up Copilot SDK client (`internal/analyzer/client.go`):
-   - Initialize `CopilotClient` with Copilot CLI authentication (auto-detect system keychain)
-   - Create session with `gpt-4.1` model (or equivalent latest)
-   - Implement error handling: fail loud on auth failure, network errors, rate limits
-   - Log initialization state and token usage estimates
+   - Initialize `copilot.Client` with `ClientOptions{UseLoggedInUser: true, CopilotHome: ...}` to use system auth
+   - For daemon: use `ClientOptions{CLIUrl: "localhost:4321"}` to connect to headless CLI server (requires `copilot --headless --port 4321` running separately)
+   - For one-shot CLI: use `ClientOptions{AutoStart: true}` to spawn CLI on demand
+   - Call `client.Start(ctx)` with 30s timeout; fail fast if auth missing or CLI unavailable
+   - Wrap SDK client in custom `AnalysisClient` interface: `CreateSession() (*Session, error)`, `Close() error`
+   - Log init state: auth success, CLI version, session model, feature flags
+   - Implement error handling: auth failures → user-friendly "Configure Copilot CLI first" message; network errors → exponential backoff; parse failures → log + skip finding
 
 8. Build **Table-Driven Analysis Rules** (`internal/analyzer/rules.go`):
    - Define analysis categories: `Bugs`, `Performance`, `Duplication`, `MissingTests`, `Architecture`, `Documentation`, `Lint`, `Security`, `Types`
@@ -61,19 +118,28 @@ Each slice is a deep module: simple public interface, hidden complexity.
    - Example structure:
      ```go
      type AnalysisRule struct {
-         Category    string
-         PromptTemplate string  // "Analyze this chat for {{category}} issues..."
-         Threshold   int        // Min severity (1-10)
-         Enabled     bool       // Configurable per run
+         Category       string                 // "Bugs", "Performance", etc.
+         PromptTemplate string                 // "Analyze this chat for {{category}} issues in {{projectName}}..."
+         Threshold      int                    // Min severity (1-10)
+         Enabled        bool                   // Configurable per run
+         TimeoutSecs    int                    // Per-rule timeout (default 60s)
+         ResponseSchema ResponseFinding struct // Expected Finding fields for parsing
      }
      ```
    - Store rules in config YAML for user customization
+   - Define canonical `ResponseFinding` struct for JSON unmarshaling Copilot responses: `Description`, `Severity`, `RootCause`, `RelatedCode`, `PreventionPattern`
 
 9. Implement analysis orchestrator (`internal/analyzer/orchestrator.go`):
-   - Take `[]ChatMessage` + project codebase context
-   - For each enabled rule, send Copilot SDK prompt: "Extract {{Category}} issues from this chat about my project {{ProjectName}}. Ignore issues outside the codebase."
-   - Stream responses, parse findings into `[]Finding` struct
-   - Extract: issue description, related code/files, severity, root cause pattern
+   - Create `AnalysisClient.CreateSession()` with `Streaming: true` for incremental responses
+   - Register event handler: accumulate `AssistantMessageData` + `AssistantMessageDeltaData` into finding buffer
+   - For each enabled rule:
+     1. Format prompt: `"Analyze this chat for {{Category}} issues in project {{ProjectName}}. Extract findings as JSON array of {Description, Severity, RootCause, RelatedCode, PreventionPattern}. Ignore out-of-scope issues."`
+     2. Send via `session.Send(ctx, MessageOptions{Prompt: ...})` with rule timeout (default 60s context)
+     3. Wait for `SessionIdleData` event (completion marker)
+     4. Parse accumulated response as `[]ResponseFinding` JSON; map to `[]Finding` struct with rule metadata
+     5. Skip rule on parse error (log warning, continue to next rule)
+   - Call `session.Disconnect()` after all rules complete
+   - Return deduplicated `[]Finding` across all rules
    - *Depends on*: Phase 3 client setup + Phase 2 chat readers
 
 **Phase 4: Todo Generation & Output** *(depends on Phase 3 analysis)*
@@ -97,14 +163,26 @@ Each slice is a deep module: simple public interface, hidden complexity.
     - `dreamer ls-chats --path /path` — discover available chat sources (debug command)
 
 13. Add signal handling for daemon:
-    - Graceful shutdown on `SIGTERM` (finish current project, save state)
-    - Log rotation to `~/.dreamer/logs/`
+    - Graceful shutdown on `SIGTERM`: finish current session (call `session.Disconnect()`), save state.json, exit
+    - On shutdown, record incomplete projects in state.json as resumable (store session IDs from `client.ListSessions()`)
+    - Log rotation to `~/.dreamer/logs/` with max 100MB per file, keep 7 days
+    - Daemon setup: document running headless CLI as separate service: `copilot --headless --port 4321 --log-file ~/.dreamer/logs/cli.log`
 
 14. Implement main loop (`cmd/daemon.go`):
-    - Load config → iterate projects
-    - For each: run Phase 2-4 pipeline (discovery → analysis → todo generation)
-    - Sleep between runs
-    - Exponential backoff on Copilot SDK errors (rate limit, auth timeout)
+    - Initialize `AnalysisClient` with `CLIUrl: "localhost:4321"` to connect to persistent headless Copilot CLI
+    - Load config → iterate projects in config order
+    - For each project:
+      1. Load state.json; check for incomplete/resumable sessions from prior crash
+      2. If resumable: call `client.ResumeSession(sessionId)` to continue analysis
+      3. Else: run fresh Phase 2-4 pipeline (discovery → analysis → todo generation)
+      4. On completion: update state.json with analyzed chat IDs + timestamp
+    - Between projects: sleep configurable interval (default 1h)
+    - On Copilot API errors:
+      - Rate limit (429): exponential backoff 5s → 30s → 5m
+      - Auth timeout: log + skip to next project (will retry next daemon cycle)
+      - Timeout on analysis (60s rule timeout): mark finding as incomplete, log error, continue to next rule
+    - On unrecoverable error (e.g., CLI crash): log alert, attempt reconnect with backoff
+    - Exit codes: 0 = success, 1 = fatal error (CLI not running, config missing), 2 = partial (some projects analyzed, some failed)
 
 ### Relevant Files
 
@@ -138,13 +216,13 @@ Each slice is a deep module: simple public interface, hidden complexity.
 
 **Key Interfaces** (define these first—they drive all modules):
 
-- `config/loader.go`: `LoadConfig(path string) (*Config, error)` — Load ~/.dreamer/config.yaml
-- `state/tracker.go`: `LoadState(projectName string) *State` + `SaveState(projectName string, state *State) error`
-- `chat/discovery.go`: `DiscoverChats(projectPath string) []ChatSource` — Return list of available chats with metadata
-- `chat/readers/jsonl.go`: `ReadJSONL(filePath string) ([]ChatMessage, error)` — Stream JSONL into messages
-- `analyzer/client.go`: `NewCopilotClient(useLoggedInUser bool) *CopilotClient` + `SendPrompt(prompt string, context string) (string, error)`
-- `analyzer/orchestrator.go`: `AnalyzeChats(chats []ChatMessage, rules []AnalysisRule) []Finding`
-- `output/generator.go`: `GenerateTodos(findings []Finding, projectName string, outputDir string) error`
+- `config/loader.go`: `LoadConfig(path string) (*Config, error)` — Load ~/.dreamer/config.yaml; validate projects + rules
+- `state/tracker.go`: `LoadState(projectName string) *State` + `SaveState(projectName string, state *State) error` — Track analyzed chat IDs, last-run timestamp, Copilot token usage
+- `chat/discovery.go`: `DiscoverChats(projectPath string) []ChatSource` — Return list of available chats with metadata (path, tool, mtime)
+- `chat/readers/jsonl.go`: `ReadJSONL(filePath string) ([]ChatMessage, error)` — Stream JSONL line-by-line; reconstruct threads; return messages with timestamps + tool metadata
+- `analyzer/client.go`: `NewAnalysisClient(opts ClientOptions) *AnalysisClient` + `CreateSession(ctx) (*Session, error)` + `Close() error` — Wraps copilot.Client; hides lifecycle complexity
+- `analyzer/orchestrator.go`: `AnalyzeChats(ctx, session *Session, chats []ChatMessage, rules []AnalysisRule) ([]Finding, error)` — Send templated prompts; parse JSON responses; deduplicate findings
+- `output/generator.go`: `GenerateTodos(findings []Finding, projectName string, outputDir string, dedupExisting bool) error` — Append unique findings to todos.md; update state.json
 
 ### Verification
 
@@ -178,15 +256,65 @@ Each slice is a deep module: simple public interface, hidden complexity.
 
 ### Further Considerations
 
+**Phase 0 (Pre-flight Check) — Add before Phase 1**
+- Verify Copilot CLI installed: run `copilot --version` or check PATH
+- If daemon mode: verify headless CLI reachable at configured CLIUrl (e.g., `localhost:4321`); suggest `copilot --headless --port 4321` if not
+- If one-shot mode: verify user authenticated: call `client.Start(ctx)` with 10s timeout; fail with "Run `copilot auth login` first" if auth missing
+- Check ~/.dreamer writable; create if missing with mode 0700
+- Validate all project paths in config exist; warn on missing paths
+- Exit with clear error messages; never silently skip projects
+
+**Session Management & Resumption**
+- Each analysis should create one long-lived session per project (not per rule)
+- Session persists in `~/.copilot/session-state/{sessionId}/` on proper disconnect
+- On daemon crash: next cycle detects incomplete session via state.json, calls `ResumeSession(sessionId)` to continue
+- Protects against re-analyzing already-processed chats in same run
+- Limit session lifetime: mark stale if > 24h old; force new session
+
+**Concurrent Daemon Instances**
+- PID file at `~/.dreamer/daemon.pid` with locking (use flock on Unix, os.Rename on Windows)
+- Second instance startup: check PID, if stale (process dead), acquire lock; else exit with "daemon already running"
+- Prevents duplicate analyses + concurrent todos.md writes
+
+**Chat Reader Edge Cases**
+- **File locks (Windows):** On "permission denied" reading active chat, retry 3x with 100ms backoff
+- **Corrupted JSONL:** Skip malformed lines (log count at end); never fail entire file
+- **Large chats (>500MB):** Warn, but stream to avoid OOM; split into chunks if needed
+- **Deleted chat files:** Discovered in Phase 2, but deleted by Phase 3 = skip + log warning
+- **Circular parentId chains:** Detect in thread reconstruction; truncate at cycle, log warning
+- **Empty/system-only chats:** Filter out: require at least 1 user message + 1 assistant message
+
+**Deduplication Spec**
+- Normalized comparison: trim whitespace, lowercase category, but preserve description case
+- Hash function: `sha256(normalized_category + normalized_description[:100])`
+- Check if hash exists in todos.md or state.json finding cache
+- If duplicate: increment count in existing todo instead of adding new line
+
+**Sensitive Data Handling**
+- Optional redaction filter in config: regex patterns for API keys, secrets, password strings
+- On match: replace with `[REDACTED]` in todo description (log redaction count)
+- Redacted finding still appears; just sanitized
+
+**Copilot SDK Error Resilience**
+- Auth failure on `client.Start()`: error msg suggests `copilot auth login`; daemon pauses with 5m backoff
+- Network timeout on `session.Send()`: log timeout, retry rule up to 2x with exponential backoff
+- Rate limit (429): record retry-after header, sleep accordingly, continue
+- Streaming parse error: log context (first 200 chars of unparsed response), skip finding, continue
+- SDK version mismatch: log warning, attempt to continue; if SDK panic, catch via recovery + exit
+
 1. **Gemini CLI Activation** — Currently unverified (not installed). Once you activate Gemini CLI, add discovery + JSONL reader. *Recommendation:* Add as Phase 6 post-launch.
 
 2. **Antigravity Protobuf** — Requires `.proto` schema. *Recommendation:* Research Google's public schema; if unavailable, implement as optional Phase 6.
 
 3. **Extensibility for Future Chat Tools** — Current design supports adding new chat readers as new `internal/chat/readers/*.go` files. *Recommendation:* Document the `ChatReader` interface to make adding tools straightforward.
 
-4. **Rate Limiting & Copilot Quota** — SDK has rate limits. *Recommendation:* Add telemetry logging + exponential backoff; document estimated cost per 100-project scan.
+4. **Rate Limiting & Copilot Quota** — SDK may have implicit rate limits. *Recommendation:* Track token usage in state.json, warn if >80% quota consumed per analysis run.
 
 5. **Test Data** — Should I create sample JSONL files to test against? *Recommendation:* Once Phase 2 is drafted, generate fixtures from real Copilot CLI exports.
+
+6. **Headless CLI as Systemd Service** — For production daemon, run `copilot --headless` as separate systemd service with auto-restart. *Recommendation:* Document service file template in README.
+
+7. **Streaming vs. Buffered Responses** — SDK supports streaming (`Streaming: true`); incremental tokens arrive as `AssistantMessageDeltaData`. *Current plan:* Buffer full response before parsing for simplicity; optimize to streaming parse in Phase 6 if response times are slow.
 
 ---
 

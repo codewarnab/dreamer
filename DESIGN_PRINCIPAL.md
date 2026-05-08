@@ -1,8 +1,8 @@
-# High Code Quality and Design Principles
+# Dreamer: Design Principles for Chat Analysis CLI
 
-This document outlines the core principles and design patterns used in this repository to maintain high code quality, reduce cognitive load, and ensure long-term maintainability.
+This document outlines the core principles and design patterns used in **dreamer**, a Go CLI tool that reads Copilot chat histories and generates actionable project todos via the Copilot SDK. Our goal is to maintain high code quality while keeping the codebase understandable and easy to extend with new analysis rules, readers, or output formats.
 
-**Related reading**: For cognitive load management principles grounded in working memory research (the 7±2 rule, cyclomatic complexity limits, and code-that-fits-in-your-head heuristics), see [`COGNITIVE_LOAD_PRINCIPLES.md`](./COGNITIVE_LOAD_PRINCIPLES.md).
+**Related reading**: For cognitive load management principles grounded in working memory research (the 7±2 rule, cyclomatic complexity limits, and code-that-fits-in-your-head heuristics), see [`COGNITIVE_LOAD.md`](./COGNITIVE_LOAD.md).
 
 ## 1. Commenting and Documentation Rules
 
@@ -19,8 +19,13 @@ This document outlines the core principles and design patterns used in this repo
 
 > "You do not reduce complexity purely by rewriting confusing code. You reduce it by either making code less confusing or making it less frequently touched—ideally both. The second lever is what deep modules provide."
 
-- **Deep Modules:** Aim for modules that provide powerful, broad functionality behind a simple, narrow interface. A deep module hides its implementation complexity from the caller.
-- **Information Hiding:** Expose only what is strictly necessary. The less a caller needs to know about the internal workings of a module, the better. This reduces the blast radius of changes.
+- **Deep Modules:** Each of dreamer's four vertical slices (Chat Discovery, Reader Layer, Analysis Engine, Todo Generator) should hide internal complexity behind a simple interface.
+  - **Chat Discovery**: Simple `DiscoverChats(projectPath) → []ChatSource`. Internally: scan JSONL, SQLite, protobuf; deduplicate; sort.
+  - **Reader Layer**: Simple `ReadChat(source) → []ChatMessage`. Internally: handle format-specific parsing, timestamp reconstruction, thread building.
+  - **Analysis Engine**: Simple `Analyze(messages, rules) → []Finding`. Internally: Copilot SDK auth, prompt templating, response parsing.
+  - **Todo Generator**: Simple `GenerateTodos(findings, projectName) → markdown`. Internally: deduplication, category grouping, state tracking.
+- **Information Hiding:** Each module exposes only its primary contract. A caller should never need to understand how JSONL parsing works to use the Reader; they just call `ReadChat()`.
+- **Vertical Slice Boundaries:** Chat, Analyzer, Output are separate packages (`internal/chat/`, `internal/analyzer/`, `internal/output/`). Changes to JSONL format don't cascade into analysis logic.
 
 ## 3. Tactical vs. Strategic Mode
 
@@ -86,12 +91,12 @@ Use a **State Machine Pattern** when an entity has well-defined, mutually exclus
 Use **Table-Driven Design** (or rule engines) when you have repetitive conditional logic that maps specific inputs or conditions to specific actions, outputs, or strategies.
 
 - **Signs:** You have massive `switch` statements or long chains of `if/elif` that map keys/conditions to values/functions.
-- **Example:** Mapping error codes to specific user-friendly messages, or routing events based on message types where the logic is simple but the variations are numerous.
+- **Example in dreamer:** The analysis engine has many rule categories (Bugs, Performance, Duplication, MissingTests, Architecture, etc.). Instead of a massive `switch Category` block, we define an `AnalysisRule` struct with a prompt template, severity threshold, and enabled flag. Rules are loaded from config YAML. New analysis types are added by editing config, not touching the orchestrator code.
 
 ### When to use a Declarative Registry Pattern
 Use a **Declarative Registry** (or Plugin/Strategy Registry) when you need a highly extensible system where new behaviors or handlers can be added without modifying the core execution logic.
 - **Signs:** You need to support a growing number of integrations, providers, or distinct strategies, and you want to decouple the definition of these components from where they are invoked.
-- **Example:** Registering different LLM providers (OpenAI, Anthropic) or command handlers in a CLI framework.
+- **Example in dreamer:** The Chat Reader layer uses a registry of format-specific readers (JSONL, SQLite, Protobuf). When adding support for a new chat storage format, register a new `Reader` implementation; the discovery and orchestration logic doesn't change. Similarly, analysis rules are registered and enabled/disabled via config.
 
 ## 10. Avoid Cargo-Cult Protection Programming
 
@@ -99,8 +104,9 @@ Use a **Declarative Registry** (or Plugin/Strategy Registry) when you need a hig
 
 Good protection programming is intentional: it identifies likely failure modes, sets clear boundaries, and fails loudly where appropriate.
 
-**How to avoid this practice:**
-* **Push Validation to the Boundaries:** Validate data at the edge of your system (e.g., API, CLI) using strict typing or schemas. Trust those types in your core logic instead of repeating `is not None` checks everywhere.
-* **Tie Protection to Specific Invariants:** Don't add a check unless you can state the specific rule it enforces.
-* **Never Catch Generic Exceptions Silently:** Avoid `except Exception: pass`. Catch only specific, expected exceptions. Let unexpected ones crash early.
-* **Document the "Why":** When adding a retry or error handler, explicitly comment on the specific failure mode you are expecting and mitigating.
+**How to avoid this practice in dreamer:**
+* **Push Validation to the Boundaries:** Validate project paths, chat sources, and config at the CLI boundary (`main.go`, config validation). Once validated, trust that types in core modules are sound.
+* **Fail Fast on Copilot SDK Errors:** If Copilot SDK auth fails, crash immediately with a clear error message. Do not silently fall back to a stub analyzer; that hides infrastructure problems until production.
+* **Tie Protection to Specific Invariants:** Retry logic for rate-limiting the Copilot SDK is justified and explicit. But don't retry all network errors; distinguish between transient (retry) and permanent (fail fast) failures.
+* **Never Catch Generic Errors Silently:** Avoid `_ = err` or generic `recover()`. Either handle the specific error case or let it propagate with context (wrap with `fmt.Errorf()`).
+* **Document the "Why":** When adding retry, deduplication, or caching logic, explicitly comment on the specific failure mode (e.g., "Retry on rate limit; concurrent chats may produce duplicate findings").
