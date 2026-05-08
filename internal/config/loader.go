@@ -23,8 +23,9 @@ type Config struct {
 }
 
 type ProjectConfig struct {
-	Name string `json:"name" yaml:"name"`
-	Path string `json:"path" yaml:"path"`
+	Name  string `json:"name" yaml:"name"`
+	Path  string `json:"path" yaml:"path"`
+	Since string `json:"since,omitempty" yaml:"since,omitempty"`
 }
 
 type AnalyzerConfig struct {

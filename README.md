@@ -44,6 +44,21 @@ dreamer daemon [--config <path>]
 
 - Uses `daemon.frequency_seconds` from config.
 - Runs one cycle immediately, then repeats on that interval.
+- Logs transient project failures and keeps running for the next interval.
+
+### `dreamer startup`
+
+Manage a per-user Windows Task Scheduler task that starts the daemon at logon:
+
+```bash
+dreamer startup install [--config <path>]
+dreamer startup status
+dreamer startup uninstall
+```
+
+- Default config path: `~/.dreamer/config.yaml`.
+- The task runs `dreamer daemon --config <path>`.
+- Install from a built `dreamer.exe`, not `go run`, so the scheduled task points to a stable executable.
 
 ### Analyzer settings
 

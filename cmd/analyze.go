@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
@@ -12,6 +13,7 @@ import (
 func newAnalyzeCommand() *cobra.Command {
 	var configPath string
 	var projectName string
+	var since string
 
 	command := &cobra.Command{
 		Use:   "analyze",
@@ -34,6 +36,9 @@ func newAnalyzeCommand() *cobra.Command {
 				_ = logger.Close()
 			}()
 			logger.Info("analyze command started config=%q project=%q", resolvedConfigPath, projectName)
+			if cmd.Flags().Changed("since") && strings.TrimSpace(since) == "" {
+				return fmt.Errorf("--since must not be empty")
+			}
 
 			project, err := selectProject(cfg, projectName)
 			if err != nil {
@@ -41,7 +46,9 @@ func newAnalyzeCommand() *cobra.Command {
 				return err
 			}
 
-			runResult, err := analyzeProject(commandContext(cmd), cfg, *project, logger)
+			runResult, err := analyzeProject(commandContext(cmd), cfg, *project, logger, analyzeOptions{
+				Since: since,
+			})
 			if err != nil {
 				logger.Error("analyze command failed project=%q error=%v", project.Name, err)
 				return err
@@ -63,6 +70,7 @@ func newAnalyzeCommand() *cobra.Command {
 
 	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: ~/.dreamer/config.yaml)")
 	command.Flags().StringVar(&projectName, "project", "", "Project name from config")
+	command.Flags().StringVar(&since, "since", "", "Only analyze chat sources modified within this lookback window, such as 30m, 1h, 1d, 1w, or 1mo")
 	_ = command.MarkFlagRequired("project")
 
 	return command

@@ -54,7 +54,7 @@ func newDaemonCommand() *cobra.Command {
 			logger.Info("daemon started config=%q frequency=%s projects=%d", resolvedConfigPath, frequency, len(cfg.Projects))
 			if err := runDaemonCycle(ctx, cfg, cmd, logger); err != nil {
 				logger.Error("daemon cycle failed error=%v", err)
-				return err
+				cmd.Printf("daemon cycle failed: %v\n", err)
 			}
 
 			ticker := time.NewTicker(frequency)
@@ -69,7 +69,7 @@ func newDaemonCommand() *cobra.Command {
 				case <-ticker.C:
 					if err := runDaemonCycle(ctx, cfg, cmd, logger); err != nil {
 						logger.Error("daemon cycle failed error=%v", err)
-						return err
+						cmd.Printf("daemon cycle failed: %v\n", err)
 					}
 				}
 			}
@@ -83,6 +83,7 @@ func newDaemonCommand() *cobra.Command {
 
 func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger) error {
 	logger.Info("daemon cycle started projects=%d", len(cfg.Projects))
+	var cycleErrors []error
 	for _, project := range cfg.Projects {
 		select {
 		case <-ctx.Done():
@@ -91,15 +92,16 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 		default:
 		}
 
-		runResult, err := analyzeProject(ctx, cfg, project, logger)
+		runResult, err := analyzeProject(ctx, cfg, project, logger, analyzeOptions{})
 		if err != nil {
-			if errors.Is(err, errNoNewChatSources) || errors.Is(err, errNoChatSources) {
+			if errors.Is(err, errNoNewChatSources) || errors.Is(err, errNoChatSources) || errors.Is(err, errNoLookbackChatSources) {
 				cmd.Printf("daemon cycle skipped for %q: %v\n", project.Name, err)
 				logger.Warn("daemon cycle skipped project=%q reason=%v", project.Name, err)
 				continue
 			}
 			logger.Error("daemon project failed project=%q error=%v", project.Name, err)
-			return fmt.Errorf("analyze project %q: %w", project.Name, err)
+			cycleErrors = append(cycleErrors, fmt.Errorf("analyze project %q: %w", project.Name, err))
+			continue
 		}
 		cmd.Printf(
 			"daemon cycle complete for %q: sources=%d messages=%d findings=%d todos_added=%d\n",
@@ -113,5 +115,5 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 	}
 
 	logger.Info("daemon cycle complete")
-	return nil
+	return errors.Join(cycleErrors...)
 }

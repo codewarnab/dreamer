@@ -24,8 +24,9 @@ const (
 )
 
 var (
-	errNoChatSources    = errors.New("no chat sources discovered")
-	errNoNewChatSources = errors.New("no new or changed chat sources to analyze")
+	errNoChatSources         = errors.New("no chat sources discovered")
+	errNoLookbackChatSources = errors.New("no chat sources within lookback window")
+	errNoNewChatSources      = errors.New("no new or changed chat sources to analyze")
 )
 
 type analyzeResult struct {
@@ -34,6 +35,11 @@ type analyzeResult struct {
 	MessagesRead    int
 	FindingsFound   int
 	TodosAdded      int
+}
+
+type analyzeOptions struct {
+	Since string
+	Now   time.Time
 }
 
 type claudeProcessingDiagnostics struct {
@@ -107,7 +113,7 @@ func selectProject(cfg *config.Config, projectName string) (*config.ProjectConfi
 	return nil, fmt.Errorf("project %q not found in config", name)
 }
 
-func analyzeProject(ctx context.Context, cfg *config.Config, project config.ProjectConfig, logger *logging.Logger) (analyzeResult, error) {
+func analyzeProject(ctx context.Context, cfg *config.Config, project config.ProjectConfig, logger *logging.Logger, options analyzeOptions) (analyzeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -131,19 +137,30 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 		return analyzeResult{}, fmt.Errorf("%w for project %q", errNoChatSources, project.Name)
 	}
 
+	sinceValue := resolveLookbackValue(project, options)
+	lookback, lookbackEnabled, err := parseLookbackWindow(sinceValue)
+	if err != nil {
+		return analyzeResult{}, fmt.Errorf("parse lookback window for project %q: %w", project.Name, err)
+	}
+	if options.Now.IsZero() {
+		options.Now = time.Now().UTC()
+	}
+
+	sources = filterSourcesByLookback(sources, options.Now, lookback, lookbackEnabled)
+	if lookbackEnabled {
+		logger.Info("lookback filtering complete project=%q since=%q selected=%d", project.Name, sinceValue, len(sources))
+	}
+	if len(sources) == 0 {
+		logger.Warn("no chat sources within lookback window project=%q since=%q", project.Name, sinceValue)
+		return analyzeResult{}, fmt.Errorf("%w %q for project %q", errNoLookbackChatSources, sinceValue, project.Name)
+	}
+
 	sourcesToAnalyze := filterSourcesToAnalyze(sources, currentState)
 	logger.Info("source filtering complete project=%q selected=%d total=%d", project.Name, len(sourcesToAnalyze), len(sources))
 	if len(sourcesToAnalyze) == 0 {
 		logger.Warn("no new or changed chat sources project=%q", project.Name)
 		return analyzeResult{}, fmt.Errorf("%w for project %q", errNoNewChatSources, project.Name)
 	}
-
-	analysisInput, analyzedSourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics(sourcesToAnalyze)
-	if err != nil {
-		logger.Error("build analysis input failed project=%q error=%v", project.Name, err)
-		return analyzeResult{}, err
-	}
-	logger.Info("analysis input built project=%q sources=%d messages=%d", project.Name, len(analyzedSourceIDs), messageCount)
 
 	client, err := analyzer.NewClient(analyzerClientOptionsFromConfig(cfg, project.Path))
 	if err != nil {
@@ -164,44 +181,78 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 	}()
 
 	orchestrator := analyzer.NewOrchestrator(mergeRuleOverrides(cfg))
+	result := analyzeResult{}
+	var lastErr error
+	for _, source := range sourcesToAnalyze {
+		sourceResult, err := analyzeSource(ctx, cfg, project.Name, source, logger, currentState, orchestrator, session)
+		if err != nil {
+			logger.Error("chat source analysis failed project=%q source=%q error=%v", project.Name, source.Path, err)
+			lastErr = err
+			continue
+		}
+
+		result.TodosPath = sourceResult.TodosPath
+		result.SourcesAnalyzed += sourceResult.SourcesAnalyzed
+		result.MessagesRead += sourceResult.MessagesRead
+		result.FindingsFound += sourceResult.FindingsFound
+		result.TodosAdded += sourceResult.TodosAdded
+	}
+	if result.SourcesAnalyzed == 0 {
+		return analyzeResult{}, fmt.Errorf("analyze chat sources for project %q: %w", project.Name, lastErr)
+	}
+	logger.Info("analysis complete project=%q sources=%d messages=%d findings=%d todos_added=%d", project.Name, result.SourcesAnalyzed, result.MessagesRead, result.FindingsFound, result.TodosAdded)
+
+	return result, nil
+}
+
+func analyzeSource(ctx context.Context, cfg *config.Config, projectName string, source chat.ChatSource, logger *logging.Logger, currentState *state.State, orchestrator *analyzer.Orchestrator, session analyzer.Session) (analyzeResult, error) {
+	analysisInput, analyzedSourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{source})
+	if err != nil {
+		return analyzeResult{}, fmt.Errorf("build analysis input for source %q: %w", source.Path, err)
+	}
+	logger.Info("analysis input built project=%q source=%q messages=%d", projectName, source.Path, messageCount)
+
 	response, err := orchestrator.Analyze(ctx, session, analysisInput)
 	if err != nil {
-		logger.Error("analyzer request failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
-	logger.Info("analyzer response received project=%q findings=%d", project.Name, len(response.Findings))
+	logger.Info("analyzer response received project=%q source=%q findings=%d", projectName, source.Path, len(response.Findings))
 
-	generateResult, err := output.GenerateTodos(project.Name, response.Findings, output.GenerateOptions{
+	generateResult, err := output.GenerateTodos(projectName, response.Findings, output.GenerateOptions{
 		OutputRoot: cfg.Daemon.OutputRoot,
 	})
 	if err != nil {
-		logger.Error("generate todos failed project=%q error=%v", project.Name, err)
-		return analyzeResult{}, fmt.Errorf("generate todos for project %q: %w", project.Name, err)
+		return analyzeResult{}, fmt.Errorf("generate todos for project %q source %q: %w", projectName, source.Path, err)
 	}
-	logger.Info("todos generated project=%q added=%d path=%q", project.Name, generateResult.AddedFindings, generateResult.Path)
+	logger.Info("todos generated project=%q source=%q added=%d path=%q", projectName, source.Path, generateResult.AddedFindings, generateResult.Path)
 
 	currentState.LastRun = time.Now().UTC()
 	currentState.AnalyzedChatIDs = mergeAnalyzedIDs(currentState.AnalyzedChatIDs, analyzedSourceIDs)
 	currentState.UsageStats["analyze_runs"]++
-	currentState.UsageStats["sources_analyzed"] += int64(len(sourcesToAnalyze))
+	currentState.UsageStats["sources_analyzed"] += int64(len(analyzedSourceIDs))
 	currentState.UsageStats["messages_analyzed"] += int64(messageCount)
 	currentState.UsageStats["findings_found"] += int64(len(response.Findings))
 	currentState.UsageStats["todos_added"] += int64(generateResult.AddedFindings)
 	applyClaudeProcessingDiagnostics(currentState.UsageStats, diagnostics)
 
-	if err := state.SaveState(project.Name, currentState); err != nil {
-		logger.Error("save state failed project=%q error=%v", project.Name, err)
-		return analyzeResult{}, fmt.Errorf("save state for project %q: %w", project.Name, err)
+	if err := state.SaveState(projectName, currentState); err != nil {
+		return analyzeResult{}, fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
-	logger.Info("analysis complete project=%q sources=%d messages=%d findings=%d todos_added=%d", project.Name, len(sourcesToAnalyze), messageCount, len(response.Findings), generateResult.AddedFindings)
 
 	return analyzeResult{
 		TodosPath:       generateResult.Path,
-		SourcesAnalyzed: len(sourcesToAnalyze),
+		SourcesAnalyzed: len(analyzedSourceIDs),
 		MessagesRead:    messageCount,
 		FindingsFound:   len(response.Findings),
 		TodosAdded:      generateResult.AddedFindings,
 	}, nil
+}
+
+func resolveLookbackValue(project config.ProjectConfig, options analyzeOptions) string {
+	if strings.TrimSpace(options.Since) != "" {
+		return options.Since
+	}
+	return project.Since
 }
 
 func filterSourcesToAnalyze(sources []chat.ChatSource, currentState *state.State) []chat.ChatSource {

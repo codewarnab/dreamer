@@ -18,6 +18,7 @@ func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
 		"daemon":   false,
 		"config":   false,
 		"ls-chats": false,
+		"startup":  false,
 	}
 
 	for _, subcommand := range command.Commands() {

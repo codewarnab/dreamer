@@ -46,6 +46,43 @@ func TestFilterSourcesToAnalyzeReturnsNewAndUpdatedSources(t *testing.T) {
 	}
 }
 
+func TestLookbackAndStateFilteringApplyTogether(t *testing.T) {
+	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
+	lastRun := now.Add(-2 * time.Hour)
+	sources := []chat.ChatSource{
+		{
+			Path:         "old-never-analyzed.jsonl",
+			ModifiedTime: now.Add(-25 * time.Hour),
+		},
+		{
+			Path:         "recent-unchanged.jsonl",
+			ModifiedTime: lastRun.Add(-time.Minute),
+		},
+		{
+			Path:         "recent-changed.jsonl",
+			ModifiedTime: now.Add(-time.Minute),
+		},
+		{
+			Path:         "recent-new.jsonl",
+			ModifiedTime: now.Add(-30 * time.Minute),
+		},
+	}
+
+	withinLookback := filterSourcesByLookback(sources, now, 24*time.Hour, true)
+	filtered := filterSourcesToAnalyze(withinLookback, &state.State{
+		LastRun: lastRun,
+		AnalyzedChatIDs: []string{
+			"recent-unchanged.jsonl",
+			"recent-changed.jsonl",
+		},
+	})
+
+	assertStringSliceEqual(t, sourcePaths(filtered), []string{
+		"recent-changed.jsonl",
+		"recent-new.jsonl",
+	})
+}
+
 func TestMergeAnalyzedIDsDeduplicatesAndPreservesOrder(t *testing.T) {
 	merged := mergeAnalyzedIDs(
 		[]string{"chat-a", "chat-b", "chat-a"},

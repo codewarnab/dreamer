@@ -20,6 +20,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newDaemonCommand())
 	root.AddCommand(newConfigCommand())
 	root.AddCommand(newListChatsCommand())
+	root.AddCommand(newStartupCommand())
 
 	return root
 }
