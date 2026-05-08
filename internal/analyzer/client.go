@@ -1,0 +1,234 @@
+package analyzer
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	copilot "github.com/github/copilot-sdk/go"
+)
+
+type ClientOptions struct {
+	CopilotHome     string
+	UseLoggedInUser bool
+	CLIURL          string
+	AutoStart       bool
+	Model           string
+}
+
+type Session interface {
+	Run(ctx context.Context, prompt string, timeout time.Duration) (string, error)
+	Close() error
+}
+
+type Client interface {
+	Start(ctx context.Context) error
+	NewSession(ctx context.Context) (Session, error)
+	Close() error
+}
+
+type sdkClient interface {
+	Start(ctx context.Context) error
+	CreateSession(ctx context.Context, config *copilot.SessionConfig) (sdkSession, error)
+	Stop() error
+}
+
+type sdkSession interface {
+	SendAndWait(ctx context.Context, options copilot.MessageOptions) (*copilot.SessionEvent, error)
+	Disconnect() error
+}
+
+type sdkClientFactory func(options *copilot.ClientOptions) sdkClient
+
+var newSDKClient sdkClientFactory = func(options *copilot.ClientOptions) sdkClient {
+	return &sdkClientAdapter{client: copilot.NewClient(options)}
+}
+
+func NewClient(options ClientOptions) (Client, error) {
+	sdkOptions, err := buildSDKClientOptions(options)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &copilotClient{
+		options: options,
+		client:  newSDKClient(sdkOptions),
+	}
+
+	if options.AutoStart {
+		if err := client.Start(context.Background()); err != nil {
+			return nil, err
+		}
+	}
+	return client, nil
+}
+
+type copilotClient struct {
+	options ClientOptions
+	client  sdkClient
+}
+
+func (c *copilotClient) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := c.client.Start(ctx); err != nil {
+		return fmt.Errorf("start analyzer client: unable to start Copilot SDK client; ensure Copilot CLI is installed and authenticated (run `copilot auth login`): %w", err)
+	}
+	return nil
+}
+
+func (c *copilotClient) NewSession(ctx context.Context) (Session, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := c.Start(ctx); err != nil {
+		return nil, err
+	}
+
+	sessionConfig := &copilot.SessionConfig{
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+		Model:               strings.TrimSpace(c.options.Model),
+	}
+
+	session, err := c.client.CreateSession(ctx, sessionConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create analyzer session: unable to create Copilot session; check auth and model availability: %w", err)
+	}
+
+	return &copilotSession{session: session}, nil
+}
+
+func (c *copilotClient) Close() error {
+	if err := c.client.Stop(); err != nil {
+		return fmt.Errorf("close analyzer client: unable to stop Copilot SDK client cleanly: %w", err)
+	}
+	return nil
+}
+
+type copilotSession struct {
+	session sdkSession
+}
+
+func (s *copilotSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	event, err := s.session.SendAndWait(ctx, copilot.MessageOptions{
+		Prompt: prompt,
+	})
+	if err != nil {
+		return "", fmt.Errorf("run analyzer prompt: Copilot request failed; verify authentication and connectivity: %w", err)
+	}
+	if event == nil || event.Data == nil {
+		return "", fmt.Errorf("run analyzer prompt: Copilot session completed without assistant output")
+	}
+
+	message, ok := event.Data.(*copilot.AssistantMessageData)
+	if !ok {
+		return "", fmt.Errorf("run analyzer prompt: unexpected response type %T", event.Data)
+	}
+
+	return message.Content, nil
+}
+
+func (s *copilotSession) Close() error {
+	if err := s.session.Disconnect(); err != nil {
+		return fmt.Errorf("close analyzer session: unable to disconnect Copilot session cleanly: %w", err)
+	}
+	return nil
+}
+
+type sdkClientAdapter struct {
+	client *copilot.Client
+}
+
+func (c *sdkClientAdapter) Start(ctx context.Context) error {
+	return c.client.Start(ctx)
+}
+
+func (c *sdkClientAdapter) CreateSession(ctx context.Context, config *copilot.SessionConfig) (sdkSession, error) {
+	session, err := c.client.CreateSession(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	return &sdkSessionAdapter{session: session}, nil
+}
+
+func (c *sdkClientAdapter) Stop() error {
+	return c.client.Stop()
+}
+
+type sdkSessionAdapter struct {
+	session *copilot.Session
+}
+
+func (s *sdkSessionAdapter) SendAndWait(ctx context.Context, options copilot.MessageOptions) (*copilot.SessionEvent, error) {
+	return s.session.SendAndWait(ctx, options)
+}
+
+func (s *sdkSessionAdapter) Disconnect() error {
+	return s.session.Disconnect()
+}
+
+func buildSDKClientOptions(options ClientOptions) (*copilot.ClientOptions, error) {
+	copilotHome := strings.TrimSpace(options.CopilotHome)
+	cliURL := strings.TrimSpace(options.CLIURL)
+
+	sdkOptions := &copilot.ClientOptions{
+		CLIUrl:    cliURL,
+		AutoStart: copilot.Bool(options.AutoStart),
+		LogLevel:  "error",
+	}
+
+	if copilotHome != "" {
+		sdkOptions.Env = upsertEnvVar(os.Environ(), "COPILOT_HOME", copilotHome)
+	}
+
+	if cliURL != "" {
+		if options.UseLoggedInUser {
+			return nil, fmt.Errorf("configure analyzer client: UseLoggedInUser cannot be enabled when CLIURL is set; authenticate the external Copilot CLI server instead")
+		}
+		return sdkOptions, nil
+	}
+
+	useLoggedInUser := options.UseLoggedInUser
+	if !useLoggedInUser {
+		useLoggedInUser = true
+	}
+	sdkOptions.UseLoggedInUser = copilot.Bool(useLoggedInUser)
+
+	return sdkOptions, nil
+}
+
+func upsertEnvVar(env []string, key string, value string) []string {
+	prefix := key + "="
+	replaced := false
+	result := make([]string, 0, len(env)+1)
+
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			if !replaced {
+				result = append(result, prefix+value)
+				replaced = true
+			}
+			continue
+		}
+		result = append(result, entry)
+	}
+
+	if !replaced {
+		result = append(result, prefix+value)
+	}
+
+	return result
+}
