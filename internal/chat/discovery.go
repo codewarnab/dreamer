@@ -77,7 +77,7 @@ func discoverChatsFromRoots(homeDir string, appDataDir string, claudeConfigDir s
 		return nil, err
 	}
 
-	vscodeSources, err := discoverVSCodeChatSessions(appDataDir)
+	vscodeSources, err := discoverVSCodeChatSessions(appDataDir, projectPath)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,12 @@ func discoverCodexSessions(homeDir string, projectPath string) ([]ChatSource, er
 	return discovered, nil
 }
 
-func discoverVSCodeChatSessions(appDataDir string) ([]ChatSource, error) {
+func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSource, error) {
+	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
+	if !ok {
+		return nil, nil
+	}
+
 	workspaceStorageRoot := filepath.Join(strings.TrimSpace(appDataDir), "Code", "User", "workspaceStorage")
 	info, err := os.Stat(workspaceStorageRoot)
 	if err != nil {
@@ -180,7 +185,17 @@ func discoverVSCodeChatSessions(appDataDir string) ([]ChatSource, error) {
 			continue
 		}
 
-		chatRoot := filepath.Join(workspaceStorageRoot, workspaceEntry.Name(), "chatSessions")
+		workspaceRoot := filepath.Join(workspaceStorageRoot, workspaceEntry.Name())
+		workspaceEvidence, ok := readVSCodeWorkspaceEvidence(filepath.Join(workspaceRoot, "workspace.json"))
+		if !ok {
+			continue
+		}
+		normalizedEvidence, ok := normalizeDiscoveryEvidencePath(workspaceEvidence)
+		if !ok || !pathWithinNormalizedRoot(normalizedEvidence, normalizedProjectPath) {
+			continue
+		}
+
+		chatRoot := filepath.Join(workspaceRoot, "chatSessions")
 		workspaceChats, err := walkChatFiles(chatRoot, SourceTypeVSCodeChatSession, map[string]struct{}{
 			".json":  {},
 			".jsonl": {},
@@ -192,6 +207,51 @@ func discoverVSCodeChatSessions(appDataDir string) ([]ChatSource, error) {
 	}
 
 	return discovered, nil
+}
+
+func readVSCodeWorkspaceEvidence(workspaceJSONPath string) (string, bool) {
+	payload, err := os.ReadFile(workspaceJSONPath)
+	if err != nil {
+		return "", false
+	}
+
+	var document map[string]any
+	if err := json.Unmarshal(payload, &document); err != nil {
+		return "", false
+	}
+
+	workspacePath := extractVSCodeWorkspacePath(document, 0)
+	return workspacePath, workspacePath != ""
+}
+
+func extractVSCodeWorkspacePath(value any, depth int) string {
+	const maxDepth = 6
+
+	if depth > maxDepth || value == nil {
+		return ""
+	}
+
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range []string{"folder", "workspace", "path", "uri", "folderUri", "workspaceUri"} {
+			if path := extractVSCodeWorkspacePath(typed[key], depth+1); path != "" {
+				return strings.TrimPrefix(path, "file://")
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if path := extractVSCodeWorkspacePath(nested, depth+1); path != "" {
+				return path
+			}
+		}
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed != "" {
+			return strings.TrimPrefix(trimmed, "file://")
+		}
+	}
+
+	return ""
 }
 
 func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectPath string) ([]ChatSource, error) {
@@ -232,28 +292,37 @@ func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectP
 }
 
 func discoverAntigravityGeminiSessions(homeDir string, projectPath string, geminiHomeDir string) ([]ChatSource, error) {
-	roots := make([]string, 0, 3)
+	type antigravityRoot struct {
+		path          string
+		requiresProbe bool
+	}
+
+	roots := make([]antigravityRoot, 0, 3)
 
 	trimmedGeminiHome := strings.TrimSpace(geminiHomeDir)
 	if trimmedGeminiHome != "" {
-		roots = append(roots, filepath.Join(trimmedGeminiHome, "antigravity"))
+		roots = append(roots, antigravityRoot{path: filepath.Join(trimmedGeminiHome, "antigravity"), requiresProbe: true})
 	} else {
-		roots = append(roots, filepath.Join(strings.TrimSpace(homeDir), ".gemini", "antigravity"))
+		roots = append(roots, antigravityRoot{path: filepath.Join(strings.TrimSpace(homeDir), ".gemini", "antigravity"), requiresProbe: true})
 	}
 
 	trimmedProjectPath := strings.TrimSpace(projectPath)
 	if trimmedProjectPath != "" {
-		roots = append(roots, filepath.Join(trimmedProjectPath, ".gemini", "antigravity"))
+		roots = append(roots, antigravityRoot{path: filepath.Join(trimmedProjectPath, ".gemini", "antigravity")})
+	}
+
+	normalizedProjectPath, hasProjectPath := normalizeDiscoveryPath(projectPath)
+	if !hasProjectPath {
+		return nil, nil
 	}
 
 	discovered := make([]ChatSource, 0)
 	seen := map[string]struct{}{}
 	for _, root := range roots {
 		for _, conversationsDir := range []string{"conversations", "inbox"} {
-			sources, err := walkChatFiles(filepath.Join(root, conversationsDir), SourceTypeAntigravityGemini, map[string]struct{}{
+			sources, err := walkChatFiles(filepath.Join(root.path, conversationsDir), SourceTypeAntigravityGemini, map[string]struct{}{
 				".pb":    {},
 				".pbtxt": {},
-				".json":  {},
 				".jsonl": {},
 			})
 			if err != nil {
@@ -263,6 +332,9 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 				if _, ok := seen[source.Path]; ok {
 					continue
 				}
+				if root.requiresProbe && !antigravitySourceBelongsToProject(source.Path, normalizedProjectPath) {
+					continue
+				}
 				seen[source.Path] = struct{}{}
 				discovered = append(discovered, source)
 			}
@@ -270,6 +342,94 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 	}
 
 	return discovered, nil
+}
+
+func antigravitySourceBelongsToProject(sourcePath string, normalizedProjectPath string) bool {
+	candidatePath, ok := probeAntigravityProjectEvidence(sourcePath)
+	if !ok {
+		return false
+	}
+	normalizedCandidatePath, ok := normalizeDiscoveryEvidencePath(candidatePath)
+	if !ok {
+		return false
+	}
+	return pathWithinNormalizedRoot(normalizedCandidatePath, normalizedProjectPath)
+}
+
+func probeAntigravityProjectEvidence(sourcePath string) (string, bool) {
+	payload, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", false
+	}
+
+	if path, ok := probeAntigravityJSONEvidence(payload); ok {
+		return path, true
+	}
+	return probeAntigravityTextEvidence(string(payload))
+}
+
+func probeAntigravityJSONEvidence(payload []byte) (string, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(string(payload)))
+	scanner.Buffer(make([]byte, claudeProbeInitialBufferSize), claudeProbeMaxBufferSize)
+
+	linesRead := 0
+	for scanner.Scan() {
+		linesRead++
+		if linesRead > claudeProbeLineLimit {
+			break
+		}
+
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			continue
+		}
+		if path := extractClaudeCWDEvidence(record, 0); path != "" {
+			return path, true
+		}
+	}
+
+	return "", false
+}
+
+func probeAntigravityTextEvidence(content string) (string, bool) {
+	linesRead := 0
+	for _, rawLine := range strings.Split(content, "\n") {
+		linesRead++
+		if linesRead > claudeProbeLineLimit {
+			break
+		}
+
+		key, value, ok := splitDiscoveryField(rawLine)
+		if !ok {
+			continue
+		}
+		if _, ok := claudeCWDEvidenceKeys[normalizeDiscoveryKey(key)]; ok {
+			if path := strings.TrimSpace(value); path != "" {
+				return path, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+func splitDiscoveryField(line string) (string, string, bool) {
+	index := strings.Index(line, ":")
+	if index <= 0 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(line[:index])
+	value := strings.TrimSpace(line[index+1:])
+	value = strings.Trim(value, `"`)
+	if key == "" || value == "" {
+		return "", "", false
+	}
+	return key, value, true
 }
 
 func walkChatFiles(root string, sourceType SourceType, extensions map[string]struct{}) ([]ChatSource, error) {

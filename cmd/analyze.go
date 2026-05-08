@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"dreamer/internal/config"
+	"dreamer/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -25,14 +26,24 @@ func newAnalyzeCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
-
-			project, err := selectProject(cfg, projectName)
+			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Daemon.LogLevel)
 			if err != nil {
 				return err
 			}
+			defer func() {
+				_ = logger.Close()
+			}()
+			logger.Info("analyze command started config=%q project=%q", resolvedConfigPath, projectName)
 
-			runResult, err := analyzeProject(commandContext(cmd), cfg, *project)
+			project, err := selectProject(cfg, projectName)
 			if err != nil {
+				logger.Error("select project failed project=%q error=%v", projectName, err)
+				return err
+			}
+
+			runResult, err := analyzeProject(commandContext(cmd), cfg, *project, logger)
+			if err != nil {
+				logger.Error("analyze command failed project=%q error=%v", project.Name, err)
 				return err
 			}
 
@@ -45,6 +56,7 @@ func newAnalyzeCommand() *cobra.Command {
 				runResult.TodosAdded,
 				runResult.TodosPath,
 			)
+			logger.Info("analyze command complete project=%q log_path=%q", project.Name, logger.Path())
 			return nil
 		},
 	}

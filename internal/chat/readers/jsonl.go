@@ -22,7 +22,9 @@ type ChatMessage struct {
 }
 
 type JSONLReadOptions struct {
-	SanitizeClaude bool
+	SanitizeClaude         bool
+	SanitizeCodex          bool
+	SanitizeCopilotSession bool
 }
 
 func ReadJSONL(filePath string) ([]ChatMessage, error) {
@@ -59,6 +61,12 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 	if options.SanitizeClaude {
 		messages = SanitizeClaudeMessages(messages)
 	}
+	if options.SanitizeCodex {
+		messages = SanitizeCodexMessages(messages)
+	}
+	if options.SanitizeCopilotSession {
+		messages = SanitizeCopilotSessionMessages(messages)
+	}
 
 	return messages, nil
 }
@@ -67,6 +75,10 @@ func parseJSONLRecord(line string) (ChatMessage, bool) {
 	var record map[string]any
 	if err := json.Unmarshal([]byte(line), &record); err != nil {
 		return ChatMessage{}, false
+	}
+
+	if message, ok := copilotSessionMessageFromRecord(record); ok {
+		return message, true
 	}
 
 	if message, ok := messageFromMap(record, record); ok {
@@ -85,6 +97,39 @@ func parseJSONLRecord(line string) (ChatMessage, bool) {
 	}
 
 	return ChatMessage{}, false
+}
+
+func copilotSessionMessageFromRecord(record map[string]any) (ChatMessage, bool) {
+	recordType, ok := record["type"].(string)
+	if !ok {
+		return ChatMessage{}, false
+	}
+
+	var role string
+	switch strings.TrimSpace(recordType) {
+	case "user.message":
+		role = "user"
+	case "assistant.message":
+		role = "assistant"
+	default:
+		return ChatMessage{}, false
+	}
+
+	data, ok := record["data"].(map[string]any)
+	if !ok {
+		return ChatMessage{}, false
+	}
+
+	content := textFromValue(data["content"], 0)
+	if content == "" {
+		return ChatMessage{}, false
+	}
+
+	return ChatMessage{
+		Role:      role,
+		Content:   content,
+		Timestamp: timestampFromRecord(record),
+	}, true
 }
 
 func nestedMessageCandidates(record map[string]any) []any {

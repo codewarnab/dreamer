@@ -220,34 +220,21 @@ func normalizeCandidates(candidates []string) []string {
 
 func messagesFromProtobufCandidates(candidates []string) []ChatMessage {
 	jsonMessages := make([]ChatMessage, 0, len(candidates))
-	nonJSONCandidates := make([]string, 0, len(candidates))
+	prefixedMessages := make([]ChatMessage, 0, len(candidates))
 	for _, candidate := range candidates {
 		if message, ok := messageFromJSONString(candidate); ok {
 			jsonMessages = append(jsonMessages, message)
 			continue
 		}
-		nonJSONCandidates = append(nonJSONCandidates, candidate)
+		if message, ok := messageFromRolePrefixedString(candidate); ok {
+			prefixedMessages = append(prefixedMessages, message)
+		}
 	}
 	if len(jsonMessages) > 0 {
 		return dedupeMessages(jsonMessages)
 	}
 
-	messages := make([]ChatMessage, 0, len(nonJSONCandidates))
-	nextRole := "user"
-
-	for _, candidate := range nonJSONCandidates {
-		role, content := inferRoleAndContent(candidate, nextRole)
-		if content == "" {
-			continue
-		}
-		messages = append(messages, ChatMessage{
-			Role:    role,
-			Content: content,
-		})
-		nextRole = oppositeRole(role)
-	}
-
-	return dedupeMessages(messages)
+	return dedupeMessages(prefixedMessages)
 }
 
 func messageFromJSONString(candidate string) (ChatMessage, bool) {
@@ -264,7 +251,7 @@ func messageFromJSONString(candidate string) (ChatMessage, bool) {
 	return messageFromMap(record, record)
 }
 
-func inferRoleAndContent(candidate string, fallbackRole string) (string, string) {
+func messageFromRolePrefixedString(candidate string) (ChatMessage, bool) {
 	normalized := strings.TrimSpace(candidate)
 	lowered := strings.ToLower(normalized)
 
@@ -272,7 +259,7 @@ func inferRoleAndContent(candidate string, fallbackRole string) (string, string)
 	for _, prefix := range userPrefixes {
 		if strings.HasPrefix(lowered, prefix) {
 			content := strings.TrimSpace(normalized[len(prefix):])
-			return "user", content
+			return ChatMessage{Role: "user", Content: content}, content != ""
 		}
 	}
 
@@ -280,24 +267,11 @@ func inferRoleAndContent(candidate string, fallbackRole string) (string, string)
 	for _, prefix := range assistantPrefixes {
 		if strings.HasPrefix(lowered, prefix) {
 			content := strings.TrimSpace(normalized[len(prefix):])
-			return "assistant", content
+			return ChatMessage{Role: "assistant", Content: content}, content != ""
 		}
 	}
 
-	if normalized == "" {
-		return "", ""
-	}
-	if fallbackRole == "assistant" {
-		return "assistant", normalized
-	}
-	return "user", normalized
-}
-
-func oppositeRole(role string) string {
-	if role == "assistant" {
-		return "user"
-	}
-	return "assistant"
+	return ChatMessage{}, false
 }
 
 func dedupeMessages(messages []ChatMessage) []ChatMessage {

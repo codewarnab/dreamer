@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,7 @@ func TestListChatsPrintsDiscoveredSources(t *testing.T) {
 	projectDir := t.TempDir()
 	copilotChat := filepath.Join(homeDir, ".copilot", "session-state", "workspace", "chat.jsonl")
 	vscodeChat := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-a", "chatSessions", "chat.json")
+	vscodeWorkspaceJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-a", "workspace.json")
 	for _, path := range []string{copilotChat, vscodeChat} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("MkdirAll %q: %v", path, err)
@@ -193,6 +195,9 @@ func TestListChatsPrintsDiscoveredSources(t *testing.T) {
 		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
 			t.Fatalf("WriteFile %q: %v", path, err)
 		}
+	}
+	if err := os.WriteFile(vscodeWorkspaceJSON, []byte(fmt.Sprintf(`{"folder":%q}`, projectDir)), 0o644); err != nil {
+		t.Fatalf("WriteFile %q: %v", vscodeWorkspaceJSON, err)
 	}
 
 	stdout, stderr, err := executeRootCommand("ls-chats", "--project-path", projectDir)

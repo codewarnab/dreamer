@@ -240,6 +240,70 @@ func TestReadJSONLParsesCodexResponseItemPayloadMessages(t *testing.T) {
 	}
 }
 
+func TestReadJSONLParsesCopilotSessionMessagesFromTypedEvents(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "copilot-session.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"session.start","data":{"id":"s1"}}`,
+		`{"type":"user.message","data":{"content":"How should I fix the daemon?"},"timestamp":"2026-05-08T12:00:01Z"}`,
+		`{"type":"assistant.message","data":{"content":"Start by checking runtime routing."},"timestamp":"2026-05-08T12:00:02Z"}`,
+		`{"type":"tool.execution_result","data":{"content":"large tool output"}}`,
+	}, "\n")
+
+	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	messages, err := ReadJSONL(filePath)
+	if err != nil {
+		t.Fatalf("ReadJSONL returned error: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 parsed Copilot messages, got %d", len(messages))
+	}
+	if got := messages[0].Role; got != "user" {
+		t.Fatalf("first message role = %q, want user", got)
+	}
+	if got := messages[0].Content; got != "How should I fix the daemon?" {
+		t.Fatalf("first message content = %q, want user content", got)
+	}
+	if got := messages[1].Role; got != "assistant" {
+		t.Fatalf("second message role = %q, want assistant", got)
+	}
+	if got := messages[1].Content; got != "Start by checking runtime routing." {
+		t.Fatalf("second message content = %q, want assistant content", got)
+	}
+}
+
+func TestReadJSONLWithOptionsSanitizesCopilotSessionNoise(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "copilot-session-sanitized.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"session.info","data":{"content":"metadata"}}`,
+		`{"type":"assistant.message","data":{"toolRequests":[{"id":"tool-1"}]}}`,
+		`{"type":"user.message","data":{"content":"Need help\nwith VS Code chat parsing."}}`,
+		`{"type":"user.message","data":{"content":"Need   help with VS Code chat parsing."}}`,
+		`{"type":"assistant.message","data":{"content":"Read requests and response markdown only."}}`,
+		`{"type":"tool.execution_start","data":{"content":"run command"}}`,
+	}, "\n")
+
+	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{SanitizeCopilotSession: true})
+	if err != nil {
+		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 sanitized Copilot messages, got %d", len(messages))
+	}
+	if got := messages[0].Content; got != "Need help with VS Code chat parsing." {
+		t.Fatalf("first message content = %q, want normalized user message", got)
+	}
+	if got := messages[1].Content; got != "Read requests and response markdown only." {
+		t.Fatalf("second message content = %q, want assistant response", got)
+	}
+}
+
 func TestReadJSONLIgnoresCodexResponseItemsWithoutUserAssistantRole(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "codex-session-ignore-non-chat.jsonl")
 	contents := strings.Join([]string{
@@ -266,5 +330,34 @@ func TestReadJSONLIgnoresCodexResponseItemsWithoutUserAssistantRole(t *testing.T
 	}
 	if got := messages[1].Role; got != "assistant" {
 		t.Fatalf("second message role = %q, want assistant", got)
+	}
+}
+
+func TestReadJSONLWithOptionsSanitizesCodexBootstrapMessages(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "codex-session-sanitized.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"session_meta","payload":{"cwd":"C:\\repo"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for C:\\repo\n\n<INSTRUCTIONS>\nPrioritize readability over cleverness.\n</INSTRUCTIONS>"}]},"timestamp":"2026-05-08T12:00:00Z"}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":{"type":"input_text","text":"Please inspect flaky evaluation scoring."}},"timestamp":"2026-05-08T12:00:01Z"}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":{"type":"output_text","text":"I found the scoring path and will keep the patch narrow."}},"timestamp":"2026-05-08T12:00:02Z"}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":{"type":"output_text","text":"I found the scoring path and will keep the patch narrow."}},"timestamp":"2026-05-08T12:00:03Z"}`,
+	}, "\n")
+
+	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{SanitizeCodex: true})
+	if err != nil {
+		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 sanitized Codex messages, got %d", len(messages))
+	}
+	if got := messages[0].Content; got != "Please inspect flaky evaluation scoring." {
+		t.Fatalf("first message content = %q, want user request", got)
+	}
+	if got := messages[1].Content; got != "I found the scoring path and will keep the patch narrow." {
+		t.Fatalf("second message content = %q, want assistant message", got)
 	}
 }

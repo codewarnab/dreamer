@@ -112,6 +112,71 @@ func TestBuildAnalysisInputSkipsUnreadableAntigravitySource(t *testing.T) {
 	}
 }
 
+func TestBuildAnalysisInputWithDiagnosticsFormatsAntigravityInput(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "antigravity.pbtxt")
+	contents := strings.Join([]string{
+		`workspacePath: "C:\\Users\\User\\code\\dreamer"`,
+		`role: "user"`,
+		`text: "Please fix Antigravity discovery."`,
+		`role: "model"`,
+		`text: "I will keep the reader cleanup localized."`,
+	}, "\n")
+	if err := os.WriteFile(sourcePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write antigravity fixture: %v", err)
+	}
+
+	input, sourceIDs, messageCount, _, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{
+		{
+			Path: sourcePath,
+			Tool: chat.SourceTypeAntigravityGemini,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisInputWithDiagnostics returned error: %v", err)
+	}
+	if messageCount != 2 {
+		t.Fatalf("messageCount = %d, want 2", messageCount)
+	}
+	assertStringSliceEqual(t, sourceIDs, []string{sourcePath})
+
+	expected := fmt.Sprintf(
+		"source: %s\ntool: %s\n\nuser: Please fix Antigravity discovery.\nassistant: I will keep the reader cleanup localized.\n\n",
+		sourcePath,
+		chat.SourceTypeAntigravityGemini,
+	)
+	if input != expected {
+		t.Fatalf("analysis input mismatch\n--- got ---\n%s--- want ---\n%s", input, expected)
+	}
+}
+
+func TestBuildAnalysisInputWithDiagnosticsSkipsNoMessageAntigravityWithoutLeakingSourceID(t *testing.T) {
+	noMessagePath := filepath.Join(t.TempDir(), "metadata-only.pb")
+	payload := encodeLengthDelimitedField(1, []byte("Antigravity metadata without role context"))
+	if err := os.WriteFile(noMessagePath, payload, 0o644); err != nil {
+		t.Fatalf("write antigravity fixture: %v", err)
+	}
+
+	readablePath := filepath.Join(t.TempDir(), "readable.jsonl")
+	if err := os.WriteFile(readablePath, []byte(`{"role":"user","content":"hello from jsonl"}`), 0o644); err != nil {
+		t.Fatalf("write jsonl fixture: %v", err)
+	}
+
+	input, sourceIDs, messageCount, _, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{
+		{Path: noMessagePath, Tool: chat.SourceTypeAntigravityGemini},
+		{Path: readablePath, Tool: chat.SourceTypeCopilotSessionJSONL},
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisInputWithDiagnostics returned error: %v", err)
+	}
+	if messageCount != 1 {
+		t.Fatalf("messageCount = %d, want 1", messageCount)
+	}
+	assertStringSliceEqual(t, sourceIDs, []string{readablePath})
+	if strings.Contains(input, noMessagePath) {
+		t.Fatalf("analysis input leaked no-message Antigravity source: %q", input)
+	}
+}
+
 func TestBuildAnalysisInputWithDiagnosticsPreservesNonClaudeFormat(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "session.jsonl")
 	contents := strings.Join([]string{
@@ -201,6 +266,112 @@ func TestBuildAnalysisInputWithDiagnosticsSanitizesClaudeAndTracksVolume(t *test
 	}
 }
 
+func TestBuildAnalysisInputWithDiagnosticsSanitizesCodexSession(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "codex-session.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"session_meta","payload":{"cwd":"C:\\repo"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>internal runtime policy</permissions instructions>"}]},"timestamp":"2026-05-08T12:00:00Z"}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for C:\\repo\n\n<INSTRUCTIONS>\nPrioritize readability over cleverness.\n</INSTRUCTIONS>"}]},"timestamp":"2026-05-08T12:00:01Z"}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":{"type":"input_text","text":"Need cleanup for Codex chat analysis."}},"timestamp":"2026-05-08T12:00:02Z"}`,
+		`{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"rg TODO\"}","call_id":"call-1"},"timestamp":"2026-05-08T12:00:03Z"}`,
+		`{"type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"Exit code: 0\nOutput:\nlarge tool output"},"timestamp":"2026-05-08T12:00:04Z"}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":{"type":"output_text","text":"Codex analysis should now skip bootstrap instructions."}},"timestamp":"2026-05-08T12:00:05Z"}`,
+	}, "\n")
+	if err := os.WriteFile(sourcePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write source fixture: %v", err)
+	}
+
+	input, sourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{
+		{
+			Path: sourcePath,
+			Tool: chat.SourceTypeCodexSessionJSONL,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisInputWithDiagnostics returned error: %v", err)
+	}
+	if messageCount != 2 {
+		t.Fatalf("messageCount = %d, want 2", messageCount)
+	}
+	if len(sourceIDs) != 1 || sourceIDs[0] != sourcePath {
+		t.Fatalf("sourceIDs = %v, want [%q]", sourceIDs, sourcePath)
+	}
+	if diagnostics.TotalMessagesRead != 0 || diagnostics.MessagesKept != 0 || diagnostics.MessagesDropped != 0 || diagnostics.MessagesTruncated != 0 {
+		t.Fatalf("diagnostics = %+v, want zero Claude diagnostics", diagnostics)
+	}
+	if strings.Contains(input, "AGENTS.md instructions") || strings.Contains(input, "Prioritize readability") {
+		t.Fatalf("analysis input should not include Codex bootstrap instructions: %q", input)
+	}
+	if strings.Contains(input, "rg TODO") || strings.Contains(input, "large tool output") {
+		t.Fatalf("analysis input should not include Codex function call records: %q", input)
+	}
+	if !strings.Contains(input, "Need cleanup for Codex chat analysis.") {
+		t.Fatalf("analysis input missing user request: %q", input)
+	}
+	if !strings.Contains(input, "Codex analysis should now skip bootstrap instructions.") {
+		t.Fatalf("analysis input missing assistant response: %q", input)
+	}
+}
+
+func TestBuildAnalysisInputWithDiagnosticsReadsVSCodeJSON(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "vscode-chat.json")
+	contents := `{"requests":[{"message":{"text":"Find the runtime bug."},"response":[{"kind":"markdownContent","value":"The JSON router was too narrow."}]}]}`
+	if err := os.WriteFile(sourcePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write source fixture: %v", err)
+	}
+
+	input, sourceIDs, messageCount, _, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{
+		{
+			Path: sourcePath,
+			Tool: chat.SourceTypeVSCodeChatSession,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisInputWithDiagnostics returned error: %v", err)
+	}
+	if messageCount != 2 {
+		t.Fatalf("messageCount = %d, want 2", messageCount)
+	}
+	assertStringSliceEqual(t, sourceIDs, []string{sourcePath})
+	if !strings.Contains(input, "Find the runtime bug.") || !strings.Contains(input, "The JSON router was too narrow.") {
+		t.Fatalf("analysis input missing vscode content: %q", input)
+	}
+}
+
+func TestBuildAnalysisInputWithDiagnosticsSanitizesCopilotSession(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "copilot-session.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"session.start","data":{"id":"s1"}}`,
+		`{"type":"user.message","data":{"content":"Need help\nwith JSONL parsing."}}`,
+		`{"type":"user.message","data":{"content":"Need   help with JSONL parsing."}}`,
+		`{"type":"assistant.message","data":{"toolRequests":[{"id":"tool-1"}]}}`,
+		`{"type":"assistant.message","data":{"content":"Handle typed event records."}}`,
+		`{"type":"tool.execution_result","data":{"content":"large output"}}`,
+	}, "\n")
+	if err := os.WriteFile(sourcePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write source fixture: %v", err)
+	}
+
+	input, _, messageCount, _, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{
+		{
+			Path: sourcePath,
+			Tool: chat.SourceTypeCopilotSessionJSONL,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildAnalysisInputWithDiagnostics returned error: %v", err)
+	}
+	if messageCount != 2 {
+		t.Fatalf("messageCount = %d, want 2", messageCount)
+	}
+	if strings.Contains(input, "tool-1") || strings.Contains(input, "large output") || strings.Contains(input, "session.start") {
+		t.Fatalf("analysis input should not include Copilot noise: %q", input)
+	}
+	if !strings.Contains(input, "Need help with JSONL parsing.") || !strings.Contains(input, "Handle typed event records.") {
+		t.Fatalf("analysis input missing Copilot signal: %q", input)
+	}
+}
+
 func TestApplyClaudeProcessingDiagnosticsAddsCounters(t *testing.T) {
 	usageStats := map[string]int64{
 		"messages_analyzed": 9,
@@ -229,16 +400,32 @@ func TestApplyClaudeProcessingDiagnosticsAddsCounters(t *testing.T) {
 	}
 }
 
-func TestReadMessagesFromSourceRejectsUnsupportedExtension(t *testing.T) {
-	_, err := readMessagesFromSource(chat.ChatSource{
-		Path: "chat.json",
+func TestReadMessagesFromSourceAcceptsJSONOnlyForVSCodeChat(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "chat.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"requests":[{"message":{"text":"hello"},"response":"world"}]}`), 0o644); err != nil {
+		t.Fatalf("write vscode json fixture: %v", err)
+	}
+
+	messages, err := readMessagesFromSource(chat.ChatSource{
+		Path: sourcePath,
 		Tool: chat.SourceTypeVSCodeChatSession,
 	})
-	if err == nil {
-		t.Fatalf("readMessagesFromSource expected unsupported extension error")
+	if err != nil {
+		t.Fatalf("readMessagesFromSource returned error for vscode json: %v", err)
 	}
-	if !strings.Contains(err.Error(), "supported: .jsonl, .pb, .pbtxt") {
-		t.Fatalf("error = %q, want supported extension message", err)
+	if len(messages) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(messages))
+	}
+
+	_, err = readMessagesFromSource(chat.ChatSource{
+		Path: sourcePath,
+		Tool: chat.SourceTypeCopilotSessionJSONL,
+	})
+	if err == nil {
+		t.Fatalf("readMessagesFromSource expected unsupported .json error for non-vscode source")
+	}
+	if !strings.Contains(err.Error(), ".json only for vscode") {
+		t.Fatalf("error = %q, want vscode-only .json message", err)
 	}
 }
 

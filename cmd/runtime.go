@@ -14,6 +14,7 @@ import (
 	"dreamer/internal/chat"
 	"dreamer/internal/chat/readers"
 	"dreamer/internal/config"
+	"dreamer/internal/logging"
 	"dreamer/internal/output"
 	"dreamer/internal/state"
 )
@@ -106,36 +107,47 @@ func selectProject(cfg *config.Config, projectName string) (*config.ProjectConfi
 	return nil, fmt.Errorf("project %q not found in config", name)
 }
 
-func analyzeProject(ctx context.Context, cfg *config.Config, project config.ProjectConfig) (analyzeResult, error) {
+func analyzeProject(ctx context.Context, cfg *config.Config, project config.ProjectConfig, logger *logging.Logger) (analyzeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	logger.Info("analysis started project=%q path=%q", project.Name, project.Path)
 	currentState, err := state.LoadState(project.Name)
 	if err != nil {
+		logger.Error("load state failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, fmt.Errorf("load state for project %q: %w", project.Name, err)
 	}
+	logger.Debug("state loaded project=%q analyzed_sources=%d last_run=%s", project.Name, len(currentState.AnalyzedChatIDs), currentState.LastRun.Format(time.RFC3339))
 
 	sources, err := chat.DiscoverChats(project.Path)
 	if err != nil {
+		logger.Error("discover chats failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, fmt.Errorf("discover chats for project %q: %w", project.Name, err)
 	}
+	logger.Info("chat discovery complete project=%q sources=%d", project.Name, len(sources))
 	if len(sources) == 0 {
+		logger.Warn("no chat sources discovered project=%q", project.Name)
 		return analyzeResult{}, fmt.Errorf("%w for project %q", errNoChatSources, project.Name)
 	}
 
 	sourcesToAnalyze := filterSourcesToAnalyze(sources, currentState)
+	logger.Info("source filtering complete project=%q selected=%d total=%d", project.Name, len(sourcesToAnalyze), len(sources))
 	if len(sourcesToAnalyze) == 0 {
+		logger.Warn("no new or changed chat sources project=%q", project.Name)
 		return analyzeResult{}, fmt.Errorf("%w for project %q", errNoNewChatSources, project.Name)
 	}
 
 	analysisInput, analyzedSourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics(sourcesToAnalyze)
 	if err != nil {
+		logger.Error("build analysis input failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, err
 	}
+	logger.Info("analysis input built project=%q sources=%d messages=%d", project.Name, len(analyzedSourceIDs), messageCount)
 
 	client, err := analyzer.NewClient(analyzerClientOptionsFromConfig(cfg, project.Path))
 	if err != nil {
+		logger.Error("create analyzer client failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
 	defer func() {
@@ -144,6 +156,7 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 
 	session, err := client.NewSession(ctx)
 	if err != nil {
+		logger.Error("create analyzer session failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
 	defer func() {
@@ -153,15 +166,19 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 	orchestrator := analyzer.NewOrchestrator(mergeRuleOverrides(cfg))
 	response, err := orchestrator.Analyze(ctx, session, analysisInput)
 	if err != nil {
+		logger.Error("analyzer request failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
+	logger.Info("analyzer response received project=%q findings=%d", project.Name, len(response.Findings))
 
 	generateResult, err := output.GenerateTodos(project.Name, response.Findings, output.GenerateOptions{
 		OutputRoot: cfg.Daemon.OutputRoot,
 	})
 	if err != nil {
+		logger.Error("generate todos failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, fmt.Errorf("generate todos for project %q: %w", project.Name, err)
 	}
+	logger.Info("todos generated project=%q added=%d path=%q", project.Name, generateResult.AddedFindings, generateResult.Path)
 
 	currentState.LastRun = time.Now().UTC()
 	currentState.AnalyzedChatIDs = mergeAnalyzedIDs(currentState.AnalyzedChatIDs, analyzedSourceIDs)
@@ -173,8 +190,10 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 	applyClaudeProcessingDiagnostics(currentState.UsageStats, diagnostics)
 
 	if err := state.SaveState(project.Name, currentState); err != nil {
+		logger.Error("save state failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, fmt.Errorf("save state for project %q: %w", project.Name, err)
 	}
+	logger.Info("analysis complete project=%q sources=%d messages=%d findings=%d todos_added=%d", project.Name, len(sourcesToAnalyze), messageCount, len(response.Findings), generateResult.AddedFindings)
 
 	return analyzeResult{
 		TodosPath:       generateResult.Path,
@@ -290,13 +309,39 @@ func applyClaudeProcessingDiagnostics(usageStats map[string]int64, diagnostics c
 }
 
 func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, error) {
+	if source.Tool == chat.SourceTypeAntigravityGemini {
+		messages, err := readers.ReadAntigravityGemini(source.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read antigravity chat source %q: %w", source.Path, err)
+		}
+		return messages, nil
+	}
+
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".jsonl":
+		if source.Tool == chat.SourceTypeVSCodeChatSession {
+			messages, err := readers.ReadVSCodeChat(source.Path)
+			if err != nil {
+				return nil, fmt.Errorf("read vscode chat source %q: %w", source.Path, err)
+			}
+			return messages, nil
+		}
 		messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
-			SanitizeClaude: source.Tool == chat.SourceTypeClaudeCodeSession,
+			SanitizeClaude:         source.Tool == chat.SourceTypeClaudeCodeSession,
+			SanitizeCodex:          source.Tool == chat.SourceTypeCodexSessionJSONL,
+			SanitizeCopilotSession: source.Tool == chat.SourceTypeCopilotSessionJSONL,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
+		}
+		return messages, nil
+	case ".json":
+		if source.Tool != chat.SourceTypeVSCodeChatSession {
+			return nil, fmt.Errorf("unsupported chat source file %q (supported: .json only for vscode chat sources)", source.Path)
+		}
+		messages, err := readers.ReadVSCodeChat(source.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read vscode chat source %q: %w", source.Path, err)
 		}
 		return messages, nil
 	case ".pb", ".pbtxt":
@@ -306,7 +351,7 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 		}
 		return messages, nil
 	default:
-		return nil, fmt.Errorf("unsupported chat source file %q (supported: .jsonl, .pb, .pbtxt)", source.Path)
+		return nil, fmt.Errorf("unsupported chat source file %q (supported: .jsonl, .json for vscode, .pb, .pbtxt)", source.Path)
 	}
 }
 

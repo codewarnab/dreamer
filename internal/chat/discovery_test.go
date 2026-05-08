@@ -21,6 +21,7 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	codexFile := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "codex-session.jsonl")
 	vscodeJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-1", "chatSessions", "alpha", "chat.json")
 	vscodeJSONL := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-1", "chatSessions", "beta", "chat.jsonl")
+	vscodeWorkspaceJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-1", "workspace.json")
 	claudeJSONL := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
 	antigravityGlobalPB := filepath.Join(geminiHomeDir, "antigravity", "conversations", "global-session.pb")
 	antigravityProjectPB := filepath.Join(projectDir, ".gemini", "antigravity", "conversations", "project-session.pb")
@@ -30,6 +31,7 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	writeFixtureFile(t, codexFile, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(projectDir, "src")))
 	writeFixtureFile(t, vscodeJSON, "{}")
 	writeFixtureFile(t, vscodeJSONL, "{}")
+	writeFixtureFile(t, vscodeWorkspaceJSON, fmt.Sprintf(`{"folder":%q}`, filepath.Join(projectDir, "src")))
 	writeFixtureFile(t, claudeJSONL, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "src")))
 	writeFixtureFile(t, antigravityGlobalPB, "binary")
 	writeFixtureFile(t, antigravityProjectPB, "binary")
@@ -54,8 +56,8 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverChatsFromRoots returned error: %v", err)
 	}
-	if len(sources) != 7 {
-		t.Fatalf("expected 7 sources, got %d", len(sources))
+	if len(sources) != 6 {
+		t.Fatalf("expected 6 sources, got %d", len(sources))
 	}
 
 	byPath := make(map[string]ChatSource, len(sources))
@@ -68,7 +70,6 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	assertSource(t, byPath, vscodeJSON, SourceTypeVSCodeChatSession, vscodeJSONTime)
 	assertSource(t, byPath, vscodeJSONL, SourceTypeVSCodeChatSession, vscodeJSONLTime)
 	assertSource(t, byPath, claudeJSONL, SourceTypeClaudeCodeSession, claudeJSONLTime)
-	assertSource(t, byPath, antigravityGlobalPB, SourceTypeAntigravityGemini, antigravityGlobalTime)
 	assertSource(t, byPath, antigravityProjectPB, SourceTypeAntigravityGemini, antigravityProjectTime)
 }
 
@@ -100,11 +101,13 @@ func TestDiscoverChatsReadsDefaultRoots(t *testing.T) {
 	copilotFile := filepath.Join(homeDir, ".copilot", "session-state", "chat.jsonl")
 	codexFile := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "chat.jsonl")
 	vscodeFile := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-2", "chatSessions", "chat.json")
+	vscodeWorkspaceJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-2", "workspace.json")
 	claudeFile := filepath.Join(homeDir, ".claude", "projects", "project-1", "chat.jsonl")
 	antigravityFile := filepath.Join(geminiHomeDir, "antigravity", "conversations", "chat.pb")
 	writeFixtureFile(t, copilotFile, "copilot")
 	writeFixtureFile(t, codexFile, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(projectDir, "workspace")))
 	writeFixtureFile(t, vscodeFile, "{}")
+	writeFixtureFile(t, vscodeWorkspaceJSON, fmt.Sprintf(`{"folder":%q}`, filepath.Join(projectDir, "workspace")))
 	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "workspace")))
 	writeFixtureFile(t, antigravityFile, "binary")
 
@@ -112,8 +115,8 @@ func TestDiscoverChatsReadsDefaultRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverChats returned error: %v", err)
 	}
-	if len(sources) != 5 {
-		t.Fatalf("expected 5 sources, got %d", len(sources))
+	if len(sources) != 4 {
+		t.Fatalf("expected 4 sources, got %d", len(sources))
 	}
 }
 
@@ -230,12 +233,8 @@ func TestDiscoverChatsUsesClaudeConfigDirWhenSet(t *testing.T) {
 		t.Fatalf("tool for %q = %q, want %q", claudeFile, source.Tool, SourceTypeClaudeCodeSession)
 	}
 
-	antigravitySource, ok := byPath[antigravityFile]
-	if !ok {
-		t.Fatalf("expected Antigravity source %q to be discovered", antigravityFile)
-	}
-	if antigravitySource.Tool != SourceTypeAntigravityGemini {
-		t.Fatalf("tool for %q = %q, want %q", antigravityFile, antigravitySource.Tool, SourceTypeAntigravityGemini)
+	if _, ok := byPath[antigravityFile]; ok {
+		t.Fatalf("global Antigravity source without project evidence should not be discovered: %q", antigravityFile)
 	}
 }
 
@@ -313,6 +312,59 @@ func TestDiscoverClaudeCodeSessionsWindowsCaseContainment(t *testing.T) {
 	}
 }
 
+func TestDiscoverVSCodeChatSessionsFiltersByWorkspaceJSONProjectRoot(t *testing.T) {
+	appDataDir := t.TempDir()
+	projectDir := t.TempDir()
+	chatFile := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-a", "chatSessions", "chat.json")
+	workspaceJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-a", "workspace.json")
+	writeFixtureFile(t, chatFile, "{}")
+	writeFixtureFile(t, workspaceJSON, fmt.Sprintf(`{"folder":%q}`, filepath.Join(projectDir, "nested")))
+
+	sources, err := discoverVSCodeChatSessions(appDataDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverVSCodeChatSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 VS Code source, got %d", len(sources))
+	}
+	if got := sources[0].Path; got != chatFile {
+		t.Fatalf("source path = %q, want %q", got, chatFile)
+	}
+}
+
+func TestDiscoverVSCodeChatSessionsExcludesOtherWorkspaceRoot(t *testing.T) {
+	appDataDir := t.TempDir()
+	projectDir := t.TempDir()
+	otherProjectDir := t.TempDir()
+	chatFile := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-b", "chatSessions", "chat.jsonl")
+	workspaceJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-b", "workspace.json")
+	writeFixtureFile(t, chatFile, "{}")
+	writeFixtureFile(t, workspaceJSON, fmt.Sprintf(`{"folder":%q}`, filepath.Join(otherProjectDir, "nested")))
+
+	sources, err := discoverVSCodeChatSessions(appDataDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverVSCodeChatSessions returned error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("expected no VS Code sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverVSCodeChatSessionsExcludesMissingWorkspaceEvidence(t *testing.T) {
+	appDataDir := t.TempDir()
+	projectDir := t.TempDir()
+	chatFile := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-c", "chatSessions", "chat.json")
+	writeFixtureFile(t, chatFile, "{}")
+
+	sources, err := discoverVSCodeChatSessions(appDataDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverVSCodeChatSessions returned error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("expected no VS Code sources, got %d", len(sources))
+	}
+}
+
 func TestDiscoverChatsFromRootsIsolatesClaudeSessionsPerProject(t *testing.T) {
 	homeDir := t.TempDir()
 	appDataDir := t.TempDir()
@@ -350,6 +402,75 @@ func TestDiscoverChatsFromRootsIsolatesClaudeSessionsPerProject(t *testing.T) {
 	}
 	if got := sourcesB[0].Path; got != claudeB {
 		t.Fatalf("project B source path = %q, want %q", got, claudeB)
+	}
+}
+
+func TestDiscoverAntigravityGeminiSessionsFiltersGlobalByProjectEvidence(t *testing.T) {
+	geminiHomeDir := t.TempDir()
+	projectDir := t.TempDir()
+	otherProjectDir := t.TempDir()
+
+	inProject := filepath.Join(geminiHomeDir, "antigravity", "conversations", "in-project.pbtxt")
+	outOfProject := filepath.Join(geminiHomeDir, "antigravity", "conversations", "out-of-project.pbtxt")
+	writeFixtureFile(t, inProject, fmt.Sprintf("workspacePath: %q\nrole: \"user\"\ntext: \"Project A request\"", filepath.Join(projectDir, "workspace")))
+	writeFixtureFile(t, outOfProject, fmt.Sprintf("workspacePath: %q\nrole: \"user\"\ntext: \"Project B request\"", filepath.Join(otherProjectDir, "workspace")))
+
+	sources, err := discoverAntigravityGeminiSessions(t.TempDir(), projectDir, geminiHomeDir)
+	if err != nil {
+		t.Fatalf("discoverAntigravityGeminiSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Antigravity source, got %d", len(sources))
+	}
+	if got := sources[0].Path; got != inProject {
+		t.Fatalf("source path = %q, want %q", got, inProject)
+	}
+}
+
+func TestDiscoverAntigravityGeminiSessionsExcludesMissingProjectEvidence(t *testing.T) {
+	geminiHomeDir := t.TempDir()
+	projectDir := t.TempDir()
+	chatFile := filepath.Join(geminiHomeDir, "antigravity", "conversations", "missing-evidence.pbtxt")
+	writeFixtureFile(t, chatFile, "role: \"user\"\ntext: \"No workspace evidence\"")
+
+	sources, err := discoverAntigravityGeminiSessions(t.TempDir(), projectDir, geminiHomeDir)
+	if err != nil {
+		t.Fatalf("discoverAntigravityGeminiSessions returned error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("expected no Antigravity sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverAntigravityGeminiExtensionsMatchRuntimeSupport(t *testing.T) {
+	projectDir := t.TempDir()
+	antigravityRoot := filepath.Join(projectDir, ".gemini", "antigravity", "conversations")
+	supportedPB := filepath.Join(antigravityRoot, "chat.pb")
+	supportedPBTXT := filepath.Join(antigravityRoot, "chat.pbtxt")
+	supportedJSONL := filepath.Join(antigravityRoot, "chat.jsonl")
+	unsupportedJSON := filepath.Join(antigravityRoot, "chat.json")
+
+	writeFixtureFile(t, supportedPB, "user: hello from pb")
+	writeFixtureFile(t, supportedPBTXT, "role: \"user\"\ntext: \"hello from pbtxt\"")
+	writeFixtureFile(t, supportedJSONL, `{"role":"user","content":"hello from jsonl"}`)
+	writeFixtureFile(t, unsupportedJSON, `{"role":"user","content":"hello from json"}`)
+
+	sources, err := discoverAntigravityGeminiSessions(t.TempDir(), projectDir, t.TempDir())
+	if err != nil {
+		t.Fatalf("discoverAntigravityGeminiSessions returned error: %v", err)
+	}
+
+	extensions := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		extensions[strings.ToLower(filepath.Ext(source.Path))] = struct{}{}
+	}
+	for _, extension := range []string{".pb", ".pbtxt", ".jsonl"} {
+		if _, ok := extensions[extension]; !ok {
+			t.Fatalf("expected discovered Antigravity extension %q, got %v", extension, extensions)
+		}
+	}
+	if _, ok := extensions[".json"]; ok {
+		t.Fatalf("Antigravity .json should not be discovered until it has a supported reader")
 	}
 }
 
