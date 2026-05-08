@@ -1,6 +1,6 @@
 # dreamer
 
-`dreamer` discovers Copilot/VS Code chat history, analyzes recurring engineering patterns, and writes actionable todos.
+`dreamer` discovers Copilot CLI, VS Code Copilot, Claude Code, and Antigravity/Gemini chat history, analyzes recurring engineering patterns, and writes actionable todos.
 
 ## Quick start
 
@@ -51,13 +51,16 @@ Configure SDK client behavior in `~/.dreamer/config.yaml`:
 
 ```yaml
 analyzer:
-  model: gpt-5
+  model: gpt-5.3-codex
   use_logged_in_user: true
   auto_start: false
   copilot_home: ""
   cli_url: ""
   rules: {}
 ```
+
+- If the configured model is unavailable, Dreamer retries with the SDK auto-selected model.
+- Analyzer sessions run in read-only mode: read/search + web URL fetch + read-only tools are allowed; file writes/edits/deletes are denied.
 
 ### `dreamer ls-chats`
 
@@ -70,4 +73,10 @@ dreamer ls-chats [--project-path <dir>]
 - Default `--project-path` is current working directory.
 - Prints: `TOOL`, `MODIFIED_AT`, `PATH`.
 - Returns an error when no sources are discovered.
+- Discovers sources from:
+  - `~/.copilot/session-state/**/*.jsonl`
+  - `%APPDATA%\\Code\\User\\workspaceStorage\\*\\chatSessions\\*.{json,jsonl}`
+  - `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl` when set)
+  - `~/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}` (or `$GEMINI_HOME/antigravity/...` when set)
+  - `<project>/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}`
 

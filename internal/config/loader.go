@@ -12,7 +12,7 @@ import (
 const (
 	defaultFrequencySeconds = 300
 	defaultLogLevel         = "info"
-	defaultAnalyzerModel    = "gpt-5"
+	defaultAnalyzerModel    = "gpt-5.3-codex"
 	rootDirName             = ".dreamer"
 )
 

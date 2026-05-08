@@ -10,7 +10,7 @@ import (
 
 const defaultConfigTemplate = `projects: []
 analyzer:
-  model: gpt-5
+  model: gpt-5.3-codex
   use_logged_in_user: true
   auto_start: false
   copilot_home: ""
