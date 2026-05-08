@@ -21,7 +21,15 @@ type ChatMessage struct {
 	Timestamp time.Time
 }
 
+type JSONLReadOptions struct {
+	SanitizeClaude bool
+}
+
 func ReadJSONL(filePath string) ([]ChatMessage, error) {
+	return ReadJSONLWithOptions(filePath, JSONLReadOptions{})
+}
+
+func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMessage, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("open jsonl file %q: %w", filePath, err)
@@ -46,6 +54,10 @@ func ReadJSONL(filePath string) ([]ChatMessage, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan jsonl file %q: %w", filePath, err)
+	}
+
+	if options.SanitizeClaude {
+		messages = SanitizeClaudeMessages(messages)
 	}
 
 	return messages, nil

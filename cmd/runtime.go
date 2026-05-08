@@ -35,6 +35,20 @@ type analyzeResult struct {
 	TodosAdded      int
 }
 
+type claudeProcessingDiagnostics struct {
+	TotalMessagesRead int
+	MessagesKept      int
+	MessagesDropped   int
+	MessagesTruncated int
+}
+
+func (diagnostics *claudeProcessingDiagnostics) merge(next claudeProcessingDiagnostics) {
+	diagnostics.TotalMessagesRead += next.TotalMessagesRead
+	diagnostics.MessagesKept += next.MessagesKept
+	diagnostics.MessagesDropped += next.MessagesDropped
+	diagnostics.MessagesTruncated += next.MessagesTruncated
+}
+
 func resolveConfigPath(configPath string) (string, error) {
 	if strings.TrimSpace(configPath) == "" {
 		homeDir, err := os.UserHomeDir()
@@ -115,7 +129,7 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 		return analyzeResult{}, fmt.Errorf("%w for project %q", errNoNewChatSources, project.Name)
 	}
 
-	analysisInput, analyzedSourceIDs, messageCount, err := buildAnalysisInput(sourcesToAnalyze)
+	analysisInput, analyzedSourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics(sourcesToAnalyze)
 	if err != nil {
 		return analyzeResult{}, err
 	}
@@ -156,6 +170,7 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 	currentState.UsageStats["messages_analyzed"] += int64(messageCount)
 	currentState.UsageStats["findings_found"] += int64(len(response.Findings))
 	currentState.UsageStats["todos_added"] += int64(generateResult.AddedFindings)
+	applyClaudeProcessingDiagnostics(currentState.UsageStats, diagnostics)
 
 	if err := state.SaveState(project.Name, currentState); err != nil {
 		return analyzeResult{}, fmt.Errorf("save state for project %q: %w", project.Name, err)
@@ -192,20 +207,27 @@ func filterSourcesToAnalyze(sources []chat.ChatSource, currentState *state.State
 }
 
 func buildAnalysisInput(sources []chat.ChatSource) (string, []string, int, error) {
+	input, sourceIDs, messageCount, _, err := buildAnalysisInputWithDiagnostics(sources)
+	return input, sourceIDs, messageCount, err
+}
+
+func buildAnalysisInputWithDiagnostics(sources []chat.ChatSource) (string, []string, int, claudeProcessingDiagnostics, error) {
 	var builder strings.Builder
 	sourceIDs := make([]string, 0, len(sources))
 	messageCount := 0
+	var diagnostics claudeProcessingDiagnostics
 
 	for _, source := range sources {
-		messages, err := readMessagesFromSource(source)
+		messages, sourceDiagnostics, err := readMessagesForAnalysis(source)
 		if err != nil {
-			return "", nil, 0, err
+			return "", nil, 0, diagnostics, err
 		}
+		diagnostics.merge(sourceDiagnostics)
 		if len(messages) == 0 {
 			if source.Tool == chat.SourceTypeAntigravityGemini {
 				continue
 			}
-			return "", nil, 0, fmt.Errorf("chat source %q did not contain readable messages", source.Path)
+			return "", nil, 0, diagnostics, fmt.Errorf("chat source %q did not contain readable messages", source.Path)
 		}
 
 		sourceIDs = append(sourceIDs, source.Path)
@@ -229,16 +251,50 @@ func buildAnalysisInput(sources []chat.ChatSource) (string, []string, int, error
 	}
 
 	if messageCount == 0 {
-		return "", nil, 0, fmt.Errorf("no readable messages found in discovered chat sources")
+		return "", nil, 0, diagnostics, fmt.Errorf("no readable messages found in discovered chat sources")
 	}
 
-	return builder.String(), sourceIDs, messageCount, nil
+	return builder.String(), sourceIDs, messageCount, diagnostics, nil
+}
+
+func readMessagesForAnalysis(source chat.ChatSource) ([]readers.ChatMessage, claudeProcessingDiagnostics, error) {
+	if source.Tool != chat.SourceTypeClaudeCodeSession || strings.ToLower(filepath.Ext(source.Path)) != ".jsonl" {
+		messages, err := readMessagesFromSource(source)
+		return messages, claudeProcessingDiagnostics{}, err
+	}
+
+	rawMessages, err := readers.ReadJSONL(source.Path)
+	if err != nil {
+		return nil, claudeProcessingDiagnostics{}, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
+	}
+	sanitizedMessages := readers.SanitizeClaudeMessages(rawMessages)
+	diagnostics := claudeProcessingDiagnostics{
+		TotalMessagesRead: len(rawMessages),
+		MessagesKept:      len(sanitizedMessages),
+		MessagesDropped:   len(rawMessages) - len(sanitizedMessages),
+	}
+	return sanitizedMessages, diagnostics, nil
+}
+
+func applyClaudeProcessingDiagnostics(usageStats map[string]int64, diagnostics claudeProcessingDiagnostics) {
+	if usageStats == nil || diagnostics.TotalMessagesRead == 0 {
+		return
+	}
+
+	usageStats["claude_messages_total"] += int64(diagnostics.TotalMessagesRead)
+	usageStats["claude_messages_kept"] += int64(diagnostics.MessagesKept)
+	usageStats["claude_messages_dropped"] += int64(diagnostics.MessagesDropped)
+	if diagnostics.MessagesTruncated > 0 {
+		usageStats["claude_messages_truncated"] += int64(diagnostics.MessagesTruncated)
+	}
 }
 
 func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".jsonl":
-		messages, err := readers.ReadJSONL(source.Path)
+		messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
+			SanitizeClaude: source.Tool == chat.SourceTypeClaudeCodeSession,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
 		}

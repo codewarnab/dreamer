@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -247,32 +248,46 @@ func buildAnalysisSystemMessage(workingDirectory string) string {
 		"If additional evidence is needed, use targeted read/search inspection only.\n" +
 		"Allowed actions: read/search operations, read-only shell commands, read-only MCP/custom tools (including embeddings/search), and web URL fetch/search.\n" +
 		fmt.Sprintf("Scope boundary: inspect only files under the project directory %q unless the request is an explicit web fetch.\n", workingDirectory) +
+		fmt.Sprintf("Never read files outside the project directory %q.\n", workingDirectory) +
 		"Forbidden actions: file create/edit/delete, git history rewriting, branch mutation, or any destructive command.\n" +
 		"Do not scan files aimlessly; inspect only relevant files suggested by the chat context."
 }
 
 func buildReadOnlyPermissionHandler(workingDirectory string) copilot.PermissionHandlerFunc {
+	normalizedRoot, rootErr := normalizeRootPath(workingDirectory)
+
 	return func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
 		switch request.Kind {
 		case copilot.PermissionRequestKindRead:
-			if requestPathAllowed(request.Path, workingDirectory) && requestPathsAllowed(request.PossiblePaths, workingDirectory) {
-				return permissionApproved(), nil
+			if rootErr != nil {
+				return permissionRejected(fmt.Sprintf("invalid project root %q: %v", workingDirectory, rootErr)), nil
 			}
-			return permissionRejected(), nil
+			if allowed, reason := filesystemRequestAllowed(request, normalizedRoot); allowed {
+				return permissionApproved(), nil
+			} else {
+				return permissionRejected(reason), nil
+			}
 		case copilot.PermissionRequestKindURL:
 			return permissionApproved(), nil
 		case copilot.PermissionRequestKindShell:
-			if shellRequestReadOnly(request) && requestPathsAllowed(request.PossiblePaths, workingDirectory) {
-				return permissionApproved(), nil
+			if !shellRequestReadOnly(request) {
+				return permissionRejected("shell request is not read-only"), nil
 			}
-			return permissionRejected(), nil
+			if rootErr != nil {
+				return permissionRejected(fmt.Sprintf("invalid project root %q: %v", workingDirectory, rootErr)), nil
+			}
+			if allowed, reason := filesystemRequestAllowed(request, normalizedRoot); allowed {
+				return permissionApproved(), nil
+			} else {
+				return permissionRejected(reason), nil
+			}
 		case copilot.PermissionRequestKindMcp, copilot.PermissionRequestKindCustomTool:
 			if request.ReadOnly != nil && *request.ReadOnly {
 				return permissionApproved(), nil
 			}
-			return permissionRejected(), nil
+			return permissionRejected("tool request is not read-only"), nil
 		default:
-			return permissionRejected(), nil
+			return permissionRejected(fmt.Sprintf("permission kind %q is not allowed in read-only analysis mode", request.Kind)), nil
 		}
 	}
 }
@@ -295,58 +310,119 @@ func shellRequestReadOnly(request copilot.PermissionRequest) bool {
 	return true
 }
 
-func requestPathAllowed(requestPath *string, root string) bool {
-	if requestPath == nil {
-		return true
+func filesystemRequestAllowed(request copilot.PermissionRequest, normalizedRoot string) (bool, string) {
+	if normalizedRoot == "" {
+		return true, ""
 	}
-	return pathWithinRoot(*requestPath, root)
-}
 
-func requestPathsAllowed(paths []string, root string) bool {
-	for _, path := range paths {
-		if !pathWithinRoot(path, root) {
-			return false
+	candidates := requestFilesystemCandidates(request)
+	if len(candidates) == 0 {
+		return false, "filesystem request did not include candidate paths to validate"
+	}
+
+	for _, candidate := range candidates {
+		normalizedPath, err := normalizeCandidatePath(candidate, normalizedRoot)
+		if err != nil {
+			return false, fmt.Sprintf("filesystem path %q is invalid or ambiguous: %v", candidate, err)
+		}
+		if !pathWithinRoot(normalizedPath, normalizedRoot) {
+			return false, fmt.Sprintf("filesystem path %q resolves outside project root %q", candidate, normalizedRoot)
 		}
 	}
-	return true
+	return true, ""
+}
+
+func requestFilesystemCandidates(request copilot.PermissionRequest) []string {
+	candidates := make([]string, 0, len(request.PossiblePaths)+1)
+	if request.Path != nil {
+		candidates = append(candidates, *request.Path)
+	}
+	candidates = append(candidates, request.PossiblePaths...)
+	return candidates
+}
+
+func normalizeRootPath(root string) (string, error) {
+	trimmedRoot := strings.TrimSpace(root)
+	if trimmedRoot == "" {
+		return "", nil
+	}
+	if strings.ContainsRune(trimmedRoot, '\x00') {
+		return "", fmt.Errorf("project root contains null byte")
+	}
+	absoluteRoot, err := filepath.Abs(trimmedRoot)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(absoluteRoot), nil
+}
+
+func normalizeCandidatePath(path string, normalizedRoot string) (string, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if strings.ContainsRune(trimmedPath, '\x00') {
+		return "", fmt.Errorf("path contains null byte")
+	}
+	if looksLikeNonFilesystemPath(trimmedPath) {
+		return "", fmt.Errorf("path appears to be non-filesystem")
+	}
+
+	candidatePath := trimmedPath
+	if !filepath.IsAbs(candidatePath) {
+		candidatePath = filepath.Join(normalizedRoot, candidatePath)
+	}
+
+	absolutePath, err := filepath.Abs(candidatePath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(absolutePath), nil
+}
+
+func looksLikeNonFilesystemPath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "://") || strings.HasPrefix(lower, "file:")
 }
 
 func pathWithinRoot(path string, root string) bool {
-	trimmedRoot := strings.TrimSpace(root)
-	if trimmedRoot == "" {
+	if root == "" {
 		return true
 	}
 
-	trimmedPath := strings.TrimSpace(path)
-	if trimmedPath == "" {
+	if pathsEqual(path, root) {
 		return true
 	}
 
-	absoluteRoot, err := filepath.Abs(trimmedRoot)
-	if err != nil {
-		return false
+	rootWithSeparator := root + string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		return strings.HasPrefix(strings.ToLower(path), strings.ToLower(rootWithSeparator))
 	}
-	absolutePath, err := filepath.Abs(trimmedPath)
-	if err != nil {
-		return false
-	}
+	return strings.HasPrefix(path, rootWithSeparator)
+}
 
-	cleanRoot := filepath.Clean(absoluteRoot)
-	cleanPath := filepath.Clean(absolutePath)
-	if strings.EqualFold(cleanPath, cleanRoot) {
-		return true
+func pathsEqual(path string, root string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(path, root)
 	}
-
-	rootWithSeparator := cleanRoot + string(filepath.Separator)
-	return strings.HasPrefix(strings.ToLower(cleanPath), strings.ToLower(rootWithSeparator))
+	return path == root
 }
 
 func permissionApproved() copilot.PermissionRequestResult {
 	return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindApproved}
 }
 
-func permissionRejected() copilot.PermissionRequestResult {
-	return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindRejected}
+func permissionRejected(reason string) copilot.PermissionRequestResult {
+	result := copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindRejected}
+	if trimmedReason := strings.TrimSpace(reason); trimmedReason != "" {
+		result.Rules = []any{
+			map[string]any{
+				"decision": "deny",
+				"reason":   trimmedReason,
+			},
+		}
+	}
+	return result
 }
 
 func upsertEnvVar(env []string, key string, value string) []string {

@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -211,6 +212,104 @@ func TestReadOnlyPermissionHandlerApprovesAndRejectsExpectedRequests(t *testing.
 		if result.Kind != copilot.PermissionRequestResultKindRejected {
 			t.Fatalf("permission result kind = %q, want %q for request kind %q", result.Kind, copilot.PermissionRequestResultKindRejected, request.Kind)
 		}
+		if len(result.Rules) == 0 {
+			t.Fatalf("expected rejected result to include denial reason for kind %q", request.Kind)
+		}
+	}
+}
+
+func TestReadOnlyPermissionHandlerPathScopeEnforcement(t *testing.T) {
+	handler := buildReadOnlyPermissionHandler(`C:\repo`)
+
+	testCases := []struct {
+		name         string
+		request      copilot.PermissionRequest
+		wantApproved bool
+		reasonLike   string
+	}{
+		{
+			name: "in-root allow",
+			request: copilot.PermissionRequest{
+				Kind: copilot.PermissionRequestKindRead,
+				Path: stringPointer(`C:\repo\internal\analyzer\client.go`),
+			},
+			wantApproved: true,
+		},
+		{
+			name: "project-root allow",
+			request: copilot.PermissionRequest{
+				Kind: copilot.PermissionRequestKindRead,
+				Path: stringPointer(`C:\repo`),
+			},
+			wantApproved: true,
+		},
+		{
+			name: "shell in-root allow",
+			request: copilot.PermissionRequest{
+				Kind:          copilot.PermissionRequestKindShell,
+				Commands:      []copilot.PermissionRequestShellCommand{{Identifier: "rg", ReadOnly: true}},
+				PossiblePaths: []string{`internal\analyzer\client.go`},
+			},
+			wantApproved: true,
+		},
+		{
+			name: "out-of-root deny",
+			request: copilot.PermissionRequest{
+				Kind: copilot.PermissionRequestKindRead,
+				Path: stringPointer(`C:\outside\secrets.txt`),
+			},
+			reasonLike: "outside project root",
+		},
+		{
+			name: "traversal deny",
+			request: copilot.PermissionRequest{
+				Kind: copilot.PermissionRequestKindRead,
+				Path: stringPointer(`..\outside\secrets.txt`),
+			},
+			reasonLike: "outside project root",
+		},
+		{
+			name: "shell traversal deny",
+			request: copilot.PermissionRequest{
+				Kind:          copilot.PermissionRequestKindShell,
+				Commands:      []copilot.PermissionRequestShellCommand{{Identifier: "rg", ReadOnly: true}},
+				PossiblePaths: []string{`..\outside\secrets.txt`},
+			},
+			reasonLike: "outside project root",
+		},
+		{
+			name: "ambiguous path deny",
+			request: copilot.PermissionRequest{
+				Kind: copilot.PermissionRequestKindRead,
+				Path: stringPointer(`file://C:/repo/internal/analyzer/client.go`),
+			},
+			reasonLike: "invalid or ambiguous",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result, err := handler(testCase.request, copilot.PermissionInvocation{})
+			if err != nil {
+				t.Fatalf("handler returned error: %v", err)
+			}
+			if testCase.wantApproved {
+				if result.Kind != copilot.PermissionRequestResultKindApproved {
+					t.Fatalf("permission result kind = %q, want %q", result.Kind, copilot.PermissionRequestResultKindApproved)
+				}
+				return
+			}
+			if result.Kind != copilot.PermissionRequestResultKindRejected {
+				t.Fatalf("permission result kind = %q, want %q", result.Kind, copilot.PermissionRequestResultKindRejected)
+			}
+			if len(result.Rules) == 0 {
+				t.Fatalf("expected denial reason")
+			}
+			joinedRules := strings.ToLower(fmt.Sprint(result.Rules))
+			if !strings.Contains(joinedRules, strings.ToLower(testCase.reasonLike)) {
+				t.Fatalf("denial reason %q did not contain expected text %q", joinedRules, testCase.reasonLike)
+			}
+		})
 	}
 }
 
@@ -221,6 +320,9 @@ func TestBuildSessionConfigSetsWorkingDirectoryAndPrompt(t *testing.T) {
 	}
 	if config.SystemMessage == nil || !strings.Contains(config.SystemMessage.Content, "Scope boundary") {
 		t.Fatalf("expected scope boundary prompt guidance")
+	}
+	if config.SystemMessage == nil || !strings.Contains(config.SystemMessage.Content, "Never read files outside") {
+		t.Fatalf("expected explicit out-of-root prohibition")
 	}
 	if config.OnPermissionRequest == nil {
 		t.Fatalf("OnPermissionRequest should be configured")

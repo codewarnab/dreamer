@@ -75,8 +75,12 @@ dreamer ls-chats [--project-path <dir>]
 - Returns an error when no sources are discovered.
 - Discovers sources from:
   - `~/.copilot/session-state/**/*.jsonl`
+  - `~/.codex/sessions/**/*.jsonl` (active Codex sessions)
+  - `~/.codex/archived_sessions/**/*.jsonl` (archived Codex sessions)
   - `%APPDATA%\\Code\\User\\workspaceStorage\\*\\chatSessions\\*.{json,jsonl}`
   - `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl` when set)
   - `~/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}` (or `$GEMINI_HOME/antigravity/...` when set)
   - `<project>/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}`
+- Codex rows are emitted with `TOOL=codex-session-jsonl`.
+- Codex files are included only when `session_meta.payload.cwd` (including `{"type":"session_meta","payload":...}` variants) resolves inside `--project-path`.
 

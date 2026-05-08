@@ -1,8 +1,11 @@
 package chat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +18,7 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	geminiHomeDir := t.TempDir()
 
 	copilotFile := filepath.Join(homeDir, ".copilot", "session-state", "a", "b", "session.jsonl")
+	codexFile := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "codex-session.jsonl")
 	vscodeJSON := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-1", "chatSessions", "alpha", "chat.json")
 	vscodeJSONL := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-1", "chatSessions", "beta", "chat.jsonl")
 	claudeJSONL := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
@@ -23,20 +27,23 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	ignoredFile := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-1", "chatSessions", "ignore.txt")
 
 	writeFixtureFile(t, copilotFile, "copilot")
+	writeFixtureFile(t, codexFile, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(projectDir, "src")))
 	writeFixtureFile(t, vscodeJSON, "{}")
 	writeFixtureFile(t, vscodeJSONL, "{}")
-	writeFixtureFile(t, claudeJSONL, "{}")
+	writeFixtureFile(t, claudeJSONL, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "src")))
 	writeFixtureFile(t, antigravityGlobalPB, "binary")
 	writeFixtureFile(t, antigravityProjectPB, "binary")
 	writeFixtureFile(t, ignoredFile, "ignored")
 
 	copilotTime := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	codexTime := time.Now().UTC().Add(-150 * time.Minute).Truncate(time.Second)
 	vscodeJSONTime := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 	vscodeJSONLTime := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
 	claudeJSONLTime := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
 	antigravityGlobalTime := time.Now().UTC().Add(-20 * time.Minute).Truncate(time.Second)
 	antigravityProjectTime := time.Now().UTC().Truncate(time.Second)
 	setModTime(t, copilotFile, copilotTime)
+	setModTime(t, codexFile, codexTime)
 	setModTime(t, vscodeJSON, vscodeJSONTime)
 	setModTime(t, vscodeJSONL, vscodeJSONLTime)
 	setModTime(t, claudeJSONL, claudeJSONLTime)
@@ -47,8 +54,8 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverChatsFromRoots returned error: %v", err)
 	}
-	if len(sources) != 6 {
-		t.Fatalf("expected 6 sources, got %d", len(sources))
+	if len(sources) != 7 {
+		t.Fatalf("expected 7 sources, got %d", len(sources))
 	}
 
 	byPath := make(map[string]ChatSource, len(sources))
@@ -57,6 +64,7 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	}
 
 	assertSource(t, byPath, copilotFile, SourceTypeCopilotSessionJSONL, copilotTime)
+	assertSource(t, byPath, codexFile, SourceTypeCodexSessionJSONL, codexTime)
 	assertSource(t, byPath, vscodeJSON, SourceTypeVSCodeChatSession, vscodeJSONTime)
 	assertSource(t, byPath, vscodeJSONL, SourceTypeVSCodeChatSession, vscodeJSONLTime)
 	assertSource(t, byPath, claudeJSONL, SourceTypeClaudeCodeSession, claudeJSONLTime)
@@ -84,25 +92,107 @@ func TestDiscoverChatsReadsDefaultRoots(t *testing.T) {
 	homeDir := t.TempDir()
 	appDataDir := t.TempDir()
 	geminiHomeDir := t.TempDir()
+	projectDir := t.TempDir()
 	setTestHome(t, homeDir)
 	t.Setenv("APPDATA", appDataDir)
 	t.Setenv("GEMINI_HOME", geminiHomeDir)
 
 	copilotFile := filepath.Join(homeDir, ".copilot", "session-state", "chat.jsonl")
+	codexFile := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "chat.jsonl")
 	vscodeFile := filepath.Join(appDataDir, "Code", "User", "workspaceStorage", "workspace-2", "chatSessions", "chat.json")
 	claudeFile := filepath.Join(homeDir, ".claude", "projects", "project-1", "chat.jsonl")
 	antigravityFile := filepath.Join(geminiHomeDir, "antigravity", "conversations", "chat.pb")
 	writeFixtureFile(t, copilotFile, "copilot")
+	writeFixtureFile(t, codexFile, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(projectDir, "workspace")))
 	writeFixtureFile(t, vscodeFile, "{}")
-	writeFixtureFile(t, claudeFile, "{}")
+	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "workspace")))
 	writeFixtureFile(t, antigravityFile, "binary")
 
-	sources, err := DiscoverChats("unused-project-path")
+	sources, err := DiscoverChats(projectDir)
 	if err != nil {
 		t.Fatalf("DiscoverChats returned error: %v", err)
 	}
-	if len(sources) != 4 {
-		t.Fatalf("expected 4 sources, got %d", len(sources))
+	if len(sources) != 5 {
+		t.Fatalf("expected 5 sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverCodexSessionsIncludesArchivedSessions(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	activeSession := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "active.jsonl")
+	archivedSession := filepath.Join(homeDir, ".codex", "archived_sessions", "archived.jsonl")
+	writeFixtureFile(t, activeSession, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(projectDir, "active")))
+	writeFixtureFile(t, archivedSession, fmt.Sprintf(`{"type":"session_meta","payload":{"cwd":%q}}`, filepath.Join(projectDir, "archived")))
+
+	activeTime := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	archivedTime := time.Now().UTC().Truncate(time.Second)
+	setModTime(t, activeSession, activeTime)
+	setModTime(t, archivedSession, archivedTime)
+
+	sources, err := discoverCodexSessions(homeDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverCodexSessions returned error: %v", err)
+	}
+	if len(sources) != 2 {
+		t.Fatalf("expected 2 Codex sources, got %d", len(sources))
+	}
+
+	byPath := make(map[string]ChatSource, len(sources))
+	for _, source := range sources {
+		byPath[source.Path] = source
+	}
+	assertSource(t, byPath, activeSession, SourceTypeCodexSessionJSONL, activeTime)
+	assertSource(t, byPath, archivedSession, SourceTypeCodexSessionJSONL, archivedTime)
+}
+
+func TestDiscoverCodexSessionsExcludesOutsideProjectAndMissingMetadata(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	otherProjectDir := t.TempDir()
+
+	inProject := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "in-project.jsonl")
+	outOfProject := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "out-of-project.jsonl")
+	missingMetadata := filepath.Join(homeDir, ".codex", "archived_sessions", "missing-metadata.jsonl")
+
+	writeFixtureFile(t, inProject, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(projectDir, "workspace")))
+	writeFixtureFile(t, outOfProject, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, filepath.Join(otherProjectDir, "workspace")))
+	writeFixtureFile(t, missingMetadata, `{"type":"assistant","message":"no session metadata"}`)
+
+	sources, err := discoverCodexSessions(homeDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverCodexSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Codex source, got %d", len(sources))
+	}
+	if got := sources[0].Path; got != inProject {
+		t.Fatalf("source path = %q, want %q", got, inProject)
+	}
+}
+
+func TestDiscoverCodexSessionsWindowsCaseContainment(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-specific containment test")
+	}
+
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	codexFile := filepath.Join(homeDir, ".codex", "sessions", "2026", "05", "session.jsonl")
+	cwdWithForwardSlashes := strings.ReplaceAll(filepath.Join(projectDir, "Nested", "Repo"), `\`, "/")
+	writeFixtureFile(t, codexFile, fmt.Sprintf(`{"session_meta":{"payload":{"cwd":%q}}}`, cwdWithForwardSlashes))
+
+	projectPathWithDifferentCase := strings.ToUpper(projectDir)
+	if projectPathWithDifferentCase == projectDir {
+		projectPathWithDifferentCase = strings.ToLower(projectDir)
+	}
+
+	sources, err := discoverCodexSessions(homeDir, projectPathWithDifferentCase)
+	if err != nil {
+		t.Fatalf("discoverCodexSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Codex source, got %d", len(sources))
 	}
 }
 
@@ -111,6 +201,7 @@ func TestDiscoverChatsUsesClaudeConfigDirWhenSet(t *testing.T) {
 	appDataDir := t.TempDir()
 	claudeConfigDir := t.TempDir()
 	geminiHomeDir := t.TempDir()
+	projectDir := t.TempDir()
 	setTestHome(t, homeDir)
 	t.Setenv("APPDATA", appDataDir)
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
@@ -118,10 +209,10 @@ func TestDiscoverChatsUsesClaudeConfigDirWhenSet(t *testing.T) {
 
 	claudeFile := filepath.Join(claudeConfigDir, "projects", "project-override", "session.jsonl")
 	antigravityFile := filepath.Join(geminiHomeDir, "antigravity", "conversations", "session.pb")
-	writeFixtureFile(t, claudeFile, "{}")
+	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "repo")))
 	writeFixtureFile(t, antigravityFile, "binary")
 
-	sources, err := DiscoverChats("unused-project-path")
+	sources, err := DiscoverChats(projectDir)
 	if err != nil {
 		t.Fatalf("DiscoverChats returned error: %v", err)
 	}
@@ -145,6 +236,120 @@ func TestDiscoverChatsUsesClaudeConfigDirWhenSet(t *testing.T) {
 	}
 	if antigravitySource.Tool != SourceTypeAntigravityGemini {
 		t.Fatalf("tool for %q = %q, want %q", antigravityFile, antigravitySource.Tool, SourceTypeAntigravityGemini)
+	}
+}
+
+func TestDiscoverClaudeCodeSessionsIncludesInProjectRoot(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	projectDir := t.TempDir()
+	claudeFile := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
+	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "nested", "repo")))
+
+	sources, err := discoverClaudeCodeSessions(t.TempDir(), claudeConfigDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverClaudeCodeSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Claude source, got %d", len(sources))
+	}
+	if sources[0].Path != claudeFile {
+		t.Fatalf("source path = %q, want %q", sources[0].Path, claudeFile)
+	}
+}
+
+func TestDiscoverClaudeCodeSessionsExcludesOutOfProjectRoot(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	projectDir := t.TempDir()
+	otherProjectDir := t.TempDir()
+	claudeFile := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
+	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(otherProjectDir, "nested", "repo")))
+
+	sources, err := discoverClaudeCodeSessions(t.TempDir(), claudeConfigDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverClaudeCodeSessions returned error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("expected no Claude sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverClaudeCodeSessionsExcludesMissingCWDEvidence(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	projectDir := t.TempDir()
+	claudeFile := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
+	writeFixtureFile(t, claudeFile, `{"type":"assistant","message":"no cwd metadata"}`)
+
+	sources, err := discoverClaudeCodeSessions(t.TempDir(), claudeConfigDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverClaudeCodeSessions returned error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Fatalf("expected no Claude sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverClaudeCodeSessionsWindowsCaseContainment(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-specific containment test")
+	}
+
+	claudeConfigDir := t.TempDir()
+	projectDir := t.TempDir()
+	claudeFile := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
+	cwdWithForwardSlashes := strings.ReplaceAll(filepath.Join(projectDir, "Nested", "Repo"), `\`, "/")
+	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, cwdWithForwardSlashes))
+
+	projectPathWithDifferentCase := strings.ToUpper(projectDir)
+	if projectPathWithDifferentCase == projectDir {
+		projectPathWithDifferentCase = strings.ToLower(projectDir)
+	}
+
+	sources, err := discoverClaudeCodeSessions(t.TempDir(), claudeConfigDir, projectPathWithDifferentCase)
+	if err != nil {
+		t.Fatalf("discoverClaudeCodeSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Claude source, got %d", len(sources))
+	}
+}
+
+func TestDiscoverChatsFromRootsIsolatesClaudeSessionsPerProject(t *testing.T) {
+	homeDir := t.TempDir()
+	appDataDir := t.TempDir()
+	claudeConfigDir := t.TempDir()
+	geminiHomeDir := t.TempDir()
+	projectADir := filepath.Join(t.TempDir(), "project-a")
+	projectBDir := filepath.Join(t.TempDir(), "project-b")
+
+	claudeA := filepath.Join(claudeConfigDir, "projects", "alpha", "session.jsonl")
+	claudeB := filepath.Join(claudeConfigDir, "projects", "beta", "session.jsonl")
+	writeFixtureFile(t, claudeA, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectADir, "workspace")))
+	writeFixtureFile(t, claudeB, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectBDir, "workspace")))
+
+	overlapping := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
+	setModTime(t, claudeA, overlapping)
+	setModTime(t, claudeB, overlapping)
+
+	sourcesA, err := discoverChatsFromRoots(homeDir, appDataDir, claudeConfigDir, projectADir, geminiHomeDir)
+	if err != nil {
+		t.Fatalf("discoverChatsFromRoots for project A returned error: %v", err)
+	}
+	if len(sourcesA) != 1 {
+		t.Fatalf("expected 1 source for project A, got %d", len(sourcesA))
+	}
+	if got := sourcesA[0].Path; got != claudeA {
+		t.Fatalf("project A source path = %q, want %q", got, claudeA)
+	}
+
+	sourcesB, err := discoverChatsFromRoots(homeDir, appDataDir, claudeConfigDir, projectBDir, geminiHomeDir)
+	if err != nil {
+		t.Fatalf("discoverChatsFromRoots for project B returned error: %v", err)
+	}
+	if len(sourcesB) != 1 {
+		t.Fatalf("expected 1 source for project B, got %d", len(sourcesB))
+	}
+	if got := sourcesB[0].Path; got != claudeB {
+		t.Fatalf("project B source path = %q, want %q", got, claudeB)
 	}
 }
 
