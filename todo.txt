@@ -1,0 +1,2 @@
+add a option for returning null when nothing relevent 
+implement logging 
