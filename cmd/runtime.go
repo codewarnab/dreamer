@@ -171,20 +171,11 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 		_ = client.Close()
 	}()
 
-	session, err := client.NewSession(ctx)
-	if err != nil {
-		logger.Error("create analyzer session failed project=%q error=%v", project.Name, err)
-		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
-	}
-	defer func() {
-		_ = session.Close()
-	}()
-
 	orchestrator := analyzer.NewOrchestrator(mergeRuleOverrides(cfg))
 	result := analyzeResult{}
 	var lastErr error
 	for _, source := range sourcesToAnalyze {
-		sourceResult, err := analyzeSource(ctx, cfg, project.Name, source, logger, currentState, orchestrator, session)
+		sourceResult, err := analyzeSource(ctx, cfg, project, source, logger, currentState, orchestrator, client)
 		if err != nil {
 			logger.Error("chat source analysis failed project=%q source=%q error=%v", project.Name, source.Path, err)
 			lastErr = err
@@ -205,26 +196,34 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 	return result, nil
 }
 
-func analyzeSource(ctx context.Context, cfg *config.Config, projectName string, source chat.ChatSource, logger *logging.Logger, currentState *state.State, orchestrator *analyzer.Orchestrator, session analyzer.Session) (analyzeResult, error) {
+func analyzeSource(ctx context.Context, cfg *config.Config, project config.ProjectConfig, source chat.ChatSource, logger *logging.Logger, currentState *state.State, orchestrator *analyzer.Orchestrator, client analyzer.Client) (analyzeResult, error) {
 	analysisInput, analyzedSourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{source})
 	if err != nil {
 		return analyzeResult{}, fmt.Errorf("build analysis input for source %q: %w", source.Path, err)
 	}
-	logger.Info("analysis input built project=%q source=%q messages=%d", projectName, source.Path, messageCount)
+	logger.Info("analysis input built project=%q source=%q messages=%d", project.Name, source.Path, messageCount)
+
+	session, err := client.NewSession(ctx)
+	if err != nil {
+		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
+	}
+	defer func() {
+		_ = session.Close()
+	}()
 
 	response, err := orchestrator.Analyze(ctx, session, analysisInput)
 	if err != nil {
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
-	logger.Info("analyzer response received project=%q source=%q findings=%d", projectName, source.Path, len(response.Findings))
+	logger.Info("analyzer response received project=%q source=%q findings=%d", project.Name, source.Path, len(response.Findings))
 
-	generateResult, err := output.GenerateTodos(projectName, response.Findings, output.GenerateOptions{
+	generateResult, err := output.GenerateTodos(project.Name, response.Findings, output.GenerateOptions{
 		OutputRoot: cfg.Daemon.OutputRoot,
 	})
 	if err != nil {
-		return analyzeResult{}, fmt.Errorf("generate todos for project %q source %q: %w", projectName, source.Path, err)
+		return analyzeResult{}, fmt.Errorf("generate todos for project %q source %q: %w", project.Name, source.Path, err)
 	}
-	logger.Info("todos generated project=%q source=%q added=%d path=%q", projectName, source.Path, generateResult.AddedFindings, generateResult.Path)
+	logger.Info("todos generated project=%q source=%q added=%d path=%q", project.Name, source.Path, generateResult.AddedFindings, generateResult.Path)
 
 	currentState.LastRun = time.Now().UTC()
 	currentState.AnalyzedChatIDs = mergeAnalyzedIDs(currentState.AnalyzedChatIDs, analyzedSourceIDs)
@@ -235,8 +234,8 @@ func analyzeSource(ctx context.Context, cfg *config.Config, projectName string, 
 	currentState.UsageStats["todos_added"] += int64(generateResult.AddedFindings)
 	applyClaudeProcessingDiagnostics(currentState.UsageStats, diagnostics)
 
-	if err := state.SaveState(projectName, currentState); err != nil {
-		return analyzeResult{}, fmt.Errorf("save state for project %q: %w", projectName, err)
+	if err := state.SaveState(project.Name, currentState); err != nil {
+		return analyzeResult{}, fmt.Errorf("save state for project %q: %w", project.Name, err)
 	}
 
 	return analyzeResult{
