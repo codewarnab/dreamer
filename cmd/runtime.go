@@ -367,6 +367,32 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 		return messages, nil
 	}
 
+	if source.Tool == chat.SourceTypeGeminiCLISession {
+		messages, err := readers.ReadGeminiCLI(source.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read gemini cli chat source %q: %w", source.Path, err)
+		}
+		return messages, nil
+	}
+
+	if source.Tool == chat.SourceTypeOpenCodeSession {
+		dbPath, sessionID := chat.SplitSQLiteSourcePath(source.Path)
+		messages, err := readers.ReadOpenCodeMessages(dbPath, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("read opencode chat source %q: %w", source.Path, err)
+		}
+		return messages, nil
+	}
+
+	if source.Tool == chat.SourceTypeKiroCLISession {
+		dbPath, conversationID := chat.SplitSQLiteSourcePath(source.Path)
+		messages, err := readers.ReadKiroConversation(dbPath, conversationID)
+		if err != nil {
+			return nil, fmt.Errorf("read kiro cli chat source %q: %w", source.Path, err)
+		}
+		return messages, nil
+	}
+
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".jsonl":
 		if source.Tool == chat.SourceTypeVSCodeChatSession {

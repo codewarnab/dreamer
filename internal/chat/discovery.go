@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -11,7 +12,33 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"dreamer/internal/chat/readers"
 )
+
+// sqliteReaderAvailable reports whether the discovery layer should attempt to
+// open a SQLite-backed chat source. When the caller provided a custom Open
+// hook or a non-default driver name, discovery trusts them. Otherwise it
+// requires the default sqlite3 driver to be registered in the process — this
+// keeps discovery silent in builds that have not linked a sqlite driver.
+func sqliteReaderAvailable(driverName string, openHook func(string, string) (*sql.DB, error)) bool {
+	if openHook != nil {
+		return true
+	}
+	if trimmed := strings.TrimSpace(driverName); trimmed != "" && trimmed != defaultSQLiteDriverName {
+		return true
+	}
+	for _, name := range sql.Drivers() {
+		if name == defaultSQLiteDriverName {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultSQLiteDriverName mirrors the value from readers.SQLiteReader so the
+// availability check stays in one place. Kept private to the package.
+const defaultSQLiteDriverName = "sqlite"
 
 type SourceType string
 
@@ -21,7 +48,27 @@ const (
 	SourceTypeVSCodeChatSession   SourceType = "vscode-chat-session"
 	SourceTypeClaudeCodeSession   SourceType = "claude-code-session-jsonl"
 	SourceTypeAntigravityGemini   SourceType = "antigravity-gemini-session"
+	SourceTypeGeminiCLISession    SourceType = "gemini-cli-session-jsonl"
+	SourceTypeOpenCodeSession     SourceType = "opencode-session-sqlite"
+	SourceTypeKiroCLISession      SourceType = "kiro-cli-session-sqlite"
 )
+
+// sqliteSourcePathSeparator separates the database file path from the
+// session/conversation identifier when a ChatSource refers to a single row
+// inside a shared SQLite database (opencode, kiro-cli). Discovery encodes
+// `<dbPath>#<sessionID>`; the runtime reader splits on this separator.
+const sqliteSourcePathSeparator = "#"
+
+// SplitSQLiteSourcePath returns (dbPath, sessionID) for a ChatSource path that
+// was produced by SQLite-backed discovery. When the path has no separator the
+// raw path is returned with an empty session id.
+func SplitSQLiteSourcePath(path string) (string, string) {
+	index := strings.LastIndex(path, sqliteSourcePathSeparator)
+	if index < 0 {
+		return path, ""
+	}
+	return path[:index], path[index+1:]
+}
 
 const (
 	claudeProbeLineLimit         = 200
@@ -49,6 +96,21 @@ type ChatSource struct {
 	ModifiedTime time.Time
 }
 
+// DiscoveryEnvironment captures the OS-derived inputs that drive chat source
+// discovery. Tests build this manually; DiscoverChats resolves it from the
+// process environment.
+type DiscoveryEnvironment struct {
+	HomeDir         string
+	AppDataDir      string
+	DataHomeDir     string
+	ClaudeConfigDir string
+	GeminiHomeDir   string
+	OpenCodeDBPath  string
+	KiroCLIDBPath   string
+	OpenCodeReader  readers.OpenCodeReader
+	KiroReader      readers.KiroReader
+}
+
 func DiscoverChats(projectPath string) ([]ChatSource, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -60,13 +122,39 @@ func DiscoverChats(projectPath string) ([]ChatSource, error) {
 		appDataDir = filepath.Join(homeDir, "AppData", "Roaming")
 	}
 
-	claudeConfigDir := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
-	geminiHomeDir := strings.TrimSpace(os.Getenv("GEMINI_HOME"))
+	dataHomeDir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	if dataHomeDir == "" {
+		dataHomeDir = filepath.Join(homeDir, ".local", "share")
+	}
 
-	return discoverChatsFromRoots(homeDir, appDataDir, claudeConfigDir, projectPath, geminiHomeDir)
+	environment := DiscoveryEnvironment{
+		HomeDir:         homeDir,
+		AppDataDir:      appDataDir,
+		DataHomeDir:     dataHomeDir,
+		ClaudeConfigDir: strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")),
+		GeminiHomeDir:   strings.TrimSpace(os.Getenv("GEMINI_HOME")),
+		OpenCodeDBPath:  strings.TrimSpace(os.Getenv("OPENCODE_DB")),
+		KiroCLIDBPath:   strings.TrimSpace(os.Getenv("KIRO_CLI_DB")),
+	}
+
+	return discoverChatsFromEnvironment(environment, projectPath)
 }
 
 func discoverChatsFromRoots(homeDir string, appDataDir string, claudeConfigDir string, projectPath string, geminiHomeDir string) ([]ChatSource, error) {
+	return discoverChatsFromEnvironment(DiscoveryEnvironment{
+		HomeDir:         homeDir,
+		AppDataDir:      appDataDir,
+		DataHomeDir:     filepath.Join(strings.TrimSpace(homeDir), ".local", "share"),
+		ClaudeConfigDir: claudeConfigDir,
+		GeminiHomeDir:   geminiHomeDir,
+	}, projectPath)
+}
+
+func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+	homeDir := environment.HomeDir
+	appDataDir := environment.AppDataDir
+	claudeConfigDir := environment.ClaudeConfigDir
+	geminiHomeDir := environment.GeminiHomeDir
 	copilotSources, err := discoverCopilotSessionState(homeDir)
 	if err != nil {
 		return nil, err
@@ -92,10 +180,28 @@ func discoverChatsFromRoots(homeDir string, appDataDir string, claudeConfigDir s
 		return nil, err
 	}
 
+	geminiCLISources, err := discoverGeminiCLISessions(homeDir, geminiHomeDir, projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	openCodeSources, err := discoverOpenCodeSessions(environment, projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	kiroCLISources, err := discoverKiroCLISessions(environment, projectPath)
+	if err != nil {
+		return nil, err
+	}
+
 	combined := append(copilotSources, codexSources...)
 	combined = append(combined, vscodeSources...)
 	combined = append(combined, claudeSources...)
 	combined = append(combined, antigravitySources...)
+	combined = append(combined, geminiCLISources...)
+	combined = append(combined, openCodeSources...)
+	combined = append(combined, kiroCLISources...)
 	sort.Slice(combined, func(i int, j int) bool {
 		left := combined[i]
 		right := combined[j]
@@ -782,4 +888,168 @@ func normalizeDiscoveryPathForComparison(path string) string {
 		return strings.ToLower(cleanPath)
 	}
 	return cleanPath
+}
+
+func discoverGeminiCLISessions(homeDir string, geminiHomeDir string, projectPath string) ([]ChatSource, error) {
+	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
+	if !ok {
+		return nil, nil
+	}
+
+	geminiRoot := strings.TrimSpace(geminiHomeDir)
+	if geminiRoot == "" {
+		geminiRoot = filepath.Join(strings.TrimSpace(homeDir), ".gemini")
+	}
+
+	root := filepath.Join(geminiRoot, "tmp")
+	candidates, err := walkChatFiles(root, SourceTypeGeminiCLISession, map[string]struct{}{
+		".jsonl": {},
+		".json":  {},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	discovered := make([]ChatSource, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !strings.Contains(candidate.Path, string(filepath.Separator)+"chats"+string(filepath.Separator)) {
+			continue
+		}
+		candidateCWD, ok := probeGeminiCLISessionCWD(candidate.Path, claudeProbeLineLimit)
+		if !ok {
+			continue
+		}
+		normalizedCandidateCWD, ok := normalizeDiscoveryEvidencePath(candidateCWD)
+		if !ok {
+			continue
+		}
+		if pathWithinNormalizedRoot(normalizedCandidateCWD, normalizedProjectPath) {
+			discovered = append(discovered, candidate)
+		}
+	}
+	return discovered, nil
+}
+
+func probeGeminiCLISessionCWD(sessionPath string, maxLines int) (string, bool) {
+	file, err := os.Open(sessionPath)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, claudeProbeInitialBufferSize), claudeProbeMaxBufferSize)
+
+	linesRead := 0
+	for scanner.Scan() {
+		linesRead++
+		if maxLines > 0 && linesRead > maxLines {
+			break
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			continue
+		}
+		if directories, ok := record["directories"].([]any); ok {
+			for _, value := range directories {
+				if path := extractPathValue(value, 0); path != "" {
+					return path, true
+				}
+			}
+		}
+		if path := extractClaudeCWDEvidence(record, 0); path != "" {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func discoverOpenCodeSessions(environment DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
+	if !ok {
+		return nil, nil
+	}
+	if !sqliteReaderAvailable(environment.OpenCodeReader.DriverName, environment.OpenCodeReader.Open) {
+		return nil, nil
+	}
+
+	dbPath := strings.TrimSpace(environment.OpenCodeDBPath)
+	if dbPath == "" {
+		dbPath = filepath.Join(strings.TrimSpace(environment.DataHomeDir), "opencode", "opencode.db")
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("stat opencode database %q: %w", dbPath, err)
+	}
+
+	sessions, err := environment.OpenCodeReader.ListSessions(dbPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("list opencode sessions: %w", err)
+	}
+
+	discovered := make([]ChatSource, 0, len(sessions))
+	for _, session := range sessions {
+		normalizedDir, ok := normalizeDiscoveryEvidencePath(session.Directory)
+		if !ok {
+			continue
+		}
+		if !pathWithinNormalizedRoot(normalizedDir, normalizedProjectPath) {
+			continue
+		}
+		discovered = append(discovered, ChatSource{
+			Path:         dbPath + sqliteSourcePathSeparator + session.ID,
+			Tool:         SourceTypeOpenCodeSession,
+			ModifiedTime: session.ModifiedTime,
+		})
+	}
+	return discovered, nil
+}
+
+func discoverKiroCLISessions(environment DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
+	if !ok {
+		return nil, nil
+	}
+	if !sqliteReaderAvailable(environment.KiroReader.DriverName, environment.KiroReader.Open) {
+		return nil, nil
+	}
+
+	dbPath := strings.TrimSpace(environment.KiroCLIDBPath)
+	if dbPath == "" {
+		dbPath = filepath.Join(strings.TrimSpace(environment.DataHomeDir), "kiro-cli", "data.sqlite3")
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("stat kiro database %q: %w", dbPath, err)
+	}
+
+	conversations, err := environment.KiroReader.ListConversations(dbPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("list kiro conversations: %w", err)
+	}
+
+	discovered := make([]ChatSource, 0, len(conversations))
+	for _, conversation := range conversations {
+		normalizedDir, ok := normalizeDiscoveryEvidencePath(conversation.Directory)
+		if !ok {
+			continue
+		}
+		if !pathWithinNormalizedRoot(normalizedDir, normalizedProjectPath) {
+			continue
+		}
+		discovered = append(discovered, ChatSource{
+			Path:         dbPath + sqliteSourcePathSeparator + conversation.ConversationID,
+			Tool:         SourceTypeKiroCLISession,
+			ModifiedTime: conversation.ModifiedTime,
+		})
+	}
+	return discovered, nil
 }

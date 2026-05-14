@@ -512,4 +512,7 @@ func setTestHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("OPENCODE_DB", "")
+	t.Setenv("KIRO_CLI_DB", "")
 }
