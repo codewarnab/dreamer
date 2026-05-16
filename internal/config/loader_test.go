@@ -45,12 +45,6 @@ func TestLoadConfigAppliesDefaults(t *testing.T) {
 	if cfg.Analyzer.Rules == nil {
 		t.Fatalf("Analyzer.Rules should not be nil")
 	}
-	if cfg.Analyzer.UseLoggedInUser == nil || !*cfg.Analyzer.UseLoggedInUser {
-		t.Fatalf("Analyzer.UseLoggedInUser should default to true")
-	}
-	if cfg.Analyzer.AutoStart == nil || *cfg.Analyzer.AutoStart {
-		t.Fatalf("Analyzer.AutoStart should default to false")
-	}
 }
 
 func TestLoadConfigRejectsEmptyProjectName(t *testing.T) {

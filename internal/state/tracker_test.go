@@ -13,12 +13,12 @@ func TestLoadStateReturnsDefaultWhenMissing(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
 
-	current, err := LoadState("project-a")
+	current, err := Load("", "project-a")
 	if err != nil {
-		t.Fatalf("LoadState returned error: %v", err)
+		t.Fatalf("Load returned error: %v", err)
 	}
 	if current == nil {
-		t.Fatalf("LoadState returned nil state")
+		t.Fatalf("Load returned nil state")
 	}
 	if len(current.ChatHashes) != 0 {
 		t.Fatalf("ChatHashes should be empty, got %v", current.ChatHashes)
@@ -50,13 +50,13 @@ func TestSaveAndLoadStateRoundTrip(t *testing.T) {
 		UsageStats: map[string]int64{"tokens_prompt": 1000},
 	}
 
-	if err := SaveState("project-a", initial); err != nil {
-		t.Fatalf("SaveState returned error: %v", err)
+	if err := Save("", "project-a", initial); err != nil {
+		t.Fatalf("Save returned error: %v", err)
 	}
 
-	loaded, err := LoadState("project-a")
+	loaded, err := Load("", "project-a")
 	if err != nil {
-		t.Fatalf("LoadState returned error: %v", err)
+		t.Fatalf("Load returned error: %v", err)
 	}
 
 	if !loaded.LastRunUTC.Equal(lastRun) {
@@ -91,9 +91,9 @@ func TestLoadStateInvalidJSONReturnsError(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	_, err = LoadState("project-a")
+	_, err = Load("", "project-a")
 	if err == nil {
-		t.Fatalf("LoadState expected JSON error")
+		t.Fatalf("Load expected JSON error")
 	}
 }
 
@@ -101,9 +101,9 @@ func TestSaveStateRejectsInvalidProjectName(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
 
-	err := SaveState("bad/name", &State{})
+	err := Save("", "bad/name", &State{})
 	if err == nil {
-		t.Fatalf("SaveState expected invalid project name error")
+		t.Fatalf("Save expected invalid project name error")
 	}
 	if !strings.Contains(err.Error(), "invalid path separator") {
 		t.Fatalf("error = %q, want invalid path separator", err)

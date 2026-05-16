@@ -114,17 +114,6 @@ func Save(outputRoot, projectName string, state *State) error {
 	return nil
 }
 
-// LoadState is a legacy wrapper kept for the existing daemon/analyze loop;
-// it loads from the default output root.
-func LoadState(projectName string) (*State, error) {
-	return Load("", projectName)
-}
-
-// SaveState is a legacy wrapper kept for the existing daemon/analyze loop.
-func SaveState(projectName string, state *State) error {
-	return Save("", projectName, state)
-}
-
 func defaultState() *State {
 	return &State{
 		Version:       StateVersion,

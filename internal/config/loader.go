@@ -71,16 +71,10 @@ type ProviderBlock struct {
 	MaxInputTokens  int               `yaml:"max_input_tokens,omitempty" json:"max_input_tokens,omitempty"`
 }
 
-// AnalyzerConfig is the legacy analyzer block. Retained for backwards-compat
-// with `~/.dreamer/config.yaml` written by older versions; the v1 spec
-// promotes these fields under `providers.copilot-sdk`. Fields here become
-// fallbacks when no providers.copilot-sdk block is present.
+// AnalyzerConfig configures analyzer-wide knobs that are not provider-specific:
+// the default per-rule timeout and per-category enable toggles. Provider
+// settings (model, auth, cli url, …) live under `providers:` instead.
 type AnalyzerConfig struct {
-	Model              string                `yaml:"model,omitempty" json:"model,omitempty"`
-	CopilotHome        string                `yaml:"copilot_home,omitempty" json:"copilot_home,omitempty"`
-	CLIURL             string                `yaml:"cli_url,omitempty" json:"cli_url,omitempty"`
-	UseLoggedInUser    *bool                 `yaml:"use_logged_in_user,omitempty" json:"use_logged_in_user,omitempty"`
-	AutoStart          *bool                 `yaml:"auto_start,omitempty" json:"auto_start,omitempty"`
 	RuleTimeoutSeconds int                   `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
 	Rules              map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
 }
@@ -189,17 +183,6 @@ func applyDefaults(cfg *Config) error {
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]ProviderBlock{}
 	}
-	if strings.TrimSpace(cfg.Analyzer.Model) == "" {
-		cfg.Analyzer.Model = "gpt-5.3-codex"
-	}
-	if cfg.Analyzer.UseLoggedInUser == nil {
-		t := true
-		cfg.Analyzer.UseLoggedInUser = &t
-	}
-	if cfg.Analyzer.AutoStart == nil {
-		f := false
-		cfg.Analyzer.AutoStart = &f
-	}
 	if cfg.Analyzer.Rules == nil {
 		cfg.Analyzer.Rules = map[string]RuleConfig{}
 	}
@@ -275,18 +258,6 @@ func (cfg *Config) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProv
 		if override, ok := projectFile.Providers[id]; ok {
 			block = mergeProviderBlocks(block, override)
 		}
-	}
-
-	// Backfill legacy analyzer block onto copilot-sdk when no explicit block is provided.
-	if id == DefaultProviderID {
-		legacy := ProviderBlock{
-			Model:           cfg.Analyzer.Model,
-			CopilotHome:     cfg.Analyzer.CopilotHome,
-			CLIURL:          cfg.Analyzer.CLIURL,
-			UseLoggedInUser: cfg.Analyzer.UseLoggedInUser,
-			AutoStart:       cfg.Analyzer.AutoStart,
-		}
-		block = mergeProviderBlocks(legacy, block)
 	}
 	return id, block
 }
