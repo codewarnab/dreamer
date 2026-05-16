@@ -117,7 +117,7 @@ func TestRunWritesWarningsWhenAnalyzerParseFails(t *testing.T) {
 
 	todos := readFileString(t, result.TodosPath)
 	assertContains(t, todos, "## Warnings")
-	assertContains(t, todos, "response parse failed")
+	assertContains(t, todos, "parse failed")
 }
 
 func TestRunReturnsCacheHitWhenSourcesAndRepoAreUnchanged(t *testing.T) {

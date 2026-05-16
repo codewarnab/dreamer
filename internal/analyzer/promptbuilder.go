@@ -35,24 +35,30 @@ func (b *PromptBuilder) EnabledCategories() []RuleCategory {
 	return out
 }
 
+// writeGroundingPreamble writes the project-root + toolchain block shared by
+// phase-1 and phase-2 prompts. Empty fields are skipped.
+func writeGroundingPreamble(sb *strings.Builder, req PhaseRequest) {
+	if s := strings.TrimSpace(req.ProjectRoot); s != "" {
+		fmt.Fprintf(sb, "Project root: %s\n", s)
+	}
+	if s := strings.TrimSpace(req.ToolchainSummary); s != "" {
+		fmt.Fprintf(sb, "Toolchain: %s\n", s)
+	}
+	if s := strings.TrimSpace(req.PrimaryLinter); s != "" {
+		fmt.Fprintf(sb, "Primary linter: %s\n", s)
+	}
+	if s := strings.TrimSpace(req.TestFramework); s != "" {
+		fmt.Fprintf(sb, "Test framework: %s\n", s)
+	}
+}
+
 // BuildPhase1 builds the prompt for one chunk. chunkIndex is 0-based; total is K.
 // priorSummary is the prior chunk's summary (sequential K>1 only); empty otherwise.
 func (b *PromptBuilder) BuildPhase1(chunk Chunk, req PhaseRequest, priorSummary string, total int) string {
 	enabled := b.EnabledCategories()
 	var sb strings.Builder
 	sb.WriteString("You are auditing chat transcripts of a developer working with an AI coding assistant.\n\n")
-	if s := strings.TrimSpace(req.ProjectRoot); s != "" {
-		fmt.Fprintf(&sb, "Project root: %s\n", s)
-	}
-	if s := strings.TrimSpace(req.ToolchainSummary); s != "" {
-		fmt.Fprintf(&sb, "Toolchain: %s\n", s)
-	}
-	if s := strings.TrimSpace(req.PrimaryLinter); s != "" {
-		fmt.Fprintf(&sb, "Primary linter: %s\n", s)
-	}
-	if s := strings.TrimSpace(req.TestFramework); s != "" {
-		fmt.Fprintf(&sb, "Test framework: %s\n", s)
-	}
+	writeGroundingPreamble(&sb, req)
 	sb.WriteString("\nCodebase context:\n")
 	sb.WriteString(req.CodebaseContext)
 	sb.WriteString("\n\n")
@@ -97,18 +103,7 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 
 	var sb strings.Builder
 	sb.WriteString("You are synthesizing guardrails from mistakes found across multiple transcript chunks.\n\n")
-	if s := strings.TrimSpace(req.ProjectRoot); s != "" {
-		fmt.Fprintf(&sb, "Project root: %s\n", s)
-	}
-	if s := strings.TrimSpace(req.ToolchainSummary); s != "" {
-		fmt.Fprintf(&sb, "Toolchain: %s\n", s)
-	}
-	if s := strings.TrimSpace(req.PrimaryLinter); s != "" {
-		fmt.Fprintf(&sb, "Primary linter: %s\n", s)
-	}
-	if s := strings.TrimSpace(req.TestFramework); s != "" {
-		fmt.Fprintf(&sb, "Test framework: %s\n", s)
-	}
+	writeGroundingPreamble(&sb, req)
 	sb.WriteString("\nCodebase files (path-only):\n")
 	for _, p := range capped {
 		sb.WriteString(p)
@@ -289,18 +284,10 @@ func parsePhase2Response(raw string, packs []RulePack) (map[RuleCategory][]Findi
 	return out, warnings, nil
 }
 
-// orderedFindings flattens map[category][]Finding in canonical category order.
-func orderedFindings(in map[RuleCategory][]Finding, order []RuleCategory) []Finding {
-	out := []Finding{}
-	for _, c := range order {
-		out = append(out, in[c]...)
-	}
-	return out
-}
-
-// orderedMistakes flattens map[category][]Mistake in canonical order.
-func orderedMistakes(in map[RuleCategory][]Mistake, order []RuleCategory) []Mistake {
-	out := []Mistake{}
+// orderedByCategory flattens a category map in canonical RuleCategory order.
+// Empty categories produce no output; absent categories are silently skipped.
+func orderedByCategory[T any](in map[RuleCategory][]T, order []RuleCategory) []T {
+	out := []T{}
 	for _, c := range order {
 		out = append(out, in[c]...)
 	}

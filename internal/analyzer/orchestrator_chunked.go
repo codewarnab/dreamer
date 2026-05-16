@@ -48,7 +48,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 	if err != nil {
 		return result, err
 	}
-	result.Mistakes = orderedMistakes(mistakesByCategory, enabled)
+	result.Mistakes = orderedByCategory(mistakesByCategory, enabled)
 
 	if req.DryRun || len(result.Mistakes) == 0 {
 		if completedChunks == len(in.Chunks) {
@@ -68,7 +68,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 		result.Warnings = append(result.Warnings, validationWarnings...)
 		findingsByCategory[c] = validated
 	}
-	result.Findings = orderedFindings(findingsByCategory, enabled)
+	result.Findings = orderedByCategory(findingsByCategory, enabled)
 
 	if completedChunks == len(in.Chunks) {
 		result.CompletedCategories = stringsFromCategories(enabled)
@@ -82,6 +82,7 @@ type chunkResult struct {
 	summary       string
 	warnings      []string
 	err           error
+	parseErr      error
 }
 
 // runPhase1 dispatches per-chunk calls; returns the union, count of clean chunks, warnings.
@@ -112,8 +113,7 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 		parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
 		warnings = append(warnings, parseWarns...)
 		if parseErr != nil {
-			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d response parse failed (%v); skipping chunk", i, parseErr))
-			completed++
+			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
 			priorSummary = ""
 			continue
 		}
@@ -147,9 +147,9 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 				return nil
 			}
 			parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
-			cr := chunkResult{index: i, mistakesByCat: parsed, summary: summary, warnings: parseWarns}
+			cr := chunkResult{index: i, mistakesByCat: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
 			if parseErr != nil {
-				cr.warnings = append(cr.warnings, fmt.Sprintf("phase-1 chunk %d response parse failed (%v); skipping chunk", i, parseErr))
+				cr.warnings = append(cr.warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
 			}
 			results[i] = cr
 			return nil
@@ -164,6 +164,9 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 		warnings = append(warnings, r.warnings...)
 		if r.err != nil {
 			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d failed (%v)", r.index, r.err))
+			continue
+		}
+		if r.parseErr != nil {
 			continue
 		}
 		mergeMistakes(mistakes, r.mistakesByCat)

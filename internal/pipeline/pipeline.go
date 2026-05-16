@@ -101,8 +101,8 @@ func recordProviderSuccess(currentState *state.State, providerID string, tokens 
 }
 
 // recordProviderFailure: Timeouts++ on DeadlineExceeded, else Failures++.
-// Best-effort persists via state.Save before the caller returns.
-func recordProviderFailure(currentState *state.State, outputRoot, projectName, providerID string, err error, logger *logging.Logger) {
+// Caller persists state.
+func recordProviderFailure(currentState *state.State, providerID string, err error) {
 	if currentState == nil || strings.TrimSpace(providerID) == "" || err == nil {
 		return
 	}
@@ -117,11 +117,16 @@ func recordProviderFailure(currentState *state.State, outputRoot, projectName, p
 	}
 	usage.LastError = state.TruncateError(err.Error())
 	currentState.ProviderUsage[providerID] = usage
+}
 
-	if saveErr := state.Save(outputRoot, projectName, currentState); saveErr != nil && logger != nil {
-		logger.Warn("recordProviderFailure save failed",
-			logging.Any("err", saveErr),
-			logging.Any("cause", err),
+// persistFailureState saves currentState on a failure path; logs but does
+// not propagate the save error because the caller is already returning a
+// more useful error.
+func persistFailureState(currentState *state.State, outputRoot, projectName string, cause error, logger *logging.Logger) {
+	if err := state.Save(outputRoot, projectName, currentState); err != nil && logger != nil {
+		logger.Warn("failure-path state save failed",
+			logging.Any("err", err),
+			logging.Any("cause", cause),
 		)
 	}
 }
@@ -311,7 +316,8 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
-		recordProviderFailure(currentState, outputRoot, projectName, providerID, err, logger)
+		recordProviderFailure(currentState, providerID, err)
+		persistFailureState(currentState, outputRoot, projectName, err, logger)
 		return Result{}, fmt.Errorf("start provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))
 	}
 	startCancel()
@@ -360,7 +366,8 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(chunks)), logging.Any("concurrency", rc.MaxConcurrency))
 	analysisResult, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
 	if err != nil {
-		recordProviderFailure(currentState, outputRoot, projectName, providerID, err, logger)
+		recordProviderFailure(currentState, providerID, err)
+		persistFailureState(currentState, outputRoot, projectName, err, logger)
 		return Result{}, fmt.Errorf("run analyzer: %w", err)
 	}
 	logger.Info("orchestrator done", logging.Any("mistakes", len(analysisResult.Mistakes)), logging.Any("findings", len(analysisResult.Findings)), logging.Any("warnings", len(analysisResult.Warnings)))

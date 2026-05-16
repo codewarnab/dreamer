@@ -392,6 +392,112 @@ func TestRunChunksParallelParityK3NoChaining(t *testing.T) {
 	}
 }
 
+// Sequential: one chunk returns garbage JSON, another parses cleanly.
+// CompletedCategories must be empty because not all chunks parsed successfully.
+func TestRunChunksSequentialParseFailDoesNotMarkCompleted(t *testing.T) {
+	cap := &capturedTranscript{}
+	idx := 0
+	sess := newCapturingSession(func(p string) (string, error) {
+		if strings.Contains(p, "synthesizing guardrails") {
+			return phase2Reply(map[string][]map[string]any{}), nil
+		}
+		i := idx
+		idx++
+		if i == 0 {
+			return "not json at all", nil
+		}
+		return phase1Reply("s", map[string][]map[string]any{
+			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
+		}), nil
+	}, cap)
+
+	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	in := ChunkInputs{Chunks: []Chunk{
+		{Index: 0, Transcript: "a"},
+		{Index: 1, Transcript: "b"},
+	}}
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+
+	res, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{})
+	if err != nil {
+		t.Fatalf("RunChunks: %v", err)
+	}
+	if len(res.CompletedCategories) != 0 {
+		t.Fatalf("CompletedCategories = %v, want empty (chunk 0 parse failed)", res.CompletedCategories)
+	}
+}
+
+// Parallel: K=3 chunks; one returns garbage. CompletedCategories must be empty.
+func TestRunChunksParallelParseFailDoesNotMarkCompleted(t *testing.T) {
+	mk := func(badIndex int, at *int32) *fakeSession {
+		cap := &capturedTranscript{}
+		return newCapturingSession(func(p string) (string, error) {
+			if strings.Contains(p, "synthesizing guardrails") {
+				return phase2Reply(map[string][]map[string]any{}), nil
+			}
+			my := int(atomic.AddInt32(at, 1)) - 1
+			if my == badIndex {
+				return "not json", nil
+			}
+			return phase1Reply("s", map[string][]map[string]any{
+				"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
+			}), nil
+		}, cap)
+	}
+	var counter int32
+	pool := []*fakeSession{mk(1, &counter), mk(1, &counter), mk(1, &counter), mk(1, &counter)}
+	rc := RunConfig{
+		Mode:           ModeParallel,
+		MaxConcurrency: 3,
+		SessionFactory: func() (Session, error) {
+			s := pool[0]
+			pool = pool[1:]
+			return s, nil
+		},
+	}
+	in := ChunkInputs{Chunks: []Chunk{
+		{Index: 0, Transcript: "a"},
+		{Index: 1, Transcript: "b"},
+		{Index: 2, Transcript: "c"},
+	}}
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+
+	res, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{})
+	if err != nil {
+		t.Fatalf("RunChunks: %v", err)
+	}
+	if len(res.CompletedCategories) != 0 {
+		t.Fatalf("CompletedCategories = %v, want empty (one chunk parse failed)", res.CompletedCategories)
+	}
+}
+
+// Sanity: when every chunk parses, all enabled categories are reported completed.
+func TestRunChunksSequentialAllParseMarksCompleted(t *testing.T) {
+	cap := &capturedTranscript{}
+	sess := newCapturingSession(func(p string) (string, error) {
+		if strings.Contains(p, "synthesizing guardrails") {
+			return phase2Reply(map[string][]map[string]any{}), nil
+		}
+		return phase1Reply("s", map[string][]map[string]any{
+			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
+		}), nil
+	}, cap)
+	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	in := ChunkInputs{Chunks: []Chunk{
+		{Index: 0, Transcript: "a"},
+		{Index: 1, Transcript: "b"},
+	}}
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+
+	res, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{})
+	if err != nil {
+		t.Fatalf("RunChunks: %v", err)
+	}
+	if len(res.CompletedCategories) != 1 || res.CompletedCategories[0] != string(RuleCategoryTest) {
+		t.Fatalf("CompletedCategories = %v, want [test]", res.CompletedCategories)
+	}
+}
+
 func sortFindings(f []Finding) {
 	sort.Slice(f, func(i, j int) bool { return f[i].Mistake < f[j].Mistake })
 }
