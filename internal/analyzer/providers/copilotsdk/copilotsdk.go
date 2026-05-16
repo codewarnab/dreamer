@@ -77,6 +77,9 @@ func New(options Options) (analyzer.Provider, error) {
 
 func (p *provider) ID() string { return ID }
 
+// SupportsParallelSessions: SDK manages sessions independently.
+func (p *provider) SupportsParallelSessions() bool { return true }
+
 func (p *provider) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

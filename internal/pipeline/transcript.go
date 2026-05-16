@@ -19,8 +19,16 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 	return provider.ReadMessages(source)
 }
 
-func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger) (string, []chat.ChatSource, int, []string, int, error) {
-	var b strings.Builder
+// buildProviderBlocks reads + redacts every source and groups results by tool.
+// Returns one ProviderBlock per tool with messages in discovery order.
+func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger) ([]ProviderBlock, []chat.ChatSource, int, []string, int, error) {
+	type accumulator struct {
+		tool     string
+		paths    []string
+		messages []string
+	}
+	byTool := map[string]*accumulator{}
+	toolOrder := []string{}
 	usedSources := make([]chat.ChatSource, 0, len(sources))
 	warnings := []string{}
 	messageCount := 0
@@ -38,8 +46,14 @@ func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redac
 			continue
 		}
 		usedSources = append(usedSources, source)
-		fmt.Fprintf(&b, "source: %s\n", source.Path)
-		fmt.Fprintf(&b, "tool: %s\n\n", source.Tool)
+		toolKey := string(source.Tool)
+		acc, ok := byTool[toolKey]
+		if !ok {
+			acc = &accumulator{tool: toolKey}
+			byTool[toolKey] = acc
+			toolOrder = append(toolOrder, toolKey)
+		}
+		acc.paths = append(acc.paths, source.Path)
 		sourceMessages := 0
 		sourceHits := 0
 		for _, message := range messages {
@@ -52,18 +66,31 @@ func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redac
 			sourceHits += result.TotalHits()
 			messageCount++
 			sourceMessages++
+			var line strings.Builder
 			if !message.Timestamp.IsZero() {
-				b.WriteString("[")
-				b.WriteString(message.Timestamp.UTC().Format(time.RFC3339))
-				b.WriteString("] ")
+				line.WriteString("[")
+				line.WriteString(message.Timestamp.UTC().Format(time.RFC3339))
+				line.WriteString("] ")
 			}
-			b.WriteString(message.Role)
-			b.WriteString(": ")
-			b.WriteString(redacted)
-			b.WriteByte('\n')
+			line.WriteString(message.Role)
+			line.WriteString(": ")
+			line.WriteString(redacted)
+			line.WriteByte('\n')
+			acc.messages = append(acc.messages, line.String())
 		}
-		b.WriteByte('\n')
 		logger.Info("source read", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("raw", raw), logging.Any("kept", sourceMessages), logging.Any("redactions", sourceHits))
 	}
-	return b.String(), usedSources, messageCount, warnings, totalHits, nil
+
+	blocks := make([]ProviderBlock, 0, len(toolOrder))
+	for _, tool := range toolOrder {
+		acc := byTool[tool]
+		header := fmt.Sprintf("tool: %s\nsources: %s\n\n", tool, strings.Join(acc.paths, ", "))
+		blocks = append(blocks, ProviderBlock{
+			Tool:     tool,
+			Sources:  acc.paths,
+			Header:   header,
+			Messages: acc.messages,
+		})
+	}
+	return blocks, usedSources, messageCount, warnings, totalHits, nil
 }

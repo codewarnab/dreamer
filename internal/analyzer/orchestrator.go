@@ -1,11 +1,8 @@
 package analyzer
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -50,11 +47,14 @@ type AnalysisResult struct {
 	Mistakes []Mistake
 	Findings []Finding
 	Warnings []string
+	// CompletedCategories: rule categories that ran to completion without
+	// timeout or provider error. Empty findings still counts as completed.
+	CompletedCategories []string
 }
 
-// PhaseRequest groups inputs for a single orchestrator run.
+// PhaseRequest groups grounding + validation inputs shared by all chunks.
+// Transcript content lives on the per-chunk Chunk.Transcript field instead.
 type PhaseRequest struct {
-	Transcript        string
 	ProjectRoot       string
 	ToolchainSummary  string
 	PrimaryLinter     string
@@ -93,191 +93,6 @@ func NewOrchestrator(packs []RulePack) *Orchestrator {
 	return &Orchestrator{Packs: cloned}
 }
 
-// Run executes phase 1 (mistake extraction) across all enabled categories
-// against a single session. If req.DryRun is false and at least one mistake
-// is emitted, phase 2 runs.
-func (o *Orchestrator) Run(ctx context.Context, session Session, req PhaseRequest) (AnalysisResult, error) {
-	if session == nil {
-		return AnalysisResult{}, errors.New("analyzer.Orchestrator.Run: session is required")
-	}
-
-	result := AnalysisResult{}
-	mistakesByCategory := make(map[RuleCategory][]Mistake)
-	warnings, err := runPhase[Mistake](
-		ctx,
-		session,
-		o.Packs,
-		"phase-1",
-		func(pack RulePack) (string, bool) {
-			return o.buildMistakePrompt(pack, req), false
-		},
-		func(raw string, pack RulePack) ([]Mistake, error) {
-			mistakes, err := parseMistakeResponse(raw, pack)
-			if err != nil {
-				return nil, err
-			}
-			return filterMistakesByThreshold(mistakes, pack.Threshold), nil
-		},
-		func(pack RulePack, parsed []Mistake) {
-			mistakesByCategory[pack.Category] = append(mistakesByCategory[pack.Category], parsed...)
-			result.Mistakes = append(result.Mistakes, parsed...)
-		},
-	)
-	result.Warnings = append(result.Warnings, warnings...)
-	if err != nil {
-		return result, err
-	}
-
-	if len(result.Mistakes) == 0 {
-		return result, nil
-	}
-	if req.DryRun {
-		return result, nil
-	}
-
-	warnings, err = runPhase[Finding](
-		ctx,
-		session,
-		o.Packs,
-		"phase-2",
-		func(pack RulePack) (string, bool) {
-			categoryMistakes := mistakesByCategory[pack.Category]
-			if len(categoryMistakes) == 0 {
-				return "", true
-			}
-			return o.buildGuardrailPrompt(pack, req, categoryMistakes), false
-		},
-		func(raw string, pack RulePack) ([]Finding, error) {
-			findings, err := parseGuardrailResponse(raw, pack)
-			if err != nil {
-				return nil, err
-			}
-			validated, validationWarnings := validateFindings(findings, pack, req)
-			result.Warnings = append(result.Warnings, validationWarnings...)
-			return validated, nil
-		},
-		func(pack RulePack, parsed []Finding) {
-			result.Findings = append(result.Findings, parsed...)
-		},
-	)
-	result.Warnings = append(result.Warnings, warnings...)
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-// runPhase executes the shared provider loop for one orchestrator phase.
-//
-// The caller supplies phase-specific prompt construction, response parsing, and
-// acceptance behavior. Provider rate limits abort the entire phase immediately;
-// ordinary provider and parse failures are returned as warnings so other packs
-// can continue.
-func runPhase[T any](
-	ctx context.Context,
-	session Session,
-	packs []RulePack,
-	phaseName string,
-	buildPrompt func(RulePack) (prompt string, skip bool),
-	parse func(raw string, pack RulePack) ([]T, error),
-	accept func(pack RulePack, parsed []T),
-) ([]string, error) {
-	warnings := []string{}
-	for _, pack := range packs {
-		if !pack.Enabled {
-			continue
-		}
-		prompt, skip := buildPrompt(pack)
-		if skip {
-			continue
-		}
-		raw, err := session.Run(ctx, prompt, pack.Timeout())
-		if err != nil {
-			if errors.Is(err, ErrRateLimited) {
-				return warnings, fmt.Errorf("%s %q hit provider rate limit: %w", phaseName, pack.Category, err)
-			}
-			warnings = append(warnings,
-				fmt.Sprintf("%s %q failed (%v); skipping category", phaseName, pack.Category, err))
-			continue
-		}
-		parsed, parseErr := parse(raw, pack)
-		if parseErr != nil {
-			warnings = append(warnings,
-				fmt.Sprintf("%s %q response parse failed (%v); skipping category", phaseName, pack.Category, parseErr))
-			continue
-		}
-		accept(pack, parsed)
-	}
-	return warnings, nil
-}
-
-func (o *Orchestrator) buildMistakePrompt(pack RulePack, req PhaseRequest) string {
-	vars := map[string]string{
-		"project_root":      req.ProjectRoot,
-		"toolchain_summary": req.ToolchainSummary,
-		"primary_linter":    req.PrimaryLinter,
-		"test_framework":    req.TestFramework,
-		"codebase_context":  req.CodebaseContext,
-	}
-	body := FormatTemplate(pack.MistakePromptTemplate, vars)
-	if strings.TrimSpace(req.Transcript) == "" {
-		return body
-	}
-	return body + "\n\nChat transcript follows:\n" + req.Transcript
-}
-
-func (o *Orchestrator) buildGuardrailPrompt(pack RulePack, req PhaseRequest, mistakes []Mistake) string {
-	rendered, err := json.MarshalIndent(map[string]any{"mistakes": mistakes}, "", "  ")
-	if err != nil {
-		// json.Marshal can only fail on unsupported types; we control them.
-		rendered = []byte("[]")
-	}
-	vars := map[string]string{
-		"project_root":      req.ProjectRoot,
-		"toolchain_summary": req.ToolchainSummary,
-		"primary_linter":    req.PrimaryLinter,
-		"test_framework":    req.TestFramework,
-		"codebase_context":  req.CodebaseContext,
-		"mistakes":          string(rendered),
-	}
-	return FormatTemplate(pack.GuardrailPromptTemplate, vars)
-}
-
-func parseMistakeResponse(raw string, pack RulePack) ([]Mistake, error) {
-	payload := stripCodeFence(raw)
-	if payload == "" {
-		return nil, nil
-	}
-	var wrapped struct {
-		Mistakes []Mistake `json:"mistakes"`
-	}
-	if err := json.Unmarshal([]byte(payload), &wrapped); err == nil && wrapped.Mistakes != nil {
-		return normalizeMistakes(wrapped.Mistakes, pack.Category), nil
-	}
-	var bare []Mistake
-	if err := json.Unmarshal([]byte(payload), &bare); err != nil {
-		return nil, fmt.Errorf("invalid mistakes JSON: %w", err)
-	}
-	return normalizeMistakes(bare, pack.Category), nil
-}
-
-func parseGuardrailResponse(raw string, pack RulePack) ([]Finding, error) {
-	payload := stripCodeFence(raw)
-	if payload == "" {
-		return nil, nil
-	}
-	var wrapped struct {
-		Findings []rawFinding `json:"findings"`
-	}
-	if err := json.Unmarshal([]byte(payload), &wrapped); err == nil && wrapped.Findings != nil {
-		return materializeFindings(wrapped.Findings, pack.Category), nil
-	}
-	var bare []rawFinding
-	if err := json.Unmarshal([]byte(payload), &bare); err != nil {
-		return nil, fmt.Errorf("invalid findings JSON: %w", err)
-	}
-	return materializeFindings(bare, pack.Category), nil
-}
 
 type rawFinding struct {
 	Mistake          string             `json:"mistake"`

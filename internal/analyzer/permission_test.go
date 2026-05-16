@@ -1,7 +1,9 @@
 package analyzer
 
 import (
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -98,6 +100,79 @@ func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 				t.Fatalf("reason %q does not contain %q", decision.Reason, tc.reasonLike)
 			}
 		})
+	}
+}
+
+func TestDecidePermissionSymlinkEscapeIsRejected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("classified"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	repo := t.TempDir()
+	linkInsideRepo := filepath.Join(repo, "notes")
+	if err := os.Symlink(outsideFile, linkInsideRepo); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	root, err := NormalizeRootPath(repo)
+	if err != nil {
+		t.Fatalf("NormalizeRootPath: %v", err)
+	}
+
+	decision := DecidePermission(PermissionRequest{
+		Kind: PermissionKindRead,
+		Path: stringPtr(linkInsideRepo),
+	}, root)
+	if decision.Approved {
+		t.Fatalf("symlink pointing outside root must be denied; reason=%q", decision.Reason)
+	}
+	if !strings.Contains(strings.ToLower(decision.Reason), "symlink") {
+		t.Fatalf("reason %q should mention symlink resolution", decision.Reason)
+	}
+}
+
+func TestDecidePermissionSymlinkInPrefixIsRejected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "secrets"), 0o700); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+
+	repo := t.TempDir()
+	// `repo/escape` is a symlink pointing at outside; any path under it
+	// must be denied even when the leaf does not exist yet.
+	if err := os.Symlink(outside, filepath.Join(repo, "escape")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	root, err := NormalizeRootPath(repo)
+	if err != nil {
+		t.Fatalf("NormalizeRootPath: %v", err)
+	}
+
+	decision := DecidePermission(PermissionRequest{
+		Kind: PermissionKindRead,
+		Path: stringPtr(filepath.Join(repo, "escape", "secrets", "vault.txt")),
+	}, root)
+	if decision.Approved {
+		t.Fatalf("non-existent path under escaping symlink must be denied; reason=%q", decision.Reason)
+	}
+	if !strings.Contains(strings.ToLower(decision.Reason), "symlink") {
+		t.Fatalf("reason %q should mention symlink resolution", decision.Reason)
+	}
+}
+
+func TestNormalizeRootPathErrorsWhenRootMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	if _, err := NormalizeRootPath(missing); err == nil {
+		t.Fatalf("NormalizeRootPath(%q) expected error for missing dir", missing)
 	}
 }
 

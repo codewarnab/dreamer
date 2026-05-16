@@ -15,6 +15,21 @@ const (
 	DefaultModel            = "gpt-5.3-codex"
 	DefaultProviderID       = "copilot-sdk"
 
+	// DefaultSince bounds first-run input volume on long-lived projects.
+	DefaultSince = "24h"
+
+	// LifetimeSinceValue restores unlimited-lookback behavior.
+	LifetimeSinceValue = "lifetime"
+
+	ExecutionModeSequential = "sequential"
+	ExecutionModeParallel   = "parallel"
+
+	// DefaultMaxChunkBytes ≈ 160k tokens at 3 bytes/token.
+	DefaultMaxChunkBytes = 480_000
+
+	// DefaultProviderBoundaryHeadroom: min free fraction before packing the next provider.
+	DefaultProviderBoundaryHeadroom = 0.20
+
 	configDirName     = "dreamer"
 	globalConfigFile  = "config.yaml"
 	projectConfigDir  = ".dreamer"
@@ -30,6 +45,18 @@ type Config struct {
 	Redaction       RedactionConfig          `yaml:"redaction" json:"redaction"`
 	Providers       map[string]ProviderBlock `yaml:"providers" json:"providers"`
 	Analyzer        AnalyzerConfig           `yaml:"analyzer" json:"analyzer"`
+
+	// Notices collects soft signals discovered during config load. Not
+	// serialized; callers (cmd/analyze.go, cmd/daemon.go) log them at
+	// info level once per process.
+	Notices ConfigNotices `yaml:"-" json:"-"`
+}
+
+// ConfigNotices collects soft signals discovered during config load.
+// Callers log them once per process at info level.
+type ConfigNotices struct {
+	// DefaultedSince: project names whose `since` field was filled with DefaultSince.
+	DefaultedSince []string
 }
 
 // ProjectConfig is one entry in `projects:` — daemon iterates these.
@@ -70,12 +97,28 @@ type ProviderBlock struct {
 	MaxInputTokens  int               `yaml:"max_input_tokens,omitempty" json:"max_input_tokens,omitempty"`
 }
 
-// AnalyzerConfig configures analyzer-wide knobs that are not provider-specific:
-// the default per-rule timeout and per-category enable toggles. Provider
-// settings (model, auth, cli url, …) live under `providers:` instead.
+// AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
 type AnalyzerConfig struct {
 	RuleTimeoutSeconds int                   `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
 	Rules              map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Execution          ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
+	Chunking           ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`
+}
+
+// ExecutionConfig: how the orchestrator dispatches per-chunk provider calls.
+type ExecutionConfig struct {
+	// Mode is "sequential" (default) or "parallel". Unknown -> sequential with warning.
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	// MaxConcurrency caps parallel sessions. 0 = len(chunks). Ignored when sequential.
+	MaxConcurrency int `yaml:"max_concurrency,omitempty" json:"max_concurrency,omitempty"`
+}
+
+// ChunkingConfig: how to split the redacted transcript before phase-1.
+type ChunkingConfig struct {
+	// MaxChunkBytes caps transcript bytes per chunk. 0 disables chunking.
+	MaxChunkBytes int `yaml:"max_chunk_bytes,omitempty" json:"max_chunk_bytes,omitempty"`
+	// ProviderBoundaryHeadroom: min free fraction [0.0, 1.0) before packing next provider.
+	ProviderBoundaryHeadroom float64 `yaml:"provider_boundary_headroom,omitempty" json:"provider_boundary_headroom,omitempty"`
 }
 
 // RuleConfig is a global override toggle for a rule category.
@@ -188,7 +231,52 @@ func applyDefaults(cfg *Config) error {
 	if cfg.Analyzer.Rules == nil {
 		cfg.Analyzer.Rules = map[string]RuleConfig{}
 	}
+	applyAnalyzerExecutionDefaults(&cfg.Analyzer.Execution)
+	applyAnalyzerChunkingDefaults(&cfg.Analyzer.Chunking)
+	applyProjectSinceDefaults(cfg)
 	return nil
+}
+
+// applyAnalyzerExecutionDefaults: empty mode -> sequential; unknown left for warn.
+func applyAnalyzerExecutionDefaults(exec *ExecutionConfig) {
+	if strings.TrimSpace(exec.Mode) == "" {
+		exec.Mode = ExecutionModeSequential
+	}
+	if exec.MaxConcurrency < 0 {
+		exec.MaxConcurrency = 0
+	}
+}
+
+// applyAnalyzerChunkingDefaults fills MaxChunkBytes and ProviderBoundaryHeadroom.
+// CLI --max-chunk-bytes=0 is the disable-chunking escape hatch.
+func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
+	if chunk.MaxChunkBytes == 0 {
+		chunk.MaxChunkBytes = DefaultMaxChunkBytes
+	}
+	if chunk.ProviderBoundaryHeadroom == 0 {
+		chunk.ProviderBoundaryHeadroom = DefaultProviderBoundaryHeadroom
+	}
+}
+
+// applyProjectSinceDefaults fills blank `since` with DefaultSince and records the notice.
+func applyProjectSinceDefaults(cfg *Config) {
+	for i := range cfg.Projects {
+		project := &cfg.Projects[i]
+		if strings.TrimSpace(project.Since) != "" {
+			continue
+		}
+		project.Since = DefaultSince
+		name := strings.TrimSpace(project.Name)
+		if name == "" {
+			name = project.Path
+		}
+		cfg.Notices.DefaultedSince = append(cfg.Notices.DefaultedSince, name)
+	}
+}
+
+// IsLifetimeSince reports whether `value` (case-insensitive, trimmed) requests unlimited lookback.
+func IsLifetimeSince(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), LifetimeSinceValue)
 }
 
 func validateConfig(cfg *Config) error {

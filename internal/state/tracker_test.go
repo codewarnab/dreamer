@@ -126,6 +126,98 @@ func TestChatCacheKeyDeterministic(t *testing.T) {
 	}
 }
 
+func TestTruncateError(t *testing.T) {
+	if got := TruncateError(""); got != "" {
+		t.Fatalf("empty in -> empty out, got %q", got)
+	}
+	short := "boom: oh no"
+	if got := TruncateError(short); got != short {
+		t.Fatalf("short string should pass through, got %q", got)
+	}
+	long := strings.Repeat("a", maxErrorLen+50)
+	got := TruncateError(long)
+	gotRunes := []rune(got)
+	if len(gotRunes) != maxErrorLen+1 {
+		t.Fatalf("truncated length = %d runes, want %d", len(gotRunes), maxErrorLen+1)
+	}
+	if gotRunes[len(gotRunes)-1] != '…' {
+		t.Fatalf("truncated string should end with ellipsis, got %q", string(gotRunes[len(gotRunes)-3:]))
+	}
+}
+
+func TestSaveAtomicCleansUpStaleTempFile(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll error: %v", err)
+	}
+	// Simulate an interrupted prior Save by pre-populating .tmp with garbage.
+	if err := os.WriteFile(statePath+".tmp", []byte("garbage from a prior crash"), 0o644); err != nil {
+		t.Fatalf("seed tmp file: %v", err)
+	}
+
+	want := &State{LastRunUTC: time.Now().UTC().Truncate(time.Second), RepoHeadSHA: "sha"}
+	if err := Save("", "project-a", want); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := Load("", "project-a")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if loaded.RepoHeadSHA != "sha" {
+		t.Fatalf("RepoHeadSHA = %q, want sha", loaded.RepoHeadSHA)
+	}
+	if _, err := os.Stat(statePath + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("stale .tmp should be replaced by rename; stat err=%v", err)
+	}
+}
+
+func TestSaveRoundTripsLastRunPerCategoryAndProviderHealth(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	initial := &State{
+		ProviderUsage: map[string]ProviderUsage{
+			"copilot-sdk": {
+				Runs:           1,
+				LastSuccessUTC: now,
+				LastError:      "rate limited",
+			},
+		},
+		LastRunPerCategory: map[string]time.Time{
+			"lint-rule": now,
+			"test":      now.Add(-time.Hour),
+		},
+	}
+	if err := Save("", "project-b", initial); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := Load("", "project-b")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := loaded.ProviderUsage["copilot-sdk"]
+	if !got.LastSuccessUTC.Equal(now) {
+		t.Fatalf("LastSuccessUTC round-trip mismatch: got %s want %s", got.LastSuccessUTC, now)
+	}
+	if got.LastError != "rate limited" {
+		t.Fatalf("LastError = %q, want %q", got.LastError, "rate limited")
+	}
+	if !loaded.LastRunPerCategory["lint-rule"].Equal(now) {
+		t.Fatalf("LastRunPerCategory[lint-rule] round-trip mismatch")
+	}
+	if !loaded.LastRunPerCategory["test"].Equal(now.Add(-time.Hour)) {
+		t.Fatalf("LastRunPerCategory[test] round-trip mismatch")
+	}
+}
+
 func setTestHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)

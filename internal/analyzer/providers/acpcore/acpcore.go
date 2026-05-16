@@ -1,7 +1,7 @@
 // Package acpcore implements the minimum stdio JSON-RPC 2.0 client needed to
-// talk to an Agent Client Protocol (ACP) agent (spec §4.4). It exposes a
-// Provider factory that adapter packages compose with platform-specific
-// commands (claudeacp, copilotacp, geminiacp, kiroacp).
+// talk to an Agent Client Protocol (ACP) agent. It exposes a Provider factory
+// that adapter packages compose with platform-specific commands
+// (claudeacp, copilotacp, geminiacp, kiroacp).
 package acpcore
 
 import (
@@ -21,6 +21,10 @@ import (
 	"dreamer/internal/analyzer"
 	transportutil "dreamer/internal/analyzer/transport"
 )
+
+// ErrTransportClosed: ACP child process exited before/during a session.Run.
+// Joins with analyzer.ErrUnavailable so callers can detect via errors.Is.
+var ErrTransportClosed = errors.New("acp: transport closed")
 
 // Options carries the per-provider configuration carried by ACP adapter packages.
 type Options struct {
@@ -169,6 +173,11 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+	}
+
+	// Fail fast when readLoop already saw the child exit.
+	if s.transport.isClosed() {
+		return "", errors.Join(analyzer.ErrUnavailable, ErrTransportClosed)
 	}
 
 	// Fresh ACP sessionId per Run keeps each rule's prompt context isolated.
@@ -379,9 +388,15 @@ func (t *transport) call(ctx context.Context, method string, params any, onPermi
 
 	select {
 	case <-ctx.Done():
+		if t.isClosed() {
+			return nil, errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, ctx.Err())
+		}
 		return nil, ctx.Err()
 	case resp := <-ch:
 		if resp.Error != nil {
+			if t.isClosed() {
+				return nil, errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, resp.Error)
+			}
 			return nil, resp.Error
 		}
 		return resp.Result, nil
@@ -395,8 +410,8 @@ func (t *transport) send(payload any) error {
 	}
 	t.encMu.Lock()
 	defer t.encMu.Unlock()
-	if t.closed {
-		return errors.New("acpcore: transport closed")
+	if t.isClosed() {
+		return errors.Join(ErrTransportClosed, errors.New("acpcore: transport closed"))
 	}
 	if _, err := t.stdin.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("acpcore: write to agent stdin: %w", err)
@@ -435,6 +450,37 @@ func (t *transport) readLoop(initial *bytes.Buffer) {
 			continue
 		}
 	}
+	// Child stdout EOF: flip flag and wake in-flight calls.
+	t.markClosed()
+}
+
+// isClosed reports whether readLoop saw EOF or Close was called.
+func (t *transport) isClosed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
+}
+
+// markClosed flips the closed flag and wakes pending calls. Idempotent.
+func (t *transport) markClosed() {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return
+	}
+	t.closed = true
+	t.mu.Unlock()
+
+	closedErr := &rpcError{Code: -32000, Message: ErrTransportClosed.Error()}
+	t.pending.Range(func(key, value any) bool {
+		if ch, ok := value.(chan rpcResponse); ok {
+			select {
+			case ch <- rpcResponse{Error: closedErr}:
+			default:
+			}
+		}
+		return true
+	})
 }
 
 // handleSessionUpdate routes session/update notifications to the per-session
