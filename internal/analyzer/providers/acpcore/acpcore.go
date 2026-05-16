@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	transportutil "dreamer/internal/analyzer/transport"
 )
 
 // Options carries the per-provider configuration carried by ACP adapter packages.
@@ -203,11 +204,16 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		}, nil)
 	}
 
+	// acpMaxInputBytes caps the per-prompt body fed into ACP agents. claude-code-acp
+	// rejects prompts above its model's input window with "Prompt is too long";
+	// 200 KB ≈ 50k tokens keeps Opus runs well under their per-turn budget too.
+	const acpMaxInputBytes = 200_000
+
 	body := prompt
 	if s.systemMessage != "" {
 		body = s.systemMessage + "\n\n" + prompt
 	}
-	body = capInputBytes(body, acpMaxInputBytes)
+	body = transportutil.CapInputBytes(body, acpMaxInputBytes, "\n\n[transcript truncated to fit agent input cap]\n")
 
 	stream := s.transport.openStream(sid)
 	defer s.transport.closeStream(sid)
@@ -221,7 +227,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	result, err := s.transport.call(ctx, "session/prompt", params, s.handler)
 	if err != nil {
 		wrapped := fmt.Errorf("acpcore: session/prompt: %w", err)
-		if isRateLimitMessage(err.Error()) {
+		if transportutil.IsRateLimitMessage(err.Error()) {
 			wrapped = errors.Join(analyzer.ErrRateLimited, wrapped)
 		}
 		return "", wrapped
@@ -317,7 +323,7 @@ func (e *rpcError) Error() string {
 
 func dialStdio(ctx context.Context, command []string, env map[string]string) (*transport, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-	cmd.Env = mergeEnvWithProcess(env)
+	cmd.Env = transportutil.MergeWithProcessEnv(env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -586,10 +592,6 @@ func (t *transport) close() error {
 	return nil
 }
 
-// permHandler is mutated under t.mu, declared as a private field so the
-// read loop can dispatch synchronously.
-type transportPermFields struct{}
-
 type rpcEnvelope struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      string          `json:"id,omitempty"`
@@ -731,126 +733,6 @@ func extractStopReason(result json.RawMessage) string {
 		return ""
 	}
 	return parsed.StopReason
-}
-
-func extractAssistantText(result json.RawMessage) string {
-	if len(result) == 0 {
-		return ""
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		return ""
-	}
-	if content, ok := parsed["content"].(string); ok {
-		return content
-	}
-	if message, ok := parsed["message"].(map[string]any); ok {
-		if content, ok := message["content"].(string); ok {
-			return content
-		}
-		if items, ok := message["content"].([]any); ok {
-			var b strings.Builder
-			for _, item := range items {
-				if m, ok := item.(map[string]any); ok {
-					if text, ok := m["text"].(string); ok {
-						b.WriteString(text)
-					}
-				}
-			}
-			return b.String()
-		}
-	}
-	return ""
-}
-
-// isRateLimitMessage matches well-known quota/rate-limit phrases that bubble
-// up from claude-code-acp (Anthropic API) and codex-acp (ChatGPT account).
-func isRateLimitMessage(msg string) bool {
-	if msg == "" {
-		return false
-	}
-	lower := strings.ToLower(msg)
-	patterns := []string{
-		"usage_limit_exceeded",
-		"usage limit",
-		"hit your usage limit",
-		"rate limit",
-		"rate_limit",
-		"quota exceeded",
-		"too many requests",
-		"overloaded",
-	}
-	for _, p := range patterns {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// acpMaxInputBytes caps the per-prompt body fed into ACP agents. claude-code-acp
-// rejects prompts above its model's input window with "Prompt is too long";
-// 200 KB ≈ 50k tokens keeps Opus runs well under their per-turn budget too.
-const acpMaxInputBytes = 200_000
-
-// capInputBytes preserves the rule prompt header (text before
-// "Chat transcript follows:") and tail-truncates the transcript so the
-// most recent messages survive. Mirrors codexcli.capCodexInput intentionally.
-func capInputBytes(body string, maxBytes int) string {
-	if len(body) <= maxBytes {
-		return body
-	}
-	const marker = "\n\nChat transcript follows:\n"
-	const truncNote = "\n\n[transcript truncated to fit agent input cap]\n"
-	idx := strings.Index(body, marker)
-	if idx < 0 || idx+len(marker) >= maxBytes-len(truncNote) {
-		keep := maxBytes - len(truncNote)
-		if keep < 0 {
-			keep = 0
-		}
-		return truncNote + body[len(body)-keep:]
-	}
-	header := body[:idx+len(marker)]
-	transcript := body[idx+len(marker):]
-	keep := maxBytes - len(header) - len(truncNote)
-	if keep < 0 {
-		keep = 0
-	}
-	if keep >= len(transcript) {
-		return body
-	}
-	return header + truncNote + transcript[len(transcript)-keep:]
-}
-
-func mergeEnvWithProcess(extra map[string]string) []string {
-	// Empty value in extra means "delete the inherited var" (used to strip
-	// CLAUDECODE so a nested Claude Code session can launch claude-code-acp).
-	deletes := make(map[string]struct{})
-	for k, v := range extra {
-		if v == "" {
-			deletes[k] = struct{}{}
-		}
-	}
-	base := processEnv()
-	env := make([]string, 0, len(base)+len(extra))
-	for _, kv := range base {
-		eq := strings.IndexByte(kv, '=')
-		if eq <= 0 {
-			env = append(env, kv)
-			continue
-		}
-		if _, drop := deletes[kv[:eq]]; drop {
-			continue
-		}
-		env = append(env, kv)
-	}
-	for k, v := range extra {
-		if v == "" {
-			continue
-		}
-		env = append(env, k+"="+v)
-	}
-	return env
 }
 
 func copyStringMap(in map[string]string) map[string]string {

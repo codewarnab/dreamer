@@ -67,7 +67,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if projectName == "" {
 		projectName = deriveProjectName(projectPath)
 	}
-	logger.Info("analyze begin project=%q path=%q", projectName, projectPath)
+	logger.Info("analyze begin", logging.Any("project", projectName), logging.Any("path", projectPath))
 
 	projectFile, err := config.LoadProjectFileConfig(projectPath)
 	if err != nil {
@@ -75,7 +75,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	providerID, providerBlock := cfg.ResolveProviderConfig(projectFile, opts.ProviderID)
-	logger.Info("provider resolved id=%q", providerID)
+	logger.Info("provider resolved", logging.Any("id", providerID))
 
 	outputRoot := strings.TrimSpace(opts.OutputDir)
 	if outputRoot == "" {
@@ -95,16 +95,15 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		}
 		before := len(sources)
 		sources = filterSourcesByLookback(sources, time.Now().UTC(), lookback, enabled)
-		logger.Info("lookback filter since=%q kept=%d/%d", opts.Since, len(sources), before)
+		logger.Info("lookback filter", logging.Any("since", opts.Since), logging.Any("kept", len(sources)), logging.Any("total", before))
 	}
 
 	currentState, err := state.Load(outputRoot, projectName)
 	if err != nil {
 		return Result{}, fmt.Errorf("load state: %w", err)
 	}
-	repoHeadSHA := state.RepoHeadSHA(projectPath)
-	logger.Info("repo head_sha=%q prior_run=%q prior_chats=%d",
-		repoHeadSHA, currentState.LastRunUTC.Format(time.RFC3339), len(currentState.ChatHashes))
+	repoHeadSHA := state.RepoHeadSHA(projectPath, logger)
+	logger.Info("repo state", logging.Any("head_sha", repoHeadSHA), logging.Any("prior_run", currentState.LastRunUTC.Format(time.RFC3339)), logging.Any("prior_chats", len(currentState.ChatHashes)))
 
 	cacheKeys := make(map[string]string, len(sources))
 	hashFailures := 0
@@ -115,7 +114,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		fileHash, hashErr := state.HashFile(source.Path)
 		if hashErr != nil {
 			hashFailures++
-			logger.Warn("hash chat source failed path=%q error=%v", source.Path, hashErr)
+			logger.Warn("hash chat source failed", logging.Any("path", source.Path), logging.Any("err", hashErr))
 			continue
 		}
 		key := state.ChatCacheKey(source.Path, fileHash, repoHeadSHA)
@@ -130,19 +129,17 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			cached++
 		}
 	}
-	logger.Info("chat cache summary total=%d cached=%d changed=%d new=%d hash_failed=%d force=%v",
-		len(sources), cached, changed, fresh, hashFailures, opts.Force)
+	logger.Info("chat cache summary", logging.Any("total", len(sources)), logging.Any("cached", cached), logging.Any("changed", changed), logging.Any("new", fresh), logging.Any("hash_failed", hashFailures), logging.Any("force", opts.Force))
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
-		logger.Info("cache hit; analyzing=0 skipping=%d (all cached, head unchanged)", len(sources))
+		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(sources)), logging.Any("reason", "all cached, head unchanged"))
 		return Result{
 			ProviderID: providerID,
 			CacheHit:   true,
 			TodosPath:  todosOutputPath(outputRoot, projectName),
 		}, nil
 	}
-	logger.Info("cache miss; analyzing=%d (changed=%d new=%d cached=%d will-re-bundle)",
-		len(sources), changed, fresh, cached)
+	logger.Info("cache miss", logging.Any("analyzing", len(sources)), logging.Any("changed", changed), logging.Any("new", fresh), logging.Any("cached", cached))
 
 	rulePacks := mergeRulePacks(cfg, projectFile)
 	if !anyEnabled(rulePacks) {
@@ -158,20 +155,19 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
-	logger.Info("transcript built sources_used=%d messages=%d transcript_bytes=%d redaction_hits=%d",
-		len(sourcesUsed), messageCount, len(transcript), redactionTotal)
+	logger.Info("transcript built", logging.Any("sources_used", len(sourcesUsed)), logging.Any("messages", messageCount), logging.Any("transcript_bytes", len(transcript)), logging.Any("redaction_hits", redactionTotal))
 	if messageCount == 0 {
 		warnings = append(warnings, "no readable messages in discovered chats")
 	}
 
 	tc := toolchain.Detect(projectPath)
-	logger.Info("toolchain detected %s", tc.String())
+	logger.Info("toolchain detected", logging.Any("summary", tc.String()))
 
 	codebaseContext, err := analyzer.BuildCodebaseContext(projectPath, tc)
 	if err != nil {
-		logger.Warn("codebase context build failed: %v", err)
+		logger.Warn("codebase context build failed", logging.Any("err", err))
 	}
-	logger.Info("codebase context bytes=%d", len(codebaseContext))
+	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
 
 	providerCfg := buildProviderConfig(providerBlock)
 	provider, err := analyzer.NewProvider(analyzer.ProviderID(providerID), providerCfg)
@@ -180,17 +176,16 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 	defer func() { _ = provider.Close() }()
 
-	logger.Info("provider starting id=%q", providerID)
+	logger.Info("provider starting", logging.Any("id", providerID))
 	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
 		return Result{}, fmt.Errorf("start provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))
 	}
 	startCancel()
-	logger.Info("provider ready id=%q", providerID)
+	logger.Info("provider ready", logging.Any("id", providerID))
 
-	logger.Info("session opening provider=%q model=%q workdir=%q",
-		providerID, providerBlock.Model, projectPath)
+	logger.Info("session opening", logging.Any("provider", providerID), logging.Any("model", providerBlock.Model), logging.Any("workdir", projectPath))
 	rawSession, err := provider.NewSession(ctx, analyzer.SessionConfig{
 		WorkingDirectory: projectPath,
 		Model:            providerBlock.Model,
@@ -223,10 +218,9 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if err != nil {
 		return Result{}, fmt.Errorf("run analyzer: %w", err)
 	}
-	logger.Info("orchestrator done mistakes=%d findings=%d warnings=%d",
-		len(analysisResult.Mistakes), len(analysisResult.Findings), len(analysisResult.Warnings))
+	logger.Info("orchestrator done", logging.Any("mistakes", len(analysisResult.Mistakes)), logging.Any("findings", len(analysisResult.Findings)), logging.Any("warnings", len(analysisResult.Warnings)))
 	for _, w := range analysisResult.Warnings {
-		logger.Warn("orchestrator warning: %s", w)
+		logger.Warn("orchestrator warning", logging.Any("warning", w))
 	}
 	warnings = append(warnings, analysisResult.Warnings...)
 

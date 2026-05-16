@@ -53,7 +53,7 @@ func newAnalyzeCommand() *cobra.Command {
 			}
 			defer func() { _ = logger.Close() }()
 
-			logger.Info("analyze command started config=%q path=%q provider=%q", resolvedConfigPath, projectPath, providerID)
+			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
 
 			result, err := pipeline.Run(commandContext(cmd), pipeline.Options{
 				Config:      cfg,
@@ -66,19 +66,19 @@ func newAnalyzeCommand() *cobra.Command {
 				Since:       since,
 			}, logger)
 			if err != nil {
-				logger.Error("analyze command failed error=%v", err)
+				logger.Error("analyze command failed", logging.Any("err", err))
 				return err
 			}
 
 			if result.CacheHit {
 				cmd.Printf("no changes (cache hit) provider=%s todos=%s\n", result.ProviderID, result.TodosPath)
-				logger.Info("analyze cache hit provider=%q", result.ProviderID)
+				logger.Info("analyze cache hit", logging.Any("provider", result.ProviderID))
 				return nil
 			}
 
 			if result.NoMistakes {
 				cmd.Printf("no recurring mistakes found provider=%s todos=%s\n", result.ProviderID, result.TodosPath)
-				logger.Info("analyze no mistakes provider=%q", result.ProviderID)
+				logger.Info("analyze no mistakes", logging.Any("provider", result.ProviderID))
 				return nil
 			}
 			if dryRun {
@@ -96,8 +96,7 @@ func newAnalyzeCommand() *cobra.Command {
 				result.Warnings,
 				result.TodosPath,
 			)
-			logger.Info("analyze complete provider=%q mistakes=%d findings=%d todos=%q",
-				result.ProviderID, result.Mistakes, result.Findings, result.TodosPath)
+			logger.Info("analyze complete", logging.Any("provider", result.ProviderID), logging.Any("mistakes", result.Mistakes), logging.Any("findings", result.Findings), logging.Any("todos", result.TodosPath))
 			return nil
 		},
 	}

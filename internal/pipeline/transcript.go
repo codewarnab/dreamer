@@ -28,13 +28,13 @@ func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redac
 	for _, source := range sources {
 		messages, err := readMessagesFromSource(source)
 		if err != nil {
-			logger.Warn("source read failed path=%q tool=%s error=%v", source.Path, source.Tool, err)
+			logger.Warn("source read failed", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("err", err))
 			warnings = append(warnings, fmt.Sprintf("Skipped %s (%v).", source.Path, err))
 			continue
 		}
 		raw := len(messages)
 		if len(messages) == 0 {
-			logger.Info("source empty path=%q tool=%s raw=%d", source.Path, source.Tool, raw)
+			logger.Info("source empty", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("raw", raw))
 			continue
 		}
 		usedSources = append(usedSources, source)
@@ -63,8 +63,7 @@ func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redac
 			b.WriteByte('\n')
 		}
 		b.WriteByte('\n')
-		logger.Info("source read path=%q tool=%s raw=%d kept=%d redactions=%d",
-			source.Path, source.Tool, raw, sourceMessages, sourceHits)
+		logger.Info("source read", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("raw", raw), logging.Any("kept", sourceMessages), logging.Any("redactions", sourceHits))
 	}
 	return b.String(), usedSources, messageCount, warnings, totalHits, nil
 }

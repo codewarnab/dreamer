@@ -106,6 +106,9 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 		return "", fmt.Errorf("path appears to be non-filesystem")
 	}
 	candidate := trimmed
+	if isVolumeRelativeRootedPath(candidate) {
+		candidate = filepath.VolumeName(normalizedRoot) + candidate
+	}
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(normalizedRoot, candidate)
 	}
@@ -119,6 +122,13 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 func looksLikeNonFilesystemPath(path string) bool {
 	lower := strings.ToLower(path)
 	return strings.Contains(lower, "://") || strings.HasPrefix(lower, "file:")
+}
+
+func isVolumeRelativeRootedPath(path string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	return filepath.VolumeName(path) == "" && strings.HasPrefix(filepath.Clean(path), string(filepath.Separator))
 }
 
 func pathWithinRoot(path string, root string) bool {

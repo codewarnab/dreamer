@@ -16,6 +16,7 @@ import (
 	"time"
 
 	analyzer "dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/transport"
 )
 
 const ID = "codex-cli"
@@ -108,7 +109,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	cmd := exec.CommandContext(ctx, s.command[0], s.command[1:]...)
 	cmd.Dir = s.workingDir
-	cmd.Env = mergeEnv(s.env)
+	cmd.Env = transport.MergeWithProcessEnv(s.env)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -132,7 +133,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		if s.systemMsg != "" {
 			body = s.systemMsg + "\n\n" + prompt
 		}
-		body = capCodexInput(body, codexMaxInputBytes)
+		body = transport.CapInputBytes(body, codexMaxInputBytes, "\n\n[transcript truncated to fit codex input cap]\n")
 		if dump := os.Getenv("DREAMER_DUMP_CODEX_PROMPT"); dump != "" {
 			_ = os.WriteFile(dump, []byte(body), 0o644)
 		}
@@ -147,14 +148,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	// exited non-zero. waitErr alone gives only "exit status 1".
 	if parseErr != nil {
 		err := fmt.Errorf("codex-cli: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
-		if isRateLimitMessage(parseErr.Error()) {
+		if transport.IsRateLimitMessage(parseErr.Error()) {
 			err = errors.Join(analyzer.ErrRateLimited, err)
 		}
 		return "", err
 	}
 	if waitErr != nil {
 		err := fmt.Errorf("codex-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
-		if isRateLimitMessage(stderrBuf.String()) {
+		if transport.IsRateLimitMessage(stderrBuf.String()) {
 			err = errors.Join(analyzer.ErrRateLimited, err)
 		}
 		return "", err
@@ -223,68 +224,4 @@ func readStreamJSON(r io.Reader) (string, error) {
 		return "", fmt.Errorf("codex stream error: %s", streamErr)
 	}
 	return strings.TrimSpace(assembled.String()), nil
-}
-
-// capCodexInput shrinks body to <= maxBytes. It preserves the rule prompt
-// header before "Chat transcript follows:" verbatim and tail-truncates the
-// transcript (keeping the most recent messages). If no marker is present,
-// it tail-truncates the whole body.
-func capCodexInput(body string, maxBytes int) string {
-	if len(body) <= maxBytes {
-		return body
-	}
-	const marker = "\n\nChat transcript follows:\n"
-	const truncNote = "\n\n[transcript truncated to fit codex input cap]\n"
-	idx := strings.Index(body, marker)
-	if idx < 0 || idx+len(marker) >= maxBytes-len(truncNote) {
-		// No marker, or header alone already exceeds budget: tail-truncate body.
-		keep := maxBytes - len(truncNote)
-		if keep < 0 {
-			keep = 0
-		}
-		return truncNote + body[len(body)-keep:]
-	}
-	header := body[:idx+len(marker)]
-	transcript := body[idx+len(marker):]
-	keep := maxBytes - len(header) - len(truncNote)
-	if keep < 0 {
-		keep = 0
-	}
-	if keep >= len(transcript) {
-		return body
-	}
-	return header + truncNote + transcript[len(transcript)-keep:]
-}
-
-// isRateLimitMessage matches the well-known codex/ChatGPT quota-exceeded
-// phrases (and the JSON error_info codex stamps on them) regardless of
-// surrounding wrapping.
-func isRateLimitMessage(msg string) bool {
-	if msg == "" {
-		return false
-	}
-	lower := strings.ToLower(msg)
-	patterns := []string{
-		"usage_limit_exceeded",
-		"usage limit",
-		"hit your usage limit",
-		"rate limit",
-		"rate_limit",
-		"quota exceeded",
-		"too many requests",
-	}
-	for _, p := range patterns {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func mergeEnv(extra map[string]string) []string {
-	env := append([]string{}, os.Environ()...)
-	for k, v := range extra {
-		env = append(env, k+"="+v)
-	}
-	return env
 }

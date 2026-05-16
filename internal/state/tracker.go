@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"dreamer/internal/logging"
 )
 
 const (
@@ -59,13 +61,20 @@ func PathForProject(outputRoot string, projectName string) (string, error) {
 
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
-		cfgDir, err := os.UserConfigDir()
+		cfgDir, err := userConfigDir()
 		if err != nil {
 			return "", fmt.Errorf("resolve user config dir: %w", err)
 		}
 		root = filepath.Join(cfgDir, configDirName)
 	}
 	return filepath.Join(root, name, stateFile), nil
+}
+
+func userConfigDir() (string, error) {
+	if xdgConfigHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdgConfigHome != "" {
+		return xdgConfigHome, nil
+	}
+	return os.UserConfigDir()
 }
 
 // Load reads the per-project state. A missing file returns a default state
@@ -168,9 +177,12 @@ func ChatCacheKey(path, fileHash, repoHeadSHA string) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-// RepoHeadSHA returns the git HEAD sha for a working directory. Non-git
-// repositories (or git failures) return "" with no error.
-func RepoHeadSHA(workingDirectory string) string {
+// RepoHeadSHA returns the git HEAD sha for a working directory.
+//
+// Non-git repositories and git command failures return an empty string because
+// repository state is a cache hint, not a hard requirement for analysis. When a
+// logger is provided, failures are recorded at debug level for troubleshooting.
+func RepoHeadSHA(workingDirectory string, loggers ...*logging.Logger) string {
 	wd := strings.TrimSpace(workingDirectory)
 	if wd == "" {
 		return ""
@@ -178,6 +190,9 @@ func RepoHeadSHA(workingDirectory string) string {
 	cmd := exec.Command("git", "-C", wd, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
+		if len(loggers) > 0 && loggers[0] != nil {
+			loggers[0].Debug("repo head SHA failed", logging.Any("wd", wd), logging.Any("err", err))
+		}
 		return ""
 	}
 	return strings.TrimSpace(string(out))

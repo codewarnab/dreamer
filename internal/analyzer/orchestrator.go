@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // Mistake is a phase-1 output: a recurring failure mode of the assistant
@@ -84,7 +83,7 @@ func NewOrchestrator(packs []RulePack) *Orchestrator {
 	if len(packs) == 0 {
 		defaults, err := LoadDefaultRulePacks()
 		if err != nil {
-			// LoadDefaultRulePacks errors only on embedded-asset corruption.
+			// Safe: LoadDefaultRulePacks only fails on go:embed corruption (build-time guarantee).
 			panic(fmt.Sprintf("dreamer: load default rule packs: %v", err))
 		}
 		packs = defaults
@@ -104,29 +103,29 @@ func (o *Orchestrator) Run(ctx context.Context, session Session, req PhaseReques
 
 	result := AnalysisResult{}
 	mistakesByCategory := make(map[RuleCategory][]Mistake)
-	for _, pack := range o.Packs {
-		if !pack.Enabled {
-			continue
-		}
-		prompt := o.buildMistakePrompt(pack, req)
-		raw, err := session.Run(ctx, prompt, pack.Timeout())
-		if err != nil {
-			if errors.Is(err, ErrRateLimited) {
-				return result, fmt.Errorf("phase-1 %q hit provider rate limit: %w", pack.Category, err)
+	warnings, err := runPhase[Mistake](
+		ctx,
+		session,
+		o.Packs,
+		"phase-1",
+		func(pack RulePack) (string, bool) {
+			return o.buildMistakePrompt(pack, req), false
+		},
+		func(raw string, pack RulePack) ([]Mistake, error) {
+			mistakes, err := parseMistakeResponse(raw, pack)
+			if err != nil {
+				return nil, err
 			}
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("phase-1 %q failed (%v); skipping category", pack.Category, err))
-			continue
-		}
-		mistakes, parseErr := parseMistakeResponse(raw, pack)
-		if parseErr != nil {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("phase-1 %q response parse failed (%v); skipping category", pack.Category, parseErr))
-			continue
-		}
-		filtered := filterMistakesByThreshold(mistakes, pack.Threshold)
-		mistakesByCategory[pack.Category] = append(mistakesByCategory[pack.Category], filtered...)
-		result.Mistakes = append(result.Mistakes, filtered...)
+			return filterMistakesByThreshold(mistakes, pack.Threshold), nil
+		},
+		func(pack RulePack, parsed []Mistake) {
+			mistakesByCategory[pack.Category] = append(mistakesByCategory[pack.Category], parsed...)
+			result.Mistakes = append(result.Mistakes, parsed...)
+		},
+	)
+	result.Warnings = append(result.Warnings, warnings...)
+	if err != nil {
+		return result, err
 	}
 
 	if len(result.Mistakes) == 0 {
@@ -136,32 +135,80 @@ func (o *Orchestrator) Run(ctx context.Context, session Session, req PhaseReques
 		return result, nil
 	}
 
-	for _, pack := range o.Packs {
-		categoryMistakes := mistakesByCategory[pack.Category]
-		if !pack.Enabled || len(categoryMistakes) == 0 {
+	warnings, err = runPhase[Finding](
+		ctx,
+		session,
+		o.Packs,
+		"phase-2",
+		func(pack RulePack) (string, bool) {
+			categoryMistakes := mistakesByCategory[pack.Category]
+			if len(categoryMistakes) == 0 {
+				return "", true
+			}
+			return o.buildGuardrailPrompt(pack, req, categoryMistakes), false
+		},
+		func(raw string, pack RulePack) ([]Finding, error) {
+			findings, err := parseGuardrailResponse(raw, pack)
+			if err != nil {
+				return nil, err
+			}
+			validated, validationWarnings := validateFindings(findings, pack, req)
+			result.Warnings = append(result.Warnings, validationWarnings...)
+			return validated, nil
+		},
+		func(pack RulePack, parsed []Finding) {
+			result.Findings = append(result.Findings, parsed...)
+		},
+	)
+	result.Warnings = append(result.Warnings, warnings...)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+// runPhase executes the shared provider loop for one orchestrator phase.
+//
+// The caller supplies phase-specific prompt construction, response parsing, and
+// acceptance behavior. Provider rate limits abort the entire phase immediately;
+// ordinary provider and parse failures are returned as warnings so other packs
+// can continue.
+func runPhase[T any](
+	ctx context.Context,
+	session Session,
+	packs []RulePack,
+	phaseName string,
+	buildPrompt func(RulePack) (prompt string, skip bool),
+	parse func(raw string, pack RulePack) ([]T, error),
+	accept func(pack RulePack, parsed []T),
+) ([]string, error) {
+	warnings := []string{}
+	for _, pack := range packs {
+		if !pack.Enabled {
 			continue
 		}
-		prompt := o.buildGuardrailPrompt(pack, req, categoryMistakes)
+		prompt, skip := buildPrompt(pack)
+		if skip {
+			continue
+		}
 		raw, err := session.Run(ctx, prompt, pack.Timeout())
 		if err != nil {
 			if errors.Is(err, ErrRateLimited) {
-				return result, fmt.Errorf("phase-2 %q hit provider rate limit: %w", pack.Category, err)
+				return warnings, fmt.Errorf("%s %q hit provider rate limit: %w", phaseName, pack.Category, err)
 			}
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("phase-2 %q failed (%v); skipping category", pack.Category, err))
+			warnings = append(warnings,
+				fmt.Sprintf("%s %q failed (%v); skipping category", phaseName, pack.Category, err))
 			continue
 		}
-		findings, parseErr := parseGuardrailResponse(raw, pack)
+		parsed, parseErr := parse(raw, pack)
 		if parseErr != nil {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("phase-2 %q response parse failed (%v); skipping category", pack.Category, parseErr))
+			warnings = append(warnings,
+				fmt.Sprintf("%s %q response parse failed (%v); skipping category", phaseName, pack.Category, parseErr))
 			continue
 		}
-		validated, warnings := validateFindings(findings, pack, req)
-		result.Warnings = append(result.Warnings, warnings...)
-		result.Findings = append(result.Findings, validated...)
+		accept(pack, parsed)
 	}
-	return result, nil
+	return warnings, nil
 }
 
 func (o *Orchestrator) buildMistakePrompt(pack RulePack, req PhaseRequest) string {
@@ -371,12 +418,4 @@ func stripCodeFence(raw string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
-// SessionTimeout returns the per-rule timeout (legacy compat).
-func SessionTimeout(seconds int) time.Duration {
-	if seconds <= 0 {
-		return 45 * time.Second
-	}
-	return time.Duration(seconds) * time.Second
 }

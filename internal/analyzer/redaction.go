@@ -71,17 +71,6 @@ func (r *Redactor) Redact(text string) (string, RedactionResult) {
 	return current, result
 }
 
-// MergeRedactionResult adds the counts of next into dst.
-func MergeRedactionResult(dst RedactionResult, next RedactionResult) RedactionResult {
-	if dst.HitsByName == nil {
-		dst.HitsByName = map[string]int{}
-	}
-	for name, count := range next.HitsByName {
-		dst.HitsByName[name] += count
-	}
-	return dst
-}
-
 func defaultRedactionPatterns() []RedactionPattern {
 	return []RedactionPattern{
 		{Name: "aws-access-key-id", Pattern: regexp.MustCompile(`\b(?:AKIA|ASIA|AIDA|AROA|AGPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}\b`)},

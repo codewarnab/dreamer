@@ -12,9 +12,8 @@ import (
 const (
 	DefaultFrequencySeconds = 3600
 	DefaultLogLevel         = "info"
+	DefaultModel            = "gpt-5.3-codex"
 	DefaultProviderID       = "copilot-sdk"
-	DefaultRuleTimeoutSecs  = 45
-	DefaultRuleThreshold    = 0.70
 
 	configDirName     = "dreamer"
 	globalConfigFile  = "config.yaml"
@@ -95,15 +94,18 @@ type ProjectFileConfig struct {
 
 // GlobalConfigPath returns the canonical global config path.
 func GlobalConfigPath() (string, error) {
-	dir, err := os.UserConfigDir()
+	root, err := UserConfigRoot()
 	if err != nil {
-		return "", fmt.Errorf("resolve user config dir: %w", err)
+		return "", err
 	}
-	return filepath.Join(dir, configDirName, globalConfigFile), nil
+	return filepath.Join(root, globalConfigFile), nil
 }
 
 // UserConfigRoot returns `<UserConfigDir>/dreamer`.
 func UserConfigRoot() (string, error) {
+	if xdgConfigHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdgConfigHome != "" {
+		return filepath.Join(xdgConfigHome, configDirName), nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve user config dir: %w", err)

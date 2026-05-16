@@ -50,7 +50,7 @@ func TestStartupInstallCreatesLogonTask(t *testing.T) {
 	assertContainsArgument(t, commandArgs, "ONLOGON")
 	assertContainsArgument(t, commandArgs, "/TN")
 	assertContainsArgument(t, commandArgs, startupTaskName)
-	assertContainsArgument(t, commandArgs, filepath.Join(homeDir, ".dreamer", defaultConfigFileName))
+	assertContainsArgument(t, commandArgs, filepath.Join(homeDir, ".config", "dreamer", defaultConfigFileName))
 	if !strings.Contains(stdout, "startup task installed") {
 		t.Fatalf("stdout missing install confirmation: %s", stdout)
 	}

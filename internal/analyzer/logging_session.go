@@ -27,18 +27,16 @@ func NewLoggingSession(inner Session, logger *logging.Logger, providerID string)
 func (s *loggingSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	s.runIndex++
 	idx := s.runIndex
-	s.logger.Info("provider call #%d provider=%q timeout=%s prompt_bytes=%d",
-		idx, s.provider, timeout, len(prompt))
+	s.logger.Info("provider call started", logging.Any("call", idx), logging.Any("provider", s.provider), logging.Any("timeout", timeout), logging.Any("prompt_bytes", len(prompt)))
 	start := time.Now()
 	out, err := s.inner.Run(ctx, prompt, timeout)
 	elapsed := time.Since(start)
 	if err != nil {
-		s.logger.Error("provider call #%d FAILED elapsed=%s error=%v", idx, elapsed, err)
+		s.logger.Error("provider call failed", logging.Any("call", idx), logging.Any("elapsed", elapsed), logging.Any("err", err))
 		return out, err
 	}
-	s.logger.Info("provider call #%d response_bytes=%d elapsed=%s", idx, len(out), elapsed)
-	s.logger.Info("provider call #%d RESPONSE BEGIN >>>\n%s\n<<< provider call #%d RESPONSE END",
-		idx, out, idx)
+	s.logger.Info("provider call completed", logging.Any("call", idx), logging.Any("response_bytes", len(out)), logging.Any("elapsed", elapsed))
+	s.logger.Info("provider response", logging.Any("call", idx), logging.Any("body", out))
 	return out, nil
 }
 

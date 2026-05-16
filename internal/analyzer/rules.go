@@ -4,7 +4,6 @@ import (
 	"embed"
 	"fmt"
 	"path"
-	"sort"
 	"strings"
 	"time"
 
@@ -94,45 +93,6 @@ func parseRulePack(data []byte, label string) (RulePack, error) {
 	return pack, nil
 }
 
-// MergeRulePack overlays override fields onto base. Empty / zero override
-// fields are ignored so partial project YAMLs work cleanly.
-func MergeRulePack(base, override RulePack) RulePack {
-	out := base
-	if strings.TrimSpace(string(override.Category)) != "" {
-		out.Category = override.Category
-	}
-	out.Enabled = override.Enabled || (base.Enabled && !packExplicitlyDisabled(override))
-	if override.Threshold > 0 {
-		out.Threshold = override.Threshold
-	}
-	if override.TimeoutSeconds > 0 {
-		out.TimeoutSeconds = override.TimeoutSeconds
-	}
-	if strings.TrimSpace(override.MistakePromptTemplate) != "" {
-		out.MistakePromptTemplate = override.MistakePromptTemplate
-	}
-	if strings.TrimSpace(override.GuardrailPromptTemplate) != "" {
-		out.GuardrailPromptTemplate = override.GuardrailPromptTemplate
-	}
-	if override.ResponseSchema != nil {
-		out.ResponseSchema = override.ResponseSchema
-	}
-	return out
-}
-
-func packExplicitlyDisabled(p RulePack) bool {
-	// A pack that comes in with all-zero values shouldn't flip Enabled off.
-	// Treat "explicitly disabled" as: any field on the override is set AND
-	// Enabled is false.
-	if p.Threshold > 0 || p.TimeoutSeconds > 0 ||
-		strings.TrimSpace(p.MistakePromptTemplate) != "" ||
-		strings.TrimSpace(p.GuardrailPromptTemplate) != "" ||
-		p.ResponseSchema != nil {
-		return !p.Enabled
-	}
-	return false
-}
-
 // FormatTemplate fills `{{key}}` placeholders in template with values from
 // vars. Unknown placeholders are left as-is. Whitespace is preserved.
 func FormatTemplate(template string, vars map[string]string) string {
@@ -144,12 +104,4 @@ func FormatTemplate(template string, vars map[string]string) string {
 		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
 	}
 	return result
-}
-
-// SortRulePacks orders rule packs by category for deterministic iteration.
-func SortRulePacks(packs []RulePack) []RulePack {
-	sort.SliceStable(packs, func(i, j int) bool {
-		return string(packs[i].Category) < string(packs[j].Category)
-	})
-	return packs
 }

@@ -9,11 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultConfigTemplate = `# dreamer global config (v1). See doc/spec.md for full schema.
+var defaultConfigTemplate = fmt.Sprintf(`# dreamer global config (v1). See doc/spec.md for full schema.
 
 # Provider used when --provider is not passed and no per-project config sets one.
 # Options: copilot-sdk | copilot-acp | claude-cli | claude-acp |
-#          gemini-sdk | gemini-cli | gemini-acp | kiro-acp |
+#          gemini-cli | gemini-acp | kiro-acp |
 #          codex-cli  | codex-acp
 default_provider: copilot-sdk
 
@@ -49,7 +49,7 @@ redaction:
 providers:
   copilot-sdk:
     # GitHub Copilot SDK (native Go SDK). See spec §18.
-    model: gpt-5.3-codex        # options: gpt-5.3-codex | gpt-4.1 | gpt-5 | "" (SDK auto)
+    model: %[1]s        # options: %[1]s | gpt-4.1 | gpt-5 | "" (SDK auto)
     use_logged_in_user: true    # options: true | false. Use keychain auth. Mutually exclusive with cli_url.
     auto_start: false           # options: true | false. Spawn CLI eagerly vs. on first session.
     # copilot_home: ""          # override $COPILOT_HOME. Optional.
@@ -68,11 +68,6 @@ providers:
   claude-acp:
     command: ["claude", "--acp"]
     # env: {}
-
-  gemini-sdk:
-    # Google Generative AI Go SDK. NOT YET IMPLEMENTED in v1.
-    api_key_env: GEMINI_API_KEY # environment variable name that holds the API key
-    model: gemini-2.0-pro       # options: gemini-2.0-pro | gemini-2.0-flash | gemini-1.5-pro
 
   gemini-cli:
     # NOT YET IMPLEMENTED in v1.
@@ -116,7 +111,7 @@ analyzer:
   #     enabled: true
   #   refactor-boundary:
   #     enabled: false
-`
+`, config.DefaultModel)
 
 func newConfigCommand() *cobra.Command {
 	command := &cobra.Command{

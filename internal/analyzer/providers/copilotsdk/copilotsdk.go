@@ -15,11 +15,12 @@ import (
 const ID = "copilot-sdk"
 
 type Options struct {
-	CopilotHome     string
-	UseLoggedInUser bool
-	CLIURL          string
-	AutoStart       bool
-	Model           string
+	CopilotHome        string
+	UseLoggedInUser    bool
+	UseLoggedInUserSet bool
+	CLIURL             string
+	AutoStart          bool
+	Model              string
 }
 
 type sdkClient interface {
@@ -194,14 +195,14 @@ func buildSDKClientOptions(options Options) (*copilot.ClientOptions, error) {
 		sdkOptions.Env = upsertEnvVar(os.Environ(), "COPILOT_HOME", copilotHome)
 	}
 	if cliURL != "" {
-		if options.UseLoggedInUser {
+		if options.UseLoggedInUserSet && options.UseLoggedInUser {
 			return nil, fmt.Errorf("configure copilot-sdk provider: UseLoggedInUser cannot be enabled when CLIURL is set; authenticate the external Copilot CLI server instead")
 		}
 		return sdkOptions, nil
 	}
-	useLoggedInUser := options.UseLoggedInUser
-	if !useLoggedInUser {
-		useLoggedInUser = true
+	useLoggedInUser := true
+	if options.UseLoggedInUserSet {
+		useLoggedInUser = options.UseLoggedInUser
 	}
 	sdkOptions.UseLoggedInUser = copilot.Bool(useLoggedInUser)
 	return sdkOptions, nil

@@ -1,8 +1,6 @@
 package output
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,8 +39,12 @@ type GenerateResult struct {
 	ExistingHashes map[string]struct{}
 }
 
-// GenerateTodos appends a `## Run <ts>` section to the per-project todos.md
-// containing one bullet per new finding, plus an optional Warnings section.
+// GenerateTodos reads, merges, and writes the per-project todos.md file.
+//
+// The function is intentionally a thin I/O shell around MergeTodos. It resolves
+// the target path, reads the current file if one exists, delegates all merging
+// and rendering decisions to the pure function, then writes only when there is
+// new content to persist.
 func GenerateTodos(projectName string, findings []analyzer.Finding, opts GenerateOptions) (GenerateResult, error) {
 	todosPath, err := todosPathForProject(projectName, opts.OutputRoot)
 	if err != nil {
@@ -53,6 +55,28 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 	if err != nil {
 		return GenerateResult{}, err
 	}
+
+	merged, result := MergeTodos(projectName, existingContent, findings, opts)
+	result.Path = todosPath
+	if merged == "" {
+		return result, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(todosPath), dirPerms); err != nil {
+		return GenerateResult{}, fmt.Errorf("create todos directory %q: %w", filepath.Dir(todosPath), err)
+	}
+	if err := os.WriteFile(todosPath, []byte(merged), filePerms); err != nil {
+		return GenerateResult{}, fmt.Errorf("write todos file %q: %w", todosPath, err)
+	}
+	return result, nil
+}
+
+// MergeTodos returns the updated todos.md content for a run.
+//
+// Inputs are plain values so callers can test merge behavior without touching
+// the filesystem. If there are no new findings and no warnings to render, the
+// returned mergedContent is empty and result still reports the existing hashes
+// observed in existingContent.
+func MergeTodos(projectName, existingContent string, findings []analyzer.Finding, opts GenerateOptions) (mergedContent string, result GenerateResult) {
 	existingHashes := extractExistingFindingHashes(existingContent)
 	newFindings := filterNewFindings(findings, existingHashes)
 
@@ -70,24 +94,15 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 		sections = append(sections, renderWarningsSection(opts.Warnings, runAt))
 	}
 
-	result := GenerateResult{
-		Path:           todosPath,
+	result = GenerateResult{
 		AddedFindings:  len(newFindings),
 		WroteWarnings:  len(opts.Warnings) > 0,
 		ExistingHashes: existingHashes,
 	}
 	if len(sections) == 0 {
-		return result, nil
+		return "", result
 	}
-
-	merged := mergeContent(existingContent, projectTitle(projectName, opts.ProjectTitle), sections)
-	if err := os.MkdirAll(filepath.Dir(todosPath), dirPerms); err != nil {
-		return GenerateResult{}, fmt.Errorf("create todos directory %q: %w", filepath.Dir(todosPath), err)
-	}
-	if err := os.WriteFile(todosPath, []byte(merged), filePerms); err != nil {
-		return GenerateResult{}, fmt.Errorf("write todos file %q: %w", todosPath, err)
-	}
-	return result, nil
+	return mergeContent(existingContent, projectTitle(projectName, opts.ProjectTitle), sections), result
 }
 
 func todosPathForProject(projectName string, outputRoot string) (string, error) {
@@ -104,13 +119,20 @@ func todosPathForProject(projectName string, outputRoot string) (string, error) 
 
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
-		cfgDir, err := os.UserConfigDir()
+		cfgDir, err := userConfigDir()
 		if err != nil {
 			return "", fmt.Errorf("resolve user config dir for output root: %w", err)
 		}
 		root = filepath.Join(cfgDir, configDirName)
 	}
 	return filepath.Join(root, name, todosFileName), nil
+}
+
+func userConfigDir() (string, error) {
+	if xdgConfigHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdgConfigHome != "" {
+		return xdgConfigHome, nil
+	}
+	return os.UserConfigDir()
 }
 
 func readExistingTodos(path string) (string, error) {
@@ -130,29 +152,6 @@ func extractExistingFindingHashes(content string) map[string]struct{} {
 		if len(match) > 1 {
 			existing[strings.ToLower(match[1])] = struct{}{}
 		}
-	}
-
-	// Legacy fallback: also accept the v0 hash format derived from category
-	// heading + description, so re-runs against pre-v1 todos.md dedup cleanly.
-	currentCategory := ""
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if heading, ok := strings.CutPrefix(trimmed, "### "); ok {
-			currentCategory = normalizeCategory(heading)
-			continue
-		}
-		description, ok := strings.CutPrefix(trimmed, "- [ ] ")
-		if !ok {
-			continue
-		}
-		if idx := strings.Index(description, "<!--"); idx >= 0 {
-			description = description[:idx]
-		}
-		description = strings.TrimSpace(description)
-		if description == "" || currentCategory == "" {
-			continue
-		}
-		existing[findingHash(currentCategory, description)] = struct{}{}
 	}
 	return existing
 }
@@ -292,7 +291,9 @@ func renderSnippet(snippet string, tool string) string {
 	}
 	b.WriteByte('\n')
 	for _, line := range strings.Split(snippet, "\n") {
-		b.WriteString("    ")
+		if line != "" {
+			b.WriteString("    ")
+		}
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
@@ -396,12 +397,4 @@ func normalizeCategory(category string) string {
 
 func normalizeText(value string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
-}
-
-// findingHash is the legacy v0 hash, retained only for dedup against pre-v1
-// todos.md files.
-func findingHash(category, description string) string {
-	key := normalizeCategory(category) + "|" + normalizeText(description)
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])
 }

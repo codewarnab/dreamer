@@ -1,8 +1,10 @@
 package logging
 
 import (
+	"context"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,19 +24,18 @@ const (
 // framework.
 type Logger struct {
 	file   *os.File
-	logger *log.Logger
-	level  logLevel
+	logger *slog.Logger
+	level  slog.Level
 	path   string
 }
 
-type logLevel int
+// Attr is one structured logging field.
+type Attr = slog.Attr
 
-const (
-	levelError logLevel = iota
-	levelWarn
-	levelInfo
-	levelDebug
-)
+// Any builds a structured field for Logger methods.
+func Any(key string, value any) Attr {
+	return slog.Any(key, value)
+}
 
 // New creates a logger that writes to "<outputRoot>/logging/dreamer.log".
 //
@@ -54,12 +55,17 @@ func New(outputRoot string, level string) (*Logger, error) {
 		return nil, fmt.Errorf("open log file %q: %w", logPath, err)
 	}
 
-	return &Logger{
-		file:   file,
-		logger: log.New(file, "", log.LstdFlags|log.LUTC),
-		level:  parseLevel(level),
-		path:   logPath,
-	}, nil
+	minLevel := parseLevel(level)
+	handler := slog.NewTextHandler(io.MultiWriter(file, os.Stderr), &slog.HandlerOptions{
+		Level: minLevel,
+		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
+			if attr.Key == slog.LevelKey {
+				return slog.String(slog.LevelKey, strings.ToLower(attr.Value.String()))
+			}
+			return attr
+		},
+	})
+	return &Logger{file: file, logger: slog.New(handler), level: minLevel, path: logPath}, nil
 }
 
 // Path returns the absolute log file path used by this logger.
@@ -79,41 +85,45 @@ func (logger *Logger) Close() error {
 }
 
 // Error records a command issue or failure.
-func (logger *Logger) Error(format string, args ...any) {
-	logger.write(levelError, "ERROR", format, args...)
+func (logger *Logger) Error(message string, attrs ...Attr) {
+	logger.write(slog.LevelError, message, attrs...)
 }
 
 // Warn records a recoverable issue that did not stop the command.
-func (logger *Logger) Warn(format string, args ...any) {
-	logger.write(levelWarn, "WARN", format, args...)
+func (logger *Logger) Warn(message string, attrs ...Attr) {
+	logger.write(slog.LevelWarn, message, attrs...)
 }
 
 // Info records normal command progress.
-func (logger *Logger) Info(format string, args ...any) {
-	logger.write(levelInfo, "INFO", format, args...)
+func (logger *Logger) Info(message string, attrs ...Attr) {
+	logger.write(slog.LevelInfo, message, attrs...)
 }
 
 // Debug records detailed troubleshooting information.
-func (logger *Logger) Debug(format string, args ...any) {
-	logger.write(levelDebug, "DEBUG", format, args...)
+func (logger *Logger) Debug(message string, attrs ...Attr) {
+	logger.write(slog.LevelDebug, message, attrs...)
 }
 
-func (logger *Logger) write(level logLevel, label string, format string, args ...any) {
-	if logger == nil || logger.logger == nil || level > logger.level {
+func (logger *Logger) write(level slog.Level, message string, attrs ...Attr) {
+	if logger == nil || logger.logger == nil || level < logger.level {
 		return
 	}
-	logger.logger.Printf("%s %s", label, fmt.Sprintf(format, args...))
+	args := make([]any, 0, len(attrs))
+	for _, attr := range attrs {
+		args = append(args, attr)
+	}
+	logger.logger.Log(context.Background(), level, message, args...)
 }
 
-func parseLevel(value string) logLevel {
+func parseLevel(value string) slog.Level {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "error":
-		return levelError
+		return slog.LevelError
 	case "warn", "warning":
-		return levelWarn
+		return slog.LevelWarn
 	case "debug":
-		return levelDebug
+		return slog.LevelDebug
 	default:
-		return levelInfo
+		return slog.LevelInfo
 	}
 }

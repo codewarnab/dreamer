@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/transport"
 )
 
 const ID = "claude-cli"
@@ -88,7 +89,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	cmd := exec.CommandContext(ctx, s.command[0], s.command[1:]...)
 	cmd.Dir = s.workingDir
-	cmd.Env = appendEnv(s.env)
+	cmd.Env = transport.MergeWithProcessEnv(s.env)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -119,10 +120,18 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	waitErr := cmd.Wait()
 	if waitErr != nil {
-		return "", fmt.Errorf("claude-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
+		err := fmt.Errorf("claude-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(stderrBuf.String()) {
+			err = errors.Join(analyzer.ErrRateLimited, err)
+		}
+		return "", err
 	}
 	if parseErr != nil {
-		return "", fmt.Errorf("claude-cli: parse stream-json: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
+		err := fmt.Errorf("claude-cli: parse stream-json: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
+			err = errors.Join(analyzer.ErrRateLimited, err)
+		}
+		return "", err
 	}
 	if final == "" {
 		return "", fmt.Errorf("claude-cli: no assistant content emitted (stderr: %s)", strings.TrimSpace(stderrBuf.String()))
@@ -170,23 +179,4 @@ type streamEvent struct {
 			Text string `json:"text"`
 		} `json:"content"`
 	} `json:"message"`
-}
-
-func appendEnv(extra map[string]string) []string {
-	env := append([]string{}, baseEnv...)
-	for k, v := range extra {
-		env = append(env, k+"="+v)
-	}
-	return env
-}
-
-var baseEnv []string
-
-func init() {
-	baseEnv = appendProcessEnv(nil)
-}
-
-func appendProcessEnv(extra []string) []string {
-	// Use os.Environ at init time to inherit PATH and HOME.
-	return append(extra, processEnv()...)
 }

@@ -69,6 +69,7 @@ func buildProviderConfig(block config.ProviderBlock) analyzer.ProviderConfig {
 	}
 	if block.UseLoggedInUser != nil {
 		out.UseLoggedInUser = *block.UseLoggedInUser
+		out.UseLoggedInUserSet = true
 	}
 	if block.AutoStart != nil {
 		out.AutoStart = *block.AutoStart

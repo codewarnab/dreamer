@@ -37,10 +37,11 @@ type ProviderConfig struct {
 	Model string
 
 	// copilot-sdk
-	CopilotHome     string
-	UseLoggedInUser bool
-	AutoStart       bool
-	CLIURL          string
+	CopilotHome        string
+	UseLoggedInUser    bool
+	UseLoggedInUserSet bool
+	AutoStart          bool
+	CLIURL             string
 
 	// CLI/ACP providers
 	Command []string

@@ -13,12 +13,14 @@ import (
 
 var projectNameSafePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-// deriveProjectName converts an absolute project path into the directory name
-// dreamer uses under the output root (spec §11.1). Output is always
-// "project-<basename>"; characters outside [A-Za-z0-9._-] become "_" and a
-// short hash suffix disambiguates paths whose basename had to be rewritten
-// (so /a/foo and /b/foo bar don't collide).
-func deriveProjectName(projectPath string) string {
+// DeriveProjectName converts an absolute project path into the directory name
+// dreamer uses under the output root.
+//
+// The name starts as "project-<basename>" with unsafe characters replaced by
+// underscores. If usedNames already maps that candidate to a different path,
+// the returned name gets a short hash suffix so projects with the same basename
+// do not share state or todos files.
+func DeriveProjectName(projectPath string, usedNames map[string]string) string {
 	clean := filepath.Clean(projectPath)
 	base := filepath.Base(clean)
 	if base == "" || base == "." || base == string(filepath.Separator) {
@@ -28,11 +30,27 @@ func deriveProjectName(projectPath string) string {
 	if safe == "" {
 		safe = "root"
 	}
-	if safe == base {
-		return "project-" + safe
+	candidate := "project-" + safe
+	if safe == base && !projectNameCollides(candidate, clean, usedNames) {
+		return candidate
 	}
 	sum := sha256.Sum256([]byte(clean))
-	return "project-" + safe + "-" + hex.EncodeToString(sum[:])[:8]
+	return candidate + "-" + hex.EncodeToString(sum[:])[:8]
+}
+
+func deriveProjectName(projectPath string) string {
+	return DeriveProjectName(projectPath, nil)
+}
+
+func projectNameCollides(candidate string, projectPath string, usedNames map[string]string) bool {
+	if len(usedNames) == 0 {
+		return false
+	}
+	existingPath, ok := usedNames[candidate]
+	if !ok {
+		return false
+	}
+	return filepath.Clean(existingPath) != projectPath
 }
 
 func resolveAbsoluteProjectPath(path string) (string, error) {

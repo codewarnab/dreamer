@@ -1,321 +1,401 @@
-Perfect! I now have all the context needed. Here's your **comprehensive implementation plan**:
+# Dreamer Refactor Plan
+
+Implementation plan for the remaining items in `analysis.md`. Ordered by
+leverage-to-cost ratio. Each phase names exact files, signatures, and
+acceptance criteria.
+
+Status as of branch `v1-rework`:
+- **Done:** §1 (dead pipeline), §2 (pipeline extraction), §3 (discovery
+  registry), §7 (AnalyzerConfig shrunk to `RuleTimeoutSeconds` + `Rules`).
+- **Pending:** §4, §5, §6, §10, §11, smaller nits, structured logging.
 
 ---
 
-## Plan: Chat Analysis CLI Background Process
+## Phase A — Dead code sweep
 
-**TL;DR:** Build a Go CLI tool (`dreamer`) that periodically scans Copilot CLI/VS Code chat histories, uses Copilot SDK to analyze patterns (bugs, performance, design issues), and generates actionable markdown todos organized by project. The tool is read-only, maintains state for incremental analysis, and follows your deep-module design principles (simple CLI interface → modular readers → pluggable analyzers → todo generator).
+One PR. ~30 minutes. No behavior change.
 
-### Architecture Overview
+### A1. Delete unused exports (§11)
 
-The tool has 4 independent **vertical slices** (each a complete feature-to-output path):
+- `internal/analyzer/rules.go:99` — delete `MergeRulePack`
+- `internal/analyzer/rules.go:150` — delete `SortRulePacks`
+- `internal/analyzer/orchestrator.go:377` — delete `SessionTimeout`
+- `internal/analyzer/redaction.go:75` — delete `MergeRedactionResult`
+- `internal/analyzer/providers/acpcore/acpcore.go:591` — delete
+  `transportPermFields` (empty struct)
+- `internal/analyzer/providers/acpcore/acpcore.go:736` — delete
+  `extractAssistantText` (no callers)
 
-1. **Chat Discovery & Reading** — Auto-find chat sources, read JSONL/SQLite/Protobuf
-2. **Analysis Engine** — Use Copilot SDK to identify patterns (bugs, perf, arch, etc.)
-3. **Todo Generation** — Convert findings into structured markdown in `~/.dreamer/`
-4. **Background Daemon** — Periodic execution with state tracking
+Run `go build ./... && go vet ./... && go test ./...` — all must pass.
 
-Each slice is a deep module: simple public interface, hidden complexity.
+### A2. Fix the `gemini-sdk` template footgun (§11 nit)
 
-### Copilot SDK Specifications
+`cmd/config.go:72-80` ships a `gemini-sdk:` block marked
+"NOT YET IMPLEMENTED in v1". If a user uncomments it, dreamer exits 1
+with "provider not registered".
 
-The **GitHub Copilot Go SDK** (public preview) provides programmatic access to Copilot agent sessions. Key points:
+- Remove the `gemini-sdk:` block (`cmd/config.go:72-80`).
+- Remove the menu reference on line 16.
 
-**Installation & Client Lifecycle**
+### A3. `NewOrchestrator` panic comment (§11 nit)
+
+`internal/analyzer/orchestrator.go:88` — add one-line comment:
+
+```go
+// Safe: LoadDefaultRulePacks only fails on go:embed corruption (build-time guarantee).
+```
+
+---
+
+## Phase B — DRY consolidation (§4)
+
+One PR. ~1-2 hours. New `internal/analyzer/transport` package.
+
+### B1. New package `internal/analyzer/transport`
+
+Three files, each pure and unit-tested.
+
+**`transport/ratelimit.go`**
+
+```go
+func IsRateLimitMessage(msg string) bool
+```
+
+Use the **union** of both pattern lists — codexcli's 7 patterns plus
+acpcore's `"overloaded"`. Eight patterns total. The union is harmless
+for codex paths because "overloaded" is an Anthropic-only string and
+matching it elsewhere won't fire.
+
+**`transport/inputcap.go`**
+
+```go
+func CapInputBytes(body string, maxBytes int, truncNote string) string
+```
+
+Take `truncNote` as a parameter so callers preserve their own wording
+(codex says "codex input cap", acpcore says "agent input cap"). Logic
+unchanged from existing `capCodexInput` / `capInputBytes`: preserve the
+prompt header before `"\n\nChat transcript follows:\n"` and tail-truncate
+the transcript.
+
+**`transport/env.go`**
+
+```go
+func MergeWithProcessEnv(extra map[string]string) []string
+```
+
+Must support the **empty-value-means-delete** semantics that acpcore
+uses today. The richer behavior is harmless for codexcli callers (they
+never pass empty values).
+
+### B2. Replace callsites
+
+- `codexcli/codexcli.go` — delete local `capCodexInput`,
+  `isRateLimitMessage`, `mergeEnv`. Import transport. Keep
+  `codexMaxInputBytes` constant locally; pass truncnote
+  `"\n\n[transcript truncated to fit codex input cap]\n"`.
+- `acpcore/acpcore.go` — delete local `capInputBytes`,
+  `isRateLimitMessage`, `mergeEnvWithProcess`. Truncnote
+  `"\n\n[transcript truncated to fit agent input cap]\n"`.
+- `claudecli/env.go` — audit; if it duplicates env-merge logic, swap to
+  transport.
+- `claudecli/claudecli.go` and any other providers with their own
+  rate-limit checks — audit and unify.
+
+### B3. Tests for transport
+
+- `transport/ratelimit_test.go` — table-driven against all 8 patterns
+  plus a negative.
+- `transport/inputcap_test.go` — header-preserved, header-too-big
+  tail-truncate, no-marker tail-truncate, body-fits-pass-through.
+- `transport/env_test.go` — append, delete-via-empty, preserve order.
+
+**Acceptance:** ~80 lines deleted across providers; ~120 lines added in
+transport (including tests).
+
+---
+
+## Phase C — Generator purity (§6)
+
+One PR. ~1 hour.
+
+### C1. Split `GenerateTodos` into pure + shell
+
+`internal/output/generator.go:46` currently bundles read+compute+write.
+Split into:
+
+```go
+// MergeTodos is pure: takes existing content + new inputs,
+// returns merged content + result.
+func MergeTodos(
+    projectName, existingContent string,
+    findings []analyzer.Finding,
+    opts GenerateOptions,
+) (mergedContent string, result GenerateResult)
+
+// GenerateTodos becomes the thin shell.
+func GenerateTodos(
+    projectName string,
+    findings []analyzer.Finding,
+    opts GenerateOptions,
+) (GenerateResult, error) {
+    todosPath, err := todosPathForProject(...)
+    if err != nil { return GenerateResult{}, err }
+    existing, err := readExistingTodos(todosPath)
+    if err != nil { return GenerateResult{}, err }
+    merged, result := MergeTodos(projectName, existing, findings, opts)
+    if merged == "" { return result, nil }
+    return result, writeFile(todosPath, merged)
+}
+```
+
+Update `generator_test.go` to test `MergeTodos` directly (no tempdir
+required for the bulk of cases). Keep one integration test for the I/O
+path.
+
+### C2. Drop v0 hash fallback (§6 second bullet)
+
+`extractExistingFindingHashes` (line 127) currently does v1
+hash-marker extraction **and** a v0 category-heading+description
+fallback. The v0 branch is dead-on-arrival for any v1 install.
+
+**Decision required (ask user before this step):** is there any user
+with pre-v1 `todos.md` on disk?
+
+- **If yes:** add a one-shot migration step in `pipeline.go` — on first
+  run with v1 state, walk the existing `todos.md`, compute v0 hashes,
+  store them in `state.FindingHashes`. Then delete the v0 branch.
+- **If no:** clean break — just delete lines 135-156 in `generator.go`,
+  delete `findingHash` (line 403), drop the `crypto/sha256` / `hex`
+  imports.
+
+### C3. `renderSnippet` blank-line indent (§11 nit)
+
+`generator.go:294-298` prepends `"    "` to every snippet line, including
+blank ones, producing `    ` lines that confuse some markdown renderers.
+
+Skip the indent when `line == ""`. One-line conditional.
+
+---
+
+## Phase D — Orchestrator phase de-dup (§5)
+
+One PR. ~1 hour.
+
+The phase-1 (`orchestrator.go:107-130`) and phase-2 (`:139-163`) loops
+are structurally identical: iterate enabled packs, build prompt, call
+session, handle rate-limit, parse, post-process, append.
+
+### D1. Extract `runPhase` with generics
+
+```go
+func runPhase[T any](
+    ctx context.Context,
+    session Session,
+    packs []RulePack,
+    phaseName string,
+    buildPrompt func(RulePack) (prompt string, skip bool),
+    parse func(raw string, pack RulePack) ([]T, error),
+    accept func(pack RulePack, parsed []T),
+) []string  // warnings
+```
+
+Phase-1 instantiates `T = Mistake`; phase-2 instantiates `T = Finding`.
+Single loop body. ~40 lines deleted.
+
+Rate-limit short-circuit, parse-failure warning, and skip-when-empty
+behavior all live inside `runPhase`.
+
+### D2. Test coverage
+
+`orchestrator_test.go` must continue to cover:
+
+- Rate-limit short-circuit (both phases).
+- Parse-failure warning (both phases).
+- Empty-mistakes early-return (phase-2 skipped).
+- Dry-run skip (phase-2 skipped).
+
+---
+
+## Phase E — Pipeline test backfill (§10)
+
+One PR. ~2-3 hours.
+
+`internal/pipeline/` currently has only `lookback_test.go` and
+`transcript_test.go`. Add:
+
+### E1. `cache_test.go`
+
+- Cache hit: all source hashes match + repo SHA match → early return.
+- Cache miss: hash drift on any source.
+- Cache miss: repo SHA changed.
+- `--force` bypasses cache regardless.
+
+### E2. `projectname_test.go`
+
+- `DeriveProjectName` collision behavior: two projects with the same
+  basename → second gets `-<hash>` suffix.
+- Absolute-path resolution edge cases.
+
+### E3. `pipeline_test.go`
+
+Full happy path with fakes + tempdir output root:
+
+- `todos.md` written.
+- `state.json` updated.
+- No error returned.
+
+Plus dry-run path (no writes) and warning-rendering path (parse
+failures still produce a warnings section).
+
+### E4. `logs_test.go`
+
+- `loggingSession` records prompt + response to disk.
+- Rotation / path conventions sane.
+
+### Fakes
+
+- `analyzer.Provider` / `Session` — `fakeSession` returning canned
+  responses keyed by prompt category.
+- `chat.ChatSourceProvider` — point `DiscoveryEnvironment` at a tempdir
+  with fixture JSONL.
+
+**Acceptance:** `go test ./internal/pipeline/... -cover` shows >70%
+statement coverage.
+
+---
+
+## Phase F — Smaller nits
+
+One PR. ~30 minutes total. Opportunistic.
+
+### F1. Justify magic numbers (§11 nit)
+
+`internal/chat/readers/claude_sanitizer.go` — one-line comment above:
+
+```go
+// ≈ 1k tokens × 250 msgs ≈ context budget for one analysis prompt.
+const claudeMaxCharsPerMessage = 4000
+const claudeMaxMessagesPerSource = 250
+```
+
+### F2. `copilotsdk` UseLoggedInUser silent override (§11 nit)
+
+`internal/analyzer/providers/copilotsdk/copilotsdk.go:202-205` silently
+flips `UseLoggedInUser=false` to `true`.
+
+Two acceptable resolutions:
+
+- **Preferred:** honor `false` — if the SDK supports it, just pass it
+  through.
+- **Fallback:** emit
+  `logger.Warn("copilotsdk: forcing use_logged_in_user=true; SDK requires it")`
+  so the override is observable.
+
+Pick one. Don't keep both `*bool` config + silent override.
+
+### F3. `RepoHeadSHA` debug log on failure (§11 nit)
+
+`internal/state/tracker.go:182-195` silently returns `""` on git
+failure. Accept an optional `*logging.Logger`; if non-nil:
+
+```go
+logger.Debug("repo head SHA failed", "wd", wd, "err", err)
+```
+
+Update callers in `internal/pipeline/cache.go` to pass the pipeline's
+logger.
+
+### F4. Default model duplication (§7 nit)
+
+`"gpt-5.3-codex"` is duplicated in `cmd/config.go:53` (template) and
+`internal/config/loader.go:193` (default in code).
+
+Define one source of truth:
+
+```go
+// internal/config/loader.go
+const DefaultModel = "gpt-5.3-codex"
+```
+
+Then reference it from both — the template builder in `cmd/config.go`
+interpolates via `fmt.Sprintf`, not a hard-coded string.
+
+### F5. Unreferenced default constants (§7 nit)
+
+`internal/config/loader.go:16-17` defines `DefaultRuleTimeoutSecs = 45`
+and `DefaultRuleThreshold = 0.70` but nothing references them.
+
+Pick: either wire them into `applyDefaults` (so rule timeout always has
+a floor) or delete them. Default to deletion unless `applyDefaults`
+actually needs them.
+
+---
+
+## Phase G — Structured logging migration (§6 last bullet)
+
+One PR. ~2-3 hours. **Largest remaining item.** Do last — touches many
+files and conflicts most with other refactors.
+
+### Decision
+
+Commit to `log/slog`, or drop the `key=value` pretense and log prose.
+**Recommended:** `log/slog`. Today's log lines look structured but
+aren't grep-reliable; slog gives proper kv parsing for free.
+
+### G1. Audit scope
+
 ```bash
-go get github.com/github/copilot-sdk/go
+grep -rn 'logger\.\(Info\|Warn\|Error\|Debug\)' internal cmd | wc -l
 ```
 
-**Client pattern:**
-- `NewClient(ClientOptions)` — Create with config (CLIPath, CopilotHome, UseLoggedInUser, etc.)
-- `Start(ctx)` — Spawn or connect to Copilot CLI
-- `Stop()` — Graceful shutdown; `ForceStop()` for unresponsive CLI
-- `CreateSession(ctx, SessionConfig)` — Create agent session with model, tools, streaming
-- `ResumeSession(sessionId)` — Resume persisted session (state stored in `~/.copilot/session-state/{sessionId}/`)
-- `ListSessions()`, `DeleteSession(sessionId)`, `GetLastSessionID()`
+### G2. Replace `internal/logging/logger.go`
 
-**Session workflow:**
-- Sessions emit events: `AssistantMessageData`, `AssistantMessageDeltaData` (streaming), `SessionIdleData` (completion)
-- Register handlers with `session.On(func(event SessionEvent) {...})`
-- Send prompts with `session.Send(ctx, MessageOptions{Prompt: "..."})`
-- Call `session.Disconnect()` to finalize state
+Use `slog.Handler` writing to file + stderr. Keep the existing `Logger`
+interface as a thin wrapper so callers don't all change at once.
 
-**Key Config Options**
-- `CopilotHome`: Override default `~/.copilot` for session storage
-- `UseLoggedInUser`: Use system keychain authentication (recommended for CLI)
-- `CLIUrl`: Connect to headless Copilot CLI server (e.g., `localhost:4321`) for backend/daemon use
-- `LogLevel`: "error", "warn", "info", "debug"
-- `Streaming`: true → receive incremental `MessageDeltaData` events
-- `OnPermissionRequest`: Handle tool/permission prompts (PermissionHandler.ApproveAll for automated)
+### G3. Convert callers in batches
 
-**Headless / Backend Mode (for daemon)**
-- Run `copilot --headless --port 4321` as persistent CLI server
-- SDK connects via `CLIUrl: "localhost:4321"` (no per-session CLI spawn overhead)
-- Multiple SDK clients can share single headless CLI
-- Recommended for long-running daemons to avoid resource churn
+1. `cmd/` and `internal/pipeline/` first (highest signal — analyze /
+   daemon lifecycle).
+2. `internal/chat/discovery.go` next.
+3. Providers last (low log volume).
 
-**Tools / Function Calling**
-- Define tools with `DefineTool(name, desc, handler)` for type-safe params and JSON schema auto-generation
-- Pass tools to `SessionConfig{Tools: []copilot.Tool{...}}`
-- Copilot calls registered tools; await responses in event loop
-- Mark read-only tools to skip permission prompts
+### G4. Acceptance
 
-**Model & Session Persistence**
-- Currently supports `gpt-4.1` and `gpt-5` (or latest SDK default)
-- Sessions persist in `~/.copilot/session-state/{sessionId}/` when client properly disconnects
-- Can resume interrupted sessions via `ResumeSession(sessionId)`
-
-**Error Handling**
-- Auth failures: `Start()` returns error if keychain unavailable or user not authenticated
-- Network timeouts: Configure via context timeout
-- SDK errors: Check error returns from each call; streaming errors arrive as events
-- Rate limits: No explicit rate-limit headers; SDK may queue requests internally
-
-### Steps
-
-**Phase 1: Project Foundation & Configuration** *(sequential, enables all others)*
-1. Initialize Go project structure at `/code/dreamer`:
-   - `main.go` — Cobra CLI entry point
-   - `internal/config/` — Load/save `~/.dreamer/config.yaml`, validate project paths
-   - `internal/state/` — Track last-run timestamps, analyzed chat IDs per project
-   - `go.mod` — Cobra, Copilot SDK, YAML unmarshaler
-2. Create config schema and CLI flags:
-   - `dreamer analyze --path /path/to/project [--frequency hourly|daily]`
-   - `dreamer daemon --config ~/.dreamer/config.yaml` (runs background loop)
-3. Implement path validation: verify `--path` exists, extract project name from last path component, ensure output directory `/code/dreamer/<project-name>/` is writable
-
-**Phase 2: Chat Discovery & Reader Layer** *(parallel with Phase 1, depends on config)*
-4. Build chat discovery engine (`internal/chat/discovery.go`):
-   - Scan `~/.copilot/session-state/` for all JSONL files
-   - Scan VS Code workspaceStorage for all `<hash>/chatSessions/` folders
-   - Skip Gemini CLI for now (not activated); defer Antigravity (requires protobuf schema)
-   - Return list of available chat sources with metadata (tool, workspace, timestamps)
-
-5. Implement JSONL reader (`internal/chat/readers/jsonl.go`):
-   - Stream JSONL line-by-line, unmarshal into `Event` struct
-   - Reconstruct conversation threads via `parentId` chain
-   - Extract user/assistant messages with timestamps
-   - Return structured `[]ChatMessage` with tool metadata
-
-6. Implement SQLite indexer (`internal/chat/readers/sqlite.go`):
-   - Query `~/.copilot/session-store.db` to discover sessions efficiently
-   - Use to filter which .jsonl files to read (only new/modified since last run)
-   - *Depends on*: Phase 1 state tracking
-
-**Phase 3: Copilot SDK Analysis Engine** *(parallel with Phase 2, depends on config auth)*
-7. Set up Copilot SDK client (`internal/analyzer/client.go`):
-   - Initialize `copilot.Client` with `ClientOptions{UseLoggedInUser: true, CopilotHome: ...}` to use system auth
-   - For daemon: use `ClientOptions{CLIUrl: "localhost:4321"}` to connect to headless CLI server (requires `copilot --headless --port 4321` running separately)
-   - For one-shot CLI: use `ClientOptions{AutoStart: true}` to spawn CLI on demand
-   - Call `client.Start(ctx)` with 30s timeout; fail fast if auth missing or CLI unavailable
-   - Wrap SDK client in custom `AnalysisClient` interface: `CreateSession() (*Session, error)`, `Close() error`
-   - Log init state: auth success, CLI version, session model, feature flags
-   - Implement error handling: auth failures → user-friendly "Configure Copilot CLI first" message; network errors → exponential backoff; parse failures → log + skip finding
-
-8. Build **Table-Driven Analysis Rules** (`internal/analyzer/rules.go`):
-   - Define analysis categories: `Bugs`, `Performance`, `Duplication`, `MissingTests`, `Architecture`, `Documentation`, `Lint`, `Security`, `Types`
-   - Each rule maps to a Copilot prompt template (reusable, configurable)
-   - Example structure:
-     ```go
-     type AnalysisRule struct {
-         Category       string                 // "Bugs", "Performance", etc.
-         PromptTemplate string                 // "Analyze this chat for {{category}} issues in {{projectName}}..."
-         Threshold      int                    // Min severity (1-10)
-         Enabled        bool                   // Configurable per run
-         TimeoutSecs    int                    // Per-rule timeout (default 60s)
-         ResponseSchema ResponseFinding struct // Expected Finding fields for parsing
-     }
-     ```
-   - Store rules in config YAML for user customization
-   - Define canonical `ResponseFinding` struct for JSON unmarshaling Copilot responses: `Description`, `Severity`, `RootCause`, `RelatedCode`, `PreventionPattern`
-
-9. Implement analysis orchestrator (`internal/analyzer/orchestrator.go`):
-   - Create `AnalysisClient.CreateSession()` with `Streaming: true` for incremental responses
-   - Register event handler: accumulate `AssistantMessageData` + `AssistantMessageDeltaData` into finding buffer
-   - For each enabled rule:
-     1. Format prompt: `"Analyze this chat for {{Category}} issues in project {{ProjectName}}. Extract findings as JSON array of {Description, Severity, RootCause, RelatedCode, PreventionPattern}. Ignore out-of-scope issues."`
-     2. Send via `session.Send(ctx, MessageOptions{Prompt: ...})` with rule timeout (default 60s context)
-     3. Wait for `SessionIdleData` event (completion marker)
-     4. Parse accumulated response as `[]ResponseFinding` JSON; map to `[]Finding` struct with rule metadata
-     5. Skip rule on parse error (log warning, continue to next rule)
-   - Call `session.Disconnect()` after all rules complete
-   - Return deduplicated `[]Finding` across all rules
-   - *Depends on*: Phase 3 client setup + Phase 2 chat readers
-
-**Phase 4: Todo Generation & Output** *(depends on Phase 3 analysis)*
-10. Build todo generator (`internal/output/generator.go`):
-    - Convert `[]Finding` → markdown todos
-    - Each todo: `- [Finding Category] Issue description | Seen in: [tool name, chat date] | Suggests: [prevention pattern]`
-    - Append to `~/.dreamer/<project-name>/todos.md` (create if missing)
-    - Include section headers by category, timestamps
-    - Add deduplication logic: check if exact issue already in todos (compare normalized description), add all unique findings
-
-11. Implement state update (`internal/state/tracker.go`):
-    - After successful run, record: last analysis timestamp, analyzed chat IDs, Copilot SDK usage stats
-    - Write to `~/.dreamer/<project-name>/state.json`
-    - Next run skips already-analyzed chats
-
-**Phase 5: CLI & Daemon Integration** *(depends on all prior phases)*
-12. Implement Cobra commands:
-    - `dreamer analyze --path /path/to/project` — one-shot analysis, read chats, generate todos
-    - `dreamer daemon --frequency hourly` — loop with configurable interval (via config + flag override)
-    - `dreamer config init` — bootstrap `~/.dreamer/config.yaml` with defaults
-    - `dreamer ls-chats --path /path` — discover available chat sources (debug command)
-
-13. Add signal handling for daemon:
-    - Graceful shutdown on `SIGTERM`: finish current session (call `session.Disconnect()`), save state.json, exit
-    - On shutdown, record incomplete projects in state.json as resumable (store session IDs from `client.ListSessions()`)
-    - Log rotation to `~/.dreamer/logs/` with max 100MB per file, keep 7 days
-    - Daemon setup: document running headless CLI as separate service: `copilot --headless --port 4321 --log-file ~/.dreamer/logs/cli.log`
-
-14. Implement main loop (`cmd/daemon.go`):
-    - Initialize `AnalysisClient` with `CLIUrl: "localhost:4321"` to connect to persistent headless Copilot CLI
-    - Load config → iterate projects in config order
-    - For each project:
-      1. Load state.json; check for incomplete/resumable sessions from prior crash
-      2. If resumable: call `client.ResumeSession(sessionId)` to continue analysis
-      3. Else: run fresh Phase 2-4 pipeline (discovery → analysis → todo generation)
-      4. On completion: update state.json with analyzed chat IDs + timestamp
-    - Between projects: sleep configurable interval (default 1h)
-    - On Copilot API errors:
-      - Rate limit (429): exponential backoff 5s → 30s → 5m
-      - Auth timeout: log + skip to next project (will retry next daemon cycle)
-      - Timeout on analysis (60s rule timeout): mark finding as incomplete, log error, continue to next rule
-    - On unrecoverable error (e.g., CLI crash): log alert, attempt reconnect with backoff
-    - Exit codes: 0 = success, 1 = fatal error (CLI not running, config missing), 2 = partial (some projects analyzed, some failed)
-
-### Relevant Files
-
-**Directory Structure** (to be created):
-```
-/code/dreamer/
-├── main.go                              — CLI entry
-├── go.mod / go.sum                      — Dependencies
-├── cmd/
-│   ├── analyze.go                       — Cobra analyze command
-│   ├── daemon.go                        — Cobra daemon command  
-│   └── config.go                        — Cobra config commands
-├── internal/
-│   ├── config/
-│   │   └── loader.go                    — Load/validate ~/.dreamer/config.yaml
-│   ├── state/
-│   │   └── tracker.go                   — Save/load analysis state per project
-│   ├── chat/
-│   │   ├── discovery.go                 — Find chat sources (JSONL, VS Code, CLI)
-│   │   └── readers/
-│   │       ├── jsonl.go                 — JSONL parser, thread reconstruction
-│   │       └── sqlite.go                — SQLite session index queries
-│   ├── analyzer/
-│   │   ├── client.go                    — Copilot SDK initialization
-│   │   ├── rules.go                     — Analysis rules (table-driven)
-│   │   └── orchestrator.go              — Run analysis pipeline
-│   └── output/
-│       └── generator.go                 — Convert findings → markdown todos
-└── README.md                            — Usage docs
-```
-
-**Key Interfaces** (define these first—they drive all modules):
-
-- `config/loader.go`: `LoadConfig(path string) (*Config, error)` — Load ~/.dreamer/config.yaml; validate projects + rules
-- `state/tracker.go`: `LoadState(projectName string) *State` + `SaveState(projectName string, state *State) error` — Track analyzed chat IDs, last-run timestamp, Copilot token usage
-- `chat/discovery.go`: `DiscoverChats(projectPath string) []ChatSource` — Return list of available chats with metadata (path, tool, mtime)
-- `chat/readers/jsonl.go`: `ReadJSONL(filePath string) ([]ChatMessage, error)` — Stream JSONL line-by-line; reconstruct threads; return messages with timestamps + tool metadata
-- `analyzer/client.go`: `NewAnalysisClient(opts ClientOptions) *AnalysisClient` + `CreateSession(ctx) (*Session, error)` + `Close() error` — Wraps copilot.Client; hides lifecycle complexity
-- `analyzer/orchestrator.go`: `AnalyzeChats(ctx, session *Session, chats []ChatMessage, rules []AnalysisRule) ([]Finding, error)` — Send templated prompts; parse JSON responses; deduplicate findings
-- `output/generator.go`: `GenerateTodos(findings []Finding, projectName string, outputDir string, dedupExisting bool) error` — Append unique findings to todos.md; update state.json
-
-### Verification
-
-1. **Unit Tests** (each phase independent):
-   - Config loader: verify YAML parsing, path validation, defaults
-   - JSONL reader: sample Copilot CLI session file, verify event reconstruction
-   - SQLite indexer: mock DB queries, verify filtering logic
-   - Analysis orchestrator: mock Copilot responses, verify Finding extraction
-   - Todo generator: verify markdown formatting, deduplication logic
-
-2. **Integration Tests**:
-   - End-to-end: provide sample project path → mock chats → analyze → verify todos.md output
-   - Daemon: run 2 cycles, verify state.json incremental tracking (no re-analysis)
-
-3. **Manual Verification**:
-   - `dreamer analyze --path ~/myproject` on real codebase
-   - Inspect generated `~/.dreamer/myproject/todos.md` for quality/accuracy
-   - Verify `~/.dreamer/myproject/state.json` exists and updates after runs
-   - Test daemon: `dreamer daemon --frequency 10m`, let run 2-3 cycles, check logs
-   - Test error handling: run without Copilot CLI auth, verify graceful error message
-
-### Decisions
-
-- **Copilot SDK over local LLMs:** SDK provides official auth + streaming, easier to add more models later (BYOK pattern)
-- **Table-Driven Rules:** Decouples analysis categories from code; users can enable/disable in config without recompile
-- **JSONL reader, defer Protobuf:** Start with Copilot CLI/VS Code (JSONL format well-documented); Antigravity protobuf requires external schema
-- **Single todos.md per project:** Simple, user-friendly; dated runs append to same file with timestamps
-- **Auto-derived project names:** Reduces CLI friction; user only provides `--path`
-- **State tracking:** Avoids re-analyzing unchanged chats, saves Copilot quota and time
-- **No config auto-discovery:** Explicit is better than implicit; `~/.dreamer/config.yaml` is the single source of truth
-
-### Further Considerations
-
-**Phase 0 (Pre-flight Check) — Add before Phase 1**
-- Verify Copilot CLI installed: run `copilot --version` or check PATH
-- If daemon mode: verify headless CLI reachable at configured CLIUrl (e.g., `localhost:4321`); suggest `copilot --headless --port 4321` if not
-- If one-shot mode: verify user authenticated: call `client.Start(ctx)` with 10s timeout; fail with "Run `copilot auth login` first" if auth missing
-- Check ~/.dreamer writable; create if missing with mode 0700
-- Validate all project paths in config exist; warn on missing paths
-- Exit with clear error messages; never silently skip projects
-
-**Session Management & Resumption**
-- Each analysis should create one long-lived session per project (not per rule)
-- Session persists in `~/.copilot/session-state/{sessionId}/` on proper disconnect
-- On daemon crash: next cycle detects incomplete session via state.json, calls `ResumeSession(sessionId)` to continue
-- Protects against re-analyzing already-processed chats in same run
-- Limit session lifetime: mark stale if > 24h old; force new session
-
-**Concurrent Daemon Instances**
-- PID file at `~/.dreamer/daemon.pid` with locking (use flock on Unix, os.Rename on Windows)
-- Second instance startup: check PID, if stale (process dead), acquire lock; else exit with "daemon already running"
-- Prevents duplicate analyses + concurrent todos.md writes
-
-**Chat Reader Edge Cases**
-- **File locks (Windows):** On "permission denied" reading active chat, retry 3x with 100ms backoff
-- **Corrupted JSONL:** Skip malformed lines (log count at end); never fail entire file
-- **Large chats (>500MB):** Warn, but stream to avoid OOM; split into chunks if needed
-- **Deleted chat files:** Discovered in Phase 2, but deleted by Phase 3 = skip + log warning
-- **Circular parentId chains:** Detect in thread reconstruction; truncate at cycle, log warning
-- **Empty/system-only chats:** Filter out: require at least 1 user message + 1 assistant message
-
-**Deduplication Spec**
-- Normalized comparison: trim whitespace, lowercase category, but preserve description case
-- Hash function: `sha256(normalized_category + normalized_description[:100])`
-- Check if hash exists in todos.md or state.json finding cache
-- If duplicate: increment count in existing todo instead of adding new line
-
-**Sensitive Data Handling**
-- Optional redaction filter in config: regex patterns for API keys, secrets, password strings
-- On match: replace with `[REDACTED]` in todo description (log redaction count)
-- Redacted finding still appears; just sanitized
-
-**Copilot SDK Error Resilience**
-- Auth failure on `client.Start()`: error msg suggests `copilot auth login`; daemon pauses with 5m backoff
-- Network timeout on `session.Send()`: log timeout, retry rule up to 2x with exponential backoff
-- Rate limit (429): record retry-after header, sleep accordingly, continue
-- Streaming parse error: log context (first 200 chars of unparsed response), skip finding, continue
-- SDK version mismatch: log warning, attempt to continue; if SDK panic, catch via recovery + exit
-
-1. **Gemini CLI Activation** — Currently unverified (not installed). Once you activate Gemini CLI, add discovery + JSONL reader. *Recommendation:* Add as Phase 6 post-launch.
-
-2. **Antigravity Protobuf** — Requires `.proto` schema. *Recommendation:* Research Google's public schema; if unavailable, implement as optional Phase 6.
-
-3. **Extensibility for Future Chat Tools** — Current design supports adding new chat readers as new `internal/chat/readers/*.go` files. *Recommendation:* Document the `ChatReader` interface to make adding tools straightforward.
-
-4. **Rate Limiting & Copilot Quota** — SDK may have implicit rate limits. *Recommendation:* Track token usage in state.json, warn if >80% quota consumed per analysis run.
-
-5. **Test Data** — Should I create sample JSONL files to test against? *Recommendation:* Once Phase 2 is drafted, generate fixtures from real Copilot CLI exports.
-
-6. **Headless CLI as Systemd Service** — For production daemon, run `copilot --headless` as separate systemd service with auto-restart. *Recommendation:* Document service file template in README.
-
-7. **Streaming vs. Buffered Responses** — SDK supports streaming (`Streaming: true`); incremental tokens arrive as `AssistantMessageDeltaData`. *Current plan:* Buffer full response before parsing for simplicity; optimize to streaming parse in Phase 6 if response times are slow.
+- Every log line is `slog`-formatted (kv parsed, not hand-built).
+- `dreamer.log` is grep-friendly.
+- One integration test reads back a log line and asserts
+  `level=info msg=... project=...`.
 
 ---
 
-**Ready to proceed?** I've captured all decisions and architecture. Next steps: you can approve this plan, request refinements, or I can move to implementation. What would you like to adjust?
+## Suggested PR ordering
+
+| PR  | Phase | Effort   | Risk      | Notes                                                |
+|-----|-------|----------|-----------|------------------------------------------------------|
+| PR1 | A     | ~30 min  | Near-zero | Dead code sweep + gemini-sdk template + panic note   |
+| PR2 | B     | ~1-2 hrs | Low       | Transport package + DRY consolidation                |
+| PR3 | F     | ~30 min  | Near-zero | Small nits bundle                                    |
+| PR4 | C     | ~1 hr    | Medium    | Generator purity split. Ask re: v0 fallback first    |
+| PR5 | D     | ~1 hr    | Low       | Orchestrator phase de-dup with generics              |
+| PR6 | E     | ~2-3 hrs | Low       | Pipeline test backfill                               |
+| PR7 | G     | ~2-3 hrs | Medium    | Structured logging migration                         |
+
+## Net impact estimate
+
+- ~−400 to −500 lines of production code (deletions dominate).
+- ~+300 lines of new tests.
+- New `transport` package ~+120 lines including tests.
+- New pipeline tests ~+200-300 lines.
+
+## Open questions
+
+1. **Pre-v1 `todos.md` migration** (Phase C2): do any users have
+   pre-v1 todos.md on disk that need v0 hash migration, or is a clean
+   break acceptable?
+2. **`copilotsdk.UseLoggedInUser` semantics** (F2): can the SDK
+   authenticate with `UseLoggedInUser=false`, or is the current silent
+   flip load-bearing?
+3. **Structured logging commitment** (Phase G): proceed with `log/slog`
+   migration, or defer indefinitely?
