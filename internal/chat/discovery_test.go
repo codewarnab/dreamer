@@ -52,9 +52,14 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 	setModTime(t, antigravityGlobalPB, antigravityGlobalTime)
 	setModTime(t, antigravityProjectPB, antigravityProjectTime)
 
-	sources, err := discoverChatsFromRoots(homeDir, appDataDir, claudeConfigDir, projectDir, geminiHomeDir)
+	sources, err := discoverChatsFromEnvironment(DiscoveryEnvironment{
+		HomeDir:         homeDir,
+		AppDataDir:      appDataDir,
+		ClaudeConfigDir: claudeConfigDir,
+		GeminiHomeDir:   geminiHomeDir,
+	}, projectDir)
 	if err != nil {
-		t.Fatalf("discoverChatsFromRoots returned error: %v", err)
+		t.Fatalf("discoverChatsFromEnvironment returned error: %v", err)
 	}
 	if len(sources) != 6 {
 		t.Fatalf("expected 6 sources, got %d", len(sources))
@@ -74,15 +79,14 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 }
 
 func TestDiscoverChatsFromRootsMissingDirectories(t *testing.T) {
-	sources, err := discoverChatsFromRoots(
-		filepath.Join(t.TempDir(), "missing-home"),
-		filepath.Join(t.TempDir(), "missing-appdata"),
-		filepath.Join(t.TempDir(), "missing-claude"),
-		filepath.Join(t.TempDir(), "missing-project"),
-		filepath.Join(t.TempDir(), "missing-gemini"),
-	)
+	sources, err := discoverChatsFromEnvironment(DiscoveryEnvironment{
+		HomeDir:         filepath.Join(t.TempDir(), "missing-home"),
+		AppDataDir:      filepath.Join(t.TempDir(), "missing-appdata"),
+		ClaudeConfigDir: filepath.Join(t.TempDir(), "missing-claude"),
+		GeminiHomeDir:   filepath.Join(t.TempDir(), "missing-gemini"),
+	}, filepath.Join(t.TempDir(), "missing-project"))
 	if err != nil {
-		t.Fatalf("discoverChatsFromRoots returned error: %v", err)
+		t.Fatalf("discoverChatsFromEnvironment returned error: %v", err)
 	}
 	if len(sources) != 0 {
 		t.Fatalf("expected no sources, got %d", len(sources))
@@ -382,9 +386,16 @@ func TestDiscoverChatsFromRootsIsolatesClaudeSessionsPerProject(t *testing.T) {
 	setModTime(t, claudeA, overlapping)
 	setModTime(t, claudeB, overlapping)
 
-	sourcesA, err := discoverChatsFromRoots(homeDir, appDataDir, claudeConfigDir, projectADir, geminiHomeDir)
+	envBase := DiscoveryEnvironment{
+		HomeDir:         homeDir,
+		AppDataDir:      appDataDir,
+		ClaudeConfigDir: claudeConfigDir,
+		GeminiHomeDir:   geminiHomeDir,
+	}
+
+	sourcesA, err := discoverChatsFromEnvironment(envBase, projectADir)
 	if err != nil {
-		t.Fatalf("discoverChatsFromRoots for project A returned error: %v", err)
+		t.Fatalf("discoverChatsFromEnvironment for project A returned error: %v", err)
 	}
 	if len(sourcesA) != 1 {
 		t.Fatalf("expected 1 source for project A, got %d", len(sourcesA))
@@ -393,9 +404,9 @@ func TestDiscoverChatsFromRootsIsolatesClaudeSessionsPerProject(t *testing.T) {
 		t.Fatalf("project A source path = %q, want %q", got, claudeA)
 	}
 
-	sourcesB, err := discoverChatsFromRoots(homeDir, appDataDir, claudeConfigDir, projectBDir, geminiHomeDir)
+	sourcesB, err := discoverChatsFromEnvironment(envBase, projectBDir)
 	if err != nil {
-		t.Fatalf("discoverChatsFromRoots for project B returned error: %v", err)
+		t.Fatalf("discoverChatsFromEnvironment for project B returned error: %v", err)
 	}
 	if len(sourcesB) != 1 {
 		t.Fatalf("expected 1 source for project B, got %d", len(sourcesB))

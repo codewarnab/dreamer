@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,76 +12,11 @@ import (
 )
 
 func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, error) {
-	if source.Tool == chat.SourceTypeAntigravityGemini {
-		messages, err := readers.ReadAntigravityGemini(source.Path)
-		if err != nil {
-			return nil, fmt.Errorf("read antigravity chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
+	provider, ok := chat.ProviderFor(source.Tool)
+	if !ok {
+		return nil, fmt.Errorf("unsupported chat source tool %q for %q", source.Tool, source.Path)
 	}
-
-	if source.Tool == chat.SourceTypeGeminiCLISession {
-		messages, err := readers.ReadGeminiCLI(source.Path)
-		if err != nil {
-			return nil, fmt.Errorf("read gemini cli chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
-	}
-
-	if source.Tool == chat.SourceTypeOpenCodeSession {
-		dbPath, sessionID := chat.SplitSQLiteSourcePath(source.Path)
-		messages, err := readers.ReadOpenCodeMessages(dbPath, sessionID)
-		if err != nil {
-			return nil, fmt.Errorf("read opencode chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
-	}
-
-	if source.Tool == chat.SourceTypeKiroCLISession {
-		dbPath, conversationID := chat.SplitSQLiteSourcePath(source.Path)
-		messages, err := readers.ReadKiroConversation(dbPath, conversationID)
-		if err != nil {
-			return nil, fmt.Errorf("read kiro cli chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
-	}
-
-	switch strings.ToLower(filepath.Ext(source.Path)) {
-	case ".jsonl":
-		if source.Tool == chat.SourceTypeVSCodeChatSession {
-			messages, err := readers.ReadVSCodeChat(source.Path)
-			if err != nil {
-				return nil, fmt.Errorf("read vscode chat source %q: %w", source.Path, err)
-			}
-			return messages, nil
-		}
-		messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
-			SanitizeClaude:         source.Tool == chat.SourceTypeClaudeCodeSession,
-			SanitizeCodex:          source.Tool == chat.SourceTypeCodexSessionJSONL,
-			SanitizeCopilotSession: source.Tool == chat.SourceTypeCopilotSessionJSONL,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
-	case ".json":
-		if source.Tool != chat.SourceTypeVSCodeChatSession {
-			return nil, fmt.Errorf("unsupported chat source file %q (supported: .json only for vscode chat sources)", source.Path)
-		}
-		messages, err := readers.ReadVSCodeChat(source.Path)
-		if err != nil {
-			return nil, fmt.Errorf("read vscode chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
-	case ".pb", ".pbtxt":
-		messages, err := readers.ReadProtobuf(source.Path)
-		if err != nil {
-			return nil, fmt.Errorf("read protobuf chat source %q: %w", source.Path, err)
-		}
-		return messages, nil
-	default:
-		return nil, fmt.Errorf("unsupported chat source file %q (supported: .jsonl, .json for vscode, .pb, .pbtxt)", source.Path)
-	}
+	return provider.ReadMessages(source)
 }
 
 func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger) (string, []chat.ChatSource, int, []string, int, error) {
@@ -99,9 +33,6 @@ func buildRedactedTranscript(sources []chat.ChatSource, redactor *analyzer.Redac
 			continue
 		}
 		raw := len(messages)
-		if source.Tool == chat.SourceTypeClaudeCodeSession && strings.ToLower(filepath.Ext(source.Path)) == ".jsonl" {
-			messages = readers.SanitizeClaudeMessages(messages)
-		}
 		if len(messages) == 0 {
 			logger.Info("source empty path=%q tool=%s raw=%d", source.Path, source.Tool, raw)
 			continue

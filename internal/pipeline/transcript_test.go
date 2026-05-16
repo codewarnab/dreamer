@@ -9,7 +9,7 @@ import (
 	"dreamer/internal/chat"
 )
 
-func TestReadMessagesFromSourceAcceptsJSONOnlyForVSCodeChat(t *testing.T) {
+func TestReadMessagesFromSourceReadsVSCodeJSON(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "chat.json")
 	if err := os.WriteFile(sourcePath, []byte(`{"requests":[{"message":{"text":"hello"},"response":"world"}]}`), 0o644); err != nil {
 		t.Fatalf("write vscode json fixture: %v", err)
@@ -24,17 +24,6 @@ func TestReadMessagesFromSourceAcceptsJSONOnlyForVSCodeChat(t *testing.T) {
 	}
 	if len(messages) != 2 {
 		t.Fatalf("len(messages) = %d, want 2", len(messages))
-	}
-
-	_, err = readMessagesFromSource(chat.ChatSource{
-		Path: sourcePath,
-		Tool: chat.SourceTypeCopilotSessionJSONL,
-	})
-	if err == nil {
-		t.Fatalf("readMessagesFromSource expected unsupported .json error for non-vscode source")
-	}
-	if !strings.Contains(err.Error(), ".json only for vscode") {
-		t.Fatalf("error = %q, want vscode-only .json message", err)
 	}
 }
 

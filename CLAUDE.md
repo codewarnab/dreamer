@@ -33,29 +33,33 @@ Cobra commands registered in `cmd/root.go`:
 3. `chat.DiscoverChats(projectPath)` enumerates chat sources; `filterSourcesByLookback` (from `--since`) prunes them.
 4. `state.Load(outputRoot, projectName)` reads `<outputRoot>/<project>/state.json`; `state.HashFile` + `state.ChatCacheKey(path, fileHash, repoHeadSHA)` build a per-source cache key. If every key matches and `RepoHeadSHA` is unchanged (and `--force` is off), the run is a cache hit and exits early.
 5. `mergeRulePacks` loads embedded YAML rule packs and applies `analyzer.rules.<category>.enabled` toggles + `rule_timeout_seconds` from global and per-project config.
-6. `buildRedactor` + `buildRedactedTranscript` read each source via `readMessagesFromSource`, sanitize Claude JSONL (`SanitizeClaudeMessages`), and emit one redacted transcript blob.
+6. `buildRedactor` + `buildRedactedTranscript` read each source via `readMessagesFromSource` (a thin dispatch into `chat.ProviderFor(source.Tool).ReadMessages`); per-source sanitization (Claude `SanitizeClaudeMessages`, Codex/Copilot JSONL flags) lives inside each provider's `ReadMessages` method.
 7. `toolchain.Detect` + `buildCodebaseContext` assemble grounding context for the prompts.
 8. `analyzer.NewProvider(id, providerCfg)` → `provider.Start` → `provider.NewSession` (read-only, working-dir scoped). A `loggingSession` wraps the raw session for prompt/response logging.
 9. `analyzer.NewOrchestrator(packs).Run` executes a two-phase analysis (mistake extraction → guardrail synthesis); findings are deduped against `state.FindingHashes` via `ExistingHashes`.
 10. `output.GenerateTodos` appends a `## Run <RFC3339>` section to `<outputRoot>/<project>/todos.md`, deduping by SHA-256 hash recorded as `<!-- dreamer:finding:<hex> -->` HTML comments.
 11. `state.Save(outputRoot, projectName, …)` updates `LastRunUTC`, `RepoHeadSHA`, `ChatHashes` (new cache-key map), `FindingHashes` (union), `ProviderUsage`, and `UsageStats` counters.
 
-`cmd/helpers.go` holds shared Cobra-layer helpers: `defaultConfigFileName`, `resolveConfigPath`, `expandHomePath`, and the `readMessagesFromSource` dispatch.
+`cmd/helpers.go` holds shared Cobra-layer helpers: `defaultConfigFileName`, `resolveConfigPath`, `expandHomePath`. The `readMessagesFromSource` dispatch lives in `internal/pipeline/transcript.go` and now resolves to a registered `chat.ChatSourceProvider`.
 
 ### Chat discovery (`internal/chat`)
 
-`discovery.go` walks well-known per-tool roots and emits `ChatSource{Path, Tool, ModifiedTime}`:
-- Copilot CLI: `~/.copilot/session-state/**/*.jsonl` (no scoping — always included)
-- Codex: `~/.codex/{sessions,archived_sessions}/**/*.jsonl` — included only when `session_meta.payload.cwd` (probed from first 200 lines) is inside `projectPath`.
-- VS Code Copilot chat: `%APPDATA%/Code/User/workspaceStorage/*/chatSessions/*.{json,jsonl}` — scoped by reading sibling `workspace.json`.
-- Claude Code: `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**/*.jsonl` — scoped by probing `cwd`/`workingDirectory`/etc evidence keys.
-- Antigravity/Gemini: `${GEMINI_HOME:-~/.gemini}/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}` plus `<project>/.gemini/antigravity/...`. Home root requires probe evidence; project-local root is implicitly in-scope.
+`discovery.go` is a thin orchestrator: `DiscoverChats` resolves env vars into a `DiscoveryEnvironment` and `discoverChatsFromEnvironment` runs every registered provider's `Discover` method in parallel (via `golang.org/x/sync/errgroup`), then merge-sorts the result by `ModifiedTime` desc, tie-breaking on `Path` asc. Each source lives in its own `source_<name>.go` file with a `ChatSourceProvider` implementation that self-registers in `init()`. Shared helpers sit in `paths.go` (`normalizeDiscoveryPathForComparison`, `pathWithinNormalizedRoot`, …) and `probe.go` (`walkChatFiles`, `probeJSONLForCWD`, `recursiveExtract`, `extractPathValue`).
 
-Path scoping uses `normalizeDiscoveryPathForComparison` (case-insensitive on Windows, symlink-resolved). When adding a new chat source type, add a probe to align its CWD evidence with `projectPath` via `pathWithinNormalizedRoot`.
+Per-provider discovery rules:
+- Copilot CLI (`source_copilot.go`): `~/.copilot/session-state/**/*.jsonl` (no scoping — always included).
+- Codex (`source_codex.go`): `~/.codex/{sessions,archived_sessions}/**/*.jsonl` — included only when `session_meta.payload.cwd` (probed from first 200 lines) is inside `projectPath`.
+- VS Code Copilot chat (`source_vscode.go`): `%APPDATA%/Code/User/workspaceStorage/*/chatSessions/*.{json,jsonl}` — scoped by reading sibling `workspace.json`.
+- Claude Code (`source_claude.go`): `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**/*.jsonl` — scoped by probing `cwd`/`workingDirectory`/etc evidence keys.
+- Antigravity/Gemini (`source_antigravity.go`): `${GEMINI_HOME:-~/.gemini}/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}` plus `<project>/.gemini/antigravity/...`. Home root requires probe evidence; project-local root is implicitly in-scope.
+- Gemini CLI (`source_gemini_cli.go`): `${GEMINI_HOME:-~/.gemini}/tmp/*/chats/*.jsonl` — scoped by probing `directories` or cwd evidence keys.
+- OpenCode (`source_opencode.go`) and Kiro CLI (`source_kiro.go`): SQLite-backed; rows filtered by stored `Directory` column inside `projectPath`.
+
+Path scoping uses `normalizeDiscoveryPathForComparison` (case-insensitive on Windows, symlink-resolved). When adding a new chat source: create `source_<name>.go` with a struct implementing `ChatSourceProvider`, register it via `registerProvider(...)` in `init()`, add the `SourceType` constant to `types.go`, and (if needed) extend `DiscoveryEnvironment` with whatever inputs the new provider reads.
 
 ### Chat readers (`internal/chat/readers`)
 
-Per-source decoders that return `[]ChatMessage{Role, Content, Timestamp}`. `cmd/helpers.go:readMessagesFromSource` dispatches by `source.Tool` and extension; `buildRedactedTranscript` calls `SanitizeClaudeMessages` on Claude JSONL output to drop/truncate noisy entries. Codex/Copilot session JSONL use sanitizer flags on `ReadJSONLWithOptions`.
+Per-source decoders that return `[]ChatMessage{Role, Content, Timestamp}`. Each provider's `ReadMessages` method is the only caller; sanitization (`SanitizeClaudeMessages` for Claude, `SanitizeCodex`/`SanitizeCopilotSession` flags on `ReadJSONLWithOptions`) lives in the relevant provider, so `buildRedactedTranscript` stays provider-agnostic.
 
 ### Analyzer (`internal/analyzer`)
 
