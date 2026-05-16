@@ -286,18 +286,20 @@ Even though §7 sets `ReadOnly: true` and pre-bakes context (Q5 **[locked]**), t
 
 ### 5.1 Sources
 
-Carried forward from `internal/chat/discovery.go`:
+Implemented in `internal/chat/discovery.go`:
 
 - Copilot session-state: `~/.copilot/session-state/**/*.jsonl`
 - Codex sessions: `~/.codex/sessions/**/*.jsonl` + `~/.codex/archived_sessions/**/*.jsonl` (filtered by `session_meta.payload.cwd`)
 - VS Code Copilot Chat: `%APPDATA%/Code/User/workspaceStorage/*/chatSessions/*.{json,jsonl}` filtered by `workspace.json` evidence.
 - Claude Code: `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR/projects/**`) filtered by `cwd` probe.
 - Antigravity/Gemini: `~/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}` (or `$GEMINI_HOME/antigravity/...`), plus `<project>/.gemini/antigravity/...`.
+- Gemini CLI (non-Antigravity): `${GEMINI_HOME:-~/.gemini}/tmp/*/chats/*.jsonl` — cwd-probe analogous to Claude Code.
+- Kiro CLI: SQLite-backed sessions — rows filtered by stored `Directory` column inside `projectPath`.
+- OpenCode: SQLite-backed sessions at `${OPENCODE_DB:-<DataHomeDir>/opencode/opencode.db}` — rows filtered by stored `Directory` column inside `projectPath`.
 
-### 5.2 New in v1 (priority order — Q13 provisional; Cursor dropped per scope decision)
+### 5.2 Out of scope
 
-1. **Gemini CLI (non-Antigravity)**: `~/.gemini/sessions/**` — cwd-probe analogous to Claude Code. Cheapest add; closest to existing reader.
-2. **Kiro CLI**: investigate `~/.kiro/sessions/**` (verify via `context7`). cwd-probe required.
+**Cursor** is not supported as a chat-discovery source. No `cursor.go` reader, no Cursor entries in any config schema or file-tree. Revisit only if Cursor ships an official ACP server or a documented headless mode.
 
 Each new source: new `SourceType` constant, new `discover<Tool>Sessions` function in `discovery.go`, new reader + sanitizer in `internal/chat/readers/`, tests in `discovery_test.go`.
 

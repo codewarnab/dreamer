@@ -112,7 +112,9 @@ binary level.
 ## 5. Discovery system — unchanged
 
 Codex chat-source discovery (`~/.codex/sessions/**` + `archived_sessions`)
-was already present in v1. No changes.
+was already present in v1. No changes. See v1 spec.md §5 for the complete
+list of implemented sources: Copilot, Codex, VS Code Copilot Chat, Claude Code,
+Antigravity/Gemini, Gemini CLI, Kiro CLI, and OpenCode.
 
 ---
 
