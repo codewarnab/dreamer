@@ -70,7 +70,6 @@ providers:
     # env: {}
 
   gemini-cli:
-    # NOT YET IMPLEMENTED in v1.
     command: ["gemini", "--headless"]
     # env: {}
 

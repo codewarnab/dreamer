@@ -20,7 +20,7 @@ The information needed to stop this is already on disk: every modern assistant w
 
 `dreamer` is a single-binary CLI that runs locally and:
 
-1. **Discovers** every chat transcript on disk that is tied to a given project, across all supported assistants — Copilot CLI, Codex, VS Code Copilot Chat, Claude Code, Antigravity/Gemini, and (planned) Cursor, Kiro, Gemini CLI.
+1. **Discovers** every chat transcript on disk that is tied to a given project, across all supported assistants — Copilot CLI, Codex, VS Code Copilot Chat, Claude Code, Antigravity/Gemini, Gemini CLI, Kiro CLI, and OpenCode.
 2. **Mines** those transcripts via an LLM for recurring *mistakes the agent made against this codebase*, not generic code smells.
 3. **Grounds** each mistake in real symbols by reading the repo under a read-only sandbox.
 4. **Proposes** the smallest preventative guardrail per mistake — a lint rule, a missing test, a CI check, a CLAUDE.md/AGENTS.md clarification, a config tweak, or a structural fence.
