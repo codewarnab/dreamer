@@ -58,11 +58,11 @@ func (diagnostics *claudeProcessingDiagnostics) merge(next claudeProcessingDiagn
 
 func resolveConfigPath(configPath string) (string, error) {
 	if strings.TrimSpace(configPath) == "" {
-		homeDir, err := os.UserHomeDir()
+		path, err := config.GlobalConfigPath()
 		if err != nil {
-			return "", fmt.Errorf("resolve user home for config path: %w", err)
+			return "", fmt.Errorf("resolve global config path: %w", err)
 		}
-		return filepath.Join(homeDir, ".dreamer", defaultConfigFileName), nil
+		return path, nil
 	}
 
 	expandedPath, err := expandHomePath(configPath)
@@ -124,7 +124,7 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 		logger.Error("load state failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, fmt.Errorf("load state for project %q: %w", project.Name, err)
 	}
-	logger.Debug("state loaded project=%q analyzed_sources=%d last_run=%s", project.Name, len(currentState.AnalyzedChatIDs), currentState.LastRun.Format(time.RFC3339))
+	logger.Debug("state loaded project=%q analyzed_sources=%d last_run=%s", project.Name, len(currentState.ChatHashes), currentState.LastRunUTC.Format(time.RFC3339))
 
 	sources, err := chat.DiscoverChats(project.Path)
 	if err != nil {
@@ -162,20 +162,20 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 		return analyzeResult{}, fmt.Errorf("%w for project %q", errNoNewChatSources, project.Name)
 	}
 
-	client, err := analyzer.NewClient(analyzerClientOptionsFromConfig(cfg, project.Path))
+	provider, err := analyzer.NewProvider(analyzer.ProviderCopilotSDK, analyzerProviderConfigFromConfig(cfg))
 	if err != nil {
-		logger.Error("create analyzer client failed project=%q error=%v", project.Name, err)
+		logger.Error("create analyzer provider failed project=%q error=%v", project.Name, err)
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
 	defer func() {
-		_ = client.Close()
+		_ = provider.Close()
 	}()
 
 	orchestrator := analyzer.NewOrchestrator(mergeRuleOverrides(cfg))
 	result := analyzeResult{}
 	var lastErr error
 	for _, source := range sourcesToAnalyze {
-		sourceResult, err := analyzeSource(ctx, cfg, project, source, logger, currentState, orchestrator, client)
+		sourceResult, err := analyzeSource(ctx, cfg, project, source, logger, currentState, orchestrator, provider)
 		if err != nil {
 			logger.Error("chat source analysis failed project=%q source=%q error=%v", project.Name, source.Path, err)
 			lastErr = err
@@ -196,14 +196,18 @@ func analyzeProject(ctx context.Context, cfg *config.Config, project config.Proj
 	return result, nil
 }
 
-func analyzeSource(ctx context.Context, cfg *config.Config, project config.ProjectConfig, source chat.ChatSource, logger *logging.Logger, currentState *state.State, orchestrator *analyzer.Orchestrator, client analyzer.Client) (analyzeResult, error) {
+func analyzeSource(ctx context.Context, cfg *config.Config, project config.ProjectConfig, source chat.ChatSource, logger *logging.Logger, currentState *state.State, orchestrator *analyzer.Orchestrator, provider analyzer.Provider) (analyzeResult, error) {
 	analysisInput, analyzedSourceIDs, messageCount, diagnostics, err := buildAnalysisInputWithDiagnostics([]chat.ChatSource{source})
 	if err != nil {
 		return analyzeResult{}, fmt.Errorf("build analysis input for source %q: %w", source.Path, err)
 	}
 	logger.Info("analysis input built project=%q source=%q messages=%d", project.Name, source.Path, messageCount)
 
-	session, err := client.NewSession(ctx)
+	session, err := provider.NewSession(ctx, analyzer.SessionConfig{
+		WorkingDirectory: project.Path,
+		Model:            cfg.Analyzer.Model,
+		ReadOnly:         true,
+	})
 	if err != nil {
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
@@ -211,7 +215,10 @@ func analyzeSource(ctx context.Context, cfg *config.Config, project config.Proje
 		_ = session.Close()
 	}()
 
-	response, err := orchestrator.Analyze(ctx, session, analysisInput)
+	response, err := orchestrator.Run(ctx, session, analyzer.PhaseRequest{
+		Transcript:  analysisInput,
+		ProjectRoot: project.Path,
+	})
 	if err != nil {
 		return analyzeResult{}, wrapAnalyzerIntegrationError(err)
 	}
@@ -225,8 +232,12 @@ func analyzeSource(ctx context.Context, cfg *config.Config, project config.Proje
 	}
 	logger.Info("todos generated project=%q source=%q added=%d path=%q", project.Name, source.Path, generateResult.AddedFindings, generateResult.Path)
 
-	currentState.LastRun = time.Now().UTC()
-	currentState.AnalyzedChatIDs = mergeAnalyzedIDs(currentState.AnalyzedChatIDs, analyzedSourceIDs)
+	currentState.LastRunUTC = time.Now().UTC()
+	for _, sourceID := range analyzedSourceIDs {
+		if _, exists := currentState.ChatHashes[sourceID]; !exists {
+			currentState.ChatHashes[sourceID] = ""
+		}
+	}
 	currentState.UsageStats["analyze_runs"]++
 	currentState.UsageStats["sources_analyzed"] += int64(len(analyzedSourceIDs))
 	currentState.UsageStats["messages_analyzed"] += int64(messageCount)
@@ -259,15 +270,10 @@ func filterSourcesToAnalyze(sources []chat.ChatSource, currentState *state.State
 		return slices.Clone(sources)
 	}
 
-	analyzedSet := make(map[string]struct{}, len(currentState.AnalyzedChatIDs))
-	for _, analyzedID := range currentState.AnalyzedChatIDs {
-		analyzedSet[analyzedID] = struct{}{}
-	}
-
 	filtered := make([]chat.ChatSource, 0, len(sources))
 	for _, source := range sources {
-		_, wasAnalyzed := analyzedSet[source.Path]
-		if !wasAnalyzed || source.ModifiedTime.After(currentState.LastRun) {
+		_, wasAnalyzed := currentState.ChatHashes[source.Path]
+		if !wasAnalyzed || source.ModifiedTime.After(currentState.LastRunUTC) {
 			filtered = append(filtered, source)
 		}
 	}
@@ -453,27 +459,29 @@ func mergeAnalyzedIDs(existing []string, next []string) []string {
 	return merged
 }
 
-func mergeRuleOverrides(cfg *config.Config) []analyzer.AnalysisRule {
-	rules := analyzer.DefaultRules()
-	if cfg == nil || len(cfg.Analyzer.Rules) == 0 {
-		return rules
+func mergeRuleOverrides(cfg *config.Config) []analyzer.RulePack {
+	packs, err := analyzer.LoadDefaultRulePacks()
+	if err != nil {
+		return nil
 	}
-
-	for i := range rules {
-		if override, ok := cfg.Analyzer.Rules[strings.ToLower(string(rules[i].Category))]; ok {
-			rules[i].Enabled = override.Enabled
+	if cfg == nil || len(cfg.Analyzer.Rules) == 0 {
+		return packs
+	}
+	for i := range packs {
+		categoryKey := strings.ToLower(string(packs[i].Category))
+		if override, ok := cfg.Analyzer.Rules[categoryKey]; ok {
+			packs[i].Enabled = override.Enabled
 			continue
 		}
-		if override, ok := cfg.Analyzer.Rules[string(rules[i].Category)]; ok {
-			rules[i].Enabled = override.Enabled
+		if override, ok := cfg.Analyzer.Rules[string(packs[i].Category)]; ok {
+			packs[i].Enabled = override.Enabled
 		}
 	}
-
-	return rules
+	return packs
 }
 
-func analyzerClientOptionsFromConfig(cfg *config.Config, projectPath string) analyzer.ClientOptions {
-	options := analyzer.ClientOptions{}
+func analyzerProviderConfigFromConfig(cfg *config.Config) analyzer.ProviderConfig {
+	options := analyzer.ProviderConfig{}
 	if cfg == nil {
 		return options
 	}
@@ -487,7 +495,6 @@ func analyzerClientOptionsFromConfig(cfg *config.Config, projectPath string) ana
 	if cfg.Analyzer.AutoStart != nil {
 		options.AutoStart = *cfg.Analyzer.AutoStart
 	}
-	options.WorkingDirectory = strings.TrimSpace(projectPath)
 	return options
 }
 

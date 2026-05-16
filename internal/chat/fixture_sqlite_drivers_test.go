@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	discoverDriverCounter atomic.Uint64
-	discoverDriverMutex   sync.Mutex
+	discoverDriverCounter          atomic.Uint64
+	discoverDriverMutex            sync.Mutex
 	discoverDriverOpenCodeDatasets = map[string][]readers.OpenCodeSession{}
 	discoverDriverKiroDatasets     = map[string][]readers.KiroConversation{}
 )
@@ -54,8 +54,10 @@ type discoverOpenCodeConn struct {
 func (connection *discoverOpenCodeConn) Prepare(query string) (driver.Stmt, error) {
 	return &discoverOpenCodeStmt{connection: connection, query: query}, nil
 }
-func (connection *discoverOpenCodeConn) Close() error              { return nil }
-func (connection *discoverOpenCodeConn) Begin() (driver.Tx, error) { return nil, fmt.Errorf("unsupported") }
+func (connection *discoverOpenCodeConn) Close() error { return nil }
+func (connection *discoverOpenCodeConn) Begin() (driver.Tx, error) {
+	return nil, fmt.Errorf("unsupported")
+}
 func (connection *discoverOpenCodeConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
 	return connection.runQuery(query)
 }
@@ -80,9 +82,11 @@ type discoverOpenCodeStmt struct {
 	query      string
 }
 
-func (stmt *discoverOpenCodeStmt) Close() error                                    { return nil }
-func (stmt *discoverOpenCodeStmt) NumInput() int                                   { return -1 }
-func (stmt *discoverOpenCodeStmt) Exec(_ []driver.Value) (driver.Result, error)    { return nil, fmt.Errorf("unsupported") }
+func (stmt *discoverOpenCodeStmt) Close() error  { return nil }
+func (stmt *discoverOpenCodeStmt) NumInput() int { return -1 }
+func (stmt *discoverOpenCodeStmt) Exec(_ []driver.Value) (driver.Result, error) {
+	return nil, fmt.Errorf("unsupported")
+}
 func (stmt *discoverOpenCodeStmt) Query(_ []driver.Value) (driver.Rows, error) {
 	return stmt.connection.runQuery(stmt.query)
 }
@@ -128,9 +132,11 @@ type discoverKiroStmt struct {
 	query      string
 }
 
-func (stmt *discoverKiroStmt) Close() error                                    { return nil }
-func (stmt *discoverKiroStmt) NumInput() int                                   { return -1 }
-func (stmt *discoverKiroStmt) Exec(_ []driver.Value) (driver.Result, error)    { return nil, fmt.Errorf("unsupported") }
+func (stmt *discoverKiroStmt) Close() error  { return nil }
+func (stmt *discoverKiroStmt) NumInput() int { return -1 }
+func (stmt *discoverKiroStmt) Exec(_ []driver.Value) (driver.Result, error) {
+	return nil, fmt.Errorf("unsupported")
+}
 func (stmt *discoverKiroStmt) Query(_ []driver.Value) (driver.Rows, error) {
 	return stmt.connection.runQuery(stmt.query)
 }

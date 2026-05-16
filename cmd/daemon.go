@@ -29,7 +29,7 @@ func newDaemonCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
-			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Daemon.LogLevel)
+			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level)
 			if err != nil {
 				return err
 			}
@@ -76,7 +76,7 @@ func newDaemonCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: ~/.dreamer/config.yaml)")
+	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 
 	return command
 }
@@ -92,26 +92,33 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 		default:
 		}
 
-		runResult, err := analyzeProject(ctx, cfg, project, logger, analyzeOptions{})
+		result, err := executeAnalyze(ctx, executeOptions{
+			Config:      cfg,
+			ProjectPath: project.Path,
+			ProjectName: project.Name,
+			Since:       project.Since,
+		}, logger)
 		if err != nil {
-			if errors.Is(err, errNoNewChatSources) || errors.Is(err, errNoChatSources) || errors.Is(err, errNoLookbackChatSources) {
-				cmd.Printf("daemon cycle skipped for %q: %v\n", project.Name, err)
-				logger.Warn("daemon cycle skipped project=%q reason=%v", project.Name, err)
-				continue
-			}
 			logger.Error("daemon project failed project=%q error=%v", project.Name, err)
+			cmd.Printf("daemon cycle failed for %q: %v\n", project.Name, err)
 			cycleErrors = append(cycleErrors, fmt.Errorf("analyze project %q: %w", project.Name, err))
 			continue
 		}
+		if result.CacheHit {
+			cmd.Printf("daemon cycle no-op for %q (cache hit)\n", project.Name)
+			logger.Info("daemon project cache hit project=%q", project.Name)
+			continue
+		}
 		cmd.Printf(
-			"daemon cycle complete for %q: sources=%d messages=%d findings=%d todos_added=%d\n",
+			"daemon cycle complete for %q: sources=%d messages=%d mistakes=%d findings_added=%d\n",
 			project.Name,
-			runResult.SourcesAnalyzed,
-			runResult.MessagesRead,
-			runResult.FindingsFound,
-			runResult.TodosAdded,
+			result.SourcesAnalyzed,
+			result.MessagesRead,
+			result.Mistakes,
+			result.Findings,
 		)
-		logger.Info("daemon project complete project=%q sources=%d messages=%d findings=%d todos_added=%d", project.Name, runResult.SourcesAnalyzed, runResult.MessagesRead, runResult.FindingsFound, runResult.TodosAdded)
+		logger.Info("daemon project complete project=%q sources=%d messages=%d mistakes=%d findings=%d",
+			project.Name, result.SourcesAnalyzed, result.MessagesRead, result.Mistakes, result.Findings)
 	}
 
 	logger.Info("daemon cycle complete")

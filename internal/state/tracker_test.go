@@ -20,11 +20,14 @@ func TestLoadStateReturnsDefaultWhenMissing(t *testing.T) {
 	if current == nil {
 		t.Fatalf("LoadState returned nil state")
 	}
-	if len(current.AnalyzedChatIDs) != 0 {
-		t.Fatalf("AnalyzedChatIDs should be empty, got %v", current.AnalyzedChatIDs)
+	if len(current.ChatHashes) != 0 {
+		t.Fatalf("ChatHashes should be empty, got %v", current.ChatHashes)
 	}
-	if len(current.UsageStats) != 0 {
-		t.Fatalf("UsageStats should be empty, got %v", current.UsageStats)
+	if len(current.FindingHashes) != 0 {
+		t.Fatalf("FindingHashes should be empty, got %v", current.FindingHashes)
+	}
+	if current.Version != StateVersion {
+		t.Fatalf("Version = %d, want %d", current.Version, StateVersion)
 	}
 }
 
@@ -34,13 +37,17 @@ func TestSaveAndLoadStateRoundTrip(t *testing.T) {
 
 	lastRun := time.Now().UTC().Truncate(time.Second)
 	initial := &State{
-		LastRun:            lastRun,
-		AnalyzedChatIDs:    []string{"chat-1", "chat-2"},
-		ResumableSessionID: "session-123",
-		UsageStats: map[string]int64{
-			"tokens_prompt": 1000,
-			"tokens_output": 300,
+		LastRunUTC:  lastRun,
+		RepoHeadSHA: "abc123",
+		ChatHashes: map[string]string{
+			"/path/a.jsonl": "hash-a",
+			"/path/b.jsonl": "hash-b",
 		},
+		FindingHashes: []string{"hash-1", "hash-2"},
+		ProviderUsage: map[string]ProviderUsage{
+			"copilot-sdk": {Runs: 3, TotalTokens: 100},
+		},
+		UsageStats: map[string]int64{"tokens_prompt": 1000},
 	}
 
 	if err := SaveState("project-a", initial); err != nil {
@@ -52,17 +59,20 @@ func TestSaveAndLoadStateRoundTrip(t *testing.T) {
 		t.Fatalf("LoadState returned error: %v", err)
 	}
 
-	if !loaded.LastRun.Equal(lastRun) {
-		t.Fatalf("LastRun = %s, want %s", loaded.LastRun, lastRun)
+	if !loaded.LastRunUTC.Equal(lastRun) {
+		t.Fatalf("LastRunUTC = %s, want %s", loaded.LastRunUTC, lastRun)
 	}
-	if !reflect.DeepEqual(loaded.AnalyzedChatIDs, initial.AnalyzedChatIDs) {
-		t.Fatalf("AnalyzedChatIDs = %v, want %v", loaded.AnalyzedChatIDs, initial.AnalyzedChatIDs)
+	if loaded.RepoHeadSHA != initial.RepoHeadSHA {
+		t.Fatalf("RepoHeadSHA = %q, want %q", loaded.RepoHeadSHA, initial.RepoHeadSHA)
 	}
-	if loaded.ResumableSessionID != initial.ResumableSessionID {
-		t.Fatalf("ResumableSessionID = %q, want %q", loaded.ResumableSessionID, initial.ResumableSessionID)
+	if !reflect.DeepEqual(loaded.ChatHashes, initial.ChatHashes) {
+		t.Fatalf("ChatHashes = %v, want %v", loaded.ChatHashes, initial.ChatHashes)
 	}
-	if !reflect.DeepEqual(loaded.UsageStats, initial.UsageStats) {
-		t.Fatalf("UsageStats = %v, want %v", loaded.UsageStats, initial.UsageStats)
+	if !reflect.DeepEqual(loaded.FindingHashes, initial.FindingHashes) {
+		t.Fatalf("FindingHashes = %v, want %v", loaded.FindingHashes, initial.FindingHashes)
+	}
+	if !reflect.DeepEqual(loaded.ProviderUsage, initial.ProviderUsage) {
+		t.Fatalf("ProviderUsage = %v, want %v", loaded.ProviderUsage, initial.ProviderUsage)
 	}
 }
 
@@ -70,15 +80,18 @@ func TestLoadStateInvalidJSONReturnsError(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
 
-	target := filepath.Join(home, rootDirName, "project-a")
-	if err := os.MkdirAll(target, 0o755); err != nil {
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject error: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		t.Fatalf("MkdirAll returned error: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(target, stateFile), []byte("{invalid-json"), 0o644); err != nil {
+	if err := os.WriteFile(statePath, []byte("{invalid-json"), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	_, err := LoadState("project-a")
+	_, err = LoadState("project-a")
 	if err == nil {
 		t.Fatalf("LoadState expected JSON error")
 	}
@@ -97,8 +110,25 @@ func TestSaveStateRejectsInvalidProjectName(t *testing.T) {
 	}
 }
 
+func TestChatCacheKeyDeterministic(t *testing.T) {
+	a := ChatCacheKey("/x/a.jsonl", "fh1", "head1")
+	b := ChatCacheKey("/x/a.jsonl", "fh1", "head1")
+	if a != b {
+		t.Fatalf("expected stable cache key, got %q vs %q", a, b)
+	}
+	c := ChatCacheKey("/x/a.jsonl", "fh2", "head1")
+	if a == c {
+		t.Fatalf("cache key should change when file hash changes")
+	}
+	d := ChatCacheKey("/x/a.jsonl", "fh1", "head2")
+	if a == d {
+		t.Fatalf("cache key should change when repo head changes")
+	}
+}
+
 func setTestHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 }

@@ -25,25 +25,25 @@ func TestLoadConfigAppliesDefaults(t *testing.T) {
 		t.Fatalf("LoadConfig returned error: %v", err)
 	}
 
-	if got, want := cfg.Daemon.FrequencySeconds, defaultFrequencySeconds; got != want {
+	if got, want := cfg.Daemon.FrequencySeconds, DefaultFrequencySeconds; got != want {
 		t.Fatalf("FrequencySeconds = %d, want %d", got, want)
 	}
-	if got, want := cfg.Daemon.LogLevel, defaultLogLevel; got != want {
-		t.Fatalf("LogLevel = %q, want %q", got, want)
+	if got, want := cfg.Logging.Level, DefaultLogLevel; got != want {
+		t.Fatalf("Logging.Level = %q, want %q", got, want)
+	}
+	if got, want := cfg.DefaultProvider, DefaultProviderID; got != want {
+		t.Fatalf("DefaultProvider = %q, want %q", got, want)
 	}
 
-	home, err := os.UserHomeDir()
+	root, err := UserConfigRoot()
 	if err != nil {
-		t.Fatalf("resolve user home: %v", err)
+		t.Fatalf("resolve user config root: %v", err)
 	}
-	if got, want := cfg.Daemon.OutputRoot, filepath.Join(home, rootDirName); got != want {
+	if got, want := cfg.Daemon.OutputRoot, root; got != want {
 		t.Fatalf("OutputRoot = %q, want %q", got, want)
 	}
 	if cfg.Analyzer.Rules == nil {
 		t.Fatalf("Analyzer.Rules should not be nil")
-	}
-	if got, want := cfg.Analyzer.Model, defaultAnalyzerModel; got != want {
-		t.Fatalf("Analyzer.Model = %q, want %q", got, want)
 	}
 	if cfg.Analyzer.UseLoggedInUser == nil || !*cfg.Analyzer.UseLoggedInUser {
 		t.Fatalf("Analyzer.UseLoggedInUser should default to true")
@@ -112,9 +112,10 @@ projects:
     path: ` + projectDir + `
 analyzer:
   rules: {}
+logging:
+  level: debug
 daemon:
   frequency_seconds: 60
-  log_level: debug
   output_root: ` + filepath.ToSlash(t.TempDir()) + `
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
@@ -134,6 +135,40 @@ daemon:
 	}
 	if got, want := cfg.Daemon.FrequencySeconds, 60; got != want {
 		t.Fatalf("frequency_seconds = %d, want %d", got, want)
+	}
+	if got, want := cfg.Logging.Level, "debug"; got != want {
+		t.Fatalf("logging.level = %q, want %q", got, want)
+	}
+}
+
+func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
+	cliBlock := ProviderBlock{Model: "gpt-cli"}
+	projectBlock := ProviderBlock{Model: "gpt-project"}
+	cfg := &Config{
+		DefaultProvider: "gemini-sdk",
+		Providers: map[string]ProviderBlock{
+			"copilot-sdk": cliBlock,
+			"claude-cli":  projectBlock,
+		},
+	}
+	project := &ProjectFileConfig{Provider: "claude-cli"}
+
+	id, block := cfg.ResolveProviderConfig(project, "")
+	if id != "claude-cli" {
+		t.Fatalf("id = %q, want claude-cli (project override)", id)
+	}
+	if block.Model != "gpt-project" {
+		t.Fatalf("block.Model = %q, want gpt-project", block.Model)
+	}
+
+	id, _ = cfg.ResolveProviderConfig(project, "copilot-sdk")
+	if id != "copilot-sdk" {
+		t.Fatalf("id = %q, want copilot-sdk (cli override)", id)
+	}
+
+	id, _ = cfg.ResolveProviderConfig(nil, "")
+	if id != "gemini-sdk" {
+		t.Fatalf("id = %q, want gemini-sdk (global default)", id)
 	}
 }
 

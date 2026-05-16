@@ -11,7 +11,7 @@ import (
 // ReadGeminiCLI reads a Gemini CLI session JSONL file and returns the user and
 // assistant turns. The Gemini CLI session format is documented at:
 //
-//   ~/.gemini/tmp/<project-slug>/chats/session-YYYY-MM-DDTHH-mm-<id>.jsonl
+//	~/.gemini/tmp/<project-slug>/chats/session-YYYY-MM-DDTHH-mm-<id>.jsonl
 //
 // The first line is a ConversationRecord with metadata and an initial messages
 // array. Subsequent lines are MessageRecord entries with a `type` field of

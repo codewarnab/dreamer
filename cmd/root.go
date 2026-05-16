@@ -1,6 +1,20 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	// Register provider implementations.
+	_ "dreamer/internal/analyzer/providers/claudeacp"
+	_ "dreamer/internal/analyzer/providers/claudecli"
+	_ "dreamer/internal/analyzer/providers/codexacp"
+	_ "dreamer/internal/analyzer/providers/codexcli"
+	_ "dreamer/internal/analyzer/providers/copilotacp"
+	_ "dreamer/internal/analyzer/providers/copilotsdk"
+	_ "dreamer/internal/analyzer/providers/geminiacp"
+	_ "dreamer/internal/analyzer/providers/geminicli"
+	_ "dreamer/internal/analyzer/providers/geminisdk"
+	_ "dreamer/internal/analyzer/providers/kiroacp"
+)
 
 var rootCmd = newRootCommand()
 

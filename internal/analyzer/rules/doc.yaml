@@ -1,0 +1,80 @@
+category: doc
+enabled: true
+threshold: 0.60
+timeout_seconds: 35
+mistake_prompt_template: |
+  You are reading a chat transcript between a developer and an AI coding
+  assistant working on the project at {{project_root}}.
+
+  Identify recurring mistakes the assistant made that a DOC update would
+  have prevented. Look for: agent rediscovering contracts that should be
+  documented, breaking implicit invariants nobody wrote down, asking
+  questions the README/CLAUDE.md should have already answered, repeated
+  surprise at sandbox/permission contract.
+
+  Return JSON of the shape:
+  {"mistakes": [
+    {"category": "doc", "summary": "<one sentence>",
+     "evidence_excerpt": "<short quote from the chat>", "confidence": 0.0-1.0}
+  ]}
+
+guardrail_prompt_template: |
+  Propose the smallest DOC update (a new paragraph, callout, or section)
+  that would have prevented the listed mistake on the project at
+  {{project_root}}.
+
+  Relevant codebase context:
+  {{codebase_context}}
+
+  Mistakes to address:
+  {{mistakes}}
+
+  Return JSON. `path` MUST be a real doc-shaped file present in the
+  codebase context (README.md, CLAUDE.md, doc/*.md, ARCHITECTURE.md, ...)
+  or an explicit new file under doc/.
+
+  {"findings": [
+    {
+      "mistake": "<repeat>",
+      "guardrail": {
+        "kind": "doc",
+        "tool": "<filename>",
+        "rule": "<short heading or section name>",
+        "config_snippet": "<the paragraph to add>"
+      },
+      "codebase_evidence": [
+        {"path": "<repo-relative doc path>",
+         "lines": "<L1-L2 or NEW>", "symbol": "<heading>"}
+      ],
+      "confidence": 0.0-1.0
+    }
+  ]}
+
+response_schema:
+  type: object
+  required: [findings]
+  properties:
+    findings:
+      type: array
+      items:
+        type: object
+        required: [mistake, guardrail, confidence]
+        properties:
+          mistake: {type: string}
+          guardrail:
+            type: object
+            required: [kind, tool, rule]
+            properties:
+              kind: {type: string, enum: [doc]}
+              tool: {type: string}
+              rule: {type: string}
+              config_snippet: {type: string}
+          codebase_evidence:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string}
+                lines: {type: string}
+                symbol: {type: string}
+          confidence: {type: number}

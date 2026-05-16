@@ -15,31 +15,34 @@ import (
 )
 
 const (
-	defaultOutputDirName = ".dreamer"
-	todosFileName        = "todos.md"
-	dirPerms             = 0o755
-	filePerms            = 0o644
+	configDirName = "dreamer"
+	todosFileName = "todos.md"
+	dirPerms      = 0o755
+	filePerms     = 0o644
+
+	versionMarker = "<!-- dreamer:version:1 -->"
 )
 
 var findingHashPattern = regexp.MustCompile(`dreamer:finding:([a-fA-F0-9]{64})`)
 
+// GenerateOptions controls how a run section is rendered and where it goes.
 type GenerateOptions struct {
-	OutputRoot string
-	Now        func() time.Time
+	OutputRoot   string
+	ProjectTitle string
+	Warnings     []string
+	Now          func() time.Time
 }
 
+// GenerateResult reports what GenerateTodos produced.
 type GenerateResult struct {
-	Path          string
-	AddedFindings int
+	Path           string
+	AddedFindings  int
+	WroteWarnings  bool
+	ExistingHashes map[string]struct{}
 }
 
-type todoEntry struct {
-	CategoryNormalized string
-	CategoryHeading    string
-	Description        string
-	Hash               string
-}
-
+// GenerateTodos appends a `## Run <ts>` section to the per-project todos.md
+// containing one bullet per new finding, plus an optional Warnings section.
 func GenerateTodos(projectName string, findings []analyzer.Finding, opts GenerateOptions) (GenerateResult, error) {
 	todosPath, err := todosPathForProject(projectName, opts.OutputRoot)
 	if err != nil {
@@ -50,28 +53,40 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 	if err != nil {
 		return GenerateResult{}, err
 	}
-
 	existingHashes := extractExistingFindingHashes(existingContent)
-	newEntries := buildNewEntries(findings, existingHashes)
-	result := GenerateResult{
-		Path:          todosPath,
-		AddedFindings: len(newEntries),
+	newFindings := filterNewFindings(findings, existingHashes)
+
+	now := opts.Now
+	if now == nil {
+		now = time.Now
 	}
-	if len(newEntries) == 0 {
+	runAt := now().UTC()
+
+	var sections []string
+	if len(newFindings) > 0 {
+		sections = append(sections, renderRunSection(newFindings, runAt))
+	}
+	if len(opts.Warnings) > 0 {
+		sections = append(sections, renderWarningsSection(opts.Warnings, runAt))
+	}
+
+	result := GenerateResult{
+		Path:           todosPath,
+		AddedFindings:  len(newFindings),
+		WroteWarnings:  len(opts.Warnings) > 0,
+		ExistingHashes: existingHashes,
+	}
+	if len(sections) == 0 {
 		return result, nil
 	}
 
-	grouped := groupEntriesByCategory(newEntries)
-	renderedSection := renderRunSection(grouped, nowUTC(opts.Now))
-	updatedContent := mergeExistingContent(existingContent, renderedSection)
-
+	merged := mergeContent(existingContent, projectTitle(projectName, opts.ProjectTitle), sections)
 	if err := os.MkdirAll(filepath.Dir(todosPath), dirPerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("create todos directory %q: %w", filepath.Dir(todosPath), err)
 	}
-	if err := os.WriteFile(todosPath, []byte(updatedContent), filePerms); err != nil {
+	if err := os.WriteFile(todosPath, []byte(merged), filePerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("write todos file %q: %w", todosPath, err)
 	}
-
 	return result, nil
 }
 
@@ -89,13 +104,12 @@ func todosPathForProject(projectName string, outputRoot string) (string, error) 
 
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
-		home, err := os.UserHomeDir()
+		cfgDir, err := os.UserConfigDir()
 		if err != nil {
-			return "", fmt.Errorf("resolve user home for output root: %w", err)
+			return "", fmt.Errorf("resolve user config dir for output root: %w", err)
 		}
-		root = filepath.Join(home, defaultOutputDirName)
+		root = filepath.Join(cfgDir, configDirName)
 	}
-
 	return filepath.Join(root, name, todosFileName), nil
 }
 
@@ -112,133 +126,267 @@ func readExistingTodos(path string) (string, error) {
 
 func extractExistingFindingHashes(content string) map[string]struct{} {
 	existing := make(map[string]struct{})
-	currentCategory := "uncategorized"
-	lines := strings.Split(content, "\n")
+	for _, match := range findingHashPattern.FindAllStringSubmatch(content, -1) {
+		if len(match) > 1 {
+			existing[strings.ToLower(match[1])] = struct{}{}
+		}
+	}
 
-	for _, line := range lines {
+	// Legacy fallback: also accept the v0 hash format derived from category
+	// heading + description, so re-runs against pre-v1 todos.md dedup cleanly.
+	currentCategory := ""
+	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if heading, ok := strings.CutPrefix(trimmed, "### "); ok {
 			currentCategory = normalizeCategory(heading)
-			if currentCategory == "" {
-				currentCategory = "uncategorized"
-			}
+			continue
 		}
-
-		matches := findingHashPattern.FindAllStringSubmatch(trimmed, -1)
-		for _, match := range matches {
-			if len(match) > 1 {
-				existing[strings.ToLower(match[1])] = struct{}{}
-			}
-		}
-
 		description, ok := strings.CutPrefix(trimmed, "- [ ] ")
 		if !ok {
 			continue
 		}
-
 		if idx := strings.Index(description, "<!--"); idx >= 0 {
 			description = description[:idx]
 		}
 		description = strings.TrimSpace(description)
-		if description == "" {
+		if description == "" || currentCategory == "" {
 			continue
 		}
-
-		hash := findingHash(currentCategory, description)
-		existing[hash] = struct{}{}
+		existing[findingHash(currentCategory, description)] = struct{}{}
 	}
-
 	return existing
 }
 
-func buildNewEntries(findings []analyzer.Finding, existingHashes map[string]struct{}) []todoEntry {
-	runHashes := make(map[string]struct{}, len(findings))
-	entries := make([]todoEntry, 0, len(findings))
-
+func filterNewFindings(findings []analyzer.Finding, existing map[string]struct{}) []analyzer.Finding {
+	seen := make(map[string]struct{}, len(findings))
+	out := make([]analyzer.Finding, 0, len(findings))
 	for _, finding := range findings {
-		description := strings.TrimSpace(finding.Description)
-		if description == "" {
+		if strings.TrimSpace(finding.Mistake) == "" {
 			continue
 		}
-
-		categoryNormalized := normalizeCategory(string(finding.Category))
-		if categoryNormalized == "" {
-			categoryNormalized = "uncategorized"
+		hash := finding.Hash
+		if hash == "" {
+			hash = analyzer.ComputeFindingHash(finding)
 		}
-
-		hash := findingHash(categoryNormalized, description)
-		if _, exists := existingHashes[hash]; exists {
+		hash = strings.ToLower(hash)
+		if _, dup := existing[hash]; dup {
 			continue
 		}
-		if _, exists := runHashes[hash]; exists {
+		if _, dup := seen[hash]; dup {
 			continue
 		}
-		runHashes[hash] = struct{}{}
-
-		entries = append(entries, todoEntry{
-			CategoryNormalized: categoryNormalized,
-			CategoryHeading:    renderCategoryHeading(categoryNormalized),
-			Description:        renderDescription(description),
-			Hash:               hash,
-		})
+		seen[hash] = struct{}{}
+		finding.Hash = hash
+		out = append(out, finding)
 	}
-
-	return entries
+	return out
 }
 
-func groupEntriesByCategory(entries []todoEntry) map[string][]todoEntry {
-	grouped := make(map[string][]todoEntry, len(entries))
-	for _, entry := range entries {
-		grouped[entry.CategoryHeading] = append(grouped[entry.CategoryHeading], entry)
+func renderRunSection(findings []analyzer.Finding, runAt time.Time) string {
+	grouped := groupByCategory(findings)
+	categories := sortedCategoryHeadings(grouped)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Run %s\n\n", runAt.Format(time.RFC3339))
+	for i, heading := range categories {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "### %s\n", heading)
+		for _, finding := range grouped[heading] {
+			b.WriteString(renderFinding(finding))
+		}
+	}
+	return b.String()
+}
+
+func renderWarningsSection(warnings []string, runAt time.Time) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Warnings (Run %s)\n\n", runAt.Format(time.RFC3339))
+	for _, warning := range warnings {
+		text := strings.TrimSpace(warning)
+		if text == "" {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(text)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func groupByCategory(findings []analyzer.Finding) map[string][]analyzer.Finding {
+	grouped := make(map[string][]analyzer.Finding, len(findings))
+	for _, finding := range findings {
+		heading := categoryHeading(string(finding.Category))
+		grouped[heading] = append(grouped[heading], finding)
 	}
 	return grouped
 }
 
-func renderRunSection(grouped map[string][]todoEntry, runAt time.Time) string {
-	categories := make([]string, 0, len(grouped))
-	for category := range grouped {
-		categories = append(categories, category)
+func sortedCategoryHeadings(grouped map[string][]analyzer.Finding) []string {
+	headings := make([]string, 0, len(grouped))
+	for k := range grouped {
+		headings = append(headings, k)
 	}
-	sort.Strings(categories)
-
-	var builder strings.Builder
-	builder.WriteString("## Run ")
-	builder.WriteString(runAt.UTC().Format(time.RFC3339))
-	builder.WriteString("\n\n")
-
-	for i, category := range categories {
-		if i > 0 {
-			builder.WriteString("\n")
-		}
-		builder.WriteString("### ")
-		builder.WriteString(category)
-		builder.WriteString("\n")
-
-		for _, entry := range grouped[category] {
-			builder.WriteString(renderTodoItem(entry))
-		}
-	}
-
-	return builder.String()
+	sort.Strings(headings)
+	return headings
 }
 
-func renderTodoItem(entry todoEntry) string {
-	return fmt.Sprintf("- [ ] %s <!-- dreamer:finding:%s -->\n", entry.Description, entry.Hash)
+func renderFinding(finding analyzer.Finding) string {
+	var b strings.Builder
+	prefix := "- [ ] "
+	if finding.Unverified {
+		prefix = "- [ ] [unverified] "
+	}
+	b.WriteString(prefix)
+	b.WriteString(renderMistakeLine(finding))
+	b.WriteByte('\n')
+	if snippet := strings.TrimSpace(finding.Guardrail.ConfigSnippet); snippet != "" {
+		b.WriteString(renderSnippet(snippet, finding.Guardrail.Tool))
+	}
+	if len(finding.Evidence) > 0 {
+		b.WriteString("    Evidence:\n")
+		for _, ev := range finding.Evidence {
+			b.WriteString("    - ")
+			b.WriteString(renderEvidenceLine(ev))
+			b.WriteByte('\n')
+		}
+	}
+	fmt.Fprintf(&b, "    <!-- dreamer:finding:%s -->\n", finding.Hash)
+	if finding.Unverified {
+		b.WriteString("    <!-- dreamer:lintrule:unverified -->\n")
+	}
+	return b.String()
 }
 
-func mergeExistingContent(existing string, section string) string {
+func renderMistakeLine(finding analyzer.Finding) string {
+	mistake := strings.TrimSpace(finding.Mistake)
+	if finding.Guardrail.Tool == "" && finding.Guardrail.Rule == "" {
+		return mistake
+	}
+	var b strings.Builder
+	b.WriteString(mistake)
+	if finding.Guardrail.Rule != "" || finding.Guardrail.Tool != "" {
+		b.WriteString(" — guardrail: ")
+		if finding.Guardrail.Tool != "" {
+			b.WriteString(finding.Guardrail.Tool)
+		}
+		if finding.Guardrail.Rule != "" {
+			if finding.Guardrail.Tool != "" {
+				b.WriteByte('/')
+			}
+			b.WriteString(finding.Guardrail.Rule)
+		}
+		b.WriteString(".")
+	}
+	return b.String()
+}
+
+func renderSnippet(snippet string, tool string) string {
+	language := snippetLanguage(tool)
+	var b strings.Builder
+	b.WriteString("    ```")
+	if language != "" {
+		b.WriteString(language)
+	}
+	b.WriteByte('\n')
+	for _, line := range strings.Split(snippet, "\n") {
+		b.WriteString("    ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	b.WriteString("    ```\n")
+	return b.String()
+}
+
+func snippetLanguage(tool string) string {
+	t := strings.ToLower(strings.TrimSpace(tool))
+	switch t {
+	case "golangci-lint", "golangci":
+		return "yaml"
+	case "eslint", "biome":
+		return "json"
+	case "ruff", "flake8", "mypy":
+		return "toml"
+	case "github-actions", "gitlab-ci", "buildkite":
+		return "yaml"
+	}
+	if strings.HasSuffix(t, ".yaml") || strings.HasSuffix(t, ".yml") {
+		return "yaml"
+	}
+	if strings.HasSuffix(t, ".json") {
+		return "json"
+	}
+	if strings.HasSuffix(t, ".toml") {
+		return "toml"
+	}
+	return ""
+}
+
+func renderEvidenceLine(ev analyzer.CodebaseEvidence) string {
+	var b strings.Builder
+	b.WriteByte('`')
+	b.WriteString(ev.Path)
+	if strings.TrimSpace(ev.Lines) != "" {
+		b.WriteByte(':')
+		b.WriteString(ev.Lines)
+	}
+	b.WriteByte('`')
+	if strings.TrimSpace(ev.Symbol) != "" {
+		b.WriteString(" (`")
+		b.WriteString(ev.Symbol)
+		b.WriteString("`)")
+	}
+	return b.String()
+}
+
+func mergeContent(existing string, header string, sections []string) string {
+	var b strings.Builder
 	if strings.TrimSpace(existing) == "" {
-		return section
+		b.WriteString(header)
+		b.WriteString("\n\n")
+		b.WriteString(versionMarker)
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString(existing)
+		if !strings.HasSuffix(existing, "\n") {
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
 	}
+	for i, section := range sections {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(section)
+		if !strings.HasSuffix(section, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
 
-	var builder strings.Builder
-	builder.WriteString(existing)
-	if !strings.HasSuffix(existing, "\n") {
-		builder.WriteString("\n")
+func projectTitle(projectName string, override string) string {
+	if t := strings.TrimSpace(override); t != "" {
+		return "# dreamer todos — " + t
 	}
-	builder.WriteString("\n")
-	builder.WriteString(section)
-	return builder.String()
+	return "# dreamer todos — " + projectName
+}
+
+func categoryHeading(category string) string {
+	normalized := normalizeCategory(category)
+	if normalized == "" {
+		return "Uncategorized"
+	}
+	words := strings.Fields(normalized)
+	for i := range words {
+		if words[i] == "" {
+			continue
+		}
+		words[i] = strings.ToUpper(words[i][:1]) + words[i][1:]
+	}
+	return strings.Join(words, " ")
 }
 
 func normalizeCategory(category string) string {
@@ -246,39 +394,14 @@ func normalizeCategory(category string) string {
 	return normalizeText(replaced)
 }
 
-func normalizeDescription(description string) string {
-	return normalizeText(description)
-}
-
 func normalizeText(value string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
 }
 
-func renderCategoryHeading(normalizedCategory string) string {
-	if normalizedCategory == "" {
-		return "Uncategorized"
-	}
-
-	words := strings.Fields(normalizedCategory)
-	for i := range words {
-		words[i] = strings.ToUpper(words[i][:1]) + words[i][1:]
-	}
-	return strings.Join(words, " ")
-}
-
-func renderDescription(description string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(description)), " ")
-}
-
-func findingHash(category string, description string) string {
-	key := normalizeCategory(category) + "|" + normalizeDescription(description)
+// findingHash is the legacy v0 hash, retained only for dedup against pre-v1
+// todos.md files.
+func findingHash(category, description string) string {
+	key := normalizeCategory(category) + "|" + normalizeText(description)
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])
-}
-
-func nowUTC(nowFn func() time.Time) time.Time {
-	if nowFn == nil {
-		return time.Now().UTC()
-	}
-	return nowFn().UTC()
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -31,8 +32,8 @@ func TestFilterSourcesToAnalyzeReturnsNewAndUpdatedSources(t *testing.T) {
 	}
 
 	filtered := filterSourcesToAnalyze(sources, &state.State{
-		LastRun:         lastRun,
-		AnalyzedChatIDs: []string{"old.jsonl", "updated.jsonl"},
+		LastRunUTC: lastRun,
+		ChatHashes: map[string]string{"old.jsonl": "", "updated.jsonl": ""},
 	})
 
 	if got, want := len(filtered), 2; got != want {
@@ -70,10 +71,10 @@ func TestLookbackAndStateFilteringApplyTogether(t *testing.T) {
 
 	withinLookback := filterSourcesByLookback(sources, now, 24*time.Hour, true)
 	filtered := filterSourcesToAnalyze(withinLookback, &state.State{
-		LastRun: lastRun,
-		AnalyzedChatIDs: []string{
-			"recent-unchanged.jsonl",
-			"recent-changed.jsonl",
+		LastRunUTC: lastRun,
+		ChatHashes: map[string]string{
+			"recent-unchanged.jsonl": "",
+			"recent-changed.jsonl":   "",
 		},
 	})
 
@@ -557,7 +558,7 @@ func encodeVarint(value uint64) []byte {
 	return encoded
 }
 
-func TestAnalyzerClientOptionsFromConfigUsesAnalyzerSettings(t *testing.T) {
+func TestAnalyzerProviderConfigFromConfigUsesAnalyzerSettings(t *testing.T) {
 	useLoggedInUser := true
 	autoStart := true
 	cfg := &config.Config{
@@ -570,7 +571,7 @@ func TestAnalyzerClientOptionsFromConfigUsesAnalyzerSettings(t *testing.T) {
 		},
 	}
 
-	options := analyzerClientOptionsFromConfig(cfg, `C:\Users\User\code\dreamer`)
+	options := analyzerProviderConfigFromConfig(cfg)
 	if options.Model != "gpt-5" {
 		t.Fatalf("options.Model = %q, want %q", options.Model, "gpt-5")
 	}
@@ -585,9 +586,6 @@ func TestAnalyzerClientOptionsFromConfigUsesAnalyzerSettings(t *testing.T) {
 	}
 	if !options.AutoStart {
 		t.Fatalf("options.AutoStart should be true")
-	}
-	if options.WorkingDirectory != `C:\Users\User\code\dreamer` {
-		t.Fatalf("options.WorkingDirectory = %q, want %q", options.WorkingDirectory, `C:\Users\User\code\dreamer`)
 	}
 }
 
@@ -751,8 +749,12 @@ func TestAlternatingProjectCyclesKeepAnalyzedIDsIsolated(t *testing.T) {
 			}
 		}
 
-		currentState.AnalyzedChatIDs = mergeAnalyzedIDs(currentState.AnalyzedChatIDs, filteredIDs)
-		currentState.LastRun = baseRun.Add(time.Duration(cycleIndex+1) * time.Minute)
+		for _, id := range filteredIDs {
+			if _, exists := currentState.ChatHashes[id]; !exists {
+				currentState.ChatHashes[id] = ""
+			}
+		}
+		currentState.LastRunUTC = baseRun.Add(time.Duration(cycleIndex+1) * time.Minute)
 		if err := state.SaveState(cycle.projectName, currentState); err != nil {
 			t.Fatalf("SaveState for %q returned error: %v", cycle.projectName, err)
 		}
@@ -767,8 +769,17 @@ func TestAlternatingProjectCyclesKeepAnalyzedIDsIsolated(t *testing.T) {
 		t.Fatalf("LoadState final project-b returned error: %v", err)
 	}
 
-	assertStringSliceEqual(t, finalA.AnalyzedChatIDs, []string{projectA1, projectA2})
-	assertStringSliceEqual(t, finalB.AnalyzedChatIDs, []string{projectB1, projectB2})
+	assertStringSliceEqual(t, sortedKeys(finalA.ChatHashes), []string{projectA1, projectA2})
+	assertStringSliceEqual(t, sortedKeys(finalB.ChatHashes), []string{projectB1, projectB2})
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func sourcePaths(sources []chat.ChatSource) []string {
