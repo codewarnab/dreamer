@@ -7,6 +7,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"dreamer/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
@@ -54,7 +55,7 @@ func newAnalyzeCommand() *cobra.Command {
 
 			logger.Info("analyze command started config=%q path=%q provider=%q", resolvedConfigPath, projectPath, providerID)
 
-			result, err := executeAnalyze(commandContext(cmd), executeOptions{
+			result, err := pipeline.Run(commandContext(cmd), pipeline.Options{
 				Config:      cfg,
 				ProjectPath: projectPath,
 				ProviderID:  providerID,

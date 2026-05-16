@@ -10,6 +10,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"dreamer/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
@@ -92,7 +93,7 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 		default:
 		}
 
-		result, err := executeAnalyze(ctx, executeOptions{
+		result, err := pipeline.Run(ctx, pipeline.Options{
 			Config:      cfg,
 			ProjectPath: project.Path,
 			ProjectName: project.Name,
