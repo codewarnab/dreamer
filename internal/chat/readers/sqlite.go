@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const defaultSQLiteDriverName = "sqlite3"
+const defaultSQLiteDriverName = "sqlite"
 
 type SessionMetadata struct {
 	SessionID    string

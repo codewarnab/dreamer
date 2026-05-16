@@ -43,7 +43,7 @@ func TestConfigInitCreatesDefaultConfigFile(t *testing.T) {
 		t.Fatalf("execute config init: %v\nstderr=%s", err, stderr)
 	}
 
-	configPath := filepath.Join(homeDir, ".dreamer", defaultConfigFileName)
+	configPath := filepath.Join(homeDir, ".config", "dreamer", "config.yaml")
 	data, readErr := os.ReadFile(configPath)
 	if readErr != nil {
 		t.Fatalf("read generated config: %v", readErr)
@@ -83,7 +83,7 @@ func TestConfigInitForceOverwritesExistingFile(t *testing.T) {
 		t.Fatalf("first config init failed: %v", err)
 	}
 
-	configPath := filepath.Join(homeDir, ".dreamer", defaultConfigFileName)
+	configPath := filepath.Join(homeDir, ".config", "dreamer", "config.yaml")
 	if err := os.WriteFile(configPath, []byte("projects:\n  - name: stale"), 0o644); err != nil {
 		t.Fatalf("overwrite config fixture: %v", err)
 	}
@@ -104,10 +104,10 @@ func TestConfigInitForceOverwritesExistingFile(t *testing.T) {
 func TestAnalyzeRequiresProjectFlag(t *testing.T) {
 	_, _, err := executeRootCommand("analyze")
 	if err == nil {
-		t.Fatalf("analyze expected required project flag error")
+		t.Fatalf("analyze expected required path flag error")
 	}
-	if !strings.Contains(err.Error(), "required flag(s) \"project\" not set") {
-		t.Fatalf("error = %q, want required project flag error", err)
+	if !strings.Contains(err.Error(), "required flag(s) \"path\" not set") {
+		t.Fatalf("error = %q, want required path flag error", err)
 	}
 }
 
@@ -142,12 +142,12 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 		t.Fatalf("WriteFile chat path: %v", err)
 	}
 
-	_, stderr, err := executeRootCommand("analyze", "--config", configPath, "--project", "example")
+	_, stderr, err := executeRootCommand("analyze", "--config", configPath, "--path", projectDir)
 	if err == nil {
 		t.Fatalf("analyze expected analyzer client startup error")
 	}
-	if !strings.Contains(err.Error(), "start analyzer client") {
-		t.Fatalf("error = %q, want analyzer startup message; stderr=%s", err, stderr)
+	if !strings.Contains(err.Error(), "start copilot-sdk provider") {
+		t.Fatalf("error = %q, want copilot-sdk startup message; stderr=%s", err, stderr)
 	}
 }
 
@@ -275,4 +275,5 @@ func setTestHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 }

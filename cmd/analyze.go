@@ -7,71 +7,109 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"dreamer/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
 func newAnalyzeCommand() *cobra.Command {
-	var configPath string
-	var projectName string
-	var since string
+	var (
+		configPath  string
+		projectPath string
+		providerID  string
+		force       bool
+		dryRun      bool
+		permissive  bool
+		outputDir   string
+		since       string
+	)
 
 	command := &cobra.Command{
 		Use:   "analyze",
-		Short: "Run one analysis pass for a configured project.",
+		Short: "Run one analysis pass for a single project path.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolvedConfigPath, err := resolveConfigPath(configPath)
-			if err != nil {
-				return err
+			if strings.TrimSpace(projectPath) == "" {
+				return fmt.Errorf("--path is required")
 			}
-
-			cfg, err := config.LoadConfig(resolvedConfigPath)
-			if err != nil {
-				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
-			}
-			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Daemon.LogLevel)
-			if err != nil {
-				return err
-			}
-			defer func() {
-				_ = logger.Close()
-			}()
-			logger.Info("analyze command started config=%q project=%q", resolvedConfigPath, projectName)
 			if cmd.Flags().Changed("since") && strings.TrimSpace(since) == "" {
 				return fmt.Errorf("--since must not be empty")
 			}
 
-			project, err := selectProject(cfg, projectName)
+			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
-				logger.Error("select project failed project=%q error=%v", projectName, err)
+				return err
+			}
+			cfg, err := config.LoadConfig(resolvedConfigPath)
+			if err != nil {
+				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
+			}
+
+			logRoot := outputDir
+			if strings.TrimSpace(logRoot) == "" {
+				logRoot = cfg.Daemon.OutputRoot
+			}
+			logger, err := logging.New(logRoot, cfg.Logging.Level)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = logger.Close() }()
+
+			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
+
+			result, err := pipeline.Run(commandContext(cmd), pipeline.Options{
+				Config:      cfg,
+				ProjectPath: projectPath,
+				ProviderID:  providerID,
+				Force:       force,
+				DryRun:      dryRun,
+				Permissive:  permissive,
+				OutputDir:   outputDir,
+				Since:       since,
+			}, logger)
+			if err != nil {
+				logger.Error("analyze command failed", logging.Any("err", err))
 				return err
 			}
 
-			runResult, err := analyzeProject(commandContext(cmd), cfg, *project, logger, analyzeOptions{
-				Since: since,
-			})
-			if err != nil {
-				logger.Error("analyze command failed project=%q error=%v", project.Name, err)
-				return err
+			if result.CacheHit {
+				cmd.Printf("no changes (cache hit) provider=%s todos=%s\n", result.ProviderID, result.TodosPath)
+				logger.Info("analyze cache hit", logging.Any("provider", result.ProviderID))
+				return nil
+			}
+
+			if result.NoMistakes {
+				cmd.Printf("no recurring mistakes found provider=%s todos=%s\n", result.ProviderID, result.TodosPath)
+				logger.Info("analyze no mistakes", logging.Any("provider", result.ProviderID))
+				return nil
+			}
+			if dryRun {
+				cmd.Printf("dry-run complete provider=%s mistakes=%d\n", result.ProviderID, result.Mistakes)
+				return nil
 			}
 
 			cmd.Printf(
-				"analysis complete for %q: sources=%d messages=%d findings=%d todos_added=%d todos_path=%s\n",
-				project.Name,
-				runResult.SourcesAnalyzed,
-				runResult.MessagesRead,
-				runResult.FindingsFound,
-				runResult.TodosAdded,
-				runResult.TodosPath,
+				"analyze complete provider=%s sources=%d messages=%d mistakes=%d findings_added=%d warnings=%d todos=%s\n",
+				result.ProviderID,
+				result.SourcesAnalyzed,
+				result.MessagesRead,
+				result.Mistakes,
+				result.Findings,
+				result.Warnings,
+				result.TodosPath,
 			)
-			logger.Info("analyze command complete project=%q log_path=%q", project.Name, logger.Path())
+			logger.Info("analyze complete", logging.Any("provider", result.ProviderID), logging.Any("mistakes", result.Mistakes), logging.Any("findings", result.Findings), logging.Any("todos", result.TodosPath))
 			return nil
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: ~/.dreamer/config.yaml)")
-	command.Flags().StringVar(&projectName, "project", "", "Project name from config")
-	command.Flags().StringVar(&since, "since", "", "Only analyze chat sources modified within this lookback window, such as 30m, 1h, 1d, 1w, or 1mo")
-	_ = command.MarkFlagRequired("project")
+	command.Flags().StringVar(&configPath, "config", "", "Path to global config file (default: <UserConfigDir>/dreamer/config.yaml)")
+	command.Flags().StringVar(&projectPath, "path", "", "Absolute project directory to analyze (required)")
+	command.Flags().StringVar(&providerID, "provider", "", "Override the configured provider id")
+	command.Flags().BoolVar(&force, "force", false, "Skip the incremental cache and re-analyze every discovered chat")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "Run phase 1 only (mistake extraction); do not synthesize guardrails or write todos.md")
+	command.Flags().BoolVar(&permissive, "permissive", false, "Disable strict lint-rule allow-list; emit unrecognised rule ids tagged [unverified]")
+	command.Flags().StringVar(&outputDir, "output-dir", "", "Override the per-project output directory")
+	command.Flags().StringVar(&since, "since", "", "Lookback window (e.g. 30m, 1h, 1d, 1w, 1mo)")
+	_ = command.MarkFlagRequired("path")
 
 	return command
 }

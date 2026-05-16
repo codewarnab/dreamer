@@ -1,93 +1,107 @@
 package analyzer
 
-import "time"
+import (
+	"embed"
+	"fmt"
+	"path"
+	"strings"
+	"time"
 
+	"gopkg.in/yaml.v3"
+)
+
+//go:embed rules/*.yaml
+var embeddedRulesFS embed.FS
+
+// RuleCategory is one of the six v1 spec categories.
 type RuleCategory string
 
 const (
-	RuleCategoryBugs          RuleCategory = "bugs"
-	RuleCategoryPerformance   RuleCategory = "performance"
-	RuleCategoryDuplication   RuleCategory = "duplication"
-	RuleCategoryMissingTests  RuleCategory = "missing_tests"
-	RuleCategoryArchitecture  RuleCategory = "architecture"
-	RuleCategoryDocumentation RuleCategory = "documentation"
-	RuleCategoryLint          RuleCategory = "lint"
-	RuleCategorySecurity      RuleCategory = "security"
-	RuleCategoryTypes         RuleCategory = "types"
+	RuleCategoryLintRule         RuleCategory = "lint-rule"
+	RuleCategoryTest             RuleCategory = "test"
+	RuleCategoryCICheck          RuleCategory = "ci-check"
+	RuleCategoryDoc              RuleCategory = "doc"
+	RuleCategoryConfig           RuleCategory = "config"
+	RuleCategoryRefactorBoundary RuleCategory = "refactor-boundary"
 )
 
-type AnalysisRule struct {
-	Category       RuleCategory
-	PromptTemplate string
-	Threshold      float64
-	Enabled        bool
-	Timeout        time.Duration
+// AllRuleCategories returns the canonical list of v1 categories in fixed order.
+func AllRuleCategories() []RuleCategory {
+	return []RuleCategory{
+		RuleCategoryLintRule,
+		RuleCategoryTest,
+		RuleCategoryCICheck,
+		RuleCategoryDoc,
+		RuleCategoryConfig,
+		RuleCategoryRefactorBoundary,
+	}
 }
 
-func DefaultRules() []AnalysisRule {
-	return []AnalysisRule{
-		{
-			Category:       RuleCategoryBugs,
-			PromptTemplate: "Find likely bugs in this code or discussion context. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.70,
-			Enabled:        true,
-			Timeout:        45 * time.Second,
-		},
-		{
-			Category:       RuleCategoryPerformance,
-			PromptTemplate: "Find performance issues or scalability concerns. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.65,
-			Enabled:        true,
-			Timeout:        45 * time.Second,
-		},
-		{
-			Category:       RuleCategoryDuplication,
-			PromptTemplate: "Find duplicated logic or repeated patterns that should be consolidated. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.70,
-			Enabled:        true,
-			Timeout:        45 * time.Second,
-		},
-		{
-			Category:       RuleCategoryMissingTests,
-			PromptTemplate: "Identify missing tests for critical paths, edge cases, or regressions. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.60,
-			Enabled:        true,
-			Timeout:        40 * time.Second,
-		},
-		{
-			Category:       RuleCategoryArchitecture,
-			PromptTemplate: "Identify architecture concerns, coupling issues, or boundary violations. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.65,
-			Enabled:        true,
-			Timeout:        60 * time.Second,
-		},
-		{
-			Category:       RuleCategoryDocumentation,
-			PromptTemplate: "Identify important documentation gaps that would block future contributors. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.55,
-			Enabled:        true,
-			Timeout:        35 * time.Second,
-		},
-		{
-			Category:       RuleCategoryLint,
-			PromptTemplate: "Identify lint-like code quality issues that are likely to cause maintenance or correctness problems. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.70,
-			Enabled:        true,
-			Timeout:        35 * time.Second,
-		},
-		{
-			Category:       RuleCategorySecurity,
-			PromptTemplate: "Find security vulnerabilities, unsafe data handling, and secrets risks. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.80,
-			Enabled:        true,
-			Timeout:        60 * time.Second,
-		},
-		{
-			Category:       RuleCategoryTypes,
-			PromptTemplate: "Find type-safety and contract issues such as invalid assumptions or nil handling risks. Return JSON with a top-level \"findings\" array of objects that include category, description, evidence, and confidence.\n\n%s",
-			Threshold:      0.75,
-			Enabled:        true,
-			Timeout:        40 * time.Second,
-		},
+// RulePack is the parsed YAML rule pack for one category.
+type RulePack struct {
+	Category                RuleCategory   `yaml:"category"`
+	Enabled                 bool           `yaml:"enabled"`
+	Threshold               float64        `yaml:"threshold"`
+	TimeoutSeconds          int            `yaml:"timeout_seconds"`
+	MistakePromptTemplate   string         `yaml:"mistake_prompt_template"`
+	GuardrailPromptTemplate string         `yaml:"guardrail_prompt_template"`
+	ResponseSchema          map[string]any `yaml:"response_schema"`
+}
+
+// Timeout returns the duration form of TimeoutSeconds, falling back to a
+// 45s default when unset or non-positive.
+func (r RulePack) Timeout() time.Duration {
+	if r.TimeoutSeconds <= 0 {
+		return 45 * time.Second
 	}
+	return time.Duration(r.TimeoutSeconds) * time.Second
+}
+
+// LoadDefaultRulePacks parses the embedded built-in rule pack YAMLs in the
+// fixed category order returned by AllRuleCategories.
+func LoadDefaultRulePacks() ([]RulePack, error) {
+	categories := AllRuleCategories()
+	packs := make([]RulePack, 0, len(categories))
+	for _, category := range categories {
+		pack, err := loadEmbeddedRulePack(category)
+		if err != nil {
+			return nil, err
+		}
+		packs = append(packs, pack)
+	}
+	return packs, nil
+}
+
+func loadEmbeddedRulePack(category RuleCategory) (RulePack, error) {
+	name := path.Join("rules", string(category)+".yaml")
+	data, err := embeddedRulesFS.ReadFile(name)
+	if err != nil {
+		return RulePack{}, fmt.Errorf("read embedded rule pack %q: %w", name, err)
+	}
+	return parseRulePack(data, string(category))
+}
+
+func parseRulePack(data []byte, label string) (RulePack, error) {
+	var pack RulePack
+	if err := yaml.Unmarshal(data, &pack); err != nil {
+		return RulePack{}, fmt.Errorf("parse rule pack %q: %w", label, err)
+	}
+	pack.Category = RuleCategory(strings.TrimSpace(string(pack.Category)))
+	if pack.Category == "" {
+		return RulePack{}, fmt.Errorf("rule pack %q missing category", label)
+	}
+	return pack, nil
+}
+
+// FormatTemplate fills `{{key}}` placeholders in template with values from
+// vars. Unknown placeholders are left as-is. Whitespace is preserved.
+func FormatTemplate(template string, vars map[string]string) string {
+	if template == "" {
+		return template
+	}
+	result := template
+	for k, v := range vars {
+		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
+	}
+	return result
 }

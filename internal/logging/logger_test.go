@@ -14,8 +14,8 @@ func TestLoggerWritesProgressAndIssuesToLoggingFolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	logger.Info("analysis started project=%q", "example")
-	logger.Error("analysis failed error=%v", os.ErrPermission)
+	logger.Info("analysis started", Any("project", "example"))
+	logger.Error("analysis failed", Any("err", os.ErrPermission))
 	if err := logger.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
@@ -30,10 +30,10 @@ func TestLoggerWritesProgressAndIssuesToLoggingFolder(t *testing.T) {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
 	content := string(data)
-	if !strings.Contains(content, `INFO analysis started project="example"`) {
+	if !strings.Contains(content, `level=info msg="analysis started" project=example`) {
 		t.Fatalf("log missing info progress entry: %s", content)
 	}
-	if !strings.Contains(content, "ERROR analysis failed error=permission denied") {
+	if !strings.Contains(content, `level=error msg="analysis failed" err="permission denied"`) {
 		t.Fatalf("log missing error issue entry: %s", content)
 	}
 }

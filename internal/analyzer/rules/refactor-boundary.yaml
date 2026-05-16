@@ -1,0 +1,82 @@
+category: refactor-boundary
+enabled: true
+threshold: 0.70
+timeout_seconds: 60
+mistake_prompt_template: |
+  You are reading a chat transcript between a developer and an AI coding
+  assistant working on the project at {{project_root}}.
+
+  Identify recurring mistakes the assistant made that a REFACTOR BOUNDARY
+  (a named abstraction, interface, or module split) would have prevented.
+  Look for: agent repeatedly leaking knowledge across layers, re-deriving
+  the same helper inline, breaking a hidden invariant because the boundary
+  was implicit, fighting with global state that should be a typed
+  parameter.
+
+  Return JSON of the shape:
+  {"mistakes": [
+    {"category": "refactor-boundary", "summary": "<one sentence>",
+     "evidence_excerpt": "<short quote from the chat>", "confidence": 0.0-1.0}
+  ]}
+
+guardrail_prompt_template: |
+  Propose the smallest REFACTOR BOUNDARY (extracted function, new
+  interface, package split, struct field, etc.) that would have prevented
+  the listed mistake on the project at {{project_root}}.
+
+  Relevant codebase context:
+  {{codebase_context}}
+
+  Mistakes to address:
+  {{mistakes}}
+
+  Return JSON. `tool` is the package or directory the new boundary lives
+  in. `rule` names the new abstraction. `config_snippet` is the Go (or
+  language-appropriate) interface/signature stub. Cite at least one real
+  file in `codebase_evidence`.
+
+  {"findings": [
+    {
+      "mistake": "<repeat>",
+      "guardrail": {
+        "kind": "refactor-boundary",
+        "tool": "<package or directory>",
+        "rule": "<name of new abstraction>",
+        "config_snippet": "<signature stub>"
+      },
+      "codebase_evidence": [
+        {"path": "<repo-relative path of an existing symbol that motivates it>",
+         "lines": "<L1-L2>", "symbol": "<func or type>"}
+      ],
+      "confidence": 0.0-1.0
+    }
+  ]}
+
+response_schema:
+  type: object
+  required: [findings]
+  properties:
+    findings:
+      type: array
+      items:
+        type: object
+        required: [mistake, guardrail, confidence]
+        properties:
+          mistake: {type: string}
+          guardrail:
+            type: object
+            required: [kind, tool, rule]
+            properties:
+              kind: {type: string, enum: [refactor-boundary]}
+              tool: {type: string}
+              rule: {type: string}
+              config_snippet: {type: string}
+          codebase_evidence:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string}
+                lines: {type: string}
+                symbol: {type: string}
+          confidence: {type: number}

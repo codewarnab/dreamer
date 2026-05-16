@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	// ≈ 1k tokens × 250 msgs ≈ context budget for one analysis prompt.
 	claudeMaxCharsPerMessage   = 4000
 	claudeMaxMessagesPerSource = 250
 )
