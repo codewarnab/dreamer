@@ -10,6 +10,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/errs"
 )
 
 const ID = "copilot-sdk"
@@ -88,7 +89,9 @@ func (p *provider) Start(ctx context.Context) error {
 		return nil
 	}
 	if err := p.client.Start(ctx); err != nil {
-		return fmt.Errorf("start copilot-sdk provider: unable to start Copilot SDK client; ensure Copilot CLI is installed and authenticated (run `copilot auth login`): %w", err)
+		return errs.ProviderUnavailable(ID, "start",
+			fmt.Errorf("unable to start Copilot SDK client; ensure Copilot CLI is installed and authenticated (run `copilot auth login`): %w", err),
+		)
 	}
 	p.started = true
 	return nil
@@ -111,11 +114,15 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	session, err := p.client.CreateSession(ctx, sessionConfig)
 	if err != nil {
 		if requestedModel == "" {
-			return nil, fmt.Errorf("create copilot-sdk session: unable to create Copilot session; check auth and model availability: %w", err)
+			return nil, errs.ProviderUnavailable(ID, "session.new",
+				fmt.Errorf("unable to create Copilot session; check auth and model availability: %w", err),
+			)
 		}
 		fallback, fallbackErr := p.client.CreateSession(ctx, buildSessionConfig("", cfg))
 		if fallbackErr != nil {
-			return nil, fmt.Errorf("create copilot-sdk session: unable to create Copilot session with requested model %q (%v) and SDK auto-model fallback (%w)", requestedModel, err, fallbackErr)
+			return nil, errs.ProviderUnavailable(ID, "session.new",
+				fmt.Errorf("unable to create Copilot session with requested model %q (%v) and SDK auto-model fallback (%w)", requestedModel, err, fallbackErr),
+			)
 		}
 		return &copilotSession{session: fallback}, nil
 	}

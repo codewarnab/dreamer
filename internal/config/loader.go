@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"dreamer/internal/errs"
 )
 
 const (
@@ -284,31 +286,31 @@ func validateConfig(cfg *Config) error {
 		project := &cfg.Projects[i]
 		project.Name = strings.TrimSpace(project.Name)
 		if project.Name == "" {
-			return fmt.Errorf("project at index %d has empty name", i)
+			return errs.ConfigInvalid(fmt.Sprintf("projects[%d].name", i), "", fmt.Errorf("project at index %d has empty name", i))
 		}
 		if strings.TrimSpace(project.Path) == "" {
-			return fmt.Errorf("project %q has empty path", project.Name)
+			return errs.ConfigInvalid(fmt.Sprintf("projects.%s.path", project.Name), "", fmt.Errorf("project %q has empty path", project.Name))
 		}
 		expanded, err := ExpandUserHome(project.Path)
 		if err != nil {
-			return fmt.Errorf("expand home in project %q path: %w", project.Name, err)
+			return errs.ConfigInvalid(fmt.Sprintf("projects.%s.path", project.Name), project.Path, fmt.Errorf("expand home in project %q path: %w", project.Name, err))
 		}
 		expanded = filepath.Clean(expanded)
 		if !filepath.IsAbs(expanded) {
-			return fmt.Errorf("project %q path must be absolute: %q", project.Name, project.Path)
+			return errs.ConfigInvalid(fmt.Sprintf("projects.%s.path", project.Name), project.Path, fmt.Errorf("project %q path must be absolute: %q", project.Name, project.Path))
 		}
 		if _, err := os.Stat(expanded); err != nil {
-			return fmt.Errorf("project %q path validation failed for %q: %w", project.Name, expanded, err)
+			return errs.ConfigInvalid(fmt.Sprintf("projects.%s.path", project.Name), expanded, fmt.Errorf("project %q path validation failed for %q: %w", project.Name, expanded, err))
 		}
 		project.Path = expanded
 	}
 
 	outputRoot, err := ExpandUserHome(cfg.Daemon.OutputRoot)
 	if err != nil {
-		return fmt.Errorf("expand daemon output root: %w", err)
+		return errs.ConfigInvalid("daemon.output_root", cfg.Daemon.OutputRoot, fmt.Errorf("expand daemon output root: %w", err))
 	}
 	if !filepath.IsAbs(outputRoot) {
-		return fmt.Errorf("daemon output_root must be absolute: %q", cfg.Daemon.OutputRoot)
+		return errs.ConfigInvalid("daemon.output_root", cfg.Daemon.OutputRoot, fmt.Errorf("daemon output_root must be absolute: %q", cfg.Daemon.OutputRoot))
 	}
 	cfg.Daemon.OutputRoot = filepath.Clean(outputRoot)
 	return nil

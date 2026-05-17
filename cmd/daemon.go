@@ -133,7 +133,8 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 		}
 		result, err := pipeline.Run(ctx, opts, logger)
 		if err != nil {
-			logger.Error("daemon project failed", logging.Any("project", project.Name), logging.Any("err", err))
+			logger.Error("daemon project failed",
+				append(logging.ErrAttr(err), logging.Any("project", project.Name))...)
 			cmd.Printf("daemon cycle failed for %q: %v\n", project.Name, err)
 			cycleErrors = append(cycleErrors, fmt.Errorf("analyze project %q: %w", project.Name, err))
 			continue

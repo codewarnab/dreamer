@@ -2,12 +2,15 @@ package logging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"dreamer/internal/errs"
 )
 
 const (
@@ -35,6 +38,30 @@ type Attr = slog.Attr
 // Any builds a structured field for Logger methods.
 func Any(key string, value any) Attr {
 	return slog.Any(key, value)
+}
+
+// String builds a string-typed structured field for Logger methods.
+func String(key string, value string) Attr {
+	return slog.String(key, value)
+}
+
+// ErrAttr returns a slice of structured attributes for err. Tagged *errs.Error
+// values emit errKind, provider, op, and each Details entry as err.<key>.
+// Untagged errors degrade to a single err attribute.
+func ErrAttr(err error) []Attr {
+	attrs := []Attr{Any("err", err)}
+	var e *errs.Error
+	if errors.As(err, &e) {
+		attrs = append(attrs,
+			String("errKind", string(e.Kind)),
+			String("provider", e.Provider),
+			String("op", e.Op),
+		)
+		for k, v := range e.Details {
+			attrs = append(attrs, Any("err."+k, v))
+		}
+	}
+	return attrs
 }
 
 // New creates a logger that writes to "<outputRoot>/logging/dreamer.log".
