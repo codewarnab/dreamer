@@ -19,7 +19,7 @@ func TestSanitizeClaudeMessagesDropRules(t *testing.T) {
 		{name: "drop local command wrapper", content: "<local-command-stdout>Set model</local-command-stdout>"},
 		{name: "drop task lifecycle notification", content: "<task-notification><task-id>id</task-id><status>completed</status></task-notification>"},
 		{name: "drop async chatter", content: "Async agent launched successfully. agentId: a1 output_file: C:\\temp\\x"},
-		{name: "drop tool result chatter", content: "tool_result: {\"ok\":true}"},
+		{name: "keep folded tool result", content: "[Bash] go test\n→ PASS", keep: true},
 		{name: "keep user prompt", content: "Please help me debug this regression.", keep: true},
 		{name: "keep assistant response", content: "Sure — share the stack trace.", keep: true},
 		{name: "keep error details", content: "error: resume manifest file missing checkpoint", keep: true},

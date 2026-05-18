@@ -19,6 +19,7 @@ type ChatMessage struct {
 	Role      string
 	Content   string
 	Timestamp time.Time
+	ToolName  string // optional: "Bash", "Read", "Edit", etc. (empty for non-tool messages)
 }
 
 type JSONLReadOptions struct {
