@@ -144,6 +144,34 @@ func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 	}
 }
 
+// B2: regex must not deny legitimate reads whose arguments happen to mention
+// a writer command as a substring or quoted literal.
+func TestShellRequestReadOnlyAllowsBenignReads(t *testing.T) {
+	cases := []string{
+		"cat patch.txt",
+		"cat install.log",
+		"grep 'tee' README.md",
+		"grep -F 'rsync' src.go",
+		"cat docs/install-guide.md",
+		"git log -p",
+		"ls -la",
+	}
+	for _, line := range cases {
+		text := line
+		t.Run(line, func(t *testing.T) {
+			req := PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: &text,
+				Commands:        []ShellCommand{{Identifier: "cat", ReadOnly: true}},
+			}
+			if !shellRequestReadOnly(req) {
+				t.Fatalf("benign read %q wrongly classified as not read-only", text)
+			}
+		})
+	}
+}
+
 func TestDecidePermissionSymlinkEscapeIsRejected(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on Windows")

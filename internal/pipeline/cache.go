@@ -12,11 +12,16 @@ import (
 )
 
 // cacheKeyStats counts the per-run outcomes from computeCacheKeys.
+// The five fields are disjoint, so Cached+Changed+Fresh+HashFailedKept+
+// HashFailedDropped == len(sources). HashFailedKept entries are also written
+// to the returned cache-key map (preserving prior evidence); HashFailedDropped
+// entries are not in the map (no prior to keep).
 type cacheKeyStats struct {
-	Cached       int
-	Changed      int
-	Fresh        int
-	HashFailures int
+	Cached            int
+	Changed           int
+	Fresh             int
+	HashFailedKept    int
+	HashFailedDropped int
 }
 
 // computeCacheKeys builds the per-source cache-key map for this run. When a
@@ -29,12 +34,14 @@ func computeCacheKeys(sources []chat.ChatSource, prior map[string]string, repoHe
 	for _, src := range sources {
 		fileHash, err := state.HashFile(src.Path)
 		if err != nil {
-			stats.HashFailures++
 			if logger != nil {
 				logger.Warn("hash chat source failed", logging.Any("path", src.Path), logging.Any("err", err))
 			}
 			if priorKey, ok := prior[src.Path]; ok {
 				out[src.Path] = priorKey
+				stats.HashFailedKept++
+			} else {
+				stats.HashFailedDropped++
 			}
 			continue
 		}

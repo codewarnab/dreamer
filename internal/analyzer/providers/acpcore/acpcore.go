@@ -684,6 +684,9 @@ func translatePermissionRequest(req map[string]any) analyzer.PermissionRequest {
 	if hasRedir, ok := req["has_write_file_redirection"].(bool); ok {
 		out.HasWriteFileRedirection = &hasRedir
 	}
+	if fullText, ok := req["full_command_text"].(string); ok {
+		out.FullCommandText = &fullText
+	}
 	if commands, ok := req["commands"].([]any); ok {
 		for _, command := range commands {
 			cmd, ok := command.(map[string]any)

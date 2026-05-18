@@ -105,14 +105,35 @@ func TestComputeCacheKeysPreservesPriorOnHashFailure(t *testing.T) {
 
 	out, stats := computeCacheKeys(sources, prior, "head1", nil)
 
-	if stats.HashFailures != 1 {
-		t.Fatalf("HashFailures = %d, want 1", stats.HashFailures)
+	if stats.HashFailedKept != 1 {
+		t.Fatalf("HashFailedKept = %d, want 1", stats.HashFailedKept)
+	}
+	if stats.HashFailedDropped != 0 {
+		t.Fatalf("HashFailedDropped = %d, want 0", stats.HashFailedDropped)
 	}
 	if out[badPath] != "prior-key" {
 		t.Fatalf("hash-failed source lost prior key: got %q, want %q", out[badPath], "prior-key")
 	}
 	if out[okPath] == "" {
 		t.Fatalf("ok source missing cache key after computeCacheKeys")
+	}
+}
+
+func TestComputeCacheKeysDropsHashFailureWithNoPrior(t *testing.T) {
+	dir := t.TempDir()
+	badPath := filepath.Join(dir, "fresh-but-broken")
+	if err := os.Mkdir(badPath, 0o755); err != nil {
+		t.Fatalf("seed bad: %v", err)
+	}
+	sources := []chat.ChatSource{{Path: badPath, Tool: chat.SourceTypeCodexSessionJSONL}}
+
+	out, stats := computeCacheKeys(sources, nil, "head1", nil)
+
+	if stats.HashFailedDropped != 1 || stats.HashFailedKept != 0 {
+		t.Fatalf("stats=%+v, want HashFailedDropped=1 HashFailedKept=0", stats)
+	}
+	if _, ok := out[badPath]; ok {
+		t.Fatalf("hash-failed source with no prior must be dropped, got key %q", out[badPath])
 	}
 }
 

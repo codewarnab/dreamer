@@ -14,12 +14,18 @@ import (
 // classifier does not always flag: writers (tee, dd, …), in-place editors
 // (sed -i, perl -pi), shell wrappers (bash -c, sh -c) that can hide writes,
 // process-substitution write side `>(...)`, and inline interpreter -e/-pi.
+//
+// All command-name alternates anchor at command position — start of line, or
+// after a shell separator (`;`, `&`, `|`, `(`, `$(`) — so legitimate reads
+// like `cat patch.txt` or `grep 'tee' README.md` are not denied.
+var shellCmdAnchor = `(?:^|[;&|(]|\$\()\s*`
+
 var shellWriteIdiomRE = regexp.MustCompile(
 	`(?i)` +
-		`\b(tee|dd|install|patch|rsync|mkfifo|mknod|truncate)\b` +
-		`|\b(bash|sh|zsh|ksh|dash|ash|fish|csh|tcsh)\s+-c\b` +
-		`|\bsed\s+(-i\b|--in-place\b)` +
-		`|\b(perl|python\d*|ruby|node|tcl)\s+(-i|-pi|-e)\b` +
+		shellCmdAnchor + `(tee|dd|rsync|mkfifo|mknod|truncate)\b` +
+		`|` + shellCmdAnchor + `(bash|sh|zsh|ksh|dash|ash|fish|csh|tcsh)\s+-c\b` +
+		`|` + shellCmdAnchor + `sed\s+(-i\b|--in-place\b)` +
+		`|` + shellCmdAnchor + `(perl|python\d*|ruby|node|tcl)\s+(-i\b|-pi\b|-e\b)` +
 		`|>\(`,
 )
 

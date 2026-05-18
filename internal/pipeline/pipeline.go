@@ -206,7 +206,15 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	cacheKeys, cacheStats := computeCacheKeys(sources, currentState.ChatHashes, repoHeadSHA, logger)
-	logger.Info("chat cache summary", logging.Any("total", len(sources)), logging.Any("cached", cacheStats.Cached), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("hash_failed", cacheStats.HashFailures), logging.Any("force", opts.Force))
+	logger.Info("chat cache summary",
+		logging.Any("total", len(sources)),
+		logging.Any("cached", cacheStats.Cached),
+		logging.Any("changed", cacheStats.Changed),
+		logging.Any("new", cacheStats.Fresh),
+		logging.Any("hash_failed_kept", cacheStats.HashFailedKept),
+		logging.Any("hash_failed_dropped", cacheStats.HashFailedDropped),
+		logging.Any("force", opts.Force),
+	)
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
 		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(sources)), logging.Any("reason", "all cached, head unchanged"))
