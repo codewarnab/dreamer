@@ -7,18 +7,19 @@ import (
 	"time"
 
 	"dreamer/internal/chat"
+	"dreamer/internal/config"
 )
 
 const monthLookbackHours = 30 * 24
 
-// parseLookbackWindow converts a compact user lookback value into a duration.
-// It accepts positive integer values with one of the supported units: minutes
-// (m), hours (h), days (d), weeks (w), or months (mo). Months are intentionally
-// treated as fixed 30-day windows so source filtering stays deterministic.
-// A blank value disables lookback filtering and returns enabled=false.
+// parseLookbackWindow parses a compact lookback value (e.g. "24h", "7d", "1mo").
+// "" or "lifetime" (case-insensitive) disable filtering.
 func parseLookbackWindow(value string) (time.Duration, bool, error) {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
+		return 0, false, nil
+	}
+	if config.IsLifetimeSince(trimmedValue) {
 		return 0, false, nil
 	}
 

@@ -1,7 +1,9 @@
 package analyzer
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -42,10 +44,10 @@ func decideFilesystem(req PermissionRequest, normalizedRoot string) PermissionDe
 	for _, candidate := range candidates {
 		normalized, err := normalizeCandidatePath(candidate, normalizedRoot)
 		if err != nil {
-			return PermissionDecision{Reason: fmt.Sprintf("filesystem path %q is invalid or ambiguous: %v", candidate, err)}
+			return PermissionDecision{Reason: fmt.Sprintf("filesystem path %q is invalid or ambiguous after symlink resolution: %v", candidate, err)}
 		}
 		if !pathWithinRoot(normalized, normalizedRoot) {
-			return PermissionDecision{Reason: fmt.Sprintf("filesystem path %q resolves outside project root %q", candidate, normalizedRoot)}
+			return PermissionDecision{Reason: fmt.Sprintf("filesystem path %q resolves outside project root %q after symlink resolution (resolved to %q)", candidate, normalizedRoot, normalized)}
 		}
 	}
 	return PermissionDecision{Approved: true}
@@ -78,7 +80,8 @@ func shellRequestReadOnly(req PermissionRequest) bool {
 	return true
 }
 
-// NormalizeRootPath returns the absolute, cleaned path of root, or empty if root is empty.
+// NormalizeRootPath returns the absolute, symlink-resolved, cleaned path; "" for blank.
+// Root must exist; resolver errors are returned to the caller.
 func NormalizeRootPath(root string) (string, error) {
 	trimmed := strings.TrimSpace(root)
 	if trimmed == "" {
@@ -91,9 +94,16 @@ func NormalizeRootPath(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(abs), nil
+	abs = filepath.Clean(abs)
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlinks for project root %q: %w", abs, err)
+	}
+	return filepath.Clean(resolved), nil
 }
 
+// normalizeCandidatePath returns the absolute, symlink-resolved candidate path.
+// Non-existent leaves resolve via the deepest existing ancestor; resolver errors deny.
 func normalizeCandidatePath(path string, normalizedRoot string) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
@@ -116,7 +126,43 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(abs), nil
+	abs = filepath.Clean(abs)
+	return resolveSymlinksAllowingMissing(abs)
+}
+
+// resolveSymlinksAllowingMissing resolves `abs`, walking up to the deepest
+// existing ancestor when the leaf does not exist; non-ENOENT errors return.
+func resolveSymlinksAllowingMissing(abs string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("resolve symlinks for %q: %w", abs, err)
+	}
+
+	tail := []string{}
+	cur := abs
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs, nil
+		}
+		base := filepath.Base(cur)
+		tail = append([]string{base}, tail...)
+		resolvedParent, err := filepath.EvalSymlinks(parent)
+		if err == nil {
+			out := resolvedParent
+			for _, seg := range tail {
+				out = filepath.Join(out, seg)
+			}
+			return filepath.Clean(out), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("resolve symlinks for ancestor %q of %q: %w", parent, abs, err)
+		}
+		cur = parent
+	}
 }
 
 func looksLikeNonFilesystemPath(path string) bool {

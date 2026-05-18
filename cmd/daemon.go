@@ -15,7 +15,12 @@ import (
 )
 
 func newDaemonCommand() *cobra.Command {
-	var configPath string
+	var (
+		configPath     string
+		parallel       bool
+		maxConcurrency int
+		maxChunkBytes  int
+	)
 
 	command := &cobra.Command{
 		Use:   "daemon",
@@ -37,6 +42,16 @@ func newDaemonCommand() *cobra.Command {
 			defer func() {
 				_ = logger.Close()
 			}()
+			logDefaultedSinceNotices(logger, cfg)
+
+			overrides := daemonOverrides{
+				parallel:       parallel,
+				maxConcurrency: maxConcurrency,
+			}
+			if cmd.Flags().Changed("max-chunk-bytes") {
+				overrides.maxChunkBytesSet = true
+				overrides.maxChunkBytes = maxChunkBytes
+			}
 			if len(cfg.Projects) == 0 {
 				logger.Error("daemon configuration has no projects", logging.Any("config", resolvedConfigPath))
 				return fmt.Errorf("config %q has no projects configured", resolvedConfigPath)
@@ -53,7 +68,7 @@ func newDaemonCommand() *cobra.Command {
 
 			cmd.Printf("daemon started: frequency=%s projects=%d\n", frequency, len(cfg.Projects))
 			logger.Info("daemon started", logging.Any("config", resolvedConfigPath), logging.Any("frequency", frequency), logging.Any("projects", len(cfg.Projects)))
-			if err := runDaemonCycle(ctx, cfg, cmd, logger); err != nil {
+			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides); err != nil {
 				logger.Error("daemon cycle failed", logging.Any("err", err))
 				cmd.Printf("daemon cycle failed: %v\n", err)
 			}
@@ -68,7 +83,7 @@ func newDaemonCommand() *cobra.Command {
 					logger.Info("daemon stopped", logging.Any("cause", context.Cause(ctx)))
 					return nil
 				case <-ticker.C:
-					if err := runDaemonCycle(ctx, cfg, cmd, logger); err != nil {
+					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides); err != nil {
 						logger.Error("daemon cycle failed", logging.Any("err", err))
 						cmd.Printf("daemon cycle failed: %v\n", err)
 					}
@@ -78,11 +93,22 @@ func newDaemonCommand() *cobra.Command {
 	}
 
 	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
+	command.Flags().BoolVar(&parallel, "parallel", false, "Force analyzer.execution.mode=parallel (provider must implement ParallelCapable; fallback logged)")
+	command.Flags().IntVar(&maxConcurrency, "max-concurrency", 0, "Cap parallel session count. 0 = len(chunks). Ignored when sequential.")
+	command.Flags().IntVar(&maxChunkBytes, "max-chunk-bytes", 0, "Override analyzer.chunking.max_chunk_bytes for every cycle. 0 disables chunking.")
 
 	return command
 }
 
-func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger) error {
+// daemonOverrides carries CLI-level overrides that apply to every project per cycle.
+type daemonOverrides struct {
+	parallel         bool
+	maxConcurrency   int
+	maxChunkBytes    int
+	maxChunkBytesSet bool
+}
+
+func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides) error {
 	logger.Info("daemon cycle started", logging.Any("projects", len(cfg.Projects)))
 	var cycleErrors []error
 	for _, project := range cfg.Projects {
@@ -93,12 +119,19 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 		default:
 		}
 
-		result, err := pipeline.Run(ctx, pipeline.Options{
-			Config:      cfg,
-			ProjectPath: project.Path,
-			ProjectName: project.Name,
-			Since:       project.Since,
-		}, logger)
+		opts := pipeline.Options{
+			Config:                 cfg,
+			ProjectPath:            project.Path,
+			ProjectName:            project.Name,
+			Since:                  project.Since,
+			ParallelOverride:       overrides.parallel,
+			MaxConcurrencyOverride: overrides.maxConcurrency,
+		}
+		if overrides.maxChunkBytesSet {
+			opts.MaxChunkBytesOverride = overrides.maxChunkBytes
+			opts.MaxChunkBytesOverrideSet = true
+		}
+		result, err := pipeline.Run(ctx, opts, logger)
 		if err != nil {
 			logger.Error("daemon project failed", logging.Any("project", project.Name), logging.Any("err", err))
 			cmd.Printf("daemon cycle failed for %q: %v\n", project.Name, err)

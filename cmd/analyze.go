@@ -13,14 +13,17 @@ import (
 
 func newAnalyzeCommand() *cobra.Command {
 	var (
-		configPath  string
-		projectPath string
-		providerID  string
-		force       bool
-		dryRun      bool
-		permissive  bool
-		outputDir   string
-		since       string
+		configPath     string
+		projectPath    string
+		providerID     string
+		force          bool
+		dryRun         bool
+		permissive     bool
+		outputDir      string
+		since          string
+		parallel       bool
+		maxConcurrency int
+		maxChunkBytes  int
 	)
 
 	command := &cobra.Command{
@@ -54,17 +57,25 @@ func newAnalyzeCommand() *cobra.Command {
 			defer func() { _ = logger.Close() }()
 
 			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
+			logDefaultedSinceNotices(logger, cfg)
 
-			result, err := pipeline.Run(commandContext(cmd), pipeline.Options{
-				Config:      cfg,
-				ProjectPath: projectPath,
-				ProviderID:  providerID,
-				Force:       force,
-				DryRun:      dryRun,
-				Permissive:  permissive,
-				OutputDir:   outputDir,
-				Since:       since,
-			}, logger)
+			opts := pipeline.Options{
+				Config:                 cfg,
+				ProjectPath:            projectPath,
+				ProviderID:             providerID,
+				Force:                  force,
+				DryRun:                 dryRun,
+				Permissive:             permissive,
+				OutputDir:              outputDir,
+				Since:                  since,
+				ParallelOverride:       parallel,
+				MaxConcurrencyOverride: maxConcurrency,
+			}
+			if cmd.Flags().Changed("max-chunk-bytes") {
+				opts.MaxChunkBytesOverride = maxChunkBytes
+				opts.MaxChunkBytesOverrideSet = true
+			}
+			result, err := pipeline.Run(commandContext(cmd), opts, logger)
 			if err != nil {
 				logger.Error("analyze command failed", logging.Any("err", err))
 				return err
@@ -108,7 +119,10 @@ func newAnalyzeCommand() *cobra.Command {
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Run phase 1 only (mistake extraction); do not synthesize guardrails or write todos.md")
 	command.Flags().BoolVar(&permissive, "permissive", false, "Disable strict lint-rule allow-list; emit unrecognised rule ids tagged [unverified]")
 	command.Flags().StringVar(&outputDir, "output-dir", "", "Override the per-project output directory")
-	command.Flags().StringVar(&since, "since", "", "Lookback window (e.g. 30m, 1h, 1d, 1w, 1mo)")
+	command.Flags().StringVar(&since, "since", config.DefaultSince, "Lookback window (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime). 'lifetime' disables filtering.")
+	command.Flags().BoolVar(&parallel, "parallel", false, "Force analyzer.execution.mode=parallel for this run (provider must implement ParallelCapable; otherwise falls back to sequential with a warning)")
+	command.Flags().IntVar(&maxConcurrency, "max-concurrency", 0, "Cap parallel session count. 0 = len(chunks). Ignored when sequential.")
+	command.Flags().IntVar(&maxChunkBytes, "max-chunk-bytes", 0, "Override analyzer.chunking.max_chunk_bytes for this run. 0 disables chunking (single chunk regardless of size).")
 	_ = command.MarkFlagRequired("path")
 
 	return command

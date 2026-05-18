@@ -117,7 +117,7 @@ func TestRunWritesWarningsWhenAnalyzerParseFails(t *testing.T) {
 
 	todos := readFileString(t, result.TodosPath)
 	assertContains(t, todos, "## Warnings")
-	assertContains(t, todos, "response parse failed")
+	assertContains(t, todos, "parse failed")
 }
 
 func TestRunReturnsCacheHitWhenSourcesAndRepoAreUnchanged(t *testing.T) {
@@ -286,16 +286,16 @@ func (s fakeAnalysisSession) Run(ctx context.Context, prompt string, timeout tim
 	if s.mode == "parse-warning" {
 		return "{not-json", nil
 	}
-	if containsMistakesPrompt(prompt) {
-		return `{"findings":[{"mistake":"Add a regression test for empty chat payloads","guardrail":{"kind":"test","tool":"go test","rule":"empty chat payload regression","config_snippet":"func TestEmptyPayload(t *testing.T) {\n\n    // assert empty payload\n}"},"codebase_evidence":[{"path":"main.go","lines":"1-3","symbol":"main"}],"confidence":0.99}]}`, nil
+	if isPhase2Prompt(prompt) {
+		return `{"findings":{"test":[{"category":"test","mistake":"Add a regression test for empty chat payloads","guardrail":{"kind":"test","tool":"go test","rule":"empty chat payload regression","config_snippet":"func TestEmptyPayload(t *testing.T) {\n\n    // assert empty payload\n}"},"codebase_evidence":[{"path":"main.go","lines":"1-3","symbol":"main"}],"confidence":0.99}]}}`, nil
 	}
-	return `{"mistakes":[{"category":"test","summary":"Add a regression test for empty chat payloads","evidence_excerpt":"fixed it without adding a test","confidence":0.99}]}`, nil
+	return `{"summary":"developer worked on empty-payload regression with no test","mistakes":{"test":[{"category":"test","summary":"Add a regression test for empty chat payloads","evidence_excerpt":"fixed it without adding a test","confidence":0.99}]}}`, nil
 }
 
 func (s fakeAnalysisSession) Close() error {
 	return nil
 }
 
-func containsMistakesPrompt(prompt string) bool {
-	return strings.Contains(prompt, "Mistakes to address:")
+func isPhase2Prompt(prompt string) bool {
+	return strings.Contains(prompt, "synthesizing guardrails")
 }

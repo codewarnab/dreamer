@@ -135,6 +135,81 @@ daemon:
 	}
 }
 
+func TestLoadConfigDefaultsSinceAndRecordsNotice(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "blank-since", "path": projectDir},
+			{"name": "explicit-since", "path": projectDir, "since": "6h"},
+		},
+	})
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got, want := cfg.Projects[0].Since, DefaultSince; got != want {
+		t.Fatalf("Projects[0].Since = %q, want %q", got, want)
+	}
+	if got, want := cfg.Projects[1].Since, "6h"; got != want {
+		t.Fatalf("Projects[1].Since = %q, want %q (explicit value preserved)", got, want)
+	}
+	if got, want := len(cfg.Notices.DefaultedSince), 1; got != want {
+		t.Fatalf("len(Notices.DefaultedSince) = %d, want %d", got, want)
+	}
+	if got, want := cfg.Notices.DefaultedSince[0], "blank-since"; got != want {
+		t.Fatalf("Notices.DefaultedSince[0] = %q, want %q", got, want)
+	}
+}
+
+func TestLoadConfigDefaultsAnalyzerExecutionAndChunking(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "p", "path": projectDir, "since": "1h"},
+		},
+	})
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got, want := cfg.Analyzer.Execution.Mode, ExecutionModeSequential; got != want {
+		t.Fatalf("Execution.Mode = %q, want %q", got, want)
+	}
+	if got, want := cfg.Analyzer.Execution.MaxConcurrency, 0; got != want {
+		t.Fatalf("Execution.MaxConcurrency = %d, want %d", got, want)
+	}
+	if got, want := cfg.Analyzer.Chunking.MaxChunkBytes, DefaultMaxChunkBytes; got != want {
+		t.Fatalf("Chunking.MaxChunkBytes = %d, want %d", got, want)
+	}
+	if got, want := cfg.Analyzer.Chunking.ProviderBoundaryHeadroom, DefaultProviderBoundaryHeadroom; got != want {
+		t.Fatalf("Chunking.ProviderBoundaryHeadroom = %v, want %v", got, want)
+	}
+}
+
+func TestIsLifetimeSince(t *testing.T) {
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{"lifetime", true},
+		{"Lifetime", true},
+		{"LIFETIME", true},
+		{"  lifetime  ", true},
+		{"24h", false},
+		{"", false},
+		{"life", false},
+	}
+	for _, tc := range tests {
+		if got := IsLifetimeSince(tc.value); got != tc.want {
+			t.Fatalf("IsLifetimeSince(%q) = %v, want %v", tc.value, got, tc.want)
+		}
+	}
+}
+
 func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	cliBlock := ProviderBlock{Model: "gpt-cli"}
 	projectBlock := ProviderBlock{Model: "gpt-project"}

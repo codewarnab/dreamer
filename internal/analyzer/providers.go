@@ -13,6 +13,10 @@ import (
 // so the orchestrator can abort the whole run rather than continuing rule-by-rule.
 var ErrRateLimited = errors.New("provider rate limited")
 
+// ErrUnavailable: provider can no longer serve the current pipeline.Run.
+// Providers join via errors.Join(analyzer.ErrUnavailable, cause).
+var ErrUnavailable = errors.New("provider unavailable")
+
 // ProviderID identifies a known provider implementation. Values match the
 // strings used in the configuration system (§3, §4.1 of doc/spec.md).
 type ProviderID string

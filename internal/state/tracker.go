@@ -30,9 +30,15 @@ type ProviderUsage struct {
 	TotalTokens int64 `json:"total_tokens"`
 	Timeouts    int64 `json:"timeouts,omitempty"`
 	Failures    int64 `json:"failures,omitempty"`
+
+	// LastSuccessUTC: most recent successful provider call.
+	LastSuccessUTC time.Time `json:"last_success_utc,omitempty"`
+
+	// LastError: most recent error message (truncated). Cleared on next success.
+	LastError string `json:"last_error,omitempty"`
 }
 
-// State is the per-project persistent state document (spec §12).
+// State is the per-project persistent state document.
 type State struct {
 	Version       int                      `json:"version"`
 	LastRunUTC    time.Time                `json:"last_run_utc,omitempty"`
@@ -43,6 +49,10 @@ type State struct {
 
 	// Optional misc counters (claude_messages_kept, claude_messages_dropped, ...).
 	UsageStats map[string]int64 `json:"usage_stats,omitempty"`
+
+	// LastRunPerCategory: most recent successful completion per rule category.
+	// Stale entries flag a timing-out or erroring rule.
+	LastRunPerCategory map[string]time.Time `json:"last_run_per_category,omitempty"`
 }
 
 // PathForProject returns the per-project state.json path under outputRoot.
@@ -99,7 +109,8 @@ func Load(outputRoot, projectName string) (*State, error) {
 	return &current, nil
 }
 
-// Save writes the per-project state.
+// Save writes the per-project state atomically via temp file + os.Rename.
+// Mid-write crashes cannot leave a half-written state.json.
 func Save(outputRoot, projectName string, state *State) error {
 	if state == nil {
 		return fmt.Errorf("state is required")
@@ -117,19 +128,26 @@ func Save(outputRoot, projectName string, state *State) error {
 	if err != nil {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
-	if err := os.WriteFile(path, data, statePerms); err != nil {
-		return fmt.Errorf("write state file %q: %w", path, err)
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, statePerms); err != nil {
+		return fmt.Errorf("write state temp file %q: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename state temp file %q -> %q: %w", tmp, path, err)
 	}
 	return nil
 }
 
 func defaultState() *State {
 	return &State{
-		Version:       StateVersion,
-		ChatHashes:    map[string]string{},
-		FindingHashes: []string{},
-		ProviderUsage: map[string]ProviderUsage{},
-		UsageStats:    map[string]int64{},
+		Version:            StateVersion,
+		ChatHashes:         map[string]string{},
+		FindingHashes:      []string{},
+		ProviderUsage:      map[string]ProviderUsage{},
+		UsageStats:         map[string]int64{},
+		LastRunPerCategory: map[string]time.Time{},
 	}
 }
 
@@ -149,6 +167,24 @@ func normalizeState(s *State) {
 	if s.UsageStats == nil {
 		s.UsageStats = map[string]int64{}
 	}
+	if s.LastRunPerCategory == nil {
+		s.LastRunPerCategory = map[string]time.Time{}
+	}
+}
+
+// maxErrorLen caps persisted error strings (runes).
+const maxErrorLen = 500
+
+// TruncateError clamps to maxErrorLen runes; appends '…' on truncation.
+func TruncateError(s string) string {
+	if s == "" {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxErrorLen {
+		return s
+	}
+	return string(runes[:maxErrorLen]) + "…"
 }
 
 // HashFile returns the hex-encoded sha256 of a file's contents.

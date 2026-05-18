@@ -9,8 +9,13 @@ import (
 	"dreamer/internal/state"
 )
 
+// cacheUnchanged: prior successful run covered the exact same source set + repo head.
+// Empty-vs-empty after a real prior run is a legitimate hit (lets preflight pay off).
 func cacheUnchanged(currentState *state.State, cacheKeys map[string]string, repoHeadSHA string) bool {
-	if currentState == nil || len(currentState.ChatHashes) == 0 {
+	if currentState == nil {
+		return false
+	}
+	if currentState.LastRunUTC.IsZero() {
 		return false
 	}
 	if currentState.RepoHeadSHA != repoHeadSHA {

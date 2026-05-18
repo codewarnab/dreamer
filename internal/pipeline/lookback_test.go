@@ -28,6 +28,9 @@ func TestParseLookbackWindow(t *testing.T) {
 		{name: "unknown unit rejected", value: "1x", wantErr: true},
 		{name: "spaced value rejected", value: "1 h", wantErr: true},
 		{name: "word rejected", value: "hour", wantErr: true},
+		{name: "lifetime lowercase disables filter", value: "lifetime", wantEnabled: false},
+		{name: "lifetime mixed case disables filter", value: "Lifetime", wantEnabled: false},
+		{name: "lifetime upper disables filter", value: "LIFETIME", wantEnabled: false},
 	}
 
 	for _, tt := range tests {
