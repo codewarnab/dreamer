@@ -86,7 +86,7 @@ providers:
   kiro-acp:
     # Kiro CLI via ACP.
     model: claude-sonnet-4-5-20250929  # default
-    command: ["kiro", "--acp"]
+    command: ["kiro-cli", "acp"]
     # env: {}
 
   codex-cli:

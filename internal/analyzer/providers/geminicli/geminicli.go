@@ -59,7 +59,7 @@ func (p *provider) ID() string { return ID }
 func (p *provider) Start(ctx context.Context) error {
 	if _, err := exec.LookPath(p.command[0]); err != nil {
 		return errs.NotInstalled("gemini-cli", "start",
-			"Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini auth login`.", err)
+			"Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini` to authenticate (browser OAuth on first launch).", err)
 	}
 	return nil
 }

@@ -90,7 +90,7 @@ func (p *provider) Start(ctx context.Context) error {
 	}
 	if err := p.client.Start(ctx); err != nil {
 		return errs.ProviderUnavailable(ID, "start",
-			fmt.Errorf("unable to start Copilot SDK client; ensure Copilot CLI is installed and authenticated (run `copilot auth login`): %w", err),
+			fmt.Errorf("unable to start Copilot SDK client; ensure Copilot CLI is installed (`npm install -g @github/copilot`) and authenticated (run `copilot` then `/login`): %w", err),
 		)
 	}
 	p.started = true

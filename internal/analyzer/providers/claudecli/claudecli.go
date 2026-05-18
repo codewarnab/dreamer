@@ -47,7 +47,7 @@ func (p *provider) ID() string { return ID }
 // claude. Authentication is checked the first time Run is called.
 func (p *provider) Start(ctx context.Context) error {
 	if _, err := exec.LookPath(p.command[0]); err != nil {
-		return fmt.Errorf("claude binary %q not found in PATH; install the Claude CLI and run `claude auth login`", p.command[0])
+		return fmt.Errorf("claude binary %q not found in PATH; install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate", p.command[0])
 	}
 	return nil
 }
