@@ -13,8 +13,8 @@ var defaultConfigTemplate = fmt.Sprintf(`# dreamer global config (v1). See doc/s
 
 # Provider used when --provider is not passed and no per-project config sets one.
 # Options: copilot-sdk | copilot-acp | claude-cli | claude-acp |
-#          gemini-cli | gemini-acp | kiro-acp |
-#          codex-cli  | codex-acp
+#          gemini-cli | gemini-acp | gemini-sdk | kiro-acp |
+#          codex-cli  | codex-acp | openclaude-cli
 default_provider: copilot-sdk
 
 # Projects iterated by the daemon. Each entry: {name, path, since}.
@@ -49,7 +49,7 @@ redaction:
 providers:
   copilot-sdk:
     # GitHub Copilot SDK (native Go SDK). See spec §18.
-    model: %[1]s        # options: %[1]s | gpt-4.1 | gpt-5 | "" (SDK auto)
+    model: auto                 # "auto" = SDK auto-select (default). Override: gpt-5.3-codex | gpt-4.1 | gpt-5
     use_logged_in_user: true    # options: true | false. Use keychain auth. Mutually exclusive with cli_url.
     auto_start: false           # options: true | false. Spawn CLI eagerly vs. on first session.
     # copilot_home: ""          # override $COPILOT_HOME. Optional.
@@ -57,36 +57,43 @@ providers:
 
   copilot-acp:
     # Copilot via Agent Client Protocol stdio transport (spec §4.4).
+    model: auto                 # "auto" = agent auto-select (default)
     command: ["copilot", "--acp"]
     # env: {}                   # extra environment variables for the subprocess
 
   claude-cli:
     # Claude CLI via stream-json. Flags validated upstream; do not strip --output-format.
+    model: claude-haiku-4-5-20251001  # default. Override: claude-sonnet-4-5-20250929 | claude-opus-4-7-20250917
     command: ["claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
     # env: {}
 
   claude-acp:
-    command: ["claude", "--acp"]
+    model: claude-haiku-4-5-20251001  # default
+    command: ["npx", "-y", "@zed-industries/claude-code-acp"]
     # env: {}
 
   gemini-cli:
-    command: ["gemini", "--headless"]
+    # Gemini CLI via stream-json in headless mode.
+    model: gemini-3-flash-preview    # default. Fallback: gemini-2.5-flash
+    command: ["gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"]
     # env: {}
 
   gemini-acp:
+    model: gemini-3-flash-preview    # default. Fallback: gemini-2.5-flash
     command: ["gemini", "--acp"]
     # env: {}
 
   kiro-acp:
-    # Kiro CLI via ACP. Uses Quorinex/Kiro-Goacp internally.
-    command: ["kiro", "--acp"]
+    # Kiro CLI via ACP.
+    model: claude-sonnet-4-5-20250929  # default
+    command: ["kiro-cli", "acp"]
     # env: {}
 
   codex-cli:
     # OpenAI Codex CLI via 'codex exec --json --sandbox read-only' (spec v1.1).
     # Override command to add flags like --model, --image, or to point at a wrapper.
+    model: gpt-5.4-mini              # default. Override: gpt-5.4-mini-2026-03-17 | gpt-5
     command: ["codex", "exec", "--json", "--sandbox", "read-only"]
-    # model: ""                 # optional --model override; empty = codex default
     # env: {}                   # extra environment for the subprocess
 
   codex-acp:
@@ -94,7 +101,14 @@ providers:
     # OpenAI's 'codex' binary does not ship a native ACP server yet, so the
     # 'command' field must point at a third-party bridge that speaks
     # JSON-RPC 2.0 over stdio.
+    model: gpt-5.4-mini              # default
     command: ["codex-acp"]
+    # env: {}
+
+  openclaude-cli:
+    # OpenClaude CLI via stream-json in headless mode.
+    model: mimo-v2.5-pro             # default. Uses Gitlawb Opengateway endpoint.
+    command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
     # env: {}
 
 # Analyzer settings.
@@ -110,7 +124,7 @@ analyzer:
   #     enabled: true
   #   refactor-boundary:
   #     enabled: false
-`, config.DefaultModel)
+`)
 
 func newConfigCommand() *cobra.Command {
 	command := &cobra.Command{

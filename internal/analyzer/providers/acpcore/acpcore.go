@@ -38,6 +38,15 @@ type Options struct {
 
 	// Env adds environment variables on top of the parent process env.
 	Env map[string]string
+
+	// DefaultModel is the per-provider default model. Applied when
+	// SessionConfig.Model is empty. Empty string means no default.
+	DefaultModel string
+
+	// ModelFallbacks lists alternative models to try if the preferred
+	// model (from SessionConfig.Model or DefaultModel) is not in the
+	// agent's availableModels list. Only used by ACP providers.
+	ModelFallbacks []string
 }
 
 // New returns an analyzer.Provider that drives an ACP agent over stdio.
@@ -49,16 +58,20 @@ func New(options Options) (analyzer.Provider, error) {
 		return nil, errors.New("acpcore: Command is required")
 	}
 	return &provider{
-		id:      options.ID,
-		command: append([]string(nil), options.Command...),
-		env:     copyStringMap(options.Env),
+		id:             options.ID,
+		command:        append([]string(nil), options.Command...),
+		env:            copyStringMap(options.Env),
+		defaultModel:   strings.TrimSpace(options.DefaultModel),
+		modelFallbacks: append([]string(nil), options.ModelFallbacks...),
 	}, nil
 }
 
 type provider struct {
-	id      string
-	command []string
-	env     map[string]string
+	id             string
+	command        []string
+	env            map[string]string
+	defaultModel   string
+	modelFallbacks []string
 
 	mu         sync.Mutex
 	transport  *transport
@@ -117,7 +130,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 	preferredModel := strings.TrimSpace(cfg.Model)
 	if preferredModel == "" {
-		preferredModel = "sonnet"
+		preferredModel = p.defaultModel
 	}
 
 	normalizedRoot, _ := analyzer.NormalizeRootPath(cfg.WorkingDirectory)
@@ -134,13 +147,14 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	// transcript history doesn't accumulate across rules and trip the agent's
 	// "Prompt is too long" guard.
 	return &session{
-		transport:     t,
-		handler:       handler,
-		providerID:    p.id,
-		workingDir:    cfg.WorkingDirectory,
-		permTarget:    normalizedRoot,
-		systemMessage: systemMessage,
-		model:         preferredModel,
+		transport:      t,
+		handler:        handler,
+		providerID:     p.id,
+		workingDir:     cfg.WorkingDirectory,
+		permTarget:     normalizedRoot,
+		systemMessage:  systemMessage,
+		model:          preferredModel,
+		modelFallbacks: p.modelFallbacks,
 	}, nil
 }
 
@@ -159,13 +173,14 @@ func (p *provider) Close() error {
 }
 
 type session struct {
-	transport     *transport
-	handler       permissionHandler
-	providerID    string
-	workingDir    string
-	permTarget    string
-	systemMessage string
-	model         string
+	transport      *transport
+	handler        permissionHandler
+	providerID     string
+	workingDir     string
+	permTarget     string
+	systemMessage  string
+	model          string
+	modelFallbacks []string
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -203,7 +218,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	// Optional agent tuning. Only attempt when the agent advertised the option
 	// in session/new — calling set_model with an unsupported id triggers
 	// provider-specific 400s (e.g. codex rejects "sonnet").
-	if id, ok := pickAvailableModelID(newResult, s.model); ok {
+	if id, ok := pickAvailableModelID(newResult, s.model, s.modelFallbacks); ok {
 		_, _ = s.transport.call(ctx, "session/set_model", map[string]any{
 			"sessionId": sid,
 			"modelId":   id,
@@ -722,9 +737,9 @@ func extractSessionID(result json.RawMessage) string {
 
 // pickAvailableModelID returns the modelId from session/new's
 // result.models.availableModels[] that matches `preferred`. If `preferred`
-// isn't present (typical when one provider's default name leaks into another,
-// e.g. "sonnet" against codex), returns ok=false so the caller skips set_model.
-func pickAvailableModelID(result json.RawMessage, preferred string) (string, bool) {
+// isn't present, tries each fallback in order. Returns ok=false when no
+// match is found so the caller skips set_model.
+func pickAvailableModelID(result json.RawMessage, preferred string, fallbacks []string) (string, bool) {
 	if preferred == "" {
 		return "", false
 	}
@@ -738,9 +753,15 @@ func pickAvailableModelID(result json.RawMessage, preferred string) (string, boo
 	if err := json.Unmarshal(result, &parsed); err != nil {
 		return "", false
 	}
-	for _, m := range parsed.Models.AvailableModels {
-		if m.ModelID == preferred {
-			return m.ModelID, true
+	// Build candidate list: preferred first, then fallbacks.
+	candidates := make([]string, 0, 1+len(fallbacks))
+	candidates = append(candidates, preferred)
+	candidates = append(candidates, fallbacks...)
+	for _, want := range candidates {
+		for _, m := range parsed.Models.AvailableModels {
+			if m.ModelID == want {
+				return m.ModelID, true
+			}
 		}
 	}
 	return "", false

@@ -322,7 +322,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	)
 	warnings = append(warnings, chunkWarnings...)
 
-	providerCfg := buildProviderConfig(providerBlock)
+	providerCfg := buildProviderConfig(providerID, providerBlock)
 	provider, err := analyzer.NewProvider(analyzer.ProviderID(providerID), providerCfg)
 	if err != nil {
 		return Result{}, fmt.Errorf("instantiate provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))

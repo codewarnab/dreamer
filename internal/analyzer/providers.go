@@ -34,14 +34,15 @@ const (
 	ProviderKiroACP      ProviderID = "kiro-acp"
 	ProviderCodexCLI     ProviderID = "codex-cli"
 	ProviderCodexACP     ProviderID = "codex-acp"
-	ProviderOpenCludeCLI ProviderID = "openclaude-cli"
+	ProviderOpenClaudeCLI ProviderID = "openclaude-cli"
 )
 
 // ProviderConfig is the per-provider configuration block resolved by the
 // caller (CLI/config). Unused fields per provider are ignored.
 type ProviderConfig struct {
 	// Common
-	Model string
+	Model        string
+	DefaultModel string // per-provider default; applied when Model is empty
 
 	// copilot-sdk
 	CopilotHome        string
