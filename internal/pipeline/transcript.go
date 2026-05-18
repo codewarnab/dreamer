@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,6 +11,17 @@ import (
 	"dreamer/internal/chat/readers"
 	"dreamer/internal/logging"
 )
+
+// multiWhitespace matches runs of spaces, tabs, and newlines so
+// normalizeWhitespace can collapse them into a single space before hashing.
+var multiWhitespace = regexp.MustCompile(`[\t\r\n ]+`)
+
+// normalizeWhitespace collapses all whitespace runs into single spaces and
+// trims leading/trailing whitespace. This keeps cache keys stable regardless
+// of whether the source used tabs, newlines, or multiple spaces.
+func normalizeWhitespace(s string) string {
+	return strings.TrimSpace(multiWhitespace.ReplaceAllString(s, " "))
+}
 
 func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, error) {
 	provider, ok := chat.ProviderFor(source.Tool)
@@ -57,7 +69,7 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 		sourceMessages := 0
 		sourceHits := 0
 		for _, message := range messages {
-			text := strings.TrimSpace(message.Content)
+			text := normalizeWhitespace(message.Content)
 			if text == "" {
 				continue
 			}
