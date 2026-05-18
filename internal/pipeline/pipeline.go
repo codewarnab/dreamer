@@ -423,6 +423,14 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	for _, cat := range analysisResult.CompletedCategories {
 		currentState.LastRunPerCategory[cat] = now
 	}
+	// B28: drop entries for rule categories no longer in the loaded pack
+	// set (e.g. after a config rename or a category being retired). Without
+	// pruning the map carries stale keys forever.
+	pruneLastRunPerCategory(currentState.LastRunPerCategory, rulePacks)
+	// B29: drop ProviderUsage entries for providers no longer reachable
+	// from this run's resolved provider. Same hygiene as B28: long-running
+	// projects accumulate stale provider ids after a switch.
+	pruneProviderUsage(currentState.ProviderUsage, providerID)
 	recordProviderSuccess(currentState, providerID, 0)
 
 	if currentState.UsageStats == nil {

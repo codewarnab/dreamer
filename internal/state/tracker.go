@@ -2,6 +2,7 @@ package state
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -22,7 +23,11 @@ const (
 	dirPerms      = 0o755
 	statePerms    = 0o644
 
-	StateVersion = 1
+	// StateVersion bumps when the on-disk shape of state.json or the
+	// derivation of a stored value changes such that a v(N-1) file cannot
+	// be loaded as-is. v2 introduces length-prefixed ChatCacheKey (B21),
+	// which makes prior ChatHashes entries hash-incompatible.
+	StateVersion = 2
 )
 
 // ProviderUsage records aggregate counters per provider id.
@@ -89,7 +94,11 @@ func userConfigDir() (string, error) {
 }
 
 // Load reads the per-project state. A missing file returns a default state
-// (non-nil, version=1, empty maps).
+// (non-nil, version=current, empty maps). The version field is gated (B12/
+// B27): an explicit `version=0` is refused as suspect, a newer version is
+// refused to avoid downgrade-on-write, and a missing version field is
+// treated as a pre-versioning legacy file and upgraded to the current
+// schema in memory.
 func Load(outputRoot, projectName string) (*State, error) {
 	path, err := PathForProject(outputRoot, projectName)
 	if err != nil {
@@ -102,16 +111,48 @@ func Load(outputRoot, projectName string) (*State, error) {
 		}
 		return nil, fmt.Errorf("read state file %q: %w", path, err)
 	}
+
+	var peek map[string]json.RawMessage
+	if err := json.Unmarshal(data, &peek); err != nil {
+		return nil, fmt.Errorf("unmarshal state file %q: %w", path, err)
+	}
+	versionRaw, hasVersion := peek["version"]
+	if hasVersion {
+		var v int
+		if err := json.Unmarshal(versionRaw, &v); err != nil {
+			return nil, fmt.Errorf("unmarshal version in state file %q: %w", path, err)
+		}
+		if v == 0 {
+			return nil, fmt.Errorf("state file %q has explicit version=0; refusing to load (suspect truncation)", path)
+		}
+		if v > StateVersion {
+			return nil, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, v, StateVersion)
+		}
+	}
+
 	var current State
 	if err := json.Unmarshal(data, &current); err != nil {
 		return nil, fmt.Errorf("unmarshal state file %q: %w", path, err)
+	}
+	if !hasVersion {
+		current.Version = StateVersion
+	}
+	if hasVersion && current.Version < StateVersion {
+		// v1 → v2: ChatCacheKey is now length-prefixed, so prior ChatHashes
+		// no longer compare equal to freshly-computed keys. Drop them so
+		// the next run re-establishes the cache from scratch. The user's
+		// prior file is preserved at <path>.v<old>.bak by Save.
+		current.ChatHashes = map[string]string{}
+		current.Version = StateVersion
 	}
 	normalizeState(&current)
 	return &current, nil
 }
 
-// Save writes the per-project state atomically via temp file + os.Rename.
-// Mid-write crashes cannot leave a half-written state.json.
+// Save writes the per-project state atomically via temp file + os.Rename
+// (B3). Before overwriting an existing state.json, the prior file is copied
+// to <path>.v<prior-version>.bak so a downgrade or schema bump can be
+// recovered (B12).
 func Save(outputRoot, projectName string, state *State) error {
 	if state == nil {
 		return fmt.Errorf("state is required")
@@ -123,7 +164,17 @@ func Save(outputRoot, projectName string, state *State) error {
 	if err := os.MkdirAll(filepath.Dir(path), dirPerms); err != nil {
 		return fmt.Errorf("create state directory %q: %w", filepath.Dir(path), err)
 	}
+
+	if priorData, readErr := os.ReadFile(path); readErr == nil {
+		priorVersion := readPriorVersion(priorData)
+		backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
+		_ = os.WriteFile(backupPath, priorData, statePerms)
+	}
+
 	dup := *state
+	if dup.Version == 0 {
+		dup.Version = StateVersion
+	}
 	normalizeState(&dup)
 	data, err := json.MarshalIndent(&dup, "", "  ")
 	if err != nil {
@@ -134,6 +185,20 @@ func Save(outputRoot, projectName string, state *State) error {
 		return fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
 	return nil
+}
+
+func readPriorVersion(data []byte) int {
+	var peek map[string]json.RawMessage
+	if err := json.Unmarshal(data, &peek); err != nil {
+		return 0
+	}
+	raw, ok := peek["version"]
+	if !ok {
+		return 0
+	}
+	var v int
+	_ = json.Unmarshal(raw, &v)
+	return v
 }
 
 func defaultState() *State {
@@ -148,9 +213,6 @@ func defaultState() *State {
 }
 
 func normalizeState(s *State) {
-	if s.Version == 0 {
-		s.Version = StateVersion
-	}
 	if s.ChatHashes == nil {
 		s.ChatHashes = map[string]string{}
 	}
@@ -198,14 +260,19 @@ func HashFile(path string) (string, error) {
 }
 
 // ChatCacheKey computes the cache key for one chat file (spec §12).
-// path/fileHash/repoHeadSHA are concatenated then sha256'd.
+// Each field is length-prefixed before hashing so a NUL byte inside any
+// field cannot shift the field boundary and forge a collision (B21).
 func ChatCacheKey(path, fileHash, repoHeadSHA string) string {
 	hasher := sha256.New()
-	hasher.Write([]byte(path))
-	hasher.Write([]byte{0})
-	hasher.Write([]byte(fileHash))
-	hasher.Write([]byte{0})
-	hasher.Write([]byte(repoHeadSHA))
+	writeLenPrefixed := func(s string) {
+		var lenBuf [8]byte
+		binary.BigEndian.PutUint64(lenBuf[:], uint64(len(s)))
+		hasher.Write(lenBuf[:])
+		hasher.Write([]byte(s))
+	}
+	writeLenPrefixed(path)
+	writeLenPrefixed(fileHash)
+	writeLenPrefixed(repoHeadSHA)
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 

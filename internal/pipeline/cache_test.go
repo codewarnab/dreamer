@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/chat"
 	"dreamer/internal/state"
 )
@@ -153,6 +154,82 @@ func TestComputeCacheKeysPrunesAbsentSources(t *testing.T) {
 	out, _ := computeCacheKeys(sources, prior, "head1", nil)
 	if _, ok := out[absentPath]; ok {
 		t.Fatalf("absent source should be pruned, got key %q", out[absentPath])
+	}
+}
+
+// B6: FindingHashes must not grow without bound. Beyond MaxFindingHashes
+// the oldest entries are dropped (insertion-order rolling window).
+func TestMergeHashListsCapsAtRollingWindow(t *testing.T) {
+	base := make([]string, MaxFindingHashes)
+	for i := range base {
+		base[i] = "base-hash-" + intToStr(i)
+	}
+	addition := []string{"new-hash-a", "new-hash-b"}
+
+	out := mergeHashLists(base, addition)
+	if len(out) != MaxFindingHashes {
+		t.Fatalf("len(out) = %d, want %d", len(out), MaxFindingHashes)
+	}
+	if out[len(out)-1] != "new-hash-b" {
+		t.Fatalf("newest addition not at tail: got %q", out[len(out)-1])
+	}
+	if out[0] == base[0] {
+		t.Fatalf("oldest base hash %q must have been dropped from the window", base[0])
+	}
+}
+
+func intToStr(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var out []byte
+	for i > 0 {
+		out = append([]byte{byte('0' + i%10)}, out...)
+		i /= 10
+	}
+	return string(out)
+}
+
+// B28: keys for categories no longer in the loaded rule pack set must be
+// dropped on each Save so the map does not collect cruft over time.
+func TestPruneLastRunPerCategoryDropsUnknownKeys(t *testing.T) {
+	m := map[string]time.Time{
+		"test":          time.Now(),
+		"lint-rule":     time.Now(),
+		"retired-rule":  time.Now(),
+	}
+	packs := []analyzer.RulePack{
+		{Category: analyzer.RuleCategory("test")},
+		{Category: analyzer.RuleCategory("lint-rule")},
+	}
+	pruneLastRunPerCategory(m, packs)
+	if _, ok := m["retired-rule"]; ok {
+		t.Fatalf("retired-rule must be pruned, got %v", m)
+	}
+	if _, ok := m["test"]; !ok {
+		t.Fatalf("test must survive prune")
+	}
+	if _, ok := m["lint-rule"]; !ok {
+		t.Fatalf("lint-rule must survive prune")
+	}
+}
+
+// B29: counters for inactive provider ids must be dropped on each Save.
+func TestPruneProviderUsageDropsInactiveIDs(t *testing.T) {
+	m := map[string]state.ProviderUsage{
+		"copilot-sdk":    {Runs: 3},
+		"old-provider":   {Runs: 7},
+		"other-provider": {Runs: 1},
+	}
+	pruneProviderUsage(m, "copilot-sdk")
+	if _, ok := m["old-provider"]; ok {
+		t.Fatalf("old-provider must be pruned, got %v", m)
+	}
+	if _, ok := m["other-provider"]; ok {
+		t.Fatalf("other-provider must be pruned, got %v", m)
+	}
+	if got := m["copilot-sdk"].Runs; got != 3 {
+		t.Fatalf("active provider lost counters: got %d", got)
 	}
 }
 
