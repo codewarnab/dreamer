@@ -184,22 +184,25 @@ func TestReadJSONLWithOptionsSanitizesNoisyClaudePayloadAndKeepsSignal(t *testin
 	if err != nil {
 		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
 	}
-	if len(messages) != 3 {
-		t.Fatalf("expected 3 sanitized Claude signal messages, got %d", len(messages))
+	if len(messages) != 4 {
+		t.Fatalf("expected 4 sanitized Claude signal messages, got %d", len(messages))
 	}
 
-	if got := messages[0].Content; got != "Please investigate flaky daemon cycle behavior." {
-		t.Fatalf("first message content = %q, want kept user signal", got)
+	if got := messages[0].Content; got != "tool_result: {\"ok\":true}" {
+		t.Fatalf("first message content = %q, want kept tool result reference", got)
 	}
-	if got := messages[1].Content; got != "I will inspect runtime and discovery isolation tests." {
-		t.Fatalf("second message content = %q, want kept assistant signal", got)
+	if got := messages[1].Content; got != "Please investigate flaky daemon cycle behavior." {
+		t.Fatalf("second message content = %q, want kept user signal", got)
 	}
-	if got := messages[2].Content; got != "Need help with project A/B isolation" {
-		t.Fatalf("third message content = %q, want normalized user signal", got)
+	if got := messages[2].Content; got != "I will inspect runtime and discovery isolation tests." {
+		t.Fatalf("third message content = %q, want kept assistant signal", got)
+	}
+	if got := messages[3].Content; got != "Need help with project A/B isolation" {
+		t.Fatalf("fourth message content = %q, want normalized user signal", got)
 	}
 
-	joined := strings.ToLower(messages[0].Content + " " + messages[1].Content + " " + messages[2].Content)
-	for _, unwanted := range []string{"<meta>", "tool_result", "async agent launched successfully", "output_file:"} {
+	joined := strings.ToLower(messages[0].Content + " " + messages[1].Content + " " + messages[2].Content + " " + messages[3].Content)
+	for _, unwanted := range []string{"<meta>", "async agent launched successfully", "output_file:"} {
 		if strings.Contains(joined, unwanted) {
 			t.Fatalf("sanitized messages should not include %q: %q", unwanted, joined)
 		}

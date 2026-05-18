@@ -41,7 +41,7 @@ var claudeDropRules = []claudeDropRule{
 	},
 	{
 		name:             "tool-chatter",
-		normalizedTokens: []string{"tool_use", "tool_result", "attachments:", "output_file:", "agentid:", "internal id - do not mention to user", "do not read or tail this file via the shell tool", "manifest:", "async agent launched successfully", "the agent is working in the background", "you will be notified automatically when it completes", "do not duplicate this agent's work"},
+		normalizedTokens: []string{"attachments:", "output_file:", "agentid:", "internal id - do not mention to user", "do not read or tail this file via the shell tool", "manifest:", "async agent launched successfully", "the agent is working in the background", "you will be notified automatically when it completes", "do not duplicate this agent's work"},
 	},
 }
 

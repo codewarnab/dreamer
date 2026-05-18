@@ -58,9 +58,7 @@ func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectP
 }
 
 func (claudeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
-	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
-		SanitizeClaude: true,
-	})
+	messages, err := readers.ReadClaudeJSONLWithToolFolding(source.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
 	}
