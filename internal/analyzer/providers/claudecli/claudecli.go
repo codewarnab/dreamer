@@ -80,7 +80,7 @@ type session struct {
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return "", analyzer.ErrNilContext
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc

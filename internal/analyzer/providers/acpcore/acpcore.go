@@ -170,7 +170,7 @@ type session struct {
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return "", analyzer.ErrNilContext
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -558,15 +558,16 @@ func (t *transport) handlePermissionRequest(envelope rpcEnvelope) {
 }
 
 // decidePermission produces (approved, reason) for an ACP permission request
-// given raw params bytes. Malformed JSON yields a denial (B15) rather than
-// the previous silent-approve default. The handler is consulted only after a
-// successful unmarshal.
+// given raw params bytes. Empty or malformed JSON yields a denial (B15)
+// rather than the previous silent-approve default. The handler is consulted
+// only after a successful unmarshal of non-empty params.
 func decidePermission(handler permissionHandler, rawParams json.RawMessage) (bool, string) {
+	if len(rawParams) == 0 {
+		return false, "empty permission params"
+	}
 	var params map[string]any
-	if len(rawParams) > 0 {
-		if err := json.Unmarshal(rawParams, &params); err != nil {
-			return false, fmt.Sprintf("malformed permission params: %v", err)
-		}
+	if err := json.Unmarshal(rawParams, &params); err != nil {
+		return false, fmt.Sprintf("malformed permission params: %v", err)
 	}
 	if handler == nil {
 		return true, ""

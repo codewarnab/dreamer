@@ -2,8 +2,16 @@ package analyzer
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrNilContext is the shared sentinel returned by every provider when a
+// caller passes ctx == nil to Start, NewSession, or Session.Run. Silent
+// substitution with context.Background re-anchors the call outside the
+// caller's cancellation tree, so the daemon's Ctrl-C and per-rule timeouts
+// stop propagating to in-flight provider work (B16).
+var ErrNilContext = errors.New("nil context")
 
 type Provider interface {
 	ID() string

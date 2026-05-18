@@ -38,6 +38,17 @@ func TestDecidePermissionAppliesHandlerDeny(t *testing.T) {
 	}
 }
 
+func TestDecidePermissionDeniesOnEmptyParams(t *testing.T) {
+	handler := func(p map[string]any) map[string]any { return map[string]any{} }
+	approved, reason := decidePermission(handler, nil)
+	if approved {
+		t.Fatalf("empty params must be denied")
+	}
+	if reason == "" {
+		t.Fatalf("denial must carry a reason")
+	}
+}
+
 func TestDecidePermissionDefaultsApprovedOnEmptyDecision(t *testing.T) {
 	handler := func(p map[string]any) map[string]any { return map[string]any{} }
 	approved, reason := decidePermission(handler, json.RawMessage(`{"kind":"read"}`))

@@ -15,6 +15,8 @@ func TestFilterMistakesByThresholdDropsZeroAndNaN(t *testing.T) {
 		{Summary: "boundary", Confidence: 0.5},
 		{Summary: "missing", Confidence: 0},
 		{Summary: "nan", Confidence: math.NaN()},
+		{Summary: "negative", Confidence: -0.1},
+		{Summary: "neg-inf", Confidence: math.Inf(-1)},
 	}
 
 	out := filterMistakesByThreshold(in, threshold)
@@ -37,6 +39,12 @@ func TestFilterMistakesByThresholdDropsZeroAndNaN(t *testing.T) {
 	}
 	if gotSummaries["nan"] {
 		t.Errorf("NaN confidence admitted (must drop)")
+	}
+	if gotSummaries["negative"] {
+		t.Errorf("negative confidence admitted (must drop)")
+	}
+	if gotSummaries["neg-inf"] {
+		t.Errorf("-Inf confidence admitted (must drop)")
 	}
 }
 

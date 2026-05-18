@@ -58,8 +58,9 @@ func TestStartReturnsErrorOnNilContext(t *testing.T) {
 	}
 	defer p.Close()
 
-	if err := p.Start(nil); err == nil {
-		t.Fatalf("Start(nil) must return error, not silently substitute Background")
+	err = p.Start(nil)
+	if !errors.Is(err, analyzer.ErrNilContext) {
+		t.Fatalf("Start(nil) err = %v, want errors.Is analyzer.ErrNilContext", err)
 	}
 }
 
@@ -73,8 +74,8 @@ func TestNewSessionReturnsErrorOnNilContext(t *testing.T) {
 	}
 	defer p.Close()
 	_, err = p.NewSession(nil, analyzer.SessionConfig{WorkingDirectory: t.TempDir()})
-	if err == nil {
-		t.Fatalf("NewSession(nil, …) must return error")
+	if !errors.Is(err, analyzer.ErrNilContext) {
+		t.Fatalf("NewSession(nil, …) err = %v, want errors.Is analyzer.ErrNilContext", err)
 	}
 }
 
@@ -95,7 +96,8 @@ func TestSessionRunReturnsErrorOnNilContext(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 	defer sess.Close()
-	if _, err := sess.Run(nil, "hi", time.Second); err == nil {
-		t.Fatalf("Run(nil, …) must return error")
+	_, err = sess.Run(nil, "hi", time.Second)
+	if !errors.Is(err, analyzer.ErrNilContext) {
+		t.Fatalf("Run(nil, …) err = %v, want errors.Is analyzer.ErrNilContext", err)
 	}
 }

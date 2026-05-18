@@ -138,6 +138,10 @@ func persistFailureState(currentState *state.State, outputRoot, projectName stri
 // Run executes the end-to-end analyze pipeline against a single project path,
 // following the sequence in spec §17.
 func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, error) {
+	// Top-level CLI/daemon entry: a nil context here means the caller did
+	// not wire signal cancellation, which is a one-shot run from a script.
+	// Substitute Background defensively. Provider-layer Run methods, by
+	// contrast, treat nil as a programmer error (analyzer.ErrNilContext).
 	if ctx == nil {
 		ctx = context.Background()
 	}
