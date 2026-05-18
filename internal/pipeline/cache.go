@@ -6,8 +6,52 @@ import (
 	"strings"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/chat"
+	"dreamer/internal/logging"
 	"dreamer/internal/state"
 )
+
+// cacheKeyStats counts the per-run outcomes from computeCacheKeys.
+type cacheKeyStats struct {
+	Cached       int
+	Changed      int
+	Fresh        int
+	HashFailures int
+}
+
+// computeCacheKeys builds the per-source cache-key map for this run. When a
+// source is present but its file hash fails, the prior key is preserved so
+// state.ChatHashes is not clobbered on assignment (B1). Sources absent from
+// `sources` are intentionally dropped, pruning stale entries (B26).
+func computeCacheKeys(sources []chat.ChatSource, prior map[string]string, repoHeadSHA string, logger *logging.Logger) (map[string]string, cacheKeyStats) {
+	out := make(map[string]string, len(sources))
+	stats := cacheKeyStats{}
+	for _, src := range sources {
+		fileHash, err := state.HashFile(src.Path)
+		if err != nil {
+			stats.HashFailures++
+			if logger != nil {
+				logger.Warn("hash chat source failed", logging.Any("path", src.Path), logging.Any("err", err))
+			}
+			if priorKey, ok := prior[src.Path]; ok {
+				out[src.Path] = priorKey
+			}
+			continue
+		}
+		key := state.ChatCacheKey(src.Path, fileHash, repoHeadSHA)
+		out[src.Path] = key
+		existing, seen := prior[src.Path]
+		switch {
+		case !seen:
+			stats.Fresh++
+		case existing != key:
+			stats.Changed++
+		default:
+			stats.Cached++
+		}
+	}
+	return out, stats
+}
 
 // cacheUnchanged: prior successful run covered the exact same source set + repo head.
 // Empty-vs-empty after a real prior run is a legitimate hit (lets preflight pay off).

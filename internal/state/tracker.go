@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 )
 
@@ -129,13 +130,8 @@ func Save(outputRoot, projectName string, state *State) error {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, statePerms); err != nil {
-		return fmt.Errorf("write state temp file %q: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename state temp file %q -> %q: %w", tmp, path, err)
+	if err := fsutil.WriteFileAtomic(path, data, statePerms); err != nil {
+		return fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
 	return nil
 }

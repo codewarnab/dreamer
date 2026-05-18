@@ -46,6 +46,10 @@ type PermissionRequest struct {
 	ReadOnly                *bool
 	Commands                []ShellCommand
 	HasWriteFileRedirection *bool
+	// FullCommandText carries the raw shell command line as classified by the
+	// upstream provider, when available. Used by shellRequestReadOnly to run a
+	// second-pass deny check against known write idioms the SDK may miss.
+	FullCommandText *string
 }
 
 type PermissionDecision struct {

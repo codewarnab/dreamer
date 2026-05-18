@@ -255,6 +255,7 @@ func translateCopilotRequest(request copilot.PermissionRequest) analyzer.Permiss
 		PossiblePaths:           request.PossiblePaths,
 		ReadOnly:                request.ReadOnly,
 		HasWriteFileRedirection: request.HasWriteFileRedirection,
+		FullCommandText:         request.FullCommandText,
 	}
 	if len(request.Commands) > 0 {
 		out.Commands = make([]analyzer.ShellCommand, 0, len(request.Commands))

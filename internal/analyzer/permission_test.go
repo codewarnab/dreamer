@@ -88,6 +88,47 @@ func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 			req:        PermissionRequest{Kind: PermissionKindRead, Path: stringPtr("file:///etc/passwd")},
 			reasonLike: "invalid or ambiguous",
 		},
+		// B2: SDK said read-only but full command text contains a tee write.
+		{
+			name: "shell sdk-readonly but tee write",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr("cat /tmp/a.txt | tee /tmp/b.txt"),
+				Commands:        []ShellCommand{{Identifier: "cat", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
+		{
+			name: "shell sdk-readonly but bash -c wrapper",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr(`bash -c 'echo hi > /tmp/x'`),
+				Commands:        []ShellCommand{{Identifier: "bash", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
+		{
+			name: "shell sdk-readonly but sed in-place",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr("sed -i s/foo/bar/ /tmp/file"),
+				Commands:        []ShellCommand{{Identifier: "sed", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
+		{
+			name: "shell sdk-readonly but process-substitution write",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr("diff a.txt >(cat > out.txt)"),
+				Commands:        []ShellCommand{{Identifier: "diff", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
 	}
 
 	for _, tc := range cases {

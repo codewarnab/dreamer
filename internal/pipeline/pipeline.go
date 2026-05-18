@@ -205,31 +205,8 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		}
 	}
 
-	cacheKeys := make(map[string]string, len(sources))
-	hashFailures := 0
-	cached := 0
-	changed := 0
-	fresh := 0
-	for _, source := range sources {
-		fileHash, hashErr := state.HashFile(source.Path)
-		if hashErr != nil {
-			hashFailures++
-			logger.Warn("hash chat source failed", logging.Any("path", source.Path), logging.Any("err", hashErr))
-			continue
-		}
-		key := state.ChatCacheKey(source.Path, fileHash, repoHeadSHA)
-		cacheKeys[source.Path] = key
-		existing, seen := currentState.ChatHashes[source.Path]
-		switch {
-		case !seen:
-			fresh++
-		case existing != key:
-			changed++
-		default:
-			cached++
-		}
-	}
-	logger.Info("chat cache summary", logging.Any("total", len(sources)), logging.Any("cached", cached), logging.Any("changed", changed), logging.Any("new", fresh), logging.Any("hash_failed", hashFailures), logging.Any("force", opts.Force))
+	cacheKeys, cacheStats := computeCacheKeys(sources, currentState.ChatHashes, repoHeadSHA, logger)
+	logger.Info("chat cache summary", logging.Any("total", len(sources)), logging.Any("cached", cacheStats.Cached), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("hash_failed", cacheStats.HashFailures), logging.Any("force", opts.Force))
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
 		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(sources)), logging.Any("reason", "all cached, head unchanged"))
@@ -239,7 +216,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			TodosPath:  todosOutputPath(outputRoot, projectName),
 		}, nil
 	}
-	logger.Info("cache miss", logging.Any("analyzing", len(sources)), logging.Any("changed", changed), logging.Any("new", fresh), logging.Any("cached", cached))
+	logger.Info("cache miss", logging.Any("analyzing", len(sources)), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("cached", cacheStats.Cached))
 
 	rulePacks := mergeRulePacks(cfg, projectFile)
 	if !anyEnabled(rulePacks) {

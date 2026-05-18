@@ -5,8 +5,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+)
+
+// shellWriteIdiomRE matches common shell write idioms that the upstream
+// classifier does not always flag: writers (tee, dd, …), in-place editors
+// (sed -i, perl -pi), shell wrappers (bash -c, sh -c) that can hide writes,
+// process-substitution write side `>(...)`, and inline interpreter -e/-pi.
+var shellWriteIdiomRE = regexp.MustCompile(
+	`(?i)` +
+		`\b(tee|dd|install|patch|rsync|mkfifo|mknod|truncate)\b` +
+		`|\b(bash|sh|zsh|ksh|dash|ash|fish|csh|tcsh)\s+-c\b` +
+		`|\bsed\s+(-i\b|--in-place\b)` +
+		`|\b(perl|python\d*|ruby|node|tcl)\s+(-i|-pi|-e)\b` +
+		`|>\(`,
 )
 
 // DecidePermission applies the read-only sandbox rules from §4.5 to a
@@ -64,6 +78,13 @@ func requestPathCandidates(req PermissionRequest) []string {
 
 func shellRequestReadOnly(req PermissionRequest) bool {
 	if req.HasWriteFileRedirection != nil && *req.HasWriteFileRedirection {
+		return false
+	}
+	// Second-pass deny: even when the SDK says read-only, reject known write
+	// idioms in the raw command text (B2). The SDK redirection detector
+	// handles `>` / `>>` only; it misses tee, dd, sed -i, bash -c wrappers,
+	// process substitution, etc.
+	if req.FullCommandText != nil && shellWriteIdiomRE.MatchString(*req.FullCommandText) {
 		return false
 	}
 	if req.ReadOnly != nil {
