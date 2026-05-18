@@ -14,6 +14,10 @@ const (
 	maxToolOutputChars = 500
 	// maxToolInputChars caps serialized tool input for non-essential tools.
 	maxToolInputChars = 200
+	// DropToolDetails controls whether folded tool messages include input/output.
+	// When true, folded messages emit only "[ToolName]" with no command or result.
+	// When false, folded messages emit "[ToolName] input\n→ output".
+	DropToolDetails = true
 )
 
 type toolUseBlock struct {
@@ -219,7 +223,10 @@ func processContentBlocks(role string, ts time.Time, blocks []contentBlock, pend
 			messages = append(messages, ChatMessage{Role: role, Content: b.text, Timestamp: ts})
 
 		case "tool_use":
-			input := serializeToolInput(b.toolUse.name, b.toolUse.input)
+			var input string
+			if !DropToolDetails {
+				input = serializeToolInput(b.toolUse.name, b.toolUse.input)
+			}
 			pending[b.toolUse.id] = pendingToolCall{
 				name:      b.toolUse.name,
 				input:     input,
@@ -229,14 +236,17 @@ func processContentBlocks(role string, ts time.Time, blocks []contentBlock, pend
 		case "tool_result":
 			if call, ok := pending[b.toolRes.toolUseID]; ok {
 				delete(pending, b.toolRes.toolUseID)
-				output := truncateToolOutput(b.toolRes.content)
+				var output string
+				if !DropToolDetails {
+					output = truncateToolOutput(b.toolRes.content)
+				}
 				messages = append(messages, ChatMessage{
 					Role:      "assistant",
 					Content:   formatToolCall(call.name, call.input, output),
 					Timestamp: call.timestamp,
 					ToolName:  call.name,
 				})
-			} else if b.toolRes.content != "" {
+			} else if !DropToolDetails && b.toolRes.content != "" {
 				// Orphaned result — no matching tool_use found.
 				output := truncateToolOutput(b.toolRes.content)
 				messages = append(messages, ChatMessage{

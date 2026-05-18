@@ -46,11 +46,8 @@ func TestToolFoldingSinglePair(t *testing.T) {
 	if msgs[1].ToolName != "Bash" {
 		t.Errorf("expected ToolName=Bash, got %q", msgs[1].ToolName)
 	}
-	if !strings.Contains(msgs[1].Content, "[Bash] go test ./...") {
-		t.Errorf("expected folded content to contain command, got %q", msgs[1].Content)
-	}
-	if !strings.Contains(msgs[1].Content, "→ ok  dreamer") {
-		t.Errorf("expected folded content to contain output, got %q", msgs[1].Content)
+	if msgs[1].Content != "[Bash]" {
+		t.Errorf("expected folded content to be just tool name, got %q", msgs[1].Content)
 	}
 }
 
@@ -96,16 +93,12 @@ func TestToolFoldingOrphanedUse(t *testing.T) {
 	if msgs[0].ToolName != "Bash" {
 		t.Errorf("expected ToolName=Bash, got %q", msgs[0].ToolName)
 	}
-	if !strings.Contains(msgs[0].Content, "[Bash] ls") {
-		t.Errorf("expected orphaned call content, got %q", msgs[0].Content)
-	}
-	// No output arrow since no result
-	if strings.Contains(msgs[0].Content, "→") {
-		t.Errorf("orphaned call should not have output arrow, got %q", msgs[0].Content)
+	if msgs[0].Content != "[Bash]" {
+		t.Errorf("expected just tool name, got %q", msgs[0].Content)
 	}
 }
 
-func TestToolFoldingOrphanedResult(t *testing.T) {
+func TestToolFoldingOrphanedResultDropped(t *testing.T) {
 	path := writeTempJSONL(t,
 		// Result with no matching tool_use (e.g., partial JSONL)
 		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_unknown","content":"some output"}]},"timestamp":"2026-05-08T12:00:01Z"}`,
@@ -116,19 +109,13 @@ func TestToolFoldingOrphanedResult(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(msgs))
-	}
-	if !strings.Contains(msgs[0].Content, "[tool_result]") {
-		t.Errorf("expected orphaned result format, got %q", msgs[0].Content)
-	}
-	if !strings.Contains(msgs[0].Content, "some output") {
-		t.Errorf("expected output content, got %q", msgs[0].Content)
+	// With DropToolDetails=true, orphaned results are dropped entirely.
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages (orphaned result dropped), got %d", len(msgs))
 	}
 }
 
-func TestToolFoldingOutputTruncation(t *testing.T) {
-	// Generate output longer than maxToolOutputChars (500)
+func TestToolFoldingOutputDropped(t *testing.T) {
 	longOutput := strings.Repeat("x", 600)
 	path := writeTempJSONL(t,
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"big.go"}}]},"timestamp":"2026-05-08T12:00:01Z"}`,
@@ -143,11 +130,9 @@ func TestToolFoldingOutputTruncation(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
-	if len(msgs[0].Content) > 600 {
-		t.Errorf("output not truncated: len=%d", len(msgs[0].Content))
-	}
-	if !strings.Contains(msgs[0].Content, "chars truncated") {
-		t.Errorf("expected truncation marker, got %q", msgs[0].Content)
+	// With DropToolDetails=true, output is dropped — just tool name.
+	if msgs[0].Content != "[Read]" {
+		t.Errorf("expected just tool name, got %q", msgs[0].Content)
 	}
 }
 
@@ -172,9 +157,9 @@ func TestToolFoldingMixedTextAndTools(t *testing.T) {
 	if msgs[0].Content != "I'll run the tests." {
 		t.Errorf("unexpected msg 0: %q", msgs[0].Content)
 	}
-	// Folded tool call
-	if msgs[1].ToolName != "Bash" || !strings.Contains(msgs[1].Content, "PASS") {
-		t.Errorf("unexpected msg 1: %q", msgs[1].Content)
+	// Folded tool call — just tool name when DropToolDetails=true
+	if msgs[1].ToolName != "Bash" || msgs[1].Content != "[Bash]" {
+		t.Errorf("unexpected msg 1: tool=%q content=%q", msgs[1].ToolName, msgs[1].Content)
 	}
 	// Text from user
 	if msgs[2].Role != "user" || msgs[2].Content != "Tests look good." {
@@ -227,18 +212,17 @@ func TestToolFoldingTimestampPreservation(t *testing.T) {
 	}
 }
 
-func TestToolFoldingInputExtraction(t *testing.T) {
+func TestToolFoldingInputDropped(t *testing.T) {
 	tests := []struct {
 		name     string
 		toolName string
 		input    string
-		expected string
 	}{
-		{"Bash", "Bash", `{"command":"go test"}`, "go test"},
-		{"Read", "Read", `{"file_path":"main.go"}`, "main.go"},
-		{"Edit", "Edit", `{"file_path":"main.go"}`, "main.go"},
-		{"Grep", "Grep", `{"pattern":"TODO"}`, "TODO"},
-		{"Glob", "Glob", `{"pattern":"**/*.go"}`, "**/*.go"},
+		{"Bash", "Bash", `{"command":"go test"}`},
+		{"Read", "Read", `{"file_path":"main.go"}`},
+		{"Edit", "Edit", `{"file_path":"main.go"}`},
+		{"Grep", "Grep", `{"pattern":"TODO"}`},
+		{"Glob", "Glob", `{"pattern":"**/*.go"}`},
 	}
 
 	for _, tt := range tests {
@@ -255,19 +239,21 @@ func TestToolFoldingInputExtraction(t *testing.T) {
 			if len(msgs) != 1 {
 				t.Fatalf("expected 1 message, got %d", len(msgs))
 			}
-			if !strings.Contains(msgs[0].Content, "["+tt.toolName+"] "+tt.expected) {
-				t.Errorf("expected content to contain %q, got %q", "["+tt.toolName+"] "+tt.expected, msgs[0].Content)
+			// With DropToolDetails=true, just tool name, no input.
+			expected := "[" + tt.toolName + "]"
+			if msgs[0].Content != expected {
+				t.Errorf("expected %q, got %q", expected, msgs[0].Content)
 			}
 		})
 	}
 }
 
 func TestSanitizeClaudeMessagesSurvivesFolded(t *testing.T) {
-	// Folded messages should NOT be dropped by the sanitizer.
+	// Folded messages (just tool names) should NOT be dropped by the sanitizer.
 	msgs := []ChatMessage{
-		{Role: "assistant", Content: "[Bash] go test ./...\n→ PASS", Timestamp: time.Now()},
-		{Role: "assistant", Content: "[Read] main.go\n→ (45 lines)", Timestamp: time.Now()},
-		{Role: "assistant", Content: "[Edit] config.go\n→ changed lines 10-15", Timestamp: time.Now()},
+		{Role: "assistant", Content: "[Bash]", Timestamp: time.Now()},
+		{Role: "assistant", Content: "[Read]", Timestamp: time.Now()},
+		{Role: "assistant", Content: "[Edit]", Timestamp: time.Now()},
 	}
 
 	sanitized := SanitizeClaudeMessages(msgs)
