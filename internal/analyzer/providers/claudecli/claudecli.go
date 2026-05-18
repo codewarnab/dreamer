@@ -13,6 +13,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/errs"
 )
 
 const ID = "claude-cli"
@@ -122,14 +123,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	if waitErr != nil {
 		err := fmt.Errorf("claude-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
 		if transport.IsRateLimitMessage(stderrBuf.String()) {
-			err = errors.Join(analyzer.ErrRateLimited, err)
+			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}
 	if parseErr != nil {
 		err := fmt.Errorf("claude-cli: parse stream-json: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
 		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
-			err = errors.Join(analyzer.ErrRateLimited, err)
+			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}

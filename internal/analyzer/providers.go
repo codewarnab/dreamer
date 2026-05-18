@@ -8,9 +8,11 @@ import (
 	"sync"
 )
 
-// ErrRateLimited is the sentinel for provider rate-limit / quota errors.
-// Providers MUST wrap their underlying error with errors.Join(ErrRateLimited, err)
-// so the orchestrator can abort the whole run rather than continuing rule-by-rule.
+// ErrRateLimited is the legacy sentinel for provider rate-limit / quota errors.
+//
+// Deprecated: use errs.RateLimit(...) to produce and errs.Is(err, errs.KindRateLimit)
+// to consume rate-limit errors. This sentinel is kept temporarily for external
+// importers; it will be removed in a future release.
 var ErrRateLimited = errors.New("provider rate limited")
 
 // ErrUnavailable: provider can no longer serve the current pipeline.Run.

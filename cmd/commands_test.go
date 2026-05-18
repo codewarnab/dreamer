@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dreamer/internal/errs"
 )
 
 func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
@@ -146,8 +148,11 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("analyze expected analyzer client startup error")
 	}
-	if !strings.Contains(err.Error(), "start copilot-sdk provider") {
-		t.Fatalf("error = %q, want copilot-sdk startup message; stderr=%s", err, stderr)
+	if errs.KindOf(err) != errs.KindProviderUnavailable {
+		t.Fatalf("KindOf(err) = %q, want %q; err=%v stderr=%s", errs.KindOf(err), errs.KindProviderUnavailable, err, stderr)
+	}
+	if errs.ProviderOf(err) != "copilot-sdk" {
+		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), "copilot-sdk")
 	}
 }
 

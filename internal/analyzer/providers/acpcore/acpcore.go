@@ -20,6 +20,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	transportutil "dreamer/internal/analyzer/transport"
+	"dreamer/internal/errs"
 )
 
 // ErrTransportClosed: ACP child process exited before/during a session.Run.
@@ -135,6 +136,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	return &session{
 		transport:     t,
 		handler:       handler,
+		providerID:    p.id,
 		workingDir:    cfg.WorkingDirectory,
 		permTarget:    normalizedRoot,
 		systemMessage: systemMessage,
@@ -159,6 +161,7 @@ func (p *provider) Close() error {
 type session struct {
 	transport     *transport
 	handler       permissionHandler
+	providerID    string
 	workingDir    string
 	permTarget    string
 	systemMessage string
@@ -237,7 +240,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	if err != nil {
 		wrapped := fmt.Errorf("acpcore: session/prompt: %w", err)
 		if transportutil.IsRateLimitMessage(err.Error()) {
-			wrapped = errors.Join(analyzer.ErrRateLimited, wrapped)
+			return "", errs.RateLimit(s.providerID, "session/prompt", 0, wrapped)
 		}
 		return "", wrapped
 	}

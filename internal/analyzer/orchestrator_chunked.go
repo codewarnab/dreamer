@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"dreamer/internal/errs"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -104,7 +105,7 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 		prompt := builder.BuildPhase1(chunk, req, priorSummary, len(in.Chunks))
 		raw, runErr := runWithPool(ctx, pool, prompt, timeout)
 		if runErr != nil {
-			if errors.Is(runErr, ErrRateLimited) {
+			if errs.Is(runErr, errs.KindRateLimit) {
 				return mistakes, completed, warnings, fmt.Errorf("phase-1 chunk %d hit provider rate limit: %w", i, runErr)
 			}
 			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d failed (%v); aborting", i, runErr))
@@ -141,7 +142,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 			raw, runErr := runWithPool(gctx, pool, prompt, timeout)
 			if runErr != nil {
 				results[i] = chunkResult{index: i, err: runErr}
-				if errors.Is(runErr, ErrRateLimited) {
+				if errs.Is(runErr, errs.KindRateLimit) {
 					return runErr
 				}
 				return nil
@@ -172,7 +173,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 		mergeMistakes(mistakes, r.mistakesByCat)
 		completed++
 	}
-	if gErr != nil && errors.Is(gErr, ErrRateLimited) {
+	if gErr != nil && errs.Is(gErr, errs.KindRateLimit) {
 		return mistakes, completed, warnings, fmt.Errorf("phase-1 hit provider rate limit: %w", gErr)
 	}
 	return mistakes, completed, warnings, nil
@@ -182,7 +183,7 @@ func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder
 	prompt, fileWarnings := builder.BuildPhase2(mistakes, files, req)
 	raw, err := runWithPool(ctx, pool, prompt, chunkTimeout(ruleTimeoutSecs))
 	if err != nil {
-		if errors.Is(err, ErrRateLimited) {
+		if errs.Is(err, errs.KindRateLimit) {
 			return nil, fileWarnings, fmt.Errorf("phase-2 hit provider rate limit: %w", err)
 		}
 		return nil, append(fileWarnings, fmt.Sprintf("phase-2 failed (%v)", err)), err

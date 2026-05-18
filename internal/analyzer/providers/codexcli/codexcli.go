@@ -17,6 +17,7 @@ import (
 
 	analyzer "dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/errs"
 )
 
 const ID = "codex-cli"
@@ -149,14 +150,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	if parseErr != nil {
 		err := fmt.Errorf("codex-cli: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
 		if transport.IsRateLimitMessage(parseErr.Error()) {
-			err = errors.Join(analyzer.ErrRateLimited, err)
+			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}
 	if waitErr != nil {
 		err := fmt.Errorf("codex-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
 		if transport.IsRateLimitMessage(stderrBuf.String()) {
-			err = errors.Join(analyzer.ErrRateLimited, err)
+			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}
