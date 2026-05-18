@@ -37,6 +37,10 @@ type Options struct {
 	// MaxChunkBytesOverride overrides analyzer.chunking.max_chunk_bytes when MaxChunkBytesOverrideSet.
 	MaxChunkBytesOverride    int
 	MaxChunkBytesOverrideSet bool
+
+	// DiscoveryCache is an optional mtime-based cache that lets the daemon skip
+	// the expensive HashFile loop when source files haven't changed. Nil disables caching.
+	DiscoveryCache *DiscoveryCache
 }
 
 // Result bundles the metrics + paths the analyze command surfaces.
@@ -187,6 +191,19 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 	repoHeadSHA := state.RepoHeadSHA(projectPath, logger)
 	logger.Info("repo state", logging.Any("head_sha", repoHeadSHA), logging.Any("prior_run", currentState.LastRunUTC.Format(time.RFC3339)), logging.Any("prior_chats", len(currentState.ChatHashes)))
+
+	// Fast path: skip the expensive HashFile loop if the daemon's discovery
+	// cache confirms nothing changed since the last successful run.
+	if !opts.Force && opts.DiscoveryCache != nil {
+		if opts.DiscoveryCache.Check(projectPath, sources, repoHeadSHA) {
+			logger.Info("discovery cache hit", logging.Any("project", projectName), logging.Any("sources", len(sources)))
+			return Result{
+				ProviderID: providerID,
+				CacheHit:   true,
+				TodosPath:  todosOutputPath(outputRoot, projectName),
+			}, nil
+		}
+	}
 
 	cacheKeys := make(map[string]string, len(sources))
 	hashFailures := 0
@@ -431,5 +448,10 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if err := state.Save(outputRoot, projectName, currentState); err != nil {
 		return Result{}, fmt.Errorf("save state: %w", err)
 	}
+
+	if opts.DiscoveryCache != nil {
+		opts.DiscoveryCache.Update(projectPath, sources, repoHeadSHA)
+	}
+
 	return result, nil
 }

@@ -9,6 +9,32 @@ import (
 	"dreamer/internal/chat"
 )
 
+func TestNormalizeWhitespace(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"multi-space to single", "hello   world", "hello world"},
+		{"tabs to space", "hello\tworld", "hello world"},
+		{"newlines to space", "hello\nworld", "hello world"},
+		{"carriage return to space", "hello\rworld", "hello world"},
+		{"mixed whitespace", "  hello \t\n\r world  ", "hello world"},
+		{"leading/trailing trimmed", "  hello  ", "hello"},
+		{"empty string", "", ""},
+		{"whitespace only", "   \t\n  ", ""},
+		{"normal text unchanged", "hello world", "hello world"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeWhitespace(tt.input)
+			if got != tt.want {
+				t.Fatalf("normalizeWhitespace(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReadMessagesFromSourceReadsVSCodeJSON(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "chat.json")
 	if err := os.WriteFile(sourcePath, []byte(`{"requests":[{"message":{"text":"hello"},"response":"world"}]}`), 0o644); err != nil {

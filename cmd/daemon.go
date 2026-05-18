@@ -66,9 +66,11 @@ func newDaemonCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(baseCtx, os.Interrupt)
 			defer stop()
 
+			discoveryCache := pipeline.NewDiscoveryCache()
+
 			cmd.Printf("daemon started: frequency=%s projects=%d\n", frequency, len(cfg.Projects))
 			logger.Info("daemon started", logging.Any("config", resolvedConfigPath), logging.Any("frequency", frequency), logging.Any("projects", len(cfg.Projects)))
-			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides); err != nil {
+			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache); err != nil {
 				logger.Error("daemon cycle failed", logging.Any("err", err))
 				cmd.Printf("daemon cycle failed: %v\n", err)
 			}
@@ -83,7 +85,7 @@ func newDaemonCommand() *cobra.Command {
 					logger.Info("daemon stopped", logging.Any("cause", context.Cause(ctx)))
 					return nil
 				case <-ticker.C:
-					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides); err != nil {
+					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache); err != nil {
 						logger.Error("daemon cycle failed", logging.Any("err", err))
 						cmd.Printf("daemon cycle failed: %v\n", err)
 					}
@@ -108,7 +110,7 @@ type daemonOverrides struct {
 	maxChunkBytesSet bool
 }
 
-func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides) error {
+func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides, discoveryCache *pipeline.DiscoveryCache) error {
 	logger.Info("daemon cycle started", logging.Any("projects", len(cfg.Projects)))
 	var cycleErrors []error
 	for _, project := range cfg.Projects {
@@ -126,6 +128,7 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 			Since:                  project.Since,
 			ParallelOverride:       overrides.parallel,
 			MaxConcurrencyOverride: overrides.maxConcurrency,
+			DiscoveryCache:         discoveryCache,
 		}
 		if overrides.maxChunkBytesSet {
 			opts.MaxChunkBytesOverride = overrides.maxChunkBytes
