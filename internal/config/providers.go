@@ -26,6 +26,8 @@ func RemediationMessage(providerID string) string {
 		return "Install the OpenAI Codex CLI (`npm i -g @openai/codex` or platform installer) and run `codex login`."
 	case "codex-acp":
 		return "Install an ACP bridge for Codex (e.g. set `providers.codex-acp.command` to your bridge binary) and verify it speaks JSON-RPC 2.0 over stdio."
+	case "openclaude-cli":
+		return "Install OpenClude (`npm i -g @gitlawb/openclaude`) and run `openclaude auth login`."
 	default:
 		return fmt.Sprintf("Ensure the %q provider is installed and authenticated.", providerID)
 	}

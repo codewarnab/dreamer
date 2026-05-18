@@ -33,7 +33,8 @@ const (
 	ProviderGeminiACP  ProviderID = "gemini-acp"
 	ProviderKiroACP    ProviderID = "kiro-acp"
 	ProviderCodexCLI   ProviderID = "codex-cli"
-	ProviderCodexACP   ProviderID = "codex-acp"
+	ProviderCodexACP      ProviderID = "codex-acp"
+	ProviderOpenCludeCLI  ProviderID = "openclaude-cli"
 )
 
 // ProviderConfig is the per-provider configuration block resolved by the
