@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -60,7 +59,7 @@ func (p *provider) ID() string { return ID }
 func (p *provider) Start(ctx context.Context) error {
 	if _, err := exec.LookPath(p.command[0]); err != nil {
 		return errs.NotInstalled("gemini-cli", "start",
-			"Install Gemini CLI (`npm i -g @anthropic-ai/gemini-cli` or `brew install gemini-cli`) and run `gemini auth login`.", err)
+			"Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini auth login`.", err)
 	}
 	return nil
 }
@@ -179,7 +178,6 @@ func readStreamJSON(r io.Reader) (string, error) {
 		}
 		var event geminiStreamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			log.Printf("gemini-cli: malformed stream-json line: %v", err)
 			continue
 		}
 		switch event.Type {

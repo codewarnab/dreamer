@@ -22,5 +22,4 @@ var DefaultModelByProvider = map[string]string{
 // Used by ACP providers where the agent may not advertise the preferred model.
 var DefaultModelFallbacks = map[string][]string{
 	"gemini-acp": {"gemini-2.5-flash"},
-	"gemini-cli": {"gemini-2.5-flash"},
 }
