@@ -27,7 +27,7 @@ func RemediationMessage(providerID string) string {
 	case "codex-acp":
 		return "Install an ACP bridge for Codex (e.g. set `providers.codex-acp.command` to your bridge binary) and verify it speaks JSON-RPC 2.0 over stdio."
 	case "openclaude-cli":
-		return "Install OpenClaude (`npm i -g @gitlawb/openclaude`) and configure a provider (e.g. `openclaude --provider codex`)."
+		return "Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup."
 	default:
 		return fmt.Sprintf("Ensure the %q provider is installed and authenticated.", providerID)
 	}

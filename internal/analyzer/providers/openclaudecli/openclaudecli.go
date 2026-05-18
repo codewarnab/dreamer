@@ -49,7 +49,7 @@ func (p *provider) ID() string { return ID }
 func (p *provider) Start(ctx context.Context) error {
 	if _, err := exec.LookPath(p.command[0]); err != nil {
 		return errs.NotInstalled("openclaude", "start",
-			"Install OpenClaude (`npm i -g @gitlawb/openclaude`) and configure a provider (e.g. `openclaude --provider codex`).", err)
+			"Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup.", err)
 	}
 	return nil
 }
