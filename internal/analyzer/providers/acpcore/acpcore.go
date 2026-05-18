@@ -38,6 +38,10 @@ type Options struct {
 
 	// Env adds environment variables on top of the parent process env.
 	Env map[string]string
+
+	// DefaultModel is the fallback model when SessionConfig.Model is empty.
+	// Empty string means no model preference (set_model is skipped).
+	DefaultModel string
 }
 
 // New returns an analyzer.Provider that drives an ACP agent over stdio.
@@ -49,16 +53,18 @@ func New(options Options) (analyzer.Provider, error) {
 		return nil, errors.New("acpcore: Command is required")
 	}
 	return &provider{
-		id:      options.ID,
-		command: append([]string(nil), options.Command...),
-		env:     copyStringMap(options.Env),
+		id:           options.ID,
+		command:      append([]string(nil), options.Command...),
+		env:          copyStringMap(options.Env),
+		defaultModel: strings.TrimSpace(options.DefaultModel),
 	}, nil
 }
 
 type provider struct {
-	id      string
-	command []string
-	env     map[string]string
+	id           string
+	command      []string
+	env          map[string]string
+	defaultModel string
 
 	mu         sync.Mutex
 	transport  *transport
@@ -117,7 +123,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 	preferredModel := strings.TrimSpace(cfg.Model)
 	if preferredModel == "" {
-		preferredModel = "sonnet"
+		preferredModel = p.defaultModel
 	}
 
 	normalizedRoot, _ := analyzer.NormalizeRootPath(cfg.WorkingDirectory)

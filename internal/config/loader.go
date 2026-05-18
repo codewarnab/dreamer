@@ -96,6 +96,8 @@ type ProviderBlock struct {
 	Command         []string          `yaml:"command,omitempty" json:"command,omitempty"`
 	Env             map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 	APIKeyEnv       string            `yaml:"api_key_env,omitempty" json:"api_key_env,omitempty"`
+	BaseURL         string            `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	Password        string            `yaml:"password,omitempty" json:"password,omitempty"`
 	MaxInputTokens  int               `yaml:"max_input_tokens,omitempty" json:"max_input_tokens,omitempty"`
 }
 
@@ -386,6 +388,12 @@ func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
 	}
 	if override.APIKeyEnv != "" {
 		out.APIKeyEnv = override.APIKeyEnv
+	}
+	if override.BaseURL != "" {
+		out.BaseURL = override.BaseURL
+	}
+	if override.Password != "" {
+		out.Password = override.Password
 	}
 	if override.MaxInputTokens > 0 {
 		out.MaxInputTokens = override.MaxInputTokens
