@@ -150,15 +150,31 @@ func pruneLastRunPerCategory(m map[string]time.Time, packs []analyzer.RulePack) 
 	}
 }
 
-// pruneProviderUsage drops counters for provider ids that are no longer
-// reachable from this run (B29). We keep only the active provider id; other
-// ids can re-accrue on a future run that selects them.
+// ProviderUsageMaxAge bounds how long a provider's counters survive after
+// its last successful run. The active provider is always kept regardless.
+// 30 days lets a user toggle between two providers across a sprint without
+// losing the inactive one's history (B29).
+const ProviderUsageMaxAge = 30 * 24 * time.Hour
+
+// pruneProviderUsage drops counters for inactive provider ids whose last
+// successful run is older than ProviderUsageMaxAge (B29). Per spec, the
+// active provider is always retained, and entries that never reported a
+// success (zero LastSuccessUTC) are dropped immediately when inactive —
+// they're stubs from a failed bootstrap.
 func pruneProviderUsage(m map[string]state.ProviderUsage, activeProviderID string) {
 	if len(m) == 0 {
 		return
 	}
-	for id := range m {
-		if id != activeProviderID {
+	now := time.Now().UTC()
+	for id, usage := range m {
+		if id == activeProviderID {
+			continue
+		}
+		if usage.LastSuccessUTC.IsZero() {
+			delete(m, id)
+			continue
+		}
+		if now.Sub(usage.LastSuccessUTC) > ProviderUsageMaxAge {
 			delete(m, id)
 		}
 	}

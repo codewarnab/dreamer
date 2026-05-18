@@ -125,14 +125,26 @@ func recordProviderFailure(currentState *state.State, providerID string, err err
 
 // persistFailureState saves currentState on a failure path; logs but does
 // not propagate the save error because the caller is already returning a
-// more useful error.
-func persistFailureState(currentState *state.State, outputRoot, projectName string, cause error, logger *logging.Logger) {
+// more useful error. Also prunes (B28/B29) so a perma-failing project does
+// not accumulate stale entries forever.
+func persistFailureState(currentState *state.State, outputRoot, projectName string, packs []analyzer.RulePack, activeProviderID string, cause error, logger *logging.Logger) {
+	pruneLastRunPerCategory(currentState.LastRunPerCategory, packs)
+	pruneProviderUsage(currentState.ProviderUsage, activeProviderID)
 	if err := state.Save(outputRoot, projectName, currentState); err != nil && logger != nil {
 		logger.Warn("failure-path state save failed",
 			logging.Any("err", err),
 			logging.Any("cause", cause),
 		)
 	}
+}
+
+// savePrunedState prunes stale entries (B28/B29) then writes state. Used by
+// every successful-save site in pipeline.Run so every save path gets the
+// same hygiene, not just the happy path.
+func savePrunedState(outputRoot, projectName string, currentState *state.State, packs []analyzer.RulePack, activeProviderID string) error {
+	pruneLastRunPerCategory(currentState.LastRunPerCategory, packs)
+	pruneProviderUsage(currentState.ProviderUsage, activeProviderID)
+	return state.Save(outputRoot, projectName, currentState)
 }
 
 // Run executes the end-to-end analyze pipeline against a single project path,
@@ -189,9 +201,17 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		logger.Info("lookback filter", logging.Any("since", opts.Since), logging.Any("kept", len(sources)), logging.Any("total", before))
 	}
 
-	currentState, err := state.Load(outputRoot, projectName)
+	loadResult, err := state.LoadWithResult(outputRoot, projectName)
 	if err != nil {
 		return Result{}, fmt.Errorf("load state: %w", err)
+	}
+	currentState := loadResult.State
+	if loadResult.Migrated {
+		logger.Warn("state migrated",
+			logging.Any("from_version", loadResult.PriorVersion),
+			logging.Any("to_version", loadResult.CurrentVersion),
+			logging.Any("note", "v1 ChatHashes invalidated by length-prefix change (B21); prior file backed up as state.json.v<old>.bak; this run will re-analyze all chats"),
+		)
 	}
 	repoHeadSHA := state.RepoHeadSHA(projectPath, logger)
 	logger.Info("repo state", logging.Any("head_sha", repoHeadSHA), logging.Any("prior_run", currentState.LastRunUTC.Format(time.RFC3339)), logging.Any("prior_chats", len(currentState.ChatHashes)))
@@ -261,7 +281,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		currentState.LastRunUTC = time.Now().UTC()
 		currentState.RepoHeadSHA = repoHeadSHA
 		currentState.ChatHashes = cacheKeys
-		if err := state.Save(outputRoot, projectName, currentState); err != nil {
+		if err := savePrunedState(outputRoot, projectName, currentState, rulePacks, providerID); err != nil {
 			logger.Warn("preflight state save failed", logging.Any("err", err))
 		}
 
@@ -323,7 +343,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
 		recordProviderFailure(currentState, providerID, err)
-		persistFailureState(currentState, outputRoot, projectName, err, logger)
+		persistFailureState(currentState, outputRoot, projectName, rulePacks, providerID, err, logger)
 		return Result{}, fmt.Errorf("start provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))
 	}
 	startCancel()
@@ -373,7 +393,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	analysisResult, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
 	if err != nil {
 		recordProviderFailure(currentState, providerID, err)
-		persistFailureState(currentState, outputRoot, projectName, err, logger)
+		persistFailureState(currentState, outputRoot, projectName, rulePacks, providerID, err, logger)
 		return Result{}, fmt.Errorf("run analyzer: %w", err)
 	}
 	logger.Info("orchestrator done", logging.Any("mistakes", len(analysisResult.Mistakes)), logging.Any("findings", len(analysisResult.Findings)), logging.Any("warnings", len(analysisResult.Warnings)))
@@ -423,14 +443,6 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	for _, cat := range analysisResult.CompletedCategories {
 		currentState.LastRunPerCategory[cat] = now
 	}
-	// B28: drop entries for rule categories no longer in the loaded pack
-	// set (e.g. after a config rename or a category being retired). Without
-	// pruning the map carries stale keys forever.
-	pruneLastRunPerCategory(currentState.LastRunPerCategory, rulePacks)
-	// B29: drop ProviderUsage entries for providers no longer reachable
-	// from this run's resolved provider. Same hygiene as B28: long-running
-	// projects accumulate stale provider ids after a switch.
-	pruneProviderUsage(currentState.ProviderUsage, providerID)
 	recordProviderSuccess(currentState, providerID, 0)
 
 	if currentState.UsageStats == nil {
@@ -442,7 +454,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	currentState.UsageStats["findings_added"] += int64(generateResult.AddedFindings)
 	currentState.UsageStats["redaction_hits"] += int64(redactionTotal)
 
-	if err := state.Save(outputRoot, projectName, currentState); err != nil {
+	if err := savePrunedState(outputRoot, projectName, currentState, rulePacks, providerID); err != nil {
 		return Result{}, fmt.Errorf("save state: %w", err)
 	}
 

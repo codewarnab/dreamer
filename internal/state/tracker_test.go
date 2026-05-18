@@ -157,6 +157,66 @@ func TestLoadStateRefusesExplicitZeroVersion(t *testing.T) {
 	}
 }
 
+// B12 + B21 end-to-end: a v1 state.json gets ChatHashes dropped on Load,
+// Save then produces a v2 file and a stable .v1.bak that still contains
+// the pre-upgrade content.
+func TestLoadSaveV1ToV2MigrationEndToEnd(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	prior := []byte(`{"version":1,"chat_hashes":{"/a":"k1","/b":"k2"},"finding_hashes":["f1","f2"]}`)
+	if err := os.WriteFile(statePath, prior, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	res, err := LoadWithResult("", "project-a")
+	if err != nil {
+		t.Fatalf("LoadWithResult: %v", err)
+	}
+	if !res.Migrated {
+		t.Fatalf("LoadWithResult.Migrated = false, want true")
+	}
+	if res.PriorVersion != 1 || res.CurrentVersion != StateVersion {
+		t.Fatalf("versions = (%d -> %d), want (1 -> %d)", res.PriorVersion, res.CurrentVersion, StateVersion)
+	}
+	if len(res.State.ChatHashes) != 0 {
+		t.Fatalf("v1 ChatHashes must be dropped on upgrade, got %v", res.State.ChatHashes)
+	}
+	if len(res.State.FindingHashes) != 2 {
+		t.Fatalf("FindingHashes must survive upgrade, got %v", res.State.FindingHashes)
+	}
+
+	if err := Save("", "project-a", res.State); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	backup, err := os.ReadFile(statePath + ".v1.bak")
+	if err != nil {
+		t.Fatalf("expected .v1.bak, err=%v", err)
+	}
+	if string(backup) != string(prior) {
+		t.Fatalf("backup mismatch: got %s, want %s", backup, prior)
+	}
+
+	// A second Save (same-version v2 -> v2) must NOT overwrite the backup.
+	if err := Save("", "project-a", res.State); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	backup2, err := os.ReadFile(statePath + ".v1.bak")
+	if err != nil {
+		t.Fatalf("backup vanished on same-version save, err=%v", err)
+	}
+	if string(backup2) != string(prior) {
+		t.Fatalf("backup overwritten by same-version save: got %s, want %s", backup2, prior)
+	}
+}
+
 // B27: a state file with no `version` field is a pre-versioning legacy file
 // and must be upgraded to current rather than rejected.
 func TestLoadStateAcceptsMissingVersionAsLegacy(t *testing.T) {

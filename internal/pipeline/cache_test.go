@@ -214,22 +214,29 @@ func TestPruneLastRunPerCategoryDropsUnknownKeys(t *testing.T) {
 	}
 }
 
-// B29: counters for inactive provider ids must be dropped on each Save.
-func TestPruneProviderUsageDropsInactiveIDs(t *testing.T) {
+// B29: inactive provider ids drop only when their last-success is older than
+// ProviderUsageMaxAge. Recent inactive providers must keep their history so
+// a user who toggles between two providers across a sprint doesn't lose it.
+func TestPruneProviderUsageRespectsTTL(t *testing.T) {
+	now := time.Now().UTC()
 	m := map[string]state.ProviderUsage{
-		"copilot-sdk":    {Runs: 3},
-		"old-provider":   {Runs: 7},
-		"other-provider": {Runs: 1},
+		"copilot-sdk":      {Runs: 3, LastSuccessUTC: now},
+		"recent-inactive":  {Runs: 5, LastSuccessUTC: now.Add(-7 * 24 * time.Hour)},
+		"stale-inactive":   {Runs: 7, LastSuccessUTC: now.Add(-90 * 24 * time.Hour)},
+		"never-succeeded":  {Runs: 0, LastError: "boot failed"},
 	}
 	pruneProviderUsage(m, "copilot-sdk")
-	if _, ok := m["old-provider"]; ok {
-		t.Fatalf("old-provider must be pruned, got %v", m)
-	}
-	if _, ok := m["other-provider"]; ok {
-		t.Fatalf("other-provider must be pruned, got %v", m)
-	}
 	if got := m["copilot-sdk"].Runs; got != 3 {
 		t.Fatalf("active provider lost counters: got %d", got)
+	}
+	if got := m["recent-inactive"].Runs; got != 5 {
+		t.Fatalf("recent-inactive within TTL must survive, got Runs=%d", got)
+	}
+	if _, ok := m["stale-inactive"]; ok {
+		t.Fatalf("stale-inactive past TTL must be pruned, got %v", m)
+	}
+	if _, ok := m["never-succeeded"]; ok {
+		t.Fatalf("never-succeeded inactive stub must be pruned, got %v", m)
 	}
 }
 

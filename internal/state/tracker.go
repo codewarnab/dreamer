@@ -93,66 +93,103 @@ func userConfigDir() (string, error) {
 	return os.UserConfigDir()
 }
 
+// LoadResult bundles the loaded State with metadata about any migration
+// that ran. PriorVersion == 0 means either no file existed or the prior
+// file was pre-versioning legacy; CurrentVersion is what the in-memory
+// State now claims. Migrated reports whether Load mutated the on-disk
+// schema (so the caller can log it / produce a user-visible notice).
+type LoadResult struct {
+	State          *State
+	PriorVersion   int
+	CurrentVersion int
+	Migrated       bool
+}
+
 // Load reads the per-project state. A missing file returns a default state
 // (non-nil, version=current, empty maps). The version field is gated (B12/
 // B27): an explicit `version=0` is refused as suspect, a newer version is
 // refused to avoid downgrade-on-write, and a missing version field is
 // treated as a pre-versioning legacy file and upgraded to the current
-// schema in memory.
+// schema in memory. Callers that need the migration signal should use
+// LoadWithResult.
 func Load(outputRoot, projectName string) (*State, error) {
-	path, err := PathForProject(outputRoot, projectName)
+	r, err := LoadWithResult(outputRoot, projectName)
 	if err != nil {
 		return nil, err
+	}
+	return r.State, nil
+}
+
+// LoadWithResult is Load + a migration-info return value.
+func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
+	path, err := PathForProject(outputRoot, projectName)
+	if err != nil {
+		return LoadResult{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultState(), nil
+			return LoadResult{State: defaultState(), CurrentVersion: StateVersion}, nil
 		}
-		return nil, fmt.Errorf("read state file %q: %w", path, err)
+		return LoadResult{}, fmt.Errorf("read state file %q: %w", path, err)
 	}
 
 	var peek map[string]json.RawMessage
 	if err := json.Unmarshal(data, &peek); err != nil {
-		return nil, fmt.Errorf("unmarshal state file %q: %w", path, err)
+		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
 	}
 	versionRaw, hasVersion := peek["version"]
+	priorVersion := 0
 	if hasVersion {
 		var v int
 		if err := json.Unmarshal(versionRaw, &v); err != nil {
-			return nil, fmt.Errorf("unmarshal version in state file %q: %w", path, err)
+			return LoadResult{}, fmt.Errorf("unmarshal version in state file %q: %w", path, err)
 		}
 		if v == 0 {
-			return nil, fmt.Errorf("state file %q has explicit version=0; refusing to load (suspect truncation)", path)
+			return LoadResult{}, fmt.Errorf("state file %q has explicit version=0; refusing to load (suspect truncation)", path)
 		}
 		if v > StateVersion {
-			return nil, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, v, StateVersion)
+			return LoadResult{}, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, v, StateVersion)
 		}
+		priorVersion = v
 	}
 
 	var current State
 	if err := json.Unmarshal(data, &current); err != nil {
-		return nil, fmt.Errorf("unmarshal state file %q: %w", path, err)
+		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
 	}
+	migrated := false
 	if !hasVersion {
+		// Pre-versioning legacy file (predates the StateVersion gate). Upgrade
+		// in memory; Save will materialize the new schema on disk.
 		current.Version = StateVersion
+		migrated = true
 	}
 	if hasVersion && current.Version < StateVersion {
 		// v1 → v2: ChatCacheKey is now length-prefixed, so prior ChatHashes
 		// no longer compare equal to freshly-computed keys. Drop them so
 		// the next run re-establishes the cache from scratch. The user's
 		// prior file is preserved at <path>.v<old>.bak by Save.
+		// TODO when adding v3: convert this branch into a per-version
+		// migration registry instead of a single conditional.
 		current.ChatHashes = map[string]string{}
 		current.Version = StateVersion
+		migrated = true
 	}
 	normalizeState(&current)
-	return &current, nil
+	return LoadResult{
+		State:          &current,
+		PriorVersion:   priorVersion,
+		CurrentVersion: StateVersion,
+		Migrated:       migrated,
+	}, nil
 }
 
 // Save writes the per-project state atomically via temp file + os.Rename
-// (B3). Before overwriting an existing state.json, the prior file is copied
-// to <path>.v<prior-version>.bak so a downgrade or schema bump can be
-// recovered (B12).
+// (B3). On a *schema upgrade* (prior file's version < StateVersion) the
+// prior file is preserved at <path>.v<prior-version>.bak so the user can
+// roll back; same-version saves do NOT overwrite the backup so the recovery
+// artifact is stable (B12).
 func Save(outputRoot, projectName string, state *State) error {
 	if state == nil {
 		return fmt.Errorf("state is required")
@@ -167,8 +204,14 @@ func Save(outputRoot, projectName string, state *State) error {
 
 	if priorData, readErr := os.ReadFile(path); readErr == nil {
 		priorVersion := readPriorVersion(priorData)
-		backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
-		_ = os.WriteFile(backupPath, priorData, statePerms)
+		if priorVersion >= 0 && priorVersion < StateVersion {
+			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
+			if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, statePerms); writeErr != nil {
+					return fmt.Errorf("write schema-upgrade backup %q: %w", backupPath, writeErr)
+				}
+			}
+		}
 	}
 
 	dup := *state
