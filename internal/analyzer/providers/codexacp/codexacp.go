@@ -20,9 +20,10 @@ func init() {
 			command = []string{"codex-acp"}
 		}
 		return acpcore.New(acpcore.Options{
-			ID:      ID,
-			Command: command,
-			Env:     cfg.Env,
+			ID:           ID,
+			Command:      command,
+			Env:          cfg.Env,
+			DefaultModel: cfg.DefaultModel,
 		})
 	})
 }

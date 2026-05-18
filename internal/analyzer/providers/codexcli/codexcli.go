@@ -24,17 +24,19 @@ const ID = "codex-cli"
 
 // Options carries per-provider configuration from the YAML config.
 type Options struct {
-	Command []string          // override argv; default: ["codex", "exec", "--json", "--sandbox", "read-only"]
-	Env     map[string]string // extra environment for the subprocess
-	Model   string            // optional --model override; empty = codex default
+	Command      []string          // override argv; default: ["codex", "exec", "--json", "--sandbox", "read-only"]
+	Env          map[string]string // extra environment for the subprocess
+	Model        string            // optional --model override; empty = codex default
+	DefaultModel string            // per-provider default; applied when Model is empty
 }
 
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderCodexCLI, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
 		return New(Options{
-			Command: cfg.Command,
-			Env:     cfg.Env,
-			Model:   cfg.Model,
+			Command:      cfg.Command,
+			Env:          cfg.Env,
+			Model:        cfg.Model,
+			DefaultModel: cfg.DefaultModel,
 		})
 	})
 }
@@ -71,9 +73,14 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--cd", wd)
-	if model := strings.TrimSpace(cfg.Model); model != "" {
-		command = append(command, "--model", model)
-	} else if model := strings.TrimSpace(p.options.Model); model != "" {
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = strings.TrimSpace(p.options.Model)
+	}
+	if model == "" {
+		model = strings.TrimSpace(p.options.DefaultModel)
+	}
+	if model != "" {
 		command = append(command, "--model", model)
 	}
 	return &session{

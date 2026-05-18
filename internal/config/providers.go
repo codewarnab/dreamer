@@ -17,7 +17,7 @@ func RemediationMessage(providerID string) string {
 	case "gemini-sdk":
 		return "Export `GEMINI_API_KEY` in the environment."
 	case "gemini-cli":
-		return "Run `gemini auth login`."
+		return "Install Gemini CLI (`npm i -g @anthropic-ai/gemini-cli` or `brew install gemini-cli`) and run `gemini auth login`."
 	case "gemini-acp":
 		return "Ensure `gemini --acp` starts and emits an ACP initialize response."
 	case "kiro-acp":

@@ -21,9 +21,10 @@ const ID = "openclaude-cli"
 
 // Options is the per-provider configuration carried over from the YAML config.
 type Options struct {
-	Command []string
-	Env     map[string]string
-	Model   string
+	Command      []string
+	Env          map[string]string
+	Model        string
+	DefaultModel string
 }
 
 // New returns an openclaude-cli Provider that shells out to the `openclaude`
@@ -60,9 +61,14 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--add-dir", wd)
-	if model := strings.TrimSpace(cfg.Model); model != "" {
-		command = append(command, "--model", model)
-	} else if model := strings.TrimSpace(p.options.Model); model != "" {
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = strings.TrimSpace(p.options.Model)
+	}
+	if model == "" {
+		model = strings.TrimSpace(p.options.DefaultModel)
+	}
+	if model != "" {
 		command = append(command, "--model", model)
 	}
 	return &session{

@@ -11,13 +11,14 @@ const ID = "gemini-sdk"
 
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderGeminiSDK, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
-		return &provider{apiKeyEnv: cfg.APIKeyEnv, model: cfg.Model}, nil
+		return &provider{apiKeyEnv: cfg.APIKeyEnv, model: cfg.Model, defaultModel: cfg.DefaultModel}, nil
 	})
 }
 
 type provider struct {
-	apiKeyEnv string
-	model     string
+	apiKeyEnv    string
+	model        string
+	defaultModel string
 }
 
 func (p *provider) ID() string                      { return ID }

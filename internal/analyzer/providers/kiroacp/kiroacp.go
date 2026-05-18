@@ -14,9 +14,10 @@ func init() {
 			command = []string{"kiro", "--acp"}
 		}
 		return acpcore.New(acpcore.Options{
-			ID:      ID,
-			Command: command,
-			Env:     cfg.Env,
+			ID:           ID,
+			Command:      command,
+			Env:          cfg.Env,
+			DefaultModel: cfg.DefaultModel,
 		})
 	})
 }

@@ -41,7 +41,8 @@ const (
 // caller (CLI/config). Unused fields per provider are ignored.
 type ProviderConfig struct {
 	// Common
-	Model string
+	Model        string
+	DefaultModel string // per-provider default; applied when Model is empty
 
 	// copilot-sdk
 	CopilotHome        string
