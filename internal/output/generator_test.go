@@ -109,6 +109,37 @@ func TestGenerateTodosWritesMergedContentToDisk(t *testing.T) {
 	assertContains(t, string(data), "Nil pointer when processing empty chat payload")
 }
 
+// B3: GenerateTodos must write atomically so a crash mid-write cannot leave a
+// half-written todos.md that subsequent runs read back and dedupe against.
+func TestGenerateTodosWritesAtomicallyLeavesNoTempFile(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	outputRoot := filepath.Join(home, ".config", "dreamer")
+
+	// Pre-seed a stale .tmp from a hypothetical prior-crash run.
+	staleDir := filepath.Join(outputRoot, "project-a")
+	if err := os.MkdirAll(staleDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	staleTmp := filepath.Join(staleDir, "todos.md.tmp")
+	if err := os.WriteFile(staleTmp, []byte("garbage from crash"), 0o644); err != nil {
+		t.Fatalf("seed stale tmp: %v", err)
+	}
+
+	if _, err := GenerateTodos("project-a", []analyzer.Finding{{
+		Category: analyzer.RuleCategoryTest,
+		Mistake:  "Nil pointer when processing empty chat payload",
+	}}, GenerateOptions{
+		OutputRoot: outputRoot,
+		Now:        func() time.Time { return time.Date(2025, 1, 1, 9, 0, 0, 0, time.UTC) },
+	}); err != nil {
+		t.Fatalf("GenerateTodos returned error: %v", err)
+	}
+	if _, err := os.Stat(staleTmp); !os.IsNotExist(err) {
+		t.Fatalf("stale .tmp must not survive an atomic write, stat err=%v", err)
+	}
+}
+
 func TestRenderSnippetLeavesBlankLinesEmpty(t *testing.T) {
 	snippet := renderSnippet("rules:\n\n  no-only-tests: true", "eslint")
 

@@ -88,6 +88,47 @@ func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 			req:        PermissionRequest{Kind: PermissionKindRead, Path: stringPtr("file:///etc/passwd")},
 			reasonLike: "invalid or ambiguous",
 		},
+		// B2: SDK said read-only but full command text contains a tee write.
+		{
+			name: "shell sdk-readonly but tee write",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr("cat /tmp/a.txt | tee /tmp/b.txt"),
+				Commands:        []ShellCommand{{Identifier: "cat", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
+		{
+			name: "shell sdk-readonly but bash -c wrapper",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr(`bash -c 'echo hi > /tmp/x'`),
+				Commands:        []ShellCommand{{Identifier: "bash", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
+		{
+			name: "shell sdk-readonly but sed in-place",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr("sed -i s/foo/bar/ /tmp/file"),
+				Commands:        []ShellCommand{{Identifier: "sed", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
+		{
+			name: "shell sdk-readonly but process-substitution write",
+			req: PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: stringPtr("diff a.txt >(cat > out.txt)"),
+				Commands:        []ShellCommand{{Identifier: "diff", ReadOnly: true}},
+			},
+			reasonLike: "not read-only",
+		},
 	}
 
 	for _, tc := range cases {
@@ -98,6 +139,55 @@ func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 			}
 			if !strings.Contains(strings.ToLower(decision.Reason), strings.ToLower(tc.reasonLike)) {
 				t.Fatalf("reason %q does not contain %q", decision.Reason, tc.reasonLike)
+			}
+		})
+	}
+}
+
+// Bx: empty normalized root is a security chokepoint misconfiguration.
+// decideFilesystem must fail closed rather than approve reads anywhere on disk.
+func TestDecidePermissionEmptyRootFailsClosed(t *testing.T) {
+	for _, kind := range []PermissionKind{PermissionKindRead, PermissionKindShell} {
+		t.Run(string(kind), func(t *testing.T) {
+			req := PermissionRequest{Kind: kind, Path: stringPtr("/etc/passwd")}
+			if kind == PermissionKindShell {
+				req.ReadOnly = boolPtr(true)
+				req.Commands = []ShellCommand{{Identifier: "cat", ReadOnly: true}}
+			}
+			decision := DecidePermission(req, "")
+			if decision.Approved {
+				t.Fatalf("empty root must fail closed for %s; got approved with reason=%q", kind, decision.Reason)
+			}
+			if !strings.Contains(strings.ToLower(decision.Reason), "project root") {
+				t.Fatalf("reason %q should mention missing project root", decision.Reason)
+			}
+		})
+	}
+}
+
+// B2: regex must not deny legitimate reads whose arguments happen to mention
+// a writer command as a substring or quoted literal.
+func TestShellRequestReadOnlyAllowsBenignReads(t *testing.T) {
+	cases := []string{
+		"cat patch.txt",
+		"cat install.log",
+		"grep 'tee' README.md",
+		"grep -F 'rsync' src.go",
+		"cat docs/install-guide.md",
+		"git log -p",
+		"ls -la",
+	}
+	for _, line := range cases {
+		text := line
+		t.Run(line, func(t *testing.T) {
+			req := PermissionRequest{
+				Kind:            PermissionKindShell,
+				ReadOnly:        boolPtr(true),
+				FullCommandText: &text,
+				Commands:        []ShellCommand{{Identifier: "cat", ReadOnly: true}},
+			}
+			if !shellRequestReadOnly(req) {
+				t.Fatalf("benign read %q wrongly classified as not read-only", text)
 			}
 		})
 	}

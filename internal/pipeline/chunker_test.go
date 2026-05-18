@@ -9,6 +9,8 @@ import (
 	"dreamer/internal/config"
 )
 
+func floatPtr(v float64) *float64 { return &v }
+
 // blockOf builds a ProviderBlock with `n` identical messages of `msgBytes` each.
 // Header is "tool: <tool>\n\n" (~12 bytes).
 func blockOf(tool string, msgBytes, n int) ProviderBlock {
@@ -52,7 +54,7 @@ func TestPackChunksPacksUnderHeadroom(t *testing.T) {
 		{Tool: "copilot", Header: "", Messages: []string{strings.Repeat("p", 12000)}},
 		{Tool: "vscode", Header: "", Messages: []string{strings.Repeat("v", 2000)}},
 	}
-	cfg := config.ChunkingConfig{MaxChunkBytes: 100000, ProviderBoundaryHeadroom: 0.20}
+	cfg := config.ChunkingConfig{MaxChunkBytes: 100000, ProviderBoundaryHeadroom: floatPtr(0.20)}
 
 	chunks, warns := PackChunks(blocks, cfg, "24h")
 	if len(warns) != 0 {
@@ -76,7 +78,7 @@ func TestPackChunksByteBudget3Blocks(t *testing.T) {
 		{Tool: "p2", Messages: []string{strings.Repeat("b", 80000)}},
 		{Tool: "p3", Messages: []string{strings.Repeat("c", 50000)}},
 	}
-	cfg := config.ChunkingConfig{MaxChunkBytes: 130000, ProviderBoundaryHeadroom: 0}
+	cfg := config.ChunkingConfig{MaxChunkBytes: 130000, ProviderBoundaryHeadroom: floatPtr(0)}
 	chunks, warns := PackChunks(blocks, cfg, "24h")
 	if len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
@@ -175,7 +177,7 @@ func TestPackChunksDeterministic(t *testing.T) {
 		blockOf("codex", 800, 60),
 		blockOf("copilot", 1500, 30),
 	}
-	cfg := config.ChunkingConfig{MaxChunkBytes: 70000, ProviderBoundaryHeadroom: 0.15}
+	cfg := config.ChunkingConfig{MaxChunkBytes: 70000, ProviderBoundaryHeadroom: floatPtr(0.15)}
 
 	c1, _ := PackChunks(blocks, cfg, "24h")
 	c2, _ := PackChunks(blocks, cfg, "24h")
