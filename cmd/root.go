@@ -14,6 +14,7 @@ import (
 	_ "dreamer/internal/analyzer/providers/geminicli"
 	_ "dreamer/internal/analyzer/providers/geminisdk"
 	_ "dreamer/internal/analyzer/providers/kiroacp"
+	_ "dreamer/internal/analyzer/providers/openclaudecli"
 )
 
 var rootCmd = newRootCommand()

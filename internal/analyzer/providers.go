@@ -24,16 +24,17 @@ var ErrUnavailable = errors.New("provider unavailable")
 type ProviderID string
 
 const (
-	ProviderCopilotSDK ProviderID = "copilot-sdk"
-	ProviderCopilotACP ProviderID = "copilot-acp"
-	ProviderClaudeCLI  ProviderID = "claude-cli"
-	ProviderClaudeACP  ProviderID = "claude-acp"
-	ProviderGeminiSDK  ProviderID = "gemini-sdk"
-	ProviderGeminiCLI  ProviderID = "gemini-cli"
-	ProviderGeminiACP  ProviderID = "gemini-acp"
-	ProviderKiroACP    ProviderID = "kiro-acp"
-	ProviderCodexCLI   ProviderID = "codex-cli"
-	ProviderCodexACP   ProviderID = "codex-acp"
+	ProviderCopilotSDK   ProviderID = "copilot-sdk"
+	ProviderCopilotACP   ProviderID = "copilot-acp"
+	ProviderClaudeCLI    ProviderID = "claude-cli"
+	ProviderClaudeACP    ProviderID = "claude-acp"
+	ProviderGeminiSDK    ProviderID = "gemini-sdk"
+	ProviderGeminiCLI    ProviderID = "gemini-cli"
+	ProviderGeminiACP    ProviderID = "gemini-acp"
+	ProviderKiroACP      ProviderID = "kiro-acp"
+	ProviderCodexCLI     ProviderID = "codex-cli"
+	ProviderCodexACP     ProviderID = "codex-acp"
+	ProviderOpenCludeCLI ProviderID = "openclaude-cli"
 )
 
 // ProviderConfig is the per-provider configuration block resolved by the
