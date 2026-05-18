@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -60,6 +61,8 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	command := append([]string(nil), p.command...)
 	command = append(command, "--add-dir", wd)
 	if model := strings.TrimSpace(cfg.Model); model != "" {
+		command = append(command, "--model", model)
+	} else if model := strings.TrimSpace(p.options.Model); model != "" {
 		command = append(command, "--model", model)
 	}
 	return &session{
@@ -121,16 +124,19 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	final, parseErr := readStreamJSON(stdout)
 
 	waitErr := cmd.Wait()
-	if waitErr != nil {
-		err := fmt.Errorf("openclaude-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
-		if transport.IsRateLimitMessage(stderrBuf.String()) {
+	// Prefer parseErr when set: it carries the JSON-event-level error
+	// (usage limit, context window, turn.failed) that explains *why*
+	// openclaude exited non-zero. waitErr alone gives only "exit status 1".
+	if parseErr != nil {
+		err := fmt.Errorf("openclaude-cli: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
 			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}
-	if parseErr != nil {
-		err := fmt.Errorf("openclaude-cli: parse stream-json: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
-		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
+	if waitErr != nil {
+		err := fmt.Errorf("openclaude-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(stderrBuf.String()) {
 			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
@@ -143,12 +149,17 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 func (s *session) Close() error { return nil }
 
-// readStreamJSON consumes the stream-json output and returns the concatenated
-// text of the final assistant message.
+// readStreamJSON consumes the stream-json output and returns the final text.
+// It prefers the `result` field from a success result event, falling back to
+// concatenated assistant message text. Error results and assistant-level API
+// errors (rate_limit, auth_failed, etc.) are surfaced as Go errors.
 func readStreamJSON(r io.Reader) (string, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1<<16), 1<<24)
+
 	var assistantText strings.Builder
+	var resultText string
+	var resultErr string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -156,29 +167,62 @@ func readStreamJSON(r io.Reader) (string, error) {
 		}
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			log.Printf("openclaude-cli: malformed stream-json line: %v", err)
 			continue
 		}
-		if event.Type == "assistant" {
-			assistantText.Reset()
+		switch event.Type {
+		case "assistant":
 			for _, item := range event.Message.Content {
 				if item.Type == "text" {
 					assistantText.WriteString(item.Text)
 				}
 			}
+			// Assistant messages may carry an API-level error (rate limit,
+			// auth failure, billing, etc.). Surface it immediately.
+			if event.Error != "" {
+				resultErr = "api error: " + event.Error
+			}
+		case "result":
+			switch event.Subtype {
+			case "success":
+				resultText = event.Result
+			default:
+				// error_during_execution, error_max_turns,
+				// error_max_budget_usd, error_max_structured_output_retries
+				msgs := event.Errors
+				if len(msgs) == 0 {
+					msgs = []string{"unknown error (" + event.Subtype + ")"}
+				}
+				resultErr = strings.Join(msgs, "; ")
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", err
+		return "", fmt.Errorf("read openclaude stream-json: %w", err)
+	}
+	if resultErr != "" {
+		return "", fmt.Errorf("openclaude-cli: %s", resultErr)
+	}
+	// Prefer the result event's text (complete, post-processing); fall back
+	// to concatenated assistant messages for providers that omit result events.
+	if resultText != "" {
+		return strings.TrimSpace(resultText), nil
 	}
 	return strings.TrimSpace(assistantText.String()), nil
 }
 
+// streamEvent is the shape of a single NDJSON line emitted by openclaude
+// --output-format=stream-json --verbose.
 type streamEvent struct {
 	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+	Result  string `json:"result"`
+	Error   string `json:"error"`
 	Message struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	} `json:"message"`
+	Errors []string `json:"errors"`
 }
