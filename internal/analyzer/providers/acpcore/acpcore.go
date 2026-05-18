@@ -526,26 +526,16 @@ func (t *transport) handlePermissionRequest(envelope rpcEnvelope) {
 	t.mu.Lock()
 	handler := t.permHandler
 	t.mu.Unlock()
+
+	approved, reason := decidePermission(handler, envelope.Params)
+
+	// Re-parse params for option selection. A malformed envelope produced a
+	// denial above; selectPermissionOptionID still needs to pick a rejection
+	// option from whatever option list (if any) the agent supplied.
 	var params map[string]any
 	if envelope.Params != nil {
 		_ = json.Unmarshal(envelope.Params, &params)
 	}
-
-	// Decide approve/deny via the dreamer-side handler (best-effort: param
-	// shape varies across agents). Then map the boolean to a real ACP option
-	// from the option list so the agent doesn't hang waiting for a valid reply.
-	approved := true
-	reason := ""
-	if handler != nil {
-		decision := handler(params)
-		if d, ok := decision["decision"].(string); ok && d == "deny" {
-			approved = false
-			if r, ok := decision["reason"].(string); ok {
-				reason = r
-			}
-		}
-	}
-
 	optionID := selectPermissionOptionID(params, approved)
 	var outcome map[string]any
 	if optionID != "" {
@@ -565,6 +555,28 @@ func (t *transport) handlePermissionRequest(envelope rpcEnvelope) {
 		"result":  map[string]any{"outcome": outcome},
 	}
 	_ = t.send(response)
+}
+
+// decidePermission produces (approved, reason) for an ACP permission request
+// given raw params bytes. Malformed JSON yields a denial (B15) rather than
+// the previous silent-approve default. The handler is consulted only after a
+// successful unmarshal.
+func decidePermission(handler permissionHandler, rawParams json.RawMessage) (bool, string) {
+	var params map[string]any
+	if len(rawParams) > 0 {
+		if err := json.Unmarshal(rawParams, &params); err != nil {
+			return false, fmt.Sprintf("malformed permission params: %v", err)
+		}
+	}
+	if handler == nil {
+		return true, ""
+	}
+	decision := handler(params)
+	if d, _ := decision["decision"].(string); d == "deny" {
+		reason, _ := decision["reason"].(string)
+		return false, reason
+	}
+	return true, ""
 }
 
 // selectPermissionOptionID picks an optionId from the params.options[] list

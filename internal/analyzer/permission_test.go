@@ -144,6 +144,27 @@ func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 	}
 }
 
+// Bx: empty normalized root is a security chokepoint misconfiguration.
+// decideFilesystem must fail closed rather than approve reads anywhere on disk.
+func TestDecidePermissionEmptyRootFailsClosed(t *testing.T) {
+	for _, kind := range []PermissionKind{PermissionKindRead, PermissionKindShell} {
+		t.Run(string(kind), func(t *testing.T) {
+			req := PermissionRequest{Kind: kind, Path: stringPtr("/etc/passwd")}
+			if kind == PermissionKindShell {
+				req.ReadOnly = boolPtr(true)
+				req.Commands = []ShellCommand{{Identifier: "cat", ReadOnly: true}}
+			}
+			decision := DecidePermission(req, "")
+			if decision.Approved {
+				t.Fatalf("empty root must fail closed for %s; got approved with reason=%q", kind, decision.Reason)
+			}
+			if !strings.Contains(strings.ToLower(decision.Reason), "project root") {
+				t.Fatalf("reason %q should mention missing project root", decision.Reason)
+			}
+		})
+	}
+}
+
 // B2: regex must not deny legitimate reads whose arguments happen to mention
 // a writer command as a substring or quoted literal.
 func TestShellRequestReadOnlyAllowsBenignReads(t *testing.T) {

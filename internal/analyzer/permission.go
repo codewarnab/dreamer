@@ -54,8 +54,12 @@ func DecidePermission(req PermissionRequest, normalizedRoot string) PermissionDe
 }
 
 func decideFilesystem(req PermissionRequest, normalizedRoot string) PermissionDecision {
+	// Bx: fail closed when no project root has been configured. Callers
+	// always set WorkingDirectory today; a future caller forgetting to set
+	// it must not get an unrestricted analyzer with read access anywhere
+	// on disk.
 	if normalizedRoot == "" {
-		return PermissionDecision{Approved: true}
+		return PermissionDecision{Reason: "no project root configured; refusing filesystem access in read-only analysis mode"}
 	}
 	candidates := requestPathCandidates(req)
 	if len(candidates) == 0 {

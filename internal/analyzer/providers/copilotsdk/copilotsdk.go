@@ -2,6 +2,7 @@ package copilotsdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,11 @@ import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/errs"
 )
+
+// errNilContext is returned when a caller passes a nil context. Previously
+// the provider silently substituted context.Background, which re-anchored
+// subsequent calls outside the daemon's cancellation tree (B16).
+var errNilContext = errors.New("copilot-sdk: nil context")
 
 const ID = "copilot-sdk"
 
@@ -83,7 +89,7 @@ func (p *provider) SupportsParallelSessions() bool { return true }
 
 func (p *provider) Start(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errNilContext
 	}
 	if p.started {
 		return nil
@@ -99,7 +105,7 @@ func (p *provider) Start(ctx context.Context) error {
 
 func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, errNilContext
 	}
 	if err := p.Start(ctx); err != nil {
 		return nil, err
@@ -142,7 +148,7 @@ type copilotSession struct {
 
 func (s *copilotSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return "", errNilContext
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
