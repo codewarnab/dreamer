@@ -74,11 +74,6 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 			}
 			line.WriteString(message.Role)
 			line.WriteString(": ")
-			if message.ToolName != "" {
-				line.WriteString("[")
-				line.WriteString(message.ToolName)
-				line.WriteString("] ")
-			}
 			line.WriteString(redacted)
 			line.WriteByte('\n')
 			acc.messages = append(acc.messages, line.String())
