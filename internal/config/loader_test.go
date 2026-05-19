@@ -418,3 +418,13 @@ func TestValidate_AcceptsLoopbackWebHost(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigNotices_OverlayFieldsExist(t *testing.T) {
+	n := ConfigNotices{}
+	n.OverlayApplied = true
+	n.OverlayParseError = "boom"
+	n.RestartRequired = []string{"web.port"}
+	if !n.OverlayApplied || n.OverlayParseError != "boom" || len(n.RestartRequired) != 1 {
+		t.Fatalf("notice fields missing or wrong: %+v", n)
+	}
+}

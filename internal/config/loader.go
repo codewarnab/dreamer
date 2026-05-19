@@ -60,7 +60,10 @@ type Config struct {
 // Callers log them once per process at info level.
 type ConfigNotices struct {
 	// DefaultedSince: project names whose `since` field was filled with DefaultSince.
-	DefaultedSince []string
+	DefaultedSince    []string
+	OverlayApplied    bool
+	OverlayParseError string
+	RestartRequired   []string
 }
 
 // ProjectConfig is one entry in `projects:` — daemon iterates these.
