@@ -66,6 +66,8 @@ func buildProviderConfig(providerID string, block config.ProviderBlock) analyzer
 		CLIURL:         block.CLIURL,
 		Command:        append([]string(nil), block.Command...),
 		APIKeyEnv:      block.APIKeyEnv,
+		BaseURL:        block.BaseURL,
+		Password:       block.Password,
 		MaxInputTokens: block.MaxInputTokens,
 	}
 	if block.UseLoggedInUser != nil {

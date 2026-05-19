@@ -28,6 +28,12 @@ func RemediationMessage(providerID string) string {
 		return "Install an ACP bridge for Codex (e.g. set `providers.codex-acp.command` to your bridge binary) and verify it speaks JSON-RPC 2.0 over stdio."
 	case "openclaude-cli":
 		return "Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup."
+	case "opencode-acp":
+		return "Install OpenCode (see https://opencode.ai) and ensure `opencode acp` starts cleanly."
+	case "opencode-server":
+		return "Start OpenCode server (`opencode serve`) or configure `providers.opencode-server.base_url` to point at a running instance."
+	case "codebuff-sdk":
+		return "Set `providers.codebuff-sdk.api_key_env` to the environment variable holding your Codebuff API key (or set `password`)."
 	default:
 		return fmt.Sprintf("Ensure the %q provider is installed and authenticated.", providerID)
 	}

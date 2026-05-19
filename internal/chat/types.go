@@ -19,6 +19,7 @@ const (
 	SourceTypeGeminiCLISession    SourceType = "gemini-cli-session-jsonl"
 	SourceTypeOpenCodeSession     SourceType = "opencode-session-sqlite"
 	SourceTypeKiroCLISession      SourceType = "kiro-cli-session-sqlite"
+	SourceTypeCodebuffSession     SourceType = "codebuff-session-json"
 )
 
 type ChatSource struct {
@@ -36,10 +37,11 @@ type DiscoveryEnvironment struct {
 	DataHomeDir     string
 	ClaudeConfigDir string
 	GeminiHomeDir   string
-	OpenCodeDBPath  string
-	KiroCLIDBPath   string
-	OpenCodeReader  readers.OpenCodeReader
-	KiroReader      readers.KiroReader
+	OpenCodeDBPath    string
+	KiroCLIDBPath     string
+	CodebuffConfigDir string
+	OpenCodeReader    readers.OpenCodeReader
+	KiroReader        readers.KiroReader
 }
 
 // sqliteSourcePathSeparator separates the database file path from the

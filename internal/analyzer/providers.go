@@ -33,8 +33,11 @@ const (
 	ProviderGeminiACP    ProviderID = "gemini-acp"
 	ProviderKiroACP      ProviderID = "kiro-acp"
 	ProviderCodexCLI     ProviderID = "codex-cli"
-	ProviderCodexACP     ProviderID = "codex-acp"
-	ProviderOpenClaudeCLI ProviderID = "openclaude-cli"
+	ProviderCodexACP       ProviderID = "codex-acp"
+	ProviderOpenClaudeCLI  ProviderID = "openclaude-cli"
+	ProviderOpenCodeACP    ProviderID = "opencode-acp"
+	ProviderOpenCodeServer ProviderID = "opencode-server"
+	ProviderCodebuffSDK    ProviderID = "codebuff-sdk"
 )
 
 // ProviderConfig is the per-provider configuration block resolved by the
@@ -57,6 +60,10 @@ type ProviderConfig struct {
 
 	// API providers
 	APIKeyEnv string
+
+	// HTTP server providers
+	BaseURL  string
+	Password string
 
 	// Token budget override (optional, 0 = use provider default)
 	MaxInputTokens int
