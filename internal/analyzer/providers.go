@@ -28,7 +28,6 @@ const (
 	ProviderCopilotACP   ProviderID = "copilot-acp"
 	ProviderClaudeCLI    ProviderID = "claude-cli"
 	ProviderClaudeACP    ProviderID = "claude-acp"
-	ProviderGeminiSDK    ProviderID = "gemini-sdk"
 	ProviderGeminiCLI    ProviderID = "gemini-cli"
 	ProviderGeminiACP    ProviderID = "gemini-acp"
 	ProviderKiroACP      ProviderID = "kiro-acp"

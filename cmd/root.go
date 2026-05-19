@@ -12,7 +12,6 @@ import (
 	_ "dreamer/internal/analyzer/providers/copilotsdk"
 	_ "dreamer/internal/analyzer/providers/geminiacp"
 	_ "dreamer/internal/analyzer/providers/geminicli"
-	_ "dreamer/internal/analyzer/providers/geminisdk"
 	_ "dreamer/internal/analyzer/providers/kiroacp"
 	_ "dreamer/internal/analyzer/providers/opencodeacp"
 	_ "dreamer/internal/analyzer/providers/opencodehttp"

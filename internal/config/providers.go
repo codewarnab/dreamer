@@ -14,8 +14,6 @@ func RemediationMessage(providerID string) string {
 		return "Install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate (use `claude setup-token` for headless environments)."
 	case "claude-acp":
 		return "Ensure `claude --acp` starts and emits an ACP initialize response."
-	case "gemini-sdk":
-		return "Export `GEMINI_API_KEY` in the environment."
 	case "gemini-cli":
 		return "Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini` to authenticate (browser OAuth on first launch)."
 	case "gemini-acp":

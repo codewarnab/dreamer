@@ -13,7 +13,7 @@ var defaultConfigTemplate = fmt.Sprintf(`# dreamer global config (v1). See doc/s
 
 # Provider used when --provider is not passed and no per-project config sets one.
 # Options: copilot-sdk | copilot-acp | claude-cli | claude-acp |
-#          gemini-cli | gemini-acp | gemini-sdk | kiro-acp |
+#          gemini-cli | gemini-acp | kiro-acp |
 #          codex-cli  | codex-acp | openclaude-cli
 default_provider: copilot-sdk
 

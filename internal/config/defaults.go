@@ -10,7 +10,6 @@ var DefaultModelByProvider = map[string]string{
 	"claude-acp":      "claude-haiku-4-5-20251001",
 	"gemini-cli":      "gemini-3-flash-preview",
 	"gemini-acp":      "gemini-3-flash-preview",
-	"gemini-sdk":      "gemini-3-flash-preview",
 	"kiro-acp":        "claude-sonnet-4-5-20250929",
 	"codex-cli":       "gpt-5.4-mini",
 	"codex-acp":       "gpt-5.4-mini",

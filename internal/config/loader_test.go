@@ -288,7 +288,7 @@ func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	cliBlock := ProviderBlock{Model: "gpt-cli"}
 	projectBlock := ProviderBlock{Model: "gpt-project"}
 	cfg := &Config{
-		DefaultProvider: "gemini-sdk",
+		DefaultProvider: "gemini-cli",
 		Providers: map[string]ProviderBlock{
 			"copilot-sdk": cliBlock,
 			"claude-cli":  projectBlock,
@@ -310,8 +310,8 @@ func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	}
 
 	id, _ = cfg.ResolveProviderConfig(nil, "")
-	if id != "gemini-sdk" {
-		t.Fatalf("id = %q, want gemini-sdk (global default)", id)
+	if id != "gemini-cli" {
+		t.Fatalf("id = %q, want gemini-cli (global default)", id)
 	}
 }
 
