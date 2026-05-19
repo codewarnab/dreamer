@@ -9,16 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"dreamer/internal/errs"
 )
 
 const (
-	defaultLogFileName    = "dreamer.log"
-	backupLogFileName     = "dreamer.log.1"
-	loggingDirName        = "logging"
-	defaultMaxSizeMB      = 5
-	bytesPerMB            = 1024 * 1024
+	defaultLogFileName = "dreamer.log"
+	backupLogFileName  = "dreamer.log.1"
+	loggingDirName     = "logging"
+	defaultMaxSizeMB   = 5
+	bytesPerMB         = 1024 * 1024
 )
 
 // Logger writes progress and issue details to a project-local Dreamer log file.
@@ -29,6 +30,7 @@ const (
 // currently needs durable progress/error breadcrumbs more than a full logging
 // framework.
 type Logger struct {
+	mu        sync.Mutex
 	file      *os.File
 	logger    *slog.Logger
 	level     slog.Level
@@ -112,10 +114,17 @@ func (logger *Logger) Path() string {
 
 // Close flushes and closes the underlying log file.
 func (logger *Logger) Close() error {
-	if logger == nil || logger.file == nil {
+	if logger == nil {
 		return nil
 	}
-	return logger.file.Close()
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	if logger.file == nil {
+		return nil
+	}
+	err := logger.file.Close()
+	logger.file = nil
+	return err
 }
 
 // Error records a command issue or failure.
@@ -139,13 +148,16 @@ func (logger *Logger) Debug(message string, attrs ...Attr) {
 }
 
 func (logger *Logger) write(level slog.Level, message string, attrs ...Attr) {
-	if logger == nil || logger.logger == nil || level < logger.level {
+	if logger == nil || level < logger.level {
 		return
 	}
-	if logger.rotateIfNeeded() {
-		// The file was rotated; rebuild the slog handler so it writes to the
-		// new file descriptor. The old MultiWriter still references the closed fd.
-		logger.rebuildHandler()
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	if logger.logger == nil {
+		return
+	}
+	if logger.rotateIfNeededLocked() {
+		logger.rebuildHandlerLocked()
 	}
 	args := make([]any, 0, len(attrs))
 	for _, attr := range attrs {
@@ -154,10 +166,10 @@ func (logger *Logger) write(level slog.Level, message string, attrs ...Attr) {
 	logger.logger.Log(context.Background(), level, message, args...)
 }
 
-// rotateIfNeeded checks whether the log file exceeds the configured size limit
-// and rotates it by renaming the current file to .1 and opening a fresh one.
-// Returns true if rotation happened.
-func (logger *Logger) rotateIfNeeded() bool {
+// rotateIfNeededLocked checks whether the log file exceeds the configured size
+// limit and rotates it by renaming the current file to .1 and opening a fresh
+// one. Returns true if rotation happened. Caller must hold logger.mu.
+func (logger *Logger) rotateIfNeededLocked() bool {
 	if logger.maxSizeMB <= 0 || logger.file == nil {
 		return false
 	}
@@ -174,15 +186,21 @@ func (logger *Logger) rotateIfNeeded() bool {
 	file, openErr := os.OpenFile(logger.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if openErr != nil {
 		logger.file = nil
-		return false
+		return true
 	}
 	logger.file = file
 	return true
 }
 
-// rebuildHandler creates a new slog handler that writes to the current file.
-func (logger *Logger) rebuildHandler() {
-	handler := slog.NewTextHandler(io.MultiWriter(logger.file, os.Stderr), &slog.HandlerOptions{
+// rebuildHandlerLocked creates a new slog handler that writes to the current
+// file (or stderr-only if rotation failed to reopen). Caller must hold
+// logger.mu.
+func (logger *Logger) rebuildHandlerLocked() {
+	var writer io.Writer = os.Stderr
+	if logger.file != nil {
+		writer = io.MultiWriter(logger.file, os.Stderr)
+	}
+	handler := slog.NewTextHandler(writer, &slog.HandlerOptions{
 		Level: logger.level,
 		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
 			if attr.Key == slog.LevelKey {

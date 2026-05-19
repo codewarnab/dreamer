@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	startupTaskName      = "Dreamer"
-	systemdUnitName      = "dreamer.service"
-	systemdDirName       = "systemd"
-	systemdSubDirName    = "user"
+	startupTaskName   = "Dreamer"
+	systemdUnitName   = "dreamer.service"
+	systemdDirName    = "systemd"
+	systemdSubDirName = "user"
 )
 
 type commandRunner func(name string, args ...string) ([]byte, error)
@@ -97,8 +97,9 @@ func newStartupStatusCommand() *cobra.Command {
 
 func installWindowsStartup(cmd *cobra.Command, executablePath, configPath string) error {
 	taskCommand := buildStartupTaskCommand(executablePath, configPath)
-	// /RI 5: restart every 5 min if not running. /DU 9999: unlimited duration.
-	if output, err := runStartupCommand("schtasks.exe", "/Create", "/TN", startupTaskName, "/TR", taskCommand, "/SC", "ONLOGON", "/RI", "5", "/DU", "9999", "/RL", "LIMITED", "/F"); err != nil {
+	// /RI is rejected by schtasks for ONLOGON triggers, so we only register the
+	// logon trigger here. Crash recovery on Windows is the daemon's own concern.
+	if output, err := runStartupCommand("schtasks.exe", "/Create", "/TN", startupTaskName, "/TR", taskCommand, "/SC", "ONLOGON", "/RL", "LIMITED", "/F"); err != nil {
 		return fmt.Errorf("install startup task: %w%s", err, formatCommandOutput(output))
 	}
 

@@ -49,10 +49,8 @@ func TestStartupInstallCreatesLogonTask(t *testing.T) {
 	assertContainsArgument(t, commandArgs, "/Create")
 	assertContainsArgument(t, commandArgs, "/SC")
 	assertContainsArgument(t, commandArgs, "ONLOGON")
-	assertContainsArgument(t, commandArgs, "/RI")
-	assertContainsArgument(t, commandArgs, "5")
-	assertContainsArgument(t, commandArgs, "/DU")
-	assertContainsArgument(t, commandArgs, "9999")
+	assertNotContainsArgument(t, commandArgs, "/RI")
+	assertNotContainsArgument(t, commandArgs, "/DU")
 	assertContainsArgument(t, commandArgs, "/TN")
 	assertContainsArgument(t, commandArgs, startupTaskName)
 	assertContainsArgument(t, commandArgs, filepath.Join(homeDir, ".config", "dreamer", defaultConfigFileName))
@@ -223,5 +221,14 @@ func assertContainsString(t *testing.T, content, expected string) {
 	t.Helper()
 	if !strings.Contains(content, expected) {
 		t.Fatalf("content missing %q\ncontent:\n%s", expected, content)
+	}
+}
+
+func assertNotContainsArgument(t *testing.T, args []string, banned string) {
+	t.Helper()
+	for _, arg := range args {
+		if arg == banned {
+			t.Fatalf("args %q unexpectedly contain %q", args, banned)
+		}
 	}
 }
