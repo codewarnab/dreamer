@@ -1,0 +1,57 @@
+{{define "content"}}
+<section x-data="logsPage()" x-init="load(); $watch('autoRefresh', v => v && start())">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">system</span>
+    <h1 class="headline-lg">logs</h1>
+  </header>
+
+  <div style="margin-bottom: var(--space-3);">
+    <button class="pill" :class="level==='all' && 'pill--healthy'" @click="level='all'">all</button>
+    <button class="pill" :class="level==='info' && 'pill--healthy'" @click="level='info'">info</button>
+    <button class="pill" :class="level==='warn' && 'pill--healthy'" @click="level='warn'">warn</button>
+    <button class="pill" :class="level==='error' && 'pill--healthy'" @click="level='error'">error</button>
+    <label style="margin-left: var(--space-4);">
+      <input type="checkbox" x-model="autoScroll"/> auto-scroll
+    </label>
+    <label style="margin-left: var(--space-3);">
+      <input type="checkbox" x-model="autoRefresh"/> auto-refresh
+    </label>
+    <button class="btn btn--ghost" @click="load()" style="margin-left: var(--space-3);">refresh</button>
+  </div>
+
+  <div class="card">
+    <pre x-ref="pre" style="white-space: pre-wrap; max-height: 60vh; overflow: auto; font-family: var(--font-mono); font-size: 12px;" x-text="filtered()"></pre>
+  </div>
+</section>
+
+<script>
+window.logsPage = function () {
+  return {
+    raw: "",
+    level: "all",
+    autoScroll: true,
+    autoRefresh: false,
+    _timer: null,
+    load: async function () {
+      const r = await fetch("/api/logs/tail");
+      if (!r.ok) return;
+      this.raw = await r.text();
+      this.$nextTick(() => {
+        if (this.autoScroll && this.$refs.pre) this.$refs.pre.scrollTop = this.$refs.pre.scrollHeight;
+      });
+    },
+    filtered: function () {
+      if (this.level === "all") return this.raw;
+      return this.raw.split("\n").filter(l => l.includes("level=" + this.level)).join("\n");
+    },
+    start: function () {
+      if (this._timer) return;
+      this._timer = setInterval(() => {
+        if (!this.autoRefresh) { clearInterval(this._timer); this._timer = null; return; }
+        this.load();
+      }, 3000);
+    },
+  };
+};
+</script>
+{{end}}

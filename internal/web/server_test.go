@@ -201,6 +201,49 @@ func TestServer_RoutesAllHandlers(t *testing.T) {
 	}
 }
 
+func TestServer_RoutesEverySPAPath(t *testing.T) {
+	outRoot := t.TempDir()
+	projPath := t.TempDir()
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "p", Path: projPath}},
+		Daemon:   config.DaemonConfig{OutputRoot: outRoot},
+		Web:      config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
+	}
+	srv, err := NewServer(Options{Config: cfg, Logger: newTestLogger(t), Events: pipeline.NewEventBus()})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+	base := "http://" + srv.Addr()
+	paths := []string{"/", "/settings", "/logs", "/providers", "/projects/p", "/projects/p/findings", "/projects/p/chats", "/projects/p/history"}
+	for _, p := range paths {
+		resp, err := http.Get(base + p)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			continue
+		}
+		if resp.StatusCode != 200 {
+			t.Errorf("%s status %d", p, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	resp, err := http.Get(base + "/projects/unknown")
+	if err != nil {
+		t.Fatalf("GET unknown: %v", err)
+	}
+	if resp.StatusCode != 404 {
+		t.Errorf("unknown project status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestServer_HealthEndpoint(t *testing.T) {
 	cfg := &config.Config{
 		Web:    config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},

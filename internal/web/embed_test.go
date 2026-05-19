@@ -9,6 +9,14 @@ import (
 func TestEmbed_FindsTemplatesAndStatic(t *testing.T) {
 	checks := []string{
 		"templates/layout.html",
+		"templates/dashboard.html",
+		"templates/project_overview.html",
+		"templates/project_findings.html",
+		"templates/project_chats.html",
+		"templates/project_history.html",
+		"templates/settings.html",
+		"templates/logs.html",
+		"templates/providers.html",
 		"static/vendor/htmx.min.js",
 		"static/vendor/alpine.min.js",
 		"static/fonts/Anton/Anton-Regular.woff2",

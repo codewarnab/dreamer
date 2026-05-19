@@ -1,0 +1,95 @@
+{{define "content"}}
+<section x-data="projectFindingsPage()" x-init="load()" data-project="{{.Extra.ProjectName}}">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">project</span>
+    <h1 class="headline-lg" x-text="name + ' / findings'"></h1>
+    <nav class="kicker" style="margin-top: var(--space-3);">
+      <a :href="'/projects/' + name">overview</a>
+      <a :href="'/projects/' + name + '/findings'" style="margin-left: var(--space-3);">findings</a>
+      <a :href="'/projects/' + name + '/chats'" style="margin-left: var(--space-3);">chats</a>
+      <a :href="'/projects/' + name + '/history'" style="margin-left: var(--space-3);">history</a>
+    </nav>
+  </header>
+
+  <div style="margin-bottom: var(--space-4);">
+    <button class="pill" :class="filter==='open' && 'pill--healthy'" @click="filter='open'">open</button>
+    <button class="pill" :class="filter==='applied' && 'pill--healthy'" @click="filter='applied'">applied</button>
+    <button class="pill" :class="filter==='dismissed' && 'pill--healthy'" @click="filter='dismissed'">dismissed</button>
+    <button class="pill" :class="filter==='resolved' && 'pill--healthy'" @click="filter='resolved'">resolved</button>
+    <button class="pill" :class="filter==='all' && 'pill--healthy'" @click="filter='all'">all</button>
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead><tr><th>category</th><th>description</th><th>status</th><th>confidence</th><th></th></tr></thead>
+      <tbody>
+        <template x-for="f in filtered()" :key="f.hash">
+          <tr @click="open(f)" style="cursor: pointer;">
+            <td x-text="f.category"></td>
+            <td x-text="f.description"></td>
+            <td x-text="f.status || 'open'"></td>
+            <td x-text="f.confidence != null ? f.confidence.toFixed(2) : ''"></td>
+            <td><button class="btn btn--ghost" @click.stop="open(f)">view</button></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="findings.length === 0" style="color: var(--text-secondary);">no findings yet.</div>
+  </div>
+
+  <div x-show="active" x-cloak class="modal" @click.self="active=null" style="position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index: 100;">
+    <div class="card" style="max-width: 720px; width: 90%;">
+      <div class="kicker">finding</div>
+      <h2 class="headline-lg" x-text="active?.category"></h2>
+      <p class="body" x-text="active?.description"></p>
+      <pre x-show="active?.diff_preview" x-text="active?.diff_preview" style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px;"></pre>
+      <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3);">
+        <button class="btn btn--primary" @click="act('apply')" x-show="active?.apply_eligible">apply</button>
+        <button class="btn btn--ghost" @click="act('dismiss')">dismiss</button>
+        <button class="btn btn--ghost" @click="act('resolve')">resolve</button>
+        <button class="btn btn--ghost" @click="active=null">close</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+window.projectFindingsPage = function () {
+  return {
+    name: "",
+    findings: [],
+    filter: "open",
+    active: null,
+    load: async function () {
+      const el = document.querySelector("[data-project]");
+      this.name = el ? el.dataset.project : "";
+      if (!this.name) return;
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/findings");
+      if (!r.ok) return;
+      const data = await r.json();
+      this.findings = data.findings || data || [];
+    },
+    filtered: function () {
+      if (this.filter === "all") return this.findings;
+      return this.findings.filter(f => (f.status || "open") === this.filter);
+    },
+    open: async function (f) {
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/findings/" + encodeURIComponent(f.hash));
+      if (r.ok) {
+        this.active = await r.json();
+      } else {
+        this.active = f;
+      }
+    },
+    act: async function (verb) {
+      if (!this.active) return;
+      const tok = document.querySelector('meta[name=csrf-token]')?.content || "";
+      const url = "/api/projects/" + encodeURIComponent(this.name) + "/findings/" + encodeURIComponent(this.active.hash) + "/" + verb;
+      await fetch(url, { method: "POST", headers: { "X-CSRF-Token": tok } });
+      this.active = null;
+      this.load();
+    },
+  };
+};
+</script>
+{{end}}

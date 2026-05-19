@@ -1,0 +1,66 @@
+{{define "content"}}
+<section x-data="settingsPage()" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">configuration</span>
+    <h1 class="headline-lg">settings</h1>
+  </header>
+
+  <template x-for="sec in sections" :key="sec.id">
+    <div class="card" style="margin-bottom: var(--space-4);">
+      <div class="kicker" x-text="sec.label"></div>
+      <template x-for="f in sec.fields" :key="f.key">
+        <div style="margin: var(--space-3) 0;">
+          <label class="label-mono" x-text="f.key" :for="sec.id + '-' + f.key"></label>
+          <input class="input" :id="sec.id + '-' + f.key" :type="f.type || 'text'" x-model="values[sec.id][f.key]" style="display: block; margin-top: var(--space-2);"/>
+        </div>
+      </template>
+      <button class="btn btn--primary" @click="save(sec.id)">save</button>
+      <span x-show="saved[sec.id]" style="margin-left: var(--space-3); color: var(--text-secondary);">saved</span>
+    </div>
+  </template>
+</section>
+
+<script>
+window.settingsPage = function () {
+  return {
+    sections: [
+      { id: "provider", label: "provider", fields: [
+        { key: "id" }, { key: "model" }, { key: "copilot_home" },
+      ]},
+      { id: "daemon", label: "daemon", fields: [
+        { key: "frequency_seconds", type: "number" }, { key: "output_root" },
+      ]},
+      { id: "analyzer", label: "analyzer", fields: [
+        { key: "rule_timeout_seconds", type: "number" },
+      ]},
+      { id: "logging", label: "logging", fields: [
+        { key: "level" }, { key: "max_size_mb", type: "number" },
+      ]},
+      { id: "redaction", label: "redaction", fields: [
+        { key: "enabled" },
+      ]},
+      { id: "web", label: "web", fields: [
+        { key: "host" }, { key: "port", type: "number" }, { key: "log_tail_kb", type: "number" },
+      ]},
+    ],
+    values: { provider:{}, daemon:{}, analyzer:{}, logging:{}, redaction:{}, web:{} },
+    saved: {},
+    load: async function () {
+      const r = await fetch("/api/settings");
+      if (!r.ok) return;
+      const data = await r.json();
+      for (const k of Object.keys(this.values)) {
+        if (data[k]) Object.assign(this.values[k], data[k]);
+      }
+    },
+    save: async function (secId) {
+      const tok = document.querySelector('meta[name=csrf-token]')?.content || "";
+      const body = {}; body[secId] = this.values[secId];
+      const r = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": tok }, body: JSON.stringify(body) });
+      this.saved[secId] = r.ok;
+      setTimeout(() => { this.saved[secId] = false; }, 2000);
+    },
+  };
+};
+</script>
+{{end}}

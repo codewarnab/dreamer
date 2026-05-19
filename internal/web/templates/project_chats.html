@@ -1,0 +1,64 @@
+{{define "content"}}
+<section x-data="projectChatsPage()" x-init="load()" data-project="{{.Extra.ProjectName}}">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">project</span>
+    <h1 class="headline-lg" x-text="name + ' / chats'"></h1>
+    <nav class="kicker" style="margin-top: var(--space-3);">
+      <a :href="'/projects/' + name">overview</a>
+      <a :href="'/projects/' + name + '/findings'" style="margin-left: var(--space-3);">findings</a>
+      <a :href="'/projects/' + name + '/chats'" style="margin-left: var(--space-3);">chats</a>
+      <a :href="'/projects/' + name + '/history'" style="margin-left: var(--space-3);">history</a>
+    </nav>
+  </header>
+
+  <div style="margin-bottom: var(--space-4);">
+    <button class="pill" :class="toolFilter==='all' && 'pill--healthy'" @click="toolFilter='all'">all</button>
+    <template x-for="t in tools()" :key="t">
+      <button class="pill" :class="toolFilter===t && 'pill--healthy'" @click="toolFilter=t" x-text="t"></button>
+    </template>
+  </div>
+
+  <div class="card">
+    <table class="table">
+      <thead><tr><th>tool</th><th>path</th><th>modified</th><th>size</th></tr></thead>
+      <tbody>
+        <template x-for="c in filtered()" :key="c.path">
+          <tr>
+            <td x-text="c.tool"></td>
+            <td x-text="c.path"></td>
+            <td x-text="c.modified_time ? new Date(c.modified_time).toLocaleString() : ''"></td>
+            <td x-text="c.size_bytes != null ? c.size_bytes : ''"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="chats.length === 0" style="color: var(--text-secondary);">no chat sources discovered.</div>
+  </div>
+</section>
+
+<script>
+window.projectChatsPage = function () {
+  return {
+    name: "",
+    chats: [],
+    toolFilter: "all",
+    load: async function () {
+      const el = document.querySelector("[data-project]");
+      this.name = el ? el.dataset.project : "";
+      if (!this.name) return;
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats");
+      if (!r.ok) return;
+      const data = await r.json();
+      this.chats = data.chats || data || [];
+    },
+    tools: function () {
+      return [...new Set(this.chats.map(c => c.tool))].filter(Boolean);
+    },
+    filtered: function () {
+      if (this.toolFilter === "all") return this.chats;
+      return this.chats.filter(c => c.tool === this.toolFilter);
+    },
+  };
+};
+</script>
+{{end}}

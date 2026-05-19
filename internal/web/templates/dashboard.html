@@ -1,0 +1,75 @@
+{{define "content"}}
+<section x-data="dashboardPage()" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">overview</span>
+    <h1 class="headline-lg">dashboard</h1>
+  </header>
+
+  <div class="stat-grid" style="margin-bottom: var(--space-5);">
+    <div class="stat-card">
+      <div class="stat-label">chats analyzed</div>
+      <div class="stat-value" x-text="stats.chats_analyzed_total ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">findings open</div>
+      <div class="stat-value" x-text="stats.findings_open ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">last run</div>
+      <div class="stat-value" x-text="stats.last_run_utc ? new Date(stats.last_run_utc).toLocaleString() : 'never'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">tokens / week</div>
+      <div class="stat-value" x-text="stats.tokens_week ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">providers healthy</div>
+      <div class="stat-value" x-text="stats.providers_healthy ?? '0/0'"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">live activity</div>
+    <div class="activity-strip">
+      <template x-for="ev in liveActivity" :key="ev.at + ev.type">
+        <div class="event">
+          <span class="event-time" x-text="ev.at"></span>
+          <span class="event-type" x-text="ev.type"></span>
+          <span class="event-meta" x-text="ev.payload ? JSON.stringify(ev.payload) : ''"></span>
+        </div>
+      </template>
+      <div x-show="liveActivity.length === 0" style="color: var(--text-secondary);">no events yet — daemon will publish run.start / run.done as cycles execute.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="kicker">per-category 30 days</div>
+    <table class="table">
+      <thead><tr><th>category</th><th>findings</th></tr></thead>
+      <tbody>
+        <template x-for="(count, cat) in perCategory" :key="cat">
+          <tr><td x-text="cat"></td><td x-text="count"></td></tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+window.dashboardPage = function () {
+  return {
+    stats: {},
+    liveActivity: [],
+    perCategory: {},
+    load: async function () {
+      const r = await fetch("/api/dashboard");
+      if (!r.ok) return;
+      const data = await r.json();
+      this.stats = data.stats || {};
+      this.liveActivity = data.live_activity || [];
+      this.perCategory = data.per_category || {};
+    },
+  };
+};
+</script>
+{{end}}

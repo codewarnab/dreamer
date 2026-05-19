@@ -134,38 +134,109 @@ type layoutData struct {
 	Projects          []projectNavItem
 	OverlayParseError string
 	RestartRequired   []string
+	// Extra carries page-specific data (e.g. ProjectName for project tabs).
+	Extra any
 }
 
 type projectNavItem struct{ Name string }
 
+// pageRoute maps a top-level SPA path to the page template that fills the
+// layout's content block.
+type pageRoute struct {
+	template    string
+	nameInTitle string
+}
+
+var pageRoutes = map[string]pageRoute{
+	"/":          {template: "dashboard.html", nameInTitle: "dashboard"},
+	"/settings":  {template: "settings.html", nameInTitle: "settings"},
+	"/logs":      {template: "logs.html", nameInTitle: "logs"},
+	"/providers": {template: "providers.html", nameInTitle: "providers"},
+}
+
+var projectTabTemplates = map[string]string{
+	"":          "project_overview.html",
+	"findings":  "project_findings.html",
+	"chats":     "project_chats.html",
+	"history":   "project_history.html",
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/projects/") {
+		s.renderProjectPage(w, r)
+		return
+	}
+	route, ok := pageRoutes[path]
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderIndex(w, r)
+	s.renderPage(w, r, route.template, nil)
 }
 
-func (s *Server) renderIndex(w http.ResponseWriter, r *http.Request) {
+func (s *Server) layoutData(extra any) layoutData {
 	cfg := s.currentConfig()
-	tmpl, err := template.ParseFS(assets, "templates/layout.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 	items := make([]projectNavItem, 0, len(cfg.Projects))
 	for _, p := range cfg.Projects {
 		items = append(items, projectNavItem{Name: p.Name})
 	}
-	data := layoutData{
+	return layoutData{
 		CSRFToken:         s.csrfToken,
 		Projects:          items,
 		OverlayParseError: cfg.Notices.OverlayParseError,
 		RestartRequired:   cfg.Notices.RestartRequired,
+		Extra:             extra,
+	}
+}
+
+func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate string, extra any) {
+	tmpl, err := template.ParseFS(assets, "templates/layout.html", "templates/"+pageTemplate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'")
-	_ = tmpl.Execute(w, data)
+	// CSP loosens to allow inline <script> blocks that define each page's
+	// Alpine factory function. A future task can move those into a single
+	// static bundle and drop 'unsafe-inline'.
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'")
+	_ = tmpl.Execute(w, s.layoutData(extra))
+}
+
+// renderProjectPage parses /projects/{name}[/{tab}], validates the project
+// against the live config, and renders the matching tab template.
+func (s *Server) renderProjectPage(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/projects/")
+	rest = strings.TrimSuffix(rest, "/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	name := parts[0]
+	tab := ""
+	if len(parts) == 2 {
+		tab = parts[1]
+	}
+	tmpl, ok := projectTabTemplates[tab]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	cfg := s.currentConfig()
+	found := false
+	for _, p := range cfg.Projects {
+		if p.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	s.renderPage(w, r, tmpl, struct{ ProjectName string }{ProjectName: name})
 }
 
 func (s *Server) attachAPI(mux *http.ServeMux) {

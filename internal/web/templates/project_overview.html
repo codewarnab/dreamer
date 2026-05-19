@@ -1,0 +1,63 @@
+{{define "content"}}
+<section x-data="projectOverviewPage()" x-init="load()" data-project="{{.Extra.ProjectName}}">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">project</span>
+    <h1 class="headline-lg" x-text="name"></h1>
+    <nav class="kicker" style="margin-top: var(--space-3);">
+      <a :href="'/projects/' + name">overview</a>
+      <a :href="'/projects/' + name + '/findings'" style="margin-left: var(--space-3);">findings</a>
+      <a :href="'/projects/' + name + '/chats'" style="margin-left: var(--space-3);">chats</a>
+      <a :href="'/projects/' + name + '/history'" style="margin-left: var(--space-3);">history</a>
+    </nav>
+  </header>
+
+  <div class="stat-grid" style="margin-bottom: var(--space-5);">
+    <div class="stat-card">
+      <div class="stat-label">findings open</div>
+      <div class="stat-value" x-text="detail.findings_open ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">chats indexed</div>
+      <div class="stat-value" x-text="detail.chats_indexed ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">last run</div>
+      <div class="stat-value" x-text="detail.last_run_utc ? new Date(detail.last_run_utc).toLocaleString() : 'never'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">tokens (last run)</div>
+      <div class="stat-value" x-text="detail.tokens_last_run ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">guardrails applied</div>
+      <div class="stat-value" x-text="detail.guardrails_applied ?? '—'"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="pill" x-text="detail.next_run_in ? 'next run in ' + detail.next_run_in : 'idle'"></span>
+    <button class="btn btn--primary" @click="runNow()" style="margin-left: var(--space-3);">run now</button>
+  </div>
+</section>
+
+<script>
+window.projectOverviewPage = function () {
+  return {
+    name: "",
+    detail: {},
+    load: async function () {
+      const el = document.querySelector("[data-project]");
+      this.name = el ? el.dataset.project : "";
+      if (!this.name) return;
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name));
+      if (!r.ok) return;
+      this.detail = await r.json();
+    },
+    runNow: async function () {
+      if (!this.name) return;
+      await fetch("/api/projects/" + encodeURIComponent(this.name) + "/run", { method: "POST" });
+    },
+  };
+};
+</script>
+{{end}}

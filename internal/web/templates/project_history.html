@@ -1,0 +1,50 @@
+{{define "content"}}
+<section x-data="projectHistoryPage()" x-init="load()" data-project="{{.Extra.ProjectName}}">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">project</span>
+    <h1 class="headline-lg" x-text="name + ' / history'"></h1>
+    <nav class="kicker" style="margin-top: var(--space-3);">
+      <a :href="'/projects/' + name">overview</a>
+      <a :href="'/projects/' + name + '/findings'" style="margin-left: var(--space-3);">findings</a>
+      <a :href="'/projects/' + name + '/chats'" style="margin-left: var(--space-3);">chats</a>
+      <a :href="'/projects/' + name + '/history'" style="margin-left: var(--space-3);">history</a>
+    </nav>
+  </header>
+
+  <div class="card">
+    <table class="table">
+      <thead><tr><th>day</th><th>runs</th><th>findings</th><th>tokens</th><th>cache hits</th></tr></thead>
+      <tbody>
+        <template x-for="d in days" :key="d.day">
+          <tr>
+            <td x-text="d.day"></td>
+            <td x-text="d.runs ?? 0"></td>
+            <td x-text="d.findings_new ?? 0"></td>
+            <td x-text="d.tokens_total ?? 0"></td>
+            <td x-text="d.cache_hits ?? 0"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="days.length === 0" style="color: var(--text-secondary);">no history yet.</div>
+  </div>
+</section>
+
+<script>
+window.projectHistoryPage = function () {
+  return {
+    name: "",
+    days: [],
+    load: async function () {
+      const el = document.querySelector("[data-project]");
+      this.name = el ? el.dataset.project : "";
+      if (!this.name) return;
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/history");
+      if (!r.ok) return;
+      const data = await r.json();
+      this.days = data.days || data || [];
+    },
+  };
+};
+</script>
+{{end}}
