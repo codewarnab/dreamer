@@ -68,6 +68,63 @@ func TestRunHappyPathWritesTodosAndState(t *testing.T) {
 	}
 }
 
+func TestRunWritesHistoryAndEmitsEvents(t *testing.T) {
+	projectDir, outputRoot, cfg := newPipelineFixture(t)
+	writeCodexChatFixture(t, projectDir)
+	setFakeProviderMode(t, "happy")
+
+	bus := NewEventBus()
+	events := bus.Subscribe(8)
+	t.Cleanup(func() { bus.Unsubscribe(events) })
+
+	logger := newTestLogger(t, outputRoot)
+	if _, err := Run(context.Background(), Options{
+		Config:      cfg,
+		ProjectPath: projectDir,
+		Events:      bus,
+	}, logger); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	h, err := state.LoadHistory(outputRoot, deriveProjectName(projectDir))
+	if err != nil {
+		t.Fatalf("LoadHistory returned error: %v", err)
+	}
+	if len(h.Days) != 1 {
+		t.Fatalf("len(history.Days) = %d, want 1", len(h.Days))
+	}
+	if h.Days[0].Runs != 1 {
+		t.Fatalf("history.Days[0].Runs = %d, want 1", h.Days[0].Runs)
+	}
+	if h.Days[0].FindingsNew != 1 {
+		t.Fatalf("history.Days[0].FindingsNew = %d, want 1", h.Days[0].FindingsNew)
+	}
+
+	// Drain emitted events and verify both lifecycle markers were published.
+	gotStart, gotDone := false, false
+	deadline := time.After(2 * time.Second)
+drain:
+	for {
+		select {
+		case e := <-events:
+			if e.Type == EventRunStart {
+				gotStart = true
+			}
+			if e.Type == EventRunDone {
+				gotDone = true
+			}
+			if gotStart && gotDone {
+				break drain
+			}
+		case <-deadline:
+			break drain
+		}
+	}
+	if !gotStart || !gotDone {
+		t.Fatalf("events: gotStart=%v gotDone=%v, want both", gotStart, gotDone)
+	}
+}
+
 func TestRunDryRunDoesNotWriteTodosOrState(t *testing.T) {
 	projectDir, outputRoot, cfg := newPipelineFixture(t)
 	writeCodexChatFixture(t, projectDir)
