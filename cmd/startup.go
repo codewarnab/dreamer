@@ -213,9 +213,16 @@ func statusLinuxStartup(cmd *cobra.Command) error {
 }
 
 func buildSystemdUnit(executablePath, configPath string) string {
+	// Each ExecStart argument is wrapped in systemd-style double quotes so the
+	// unit keeps parsing correctly when the install path contains spaces.
+	// StartLimit* caps the Restart=on-failure loop: at RestartSec=30 the
+	// default 10s burst window never trips, so a permanently broken config
+	// would otherwise relaunch the daemon every 30s indefinitely.
 	return fmt.Sprintf(`[Unit]
 Description=Dreamer daemon - periodic chat analysis
 After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -227,7 +234,15 @@ StandardError=journal
 
 [Install]
 WantedBy=default.target
-`, executablePath, configPath)
+`, quoteSystemdArg(executablePath), quoteSystemdArg(configPath))
+}
+
+// quoteSystemdArg wraps value in systemd-style double quotes, escaping any
+// backslashes or quotes so paths with spaces survive ExecStart parsing.
+func quoteSystemdArg(value string) string {
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return `"` + escaped + `"`
 }
 
 // --- Shared ---

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"dreamer/internal/logging"
@@ -17,9 +18,10 @@ const (
 )
 
 // AcquireLock creates a PID-based lock file at path. If the lock is already
-// held by a live process, it returns an error. Stale locks (from a crashed
-// process) are automatically cleaned up. The returned release function removes
-// the lock file and should be called via defer.
+// held by a live process running the same executable, it returns an error.
+// Stale locks — from a crashed process, or from a PID that has since been
+// reused by an unrelated program — are automatically cleaned up. The returned
+// release function removes the lock file and should be called via defer.
 func AcquireLock(path string, logger *logging.Logger) (release func(), err error) {
 	parent := filepath.Dir(path)
 	if mkErr := os.MkdirAll(parent, lockDirPerms); mkErr != nil {
@@ -43,10 +45,11 @@ func AcquireLock(path string, logger *logging.Logger) (release func(), err error
 const maxLockRetries = 3
 
 func tryAcquire(path string, logger *logging.Logger) error {
+	ownExec, _ := os.Executable()
 	for attempt := 0; attempt < maxLockRetries; attempt++ {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, lockFilePerms)
 		if err == nil {
-			payload := fmt.Sprintf("%d\n%d\n", os.Getpid(), time.Now().Unix())
+			payload := fmt.Sprintf("%d\n%d\n%s\n", os.Getpid(), time.Now().Unix(), ownExec)
 			if _, writeErr := f.WriteString(payload); writeErr != nil {
 				_ = f.Close()
 				_ = os.Remove(path)
@@ -65,39 +68,81 @@ func tryAcquire(path string, logger *logging.Logger) error {
 			return fmt.Errorf("open lock file %q: %w", path, err)
 		}
 
-		// Lock file exists — check if holder is still alive.
-		existingPID, readErr := readLockPID(path)
+		// Lock file exists — check liveness, and (when possible) executable
+		// identity. PID alone is not enough: after a SIGKILL the OS may reuse
+		// the PID for an unrelated program before we run again, which would
+		// otherwise jam systemd's Restart=on-failure loop forever.
+		existingPID, existingExec, readErr := readLockMetadata(path)
 		if readErr != nil {
 			logger.Warn("removing corrupt lock file", logging.Any("path", path), logging.Any("err", readErr))
 			_ = os.Remove(path)
 			continue
 		}
 
-		if isProcessAlive(existingPID) {
-			return fmt.Errorf("daemon already running (PID %d); lock file %s", existingPID, path)
+		if !isProcessAlive(existingPID) {
+			logger.Info("removing stale lock file",
+				logging.Any("pid", existingPID),
+				logging.Any("path", path),
+				logging.Any("reason", "process not alive"),
+			)
+			_ = os.Remove(path)
+			continue
 		}
 
-		logger.Info("removing stale lock file", logging.Any("pid", existingPID), logging.Any("path", path))
-		_ = os.Remove(path)
+		if existingExec != "" {
+			if liveExec, ok := processExecutable(existingPID); ok && !execPathsMatch(liveExec, existingExec) {
+				logger.Info("removing stale lock file",
+					logging.Any("pid", existingPID),
+					logging.Any("path", path),
+					logging.Any("recorded_exec", existingExec),
+					logging.Any("live_exec", liveExec),
+					logging.Any("reason", "PID reused by different executable"),
+				)
+				_ = os.Remove(path)
+				continue
+			}
+		}
+
+		return fmt.Errorf("daemon already running (PID %d); lock file %s", existingPID, path)
 	}
 	return fmt.Errorf("failed to acquire lock %q after %d attempts", path, maxLockRetries)
 }
 
-func readLockPID(path string) (int, error) {
+// readLockMetadata extracts the PID and (optionally) the recorded executable
+// path from a lock file. Files written by older dreamer versions only carry
+// "<pid>\n<unix-ts>\n"; in that case execPath is "" and the caller falls back
+// to a PID-only liveness check.
+func readLockMetadata(path string) (pid int, execPath string, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, fmt.Errorf("read lock file %q: %w", path, err)
+		return 0, "", fmt.Errorf("read lock file %q: %w", path, err)
 	}
-	lines := bytes.SplitN(data, []byte("\n"), 2)
+	lines := bytes.Split(data, []byte("\n"))
 	if len(lines) == 0 || len(lines[0]) == 0 {
-		return 0, fmt.Errorf("lock file %q has no PID", path)
+		return 0, "", fmt.Errorf("lock file %q has no PID", path)
 	}
-	pid, err := strconv.Atoi(string(lines[0]))
-	if err != nil {
-		return 0, fmt.Errorf("parse PID from lock file %q: %w", path, err)
+	pid, parseErr := strconv.Atoi(string(lines[0]))
+	if parseErr != nil {
+		return 0, "", fmt.Errorf("parse PID from lock file %q: %w", path, parseErr)
 	}
 	if pid <= 0 {
-		return 0, fmt.Errorf("invalid PID %d in lock file %q", pid, path)
+		return 0, "", fmt.Errorf("invalid PID %d in lock file %q", pid, path)
 	}
-	return pid, nil
+	if len(lines) >= 3 {
+		execPath = strings.TrimSpace(string(lines[2]))
+	}
+	return pid, execPath, nil
+}
+
+func execPathsMatch(a, b string) bool {
+	// Resolve symlinks so an in-place upgrade still matches the recorded path.
+	// Fall back to plain string compare when EvalSymlinks fails (e.g. the
+	// recorded binary has since been deleted).
+	if ra, err := filepath.EvalSymlinks(a); err == nil {
+		a = ra
+	}
+	if rb, err := filepath.EvalSymlinks(b); err == nil {
+		b = rb
+	}
+	return a == b
 }
