@@ -1,0 +1,196 @@
+package handlers
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"dreamer/internal/config"
+	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
+)
+
+// seedApplyProject seeds a minimal project with a CLAUDE.md target file and
+// returns the config plus an event bus. The seeded state contains no
+// lifecycle entries for the given hashes so Apply starts from "open".
+func seedApplyProject(t *testing.T) (*config.Config, *pipeline.EventBus) {
+	t.Helper()
+	root := t.TempDir()
+	projDir := filepath.Join(root, "proj-a")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "CLAUDE.md"), []byte("# Doc\n\nIntro.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &state.State{Version: state.StateVersion}
+	if err := state.Save(root, "proj-a", st); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj-a", Path: projDir}},
+		Daemon:   config.DaemonConfig{OutputRoot: root, FrequencySeconds: 3600},
+	}
+	return cfg, pipeline.NewEventBus()
+}
+
+func postJSON(t *testing.T, h http.HandlerFunc, url string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var rdr *bytes.Buffer
+	if body == nil {
+		rdr = bytes.NewBuffer(nil)
+	} else {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rdr = bytes.NewBuffer(buf)
+	}
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodPost, url, rdr))
+	return rec
+}
+
+func TestApply_Happy(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	sub := bus.Subscribe(4)
+	defer bus.Unsubscribe(sub)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "aaaa111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "append-section",
+		Anchor:     "Cache",
+		Snippet:    "Rules for cache.",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var fs state.FindingState
+	if err := json.Unmarshal(rec.Body.Bytes(), &fs); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if fs.Status != state.FindingStatusApplied {
+		t.Errorf("status=%q want applied", fs.Status)
+	}
+	if fs.AppliedReversal == nil || fs.AppliedReversal.PostImageSHA256 == "" {
+		t.Errorf("reversal not captured: %+v", fs.AppliedReversal)
+	}
+
+	// State must persist.
+	st, err := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := st.Findings[hash]
+	if !ok {
+		t.Fatalf("hash not persisted in state: %+v", st.Findings)
+	}
+	if got.Status != state.FindingStatusApplied {
+		t.Errorf("persisted status=%q", got.Status)
+	}
+
+	// Event must be published.
+	select {
+	case evt := <-sub:
+		if evt.Type != pipeline.EventFindingApplied {
+			t.Errorf("event type=%q", evt.Type)
+		}
+		if evt.Payload["hash"] != hash {
+			t.Errorf("event payload hash=%v", evt.Payload["hash"])
+		}
+	default:
+		t.Errorf("no event published")
+	}
+}
+
+func TestApply_IneligibleCategory(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "bbbb111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "perf",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "append-file",
+		Snippet:    "x",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestApply_Containment(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "cccc111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: "../etc/passwd",
+		Strategy:   "append-file",
+		Snippet:    "x",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestApply_AnchorMissing(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "dddd111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "replace-section",
+		Anchor:     "NonexistentSection",
+		Snippet:    "x",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestApply_OversizeTarget(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	// Inflate CLAUDE.md beyond the 4 MiB cap.
+	big := bytes.Repeat([]byte("a"), 5<<20)
+	if err := os.WriteFile(filepath.Join(cfg.Projects[0].Path, "CLAUDE.md"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "eeee111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "append-file",
+		Snippet:    "x",
+	})
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d want 413 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestApply_MethodNotAllowed(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-a/findings/ffff111111111111111111111111111111111111111111111111111111111111/apply", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status=%d want 405", rec.Code)
+	}
+}
+
+func TestApply_UnknownProject(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "aaaa222222222222222222222222222222222222222222222222222222222222"
+	rec := postJSON(t, h, "/api/projects/nope/findings/"+hash+"/apply", applyRequest{Category: "doc"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404", rec.Code)
+	}
+}

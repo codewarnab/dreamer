@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/pipeline"
 	"dreamer/internal/state"
 )
 
 // Deps is the minimal slice of server context the handlers need. Config is
-// a func to return the live (post-overlay-reload) snapshot.
+// a func to return the live (post-overlay-reload) snapshot. Events is the
+// shared pub-sub used by lifecycle handlers to publish finding.* events.
 type Deps struct {
 	Config func() *config.Config
+	Events *pipeline.EventBus
 }
 
 // Dashboard returns an http.HandlerFunc for GET /api/dashboard.
