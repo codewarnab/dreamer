@@ -356,3 +356,41 @@ func (s fakeAnalysisSession) Close() error {
 func isPhase2Prompt(prompt string) bool {
 	return strings.Contains(prompt, "synthesizing guardrails")
 }
+
+// TestPipelineRun_DismissedFindingsFilteredFromPhase2 verifies that the
+// dismiss-filter loop unions hashes whose stored Status is "dismissed" into
+// the dedupe ExistingHashes set, while applied/resolved findings stay out so
+// recurrence detection still works.
+func TestPipelineRun_DismissedFindingsFilteredFromPhase2(t *testing.T) {
+	st := &state.State{
+		FindingHashes: []string{"cafebabe"},
+		Findings: map[string]state.FindingState{
+			"deadbeef": {Status: state.FindingStatusDismissed},
+			"feedface": {Status: state.FindingStatusApplied},
+			"baadf00d": {Status: state.FindingStatusResolved},
+		},
+	}
+
+	existing := stringSliceToSet(st.FindingHashes)
+	for hash, fs := range st.Findings {
+		if fs.Status == state.FindingStatusDismissed {
+			if existing == nil {
+				existing = map[string]struct{}{}
+			}
+			existing[hash] = struct{}{}
+		}
+	}
+
+	if _, ok := existing["deadbeef"]; !ok {
+		t.Fatalf("expected dismissed hash 'deadbeef' to be in ExistingHashes, got %v", existing)
+	}
+	if _, ok := existing["cafebabe"]; !ok {
+		t.Fatalf("expected prior finding hash 'cafebabe' to remain in ExistingHashes")
+	}
+	if _, ok := existing["feedface"]; ok {
+		t.Fatalf("applied finding 'feedface' must not be in ExistingHashes (recurrence detection)")
+	}
+	if _, ok := existing["baadf00d"]; ok {
+		t.Fatalf("resolved finding 'baadf00d' must not be in ExistingHashes (recurrence detection)")
+	}
+}

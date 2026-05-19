@@ -376,6 +376,16 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	existingFindingHashes := stringSliceToSet(currentState.FindingHashes)
+	if currentState != nil {
+		for hash, fs := range currentState.Findings {
+			if fs.Status == state.FindingStatusDismissed {
+				if existingFindingHashes == nil {
+					existingFindingHashes = map[string]struct{}{}
+				}
+				existingFindingHashes[hash] = struct{}{}
+			}
+		}
+	}
 	phaseReq := analyzer.PhaseRequest{
 		ProjectRoot:       projectPath,
 		ToolchainSummary:  tc.Summary(),
