@@ -76,8 +76,9 @@ type DaemonConfig struct {
 
 // LoggingConfig configures the structured logger.
 type LoggingConfig struct {
-	Level string `yaml:"level" json:"level"`
-	File  string `yaml:"file,omitempty" json:"file,omitempty"`
+	Level     string `yaml:"level" json:"level"`
+	File      string `yaml:"file,omitempty" json:"file,omitempty"`
+	MaxSizeMB int    `yaml:"max_size_mb,omitempty" json:"max_size_mb,omitempty"`
 }
 
 // RedactionConfig configures the secret-redaction pass.

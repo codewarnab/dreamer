@@ -12,7 +12,7 @@ import (
 )
 
 func TestLoggingSessionRecordsPromptAndResponse(t *testing.T) {
-	logger, err := logging.New(t.TempDir(), "debug")
+	logger, err := logging.New(t.TempDir(), "debug", 0)
 	if err != nil {
 		t.Fatalf("logging.New returned error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestLoggingSessionRecordsPromptAndResponse(t *testing.T) {
 
 func TestLoggerPathConvention(t *testing.T) {
 	outputRoot := t.TempDir()
-	logger, err := logging.New(outputRoot, "info")
+	logger, err := logging.New(outputRoot, "info", 0)
 	if err != nil {
 		t.Fatalf("logging.New returned error: %v", err)
 	}

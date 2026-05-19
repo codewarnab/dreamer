@@ -232,7 +232,7 @@ func setFakeProviderMode(t *testing.T, mode string) {
 func newTestLogger(t *testing.T, outputRoot string) *logging.Logger {
 	t.Helper()
 
-	logger, err := logging.New(outputRoot, "debug")
+	logger, err := logging.New(outputRoot, "debug", 0)
 	if err != nil {
 		t.Fatalf("logging.New returned error: %v", err)
 	}
