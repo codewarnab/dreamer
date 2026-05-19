@@ -15,6 +15,8 @@ import (
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/web"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -44,8 +46,9 @@ func newDaemonCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			overlayPath, _ := config.GlobalOverlayPath()
 
-			cfg, err := config.LoadConfig(resolvedConfigPath)
+			cfg, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
@@ -88,10 +91,28 @@ func newDaemonCommand() *cobra.Command {
 			defer stop()
 
 			discoveryCache := pipeline.NewDiscoveryCache()
+			events := pipeline.NewEventBus()
+
+			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
+				srv, srvErr := web.NewServer(web.Options{Config: cfg, Logger: logger, Events: events})
+				if srvErr != nil {
+					logger.Error("web server construct failed", logging.Any("err", srvErr))
+				} else if startErr := srv.Start(); startErr != nil {
+					logger.Error("web server start failed", logging.Any("err", startErr))
+				} else {
+					defer func() {
+						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						_ = srv.Shutdown(shutdownCtx)
+					}()
+				}
+			}
+
+			startConfigWatcher(ctx, logger, events, resolvedConfigPath, overlayPath)
 
 			cmd.Printf("daemon started: frequency=%s projects=%d\n", frequency, len(cfg.Projects))
 			logger.Info("daemon started", logging.Any("config", resolvedConfigPath), logging.Any("frequency", frequency), logging.Any("projects", len(cfg.Projects)))
-			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache); err != nil {
+			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache, events); err != nil {
 				logger.Error("daemon cycle failed", logging.Any("err", err))
 				cmd.Printf("daemon cycle failed: %v\n", err)
 			}
@@ -106,7 +127,7 @@ func newDaemonCommand() *cobra.Command {
 					logger.Info("daemon stopped", logging.Any("cause", context.Cause(ctx)))
 					return nil
 				case <-ticker.C:
-					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache); err != nil {
+					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache, events); err != nil {
 						logger.Error("daemon cycle failed", logging.Any("err", err))
 						cmd.Printf("daemon cycle failed: %v\n", err)
 					}
@@ -131,7 +152,7 @@ type daemonOverrides struct {
 	maxChunkBytesSet bool
 }
 
-func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides, discoveryCache *pipeline.DiscoveryCache) error {
+func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides, discoveryCache *pipeline.DiscoveryCache, events *pipeline.EventBus) error {
 	logger.Info("daemon cycle started", logging.Any("projects", len(cfg.Projects)))
 	var cycleErrors []error
 	for _, project := range cfg.Projects {
@@ -150,6 +171,7 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 			ParallelOverride:       overrides.parallel,
 			MaxConcurrencyOverride: overrides.maxConcurrency,
 			DiscoveryCache:         discoveryCache,
+			Events:                 events,
 		}
 		if overrides.maxChunkBytesSet {
 			opts.MaxChunkBytesOverride = overrides.maxChunkBytes
@@ -181,4 +203,78 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 
 	logger.Info("daemon cycle complete")
 	return errors.Join(cycleErrors...)
+}
+
+// startConfigWatcher spawns a goroutine bound to ctx that watches the parent
+// directories of configPath and overlayPath for write events. On a successful
+// reload it publishes a config.reloaded event via the bus. Reload failures are
+// logged at warn level and never crash the daemon. The in-memory cfg is NOT
+// swapped here; that lands in a later commit.
+func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pipeline.EventBus, configPath, overlayPath string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Error("config watcher init failed", logging.Any("err", err))
+		return
+	}
+
+	watched := map[string]struct{}{}
+	addWatch := func(p string) {
+		if p == "" {
+			return
+		}
+		dir := filepath.Dir(p)
+		if _, ok := watched[dir]; ok {
+			return
+		}
+		if err := watcher.Add(dir); err != nil {
+			logger.Error("config watcher add failed", logging.Any("dir", dir), logging.Any("err", err))
+			return
+		}
+		watched[dir] = struct{}{}
+	}
+	addWatch(configPath)
+	addWatch(overlayPath)
+
+	if len(watched) == 0 {
+		_ = watcher.Close()
+		return
+	}
+
+	go func() {
+		defer func() { _ = watcher.Close() }()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if ev.Op&fsnotify.Write == 0 && ev.Op&fsnotify.Create == 0 {
+					continue
+				}
+				clean := filepath.Clean(ev.Name)
+				if clean != filepath.Clean(configPath) && clean != filepath.Clean(overlayPath) {
+					continue
+				}
+				newCfg, loadErr := config.LoadConfigWithOverlay(configPath, overlayPath)
+				if loadErr != nil {
+					logger.Info("config reload failed", logging.Any("err", loadErr))
+					continue
+				}
+				events.Publish(pipeline.Event{
+					Type: pipeline.EventConfigReload,
+					Payload: map[string]any{
+						"overlay":          newCfg.Notices.OverlayApplied,
+						"restart_required": newCfg.Notices.RestartRequired,
+					},
+				})
+			case werr, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				logger.Info("config watcher error", logging.Any("err", werr))
+			}
+		}
+	}()
 }
