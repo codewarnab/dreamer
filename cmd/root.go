@@ -17,6 +17,7 @@ import (
 	_ "dreamer/internal/analyzer/providers/opencodeacp"
 	_ "dreamer/internal/analyzer/providers/opencodehttp"
 	_ "dreamer/internal/analyzer/providers/openclaudecli"
+	_ "dreamer/internal/analyzer/providers/codebuffsdk"
 )
 
 var rootCmd = newRootCommand()

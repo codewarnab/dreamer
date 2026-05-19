@@ -37,6 +37,7 @@ const (
 	ProviderOpenCludeCLI  ProviderID = "openclaude-cli"
 	ProviderOpenCodeACP   ProviderID = "opencode-acp"
 	ProviderOpenCodeServer ProviderID = "opencode-server"
+	ProviderCodebuffSDK    ProviderID = "codebuff-sdk"
 )
 
 // ProviderConfig is the per-provider configuration block resolved by the
