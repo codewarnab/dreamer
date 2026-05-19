@@ -3,9 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"dreamer/internal/config"
+	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
 	"github.com/spf13/cobra"
@@ -58,6 +60,10 @@ func newAnalyzeCommand() *cobra.Command {
 
 			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
 			logDefaultedSinceNotices(logger, cfg)
+
+			if conflict := checkJobConflict(cfg, projectPath); conflict != "" {
+				return fmt.Errorf("%s", conflict)
+			}
 
 			opts := pipeline.Options{
 				Config:                 cfg,
@@ -133,4 +139,33 @@ func commandContext(cmd *cobra.Command) context.Context {
 		return context.Background()
 	}
 	return cmd.Context()
+}
+
+// checkJobConflict loads the job queue and checks whether a running or
+// pending job exists for the given project path. Returns an empty string
+// if no conflict; otherwise a human-readable error message.
+func checkJobConflict(cfg *config.Config, projectPath string) string {
+	storePath := filepath.Join(cfg.Daemon.OutputRoot, "jobs.json")
+	queue := jobqueue.New(jobqueue.Options{StorePath: storePath})
+	if err := queue.Recover(); err != nil {
+		return "" // best-effort; don't block analyze on a corrupt queue
+	}
+
+	// Derive the project name the same way the pipeline does.
+	absPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return ""
+	}
+
+	for _, p := range cfg.Projects {
+		if p.Path == absPath || filepath.Clean(p.Path) == absPath {
+			status := queue.Status()
+			for _, j := range status.Jobs {
+				if j.Project == p.Name && !j.Status.IsTerminal() {
+					return fmt.Sprintf("analysis already in progress for %q (job %s, status: %s); use --force to override", p.Name, j.ID, j.Status)
+				}
+			}
+		}
+	}
+	return ""
 }

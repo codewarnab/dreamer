@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +12,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
+	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
 	"github.com/spf13/cobra"
@@ -70,31 +70,55 @@ func newDaemonCommand() *cobra.Command {
 				logger.Error("daemon configuration has no projects", logging.Any("config", resolvedConfigPath))
 				return fmt.Errorf("config %q has no projects configured", resolvedConfigPath)
 			}
-			if cfg.Daemon.FrequencySeconds <= 0 {
-				logger.Error("daemon frequency_seconds must be greater than zero", logging.Any("value", cfg.Daemon.FrequencySeconds))
-				return fmt.Errorf("daemon frequency_seconds must be greater than zero")
-			}
 
 			lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
+			// Read the stale PID before AcquireLock overwrites it with ours.
+			stalePID, _ := fsutil.ReadLockPID(lockPath)
 			releaseLock, err := fsutil.AcquireLock(lockPath, logger)
 			if err != nil {
 				return err
 			}
 			defer releaseLock()
 
-			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
 			baseCtx := commandContext(cmd)
 			ctx, stop := signal.NotifyContext(baseCtx, daemonSignals()...)
 			defer stop()
 
-			discoveryCache := pipeline.NewDiscoveryCache()
-
-			cmd.Printf("daemon started: frequency=%s projects=%d\n", frequency, len(cfg.Projects))
-			logger.Info("daemon started", logging.Any("config", resolvedConfigPath), logging.Any("frequency", frequency), logging.Any("projects", len(cfg.Projects)))
-			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache); err != nil {
-				logger.Error("daemon cycle failed", logging.Any("err", err))
-				cmd.Printf("daemon cycle failed: %v\n", err)
+			maxDur, err := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
+			if err != nil {
+				return fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, err)
 			}
+			retDur, err := time.ParseDuration(cfg.Daemon.JobHistoryRetention)
+			if err != nil {
+				return fmt.Errorf("parse job_history_retention %q: %w", cfg.Daemon.JobHistoryRetention, err)
+			}
+
+			queue := jobqueue.New(jobqueue.Options{
+				StorePath:     filepath.Join(cfg.Daemon.OutputRoot, "jobs.json"),
+				MaxConcurrent: cfg.Daemon.MaxConcurrentJobs,
+				MaxDuration:   maxDur,
+			})
+			if err := queue.Recover(); err != nil {
+				logger.Warn("failed to recover job queue", logging.Any("err", err))
+			}
+			recoverStaleJobs(queue, stalePID, logger)
+
+			discoveryCache := pipeline.NewDiscoveryCache()
+			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
+
+			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, overrides)
+			workers.Start()
+
+			enqueueMissingJobs(ctx, queue, cfg, logger)
+
+			cmd.Printf("daemon started: frequency=%s projects=%d max_concurrent=%d\n",
+				frequency, len(cfg.Projects), cfg.Daemon.MaxConcurrentJobs)
+			logger.Info("daemon started",
+				logging.Any("config", resolvedConfigPath),
+				logging.Any("frequency", frequency),
+				logging.Any("projects", len(cfg.Projects)),
+				logging.Any("max_concurrent", cfg.Daemon.MaxConcurrentJobs),
+			)
 
 			ticker := time.NewTicker(frequency)
 			defer ticker.Stop()
@@ -102,14 +126,15 @@ func newDaemonCommand() *cobra.Command {
 			for {
 				select {
 				case <-ctx.Done():
-					cmd.Printf("daemon stopped: %v\n", context.Cause(ctx))
-					logger.Info("daemon stopped", logging.Any("cause", context.Cause(ctx)))
+					cmd.Printf("daemon stopping: %v\n", context.Cause(ctx))
+					logger.Info("daemon stopping", logging.Any("cause", context.Cause(ctx)))
+					queue.CancelRunning()
+					workers.Stop()
+					cmd.Printf("daemon stopped\n")
 					return nil
 				case <-ticker.C:
-					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache); err != nil {
-						logger.Error("daemon cycle failed", logging.Any("err", err))
-						cmd.Printf("daemon cycle failed: %v\n", err)
-					}
+					queue.PruneHistory(retDur)
+					enqueueMissingJobs(ctx, queue, cfg, logger)
 				}
 			}
 		},
@@ -131,54 +156,3 @@ type daemonOverrides struct {
 	maxChunkBytesSet bool
 }
 
-func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides, discoveryCache *pipeline.DiscoveryCache) error {
-	logger.Info("daemon cycle started", logging.Any("projects", len(cfg.Projects)))
-	var cycleErrors []error
-	for _, project := range cfg.Projects {
-		select {
-		case <-ctx.Done():
-			logger.Info("daemon cycle cancelled")
-			return nil
-		default:
-		}
-
-		opts := pipeline.Options{
-			Config:                 cfg,
-			ProjectPath:            project.Path,
-			ProjectName:            project.Name,
-			Since:                  project.Since,
-			ParallelOverride:       overrides.parallel,
-			MaxConcurrencyOverride: overrides.maxConcurrency,
-			DiscoveryCache:         discoveryCache,
-		}
-		if overrides.maxChunkBytesSet {
-			opts.MaxChunkBytesOverride = overrides.maxChunkBytes
-			opts.MaxChunkBytesOverrideSet = true
-		}
-		result, err := pipeline.Run(ctx, opts, logger)
-		if err != nil {
-			logger.Error("daemon project failed",
-				append(logging.ErrAttr(err), logging.Any("project", project.Name))...)
-			cmd.Printf("daemon cycle failed for %q: %v\n", project.Name, err)
-			cycleErrors = append(cycleErrors, fmt.Errorf("analyze project %q: %w", project.Name, err))
-			continue
-		}
-		if result.CacheHit {
-			cmd.Printf("daemon cycle no-op for %q (cache hit)\n", project.Name)
-			logger.Info("daemon project cache hit", logging.Any("project", project.Name))
-			continue
-		}
-		cmd.Printf(
-			"daemon cycle complete for %q: sources=%d messages=%d mistakes=%d findings_added=%d\n",
-			project.Name,
-			result.SourcesAnalyzed,
-			result.MessagesRead,
-			result.Mistakes,
-			result.Findings,
-		)
-		logger.Info("daemon project complete", logging.Any("project", project.Name), logging.Any("sources", result.SourcesAnalyzed), logging.Any("messages", result.MessagesRead), logging.Any("mistakes", result.Mistakes), logging.Any("findings", result.Findings))
-	}
-
-	logger.Info("daemon cycle complete")
-	return errors.Join(cycleErrors...)
-}
