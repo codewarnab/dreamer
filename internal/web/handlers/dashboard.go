@@ -19,10 +19,12 @@ import (
 // a func to return the live (post-overlay-reload) snapshot. Events is the
 // shared pub-sub used by lifecycle handlers to publish finding.* events.
 type Deps struct {
-	Config      func() *config.Config
-	Events      *pipeline.EventBus
-	EnqueueRun  func(projectName string) (runID string, accepted bool, err error)
-	OverlayPath func() string
+	Config         func() *config.Config
+	Events         *pipeline.EventBus
+	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
+	OverlayPath    func() string
+	RecentActivity func() []pipeline.Event
+	RestartDaemon  func() error
 }
 
 // Dashboard returns an http.HandlerFunc for GET /api/dashboard.
@@ -38,6 +40,18 @@ func Dashboard(deps Deps) http.HandlerFunc {
 			return
 		}
 		out := buildDashboard(cfg)
+		if deps.RecentActivity != nil {
+			events := deps.RecentActivity()
+			la := make([]any, 0, len(events))
+			for _, e := range events {
+				la = append(la, map[string]any{
+					"type":    e.Type,
+					"at":      e.At.UTC().Format(time.RFC3339),
+					"payload": e.Payload,
+				})
+			}
+			out.LiveActivity = la
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	}

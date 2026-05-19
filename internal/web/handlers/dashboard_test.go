@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/pipeline"
 	"dreamer/internal/state"
 )
 
@@ -138,6 +139,42 @@ func TestDashboard_AggregatesAcrossProjects(t *testing.T) {
 	}
 	if resp.LiveActivity == nil {
 		t.Errorf("live_activity must be non-nil empty array, got nil")
+	}
+}
+
+func TestDashboard_UsesRecentActivity(t *testing.T) {
+	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	at := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	events := []pipeline.Event{
+		{Type: "run.start", At: at, Payload: map[string]any{"project": "p"}},
+		{Type: "run.done", At: at.Add(time.Minute), Payload: map[string]any{"project": "p"}},
+	}
+	h := Dashboard(Deps{
+		Config:         func() *config.Config { return cfg },
+		RecentActivity: func() []pipeline.Event { return events },
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var resp dashboardResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.LiveActivity) != 2 {
+		t.Fatalf("live_activity len = %d, want 2", len(resp.LiveActivity))
+	}
+	first, ok := resp.LiveActivity[0].(map[string]any)
+	if !ok {
+		t.Fatalf("live_activity[0] not map: %T", resp.LiveActivity[0])
+	}
+	if first["type"] != "run.start" {
+		t.Errorf("first.type = %v, want run.start", first["type"])
+	}
+	if first["at"] != "2026-05-20T10:00:00Z" {
+		t.Errorf("first.at = %v, want 2026-05-20T10:00:00Z", first["at"])
 	}
 }
 
