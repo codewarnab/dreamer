@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -169,7 +170,10 @@ func filterMistakesByThreshold(mistakes []Mistake, threshold float64) []Mistake 
 	}
 	filtered := make([]Mistake, 0, len(mistakes))
 	for _, m := range mistakes {
-		if m.Confidence > 0 && m.Confidence < threshold {
+		// B14: drop NaN and missing-or-zero confidence; admit only items
+		// at or above the threshold. The previous `> 0 && < threshold`
+		// guard let `0` and `NaN` slip through.
+		if math.IsNaN(m.Confidence) || m.Confidence < threshold {
 			continue
 		}
 		filtered = append(filtered, m)
@@ -181,7 +185,9 @@ func validateFindings(findings []Finding, pack RulePack, req PhaseRequest) ([]Fi
 	out := make([]Finding, 0, len(findings))
 	warnings := []string{}
 	for _, finding := range findings {
-		if pack.Threshold > 0 && finding.Confidence > 0 && finding.Confidence < pack.Threshold {
+		// B14: drop NaN and below-threshold (including missing/zero). The
+		// previous `> 0 && < threshold` admitted zero and NaN.
+		if pack.Threshold > 0 && (math.IsNaN(finding.Confidence) || finding.Confidence < pack.Threshold) {
 			continue
 		}
 		if pack.Category == RuleCategoryLintRule && req.LintRuleValidator != nil {

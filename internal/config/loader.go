@@ -121,8 +121,10 @@ type ExecutionConfig struct {
 type ChunkingConfig struct {
 	// MaxChunkBytes caps transcript bytes per chunk. 0 disables chunking.
 	MaxChunkBytes int `yaml:"max_chunk_bytes,omitempty" json:"max_chunk_bytes,omitempty"`
-	// ProviderBoundaryHeadroom: min free fraction [0.0, 1.0) before packing next provider.
-	ProviderBoundaryHeadroom float64 `yaml:"provider_boundary_headroom,omitempty" json:"provider_boundary_headroom,omitempty"`
+	// ProviderBoundaryHeadroom: min free fraction [0.0, 1.0) before packing
+	// the next provider. Pointer so an explicit zero (disable) can be
+	// distinguished from "unset" (use the documented default) — B5.
+	ProviderBoundaryHeadroom *float64 `yaml:"provider_boundary_headroom,omitempty" json:"provider_boundary_headroom,omitempty"`
 }
 
 // RuleConfig is a global override toggle for a rule category.
@@ -252,13 +254,15 @@ func applyAnalyzerExecutionDefaults(exec *ExecutionConfig) {
 }
 
 // applyAnalyzerChunkingDefaults fills MaxChunkBytes and ProviderBoundaryHeadroom.
-// CLI --max-chunk-bytes=0 is the disable-chunking escape hatch.
+// CLI --max-chunk-bytes=0 is the disable-chunking escape hatch. For headroom
+// the pointer's nil-ness distinguishes "unset" from explicit `0`.
 func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
 	if chunk.MaxChunkBytes == 0 {
 		chunk.MaxChunkBytes = DefaultMaxChunkBytes
 	}
-	if chunk.ProviderBoundaryHeadroom == 0 {
-		chunk.ProviderBoundaryHeadroom = DefaultProviderBoundaryHeadroom
+	if chunk.ProviderBoundaryHeadroom == nil {
+		def := DefaultProviderBoundaryHeadroom
+		chunk.ProviderBoundaryHeadroom = &def
 	}
 }
 
@@ -284,12 +288,20 @@ func IsLifetimeSince(value string) bool {
 }
 
 func validateConfig(cfg *Config) error {
+	seenNames := make(map[string]int, len(cfg.Projects))
 	for i := range cfg.Projects {
 		project := &cfg.Projects[i]
 		project.Name = strings.TrimSpace(project.Name)
 		if project.Name == "" {
 			return errs.ConfigInvalid(fmt.Sprintf("projects[%d].name", i), "", fmt.Errorf("project at index %d has empty name", i))
 		}
+		if prior, ok := seenNames[project.Name]; ok {
+			// B4: duplicate names collide on <outputRoot>/<name>/ for both
+			// state.json and todos.md, silently corrupting the daemon's
+			// state. Reject at load time.
+			return errs.ConfigInvalid(fmt.Sprintf("projects[%d].name", i), project.Name, fmt.Errorf("duplicate project name %q (first declared at projects[%d])", project.Name, prior))
+		}
+		seenNames[project.Name] = i
 		if strings.TrimSpace(project.Path) == "" {
 			return errs.ConfigInvalid(fmt.Sprintf("projects.%s.path", project.Name), "", fmt.Errorf("project %q has empty path", project.Name))
 		}

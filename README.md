@@ -29,9 +29,10 @@ go build -o dreamer .
 #    Windows: %AppData%\dreamer\config.yaml
 
 # 4. authenticate provider
-copilot auth login           # for copilot-sdk
-claude  auth login           # for claude-cli
-codex   login                # for codex-cli
+copilot                      # then /login        (for copilot-sdk)
+claude                       # browser OAuth      (for claude-cli)
+codex   login                # ChatGPT OAuth      (for codex-cli)
+gemini                       # browser OAuth      (for gemini-cli)
 # (gemini-sdk: export GEMINI_API_KEY; ACP variants: configure command path)
 
 # 5. analyze

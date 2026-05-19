@@ -2,6 +2,7 @@ package acpcore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"runtime"
 	"testing"
@@ -9,6 +10,55 @@ import (
 
 	"dreamer/internal/analyzer"
 )
+
+// B15: malformed permission request JSON must deny rather than silently
+// approving (the previous handler discarded the unmarshal error and fell
+// through to approved=true).
+func TestDecidePermissionDeniesOnMalformedJSON(t *testing.T) {
+	handler := func(p map[string]any) map[string]any { return map[string]any{} }
+	approved, reason := decidePermission(handler, json.RawMessage(`{not-json`))
+	if approved {
+		t.Fatalf("malformed params must be denied")
+	}
+	if reason == "" {
+		t.Fatalf("denial must carry a reason")
+	}
+}
+
+func TestDecidePermissionAppliesHandlerDeny(t *testing.T) {
+	handler := func(p map[string]any) map[string]any {
+		return map[string]any{"decision": "deny", "reason": "outside root"}
+	}
+	approved, reason := decidePermission(handler, json.RawMessage(`{"kind":"read"}`))
+	if approved {
+		t.Fatalf("handler deny must propagate")
+	}
+	if reason != "outside root" {
+		t.Fatalf("reason = %q, want %q", reason, "outside root")
+	}
+}
+
+func TestDecidePermissionDeniesOnEmptyParams(t *testing.T) {
+	handler := func(p map[string]any) map[string]any { return map[string]any{} }
+	approved, reason := decidePermission(handler, nil)
+	if approved {
+		t.Fatalf("empty params must be denied")
+	}
+	if reason == "" {
+		t.Fatalf("denial must carry a reason")
+	}
+}
+
+func TestDecidePermissionDefaultsApprovedOnEmptyDecision(t *testing.T) {
+	handler := func(p map[string]any) map[string]any { return map[string]any{} }
+	approved, reason := decidePermission(handler, json.RawMessage(`{"kind":"read"}`))
+	if !approved {
+		t.Fatalf("empty decision must default to approve")
+	}
+	if reason != "" {
+		t.Fatalf("reason = %q, want empty", reason)
+	}
+}
 
 // TestSessionRunFailsFastAfterTransportClose drives the §20.20 acceptance:
 // when the ACP child exits between rules, the next session.Run must

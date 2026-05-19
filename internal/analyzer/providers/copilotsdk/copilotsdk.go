@@ -83,14 +83,14 @@ func (p *provider) SupportsParallelSessions() bool { return true }
 
 func (p *provider) Start(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return analyzer.ErrNilContext
 	}
 	if p.started {
 		return nil
 	}
 	if err := p.client.Start(ctx); err != nil {
 		return errs.ProviderUnavailable(ID, "start",
-			fmt.Errorf("unable to start Copilot SDK client; ensure Copilot CLI is installed and authenticated (run `copilot auth login`): %w", err),
+			fmt.Errorf("unable to start Copilot SDK client; ensure Copilot CLI is installed (`npm install -g @github/copilot`) and authenticated (run `copilot` then `/login`): %w", err),
 		)
 	}
 	p.started = true
@@ -99,7 +99,7 @@ func (p *provider) Start(ctx context.Context) error {
 
 func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, analyzer.ErrNilContext
 	}
 	if err := p.Start(ctx); err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ type copilotSession struct {
 
 func (s *copilotSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return "", analyzer.ErrNilContext
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -255,6 +255,7 @@ func translateCopilotRequest(request copilot.PermissionRequest) analyzer.Permiss
 		PossiblePaths:           request.PossiblePaths,
 		ReadOnly:                request.ReadOnly,
 		HasWriteFileRedirection: request.HasWriteFileRedirection,
+		FullCommandText:         request.FullCommandText,
 	}
 	if len(request.Commands) > 0 {
 		out.Commands = make([]analyzer.ShellCommand, 0, len(request.Commands))

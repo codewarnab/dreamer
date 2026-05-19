@@ -3,6 +3,7 @@ package geminiacp
 import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/providers/acpcore"
+	"dreamer/internal/config"
 )
 
 const ID = "gemini-acp"
@@ -14,9 +15,11 @@ func init() {
 			command = []string{"gemini", "--acp"}
 		}
 		return acpcore.New(acpcore.Options{
-			ID:      ID,
-			Command: command,
-			Env:     cfg.Env,
+			ID:             ID,
+			Command:        command,
+			Env:            cfg.Env,
+			DefaultModel:   cfg.DefaultModel,
+			ModelFallbacks: config.DefaultModelFallbacks["gemini-acp"],
 		})
 	})
 }

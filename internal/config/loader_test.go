@@ -62,6 +62,80 @@ func TestLoadConfigRejectsEmptyProjectName(t *testing.T) {
 	}
 }
 
+// B4: two projects resolving to the same output directory (same name)
+// would share state.json and todos.md; reject at config-load time.
+// B5: an explicit ProviderBoundaryHeadroom of 0 must be respected, not
+// silently overwritten with the default sentinel.
+func TestLoadConfigPreservesExplicitZeroProviderBoundaryHeadroom(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "example", "path": projectDir},
+		},
+		"analyzer": map[string]any{
+			"chunking": map[string]any{
+				"provider_boundary_headroom": 0,
+			},
+		},
+	})
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	got := cfg.Analyzer.Chunking.ProviderBoundaryHeadroom
+	if got == nil {
+		t.Fatalf("explicit zero must survive as &0.0, got nil pointer (defaulted)")
+	}
+	if *got != 0 {
+		t.Fatalf("ProviderBoundaryHeadroom = %v, want 0 (explicit disable)", *got)
+	}
+}
+
+// B5: an omitted ProviderBoundaryHeadroom must still get the documented default.
+func TestLoadConfigDefaultsProviderBoundaryHeadroomWhenOmitted(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "example", "path": projectDir},
+		},
+	})
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	got := cfg.Analyzer.Chunking.ProviderBoundaryHeadroom
+	if got == nil {
+		t.Fatalf("omitted headroom must be defaulted to %v, got nil pointer", DefaultProviderBoundaryHeadroom)
+	}
+	if *got != DefaultProviderBoundaryHeadroom {
+		t.Fatalf("ProviderBoundaryHeadroom = %v, want %v", *got, DefaultProviderBoundaryHeadroom)
+	}
+}
+
+func TestLoadConfigRejectsDuplicateProjectNames(t *testing.T) {
+	projectA := t.TempDir()
+	projectB := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "foo", "path": projectA},
+			{"name": "foo", "path": projectB},
+		},
+	})
+
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Fatalf("LoadConfig expected error for duplicate project name")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("error = %q, want duplicate-name validation error", err)
+	}
+}
+
 func TestLoadConfigRejectsNonAbsoluteProjectPath(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	writeConfigFile(t, configPath, map[string]any{
@@ -185,8 +259,8 @@ func TestLoadConfigDefaultsAnalyzerExecutionAndChunking(t *testing.T) {
 	if got, want := cfg.Analyzer.Chunking.MaxChunkBytes, DefaultMaxChunkBytes; got != want {
 		t.Fatalf("Chunking.MaxChunkBytes = %d, want %d", got, want)
 	}
-	if got, want := cfg.Analyzer.Chunking.ProviderBoundaryHeadroom, DefaultProviderBoundaryHeadroom; got != want {
-		t.Fatalf("Chunking.ProviderBoundaryHeadroom = %v, want %v", got, want)
+	if got := cfg.Analyzer.Chunking.ProviderBoundaryHeadroom; got == nil || *got != DefaultProviderBoundaryHeadroom {
+		t.Fatalf("Chunking.ProviderBoundaryHeadroom = %v, want %v", got, DefaultProviderBoundaryHeadroom)
 	}
 }
 

@@ -76,6 +76,174 @@ func TestSaveAndLoadStateRoundTrip(t *testing.T) {
 	}
 }
 
+// B12: state.json with a version newer than what this binary supports must
+// be refused rather than silently downgraded.
+func TestLoadStateRefusesNewerVersion(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"version":999}`), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	_, err = Load("", "project-a")
+	if err == nil {
+		t.Fatalf("Load must refuse newer state version")
+	}
+	if !strings.Contains(err.Error(), "version") {
+		t.Fatalf("error %q must mention version", err)
+	}
+}
+
+// B12: before any in-place upgrade Save must produce a backup so the user
+// can roll forward and back.
+func TestSaveWritesBackupBeforeUpgradeWrite(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Seed a pre-existing v1 state.json.
+	prior := []byte(`{"version":1,"chat_hashes":{}}`)
+	if err := os.WriteFile(statePath, prior, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Load + Save: backup must materialize because the prior on-disk
+	// content is from a version (1) older than or equal to current.
+	loaded, err := Load("", "project-a")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := Save("", "project-a", loaded); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	backupPath := statePath + ".v1.bak"
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Fatalf("expected backup at %q, stat err=%v", backupPath, err)
+	}
+}
+
+// B27: explicit version=0 is suspicious (corrupted/truncated) and must not
+// be silently promoted to current.
+func TestLoadStateRefusesExplicitZeroVersion(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"version":0,"chat_hashes":{}}`), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	_, err = Load("", "project-a")
+	if err == nil {
+		t.Fatalf("Load must refuse explicit version=0")
+	}
+}
+
+// B12 + B21 end-to-end: a v1 state.json gets ChatHashes dropped on Load,
+// Save then produces a v2 file and a stable .v1.bak that still contains
+// the pre-upgrade content.
+func TestLoadSaveV1ToV2MigrationEndToEnd(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	prior := []byte(`{"version":1,"chat_hashes":{"/a":"k1","/b":"k2"},"finding_hashes":["f1","f2"]}`)
+	if err := os.WriteFile(statePath, prior, 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	res, err := LoadWithResult("", "project-a")
+	if err != nil {
+		t.Fatalf("LoadWithResult: %v", err)
+	}
+	if !res.Migrated {
+		t.Fatalf("LoadWithResult.Migrated = false, want true")
+	}
+	if res.PriorVersion != 1 || res.CurrentVersion != StateVersion {
+		t.Fatalf("versions = (%d -> %d), want (1 -> %d)", res.PriorVersion, res.CurrentVersion, StateVersion)
+	}
+	if len(res.State.ChatHashes) != 0 {
+		t.Fatalf("v1 ChatHashes must be dropped on upgrade, got %v", res.State.ChatHashes)
+	}
+	if len(res.State.FindingHashes) != 2 {
+		t.Fatalf("FindingHashes must survive upgrade, got %v", res.State.FindingHashes)
+	}
+
+	if err := Save("", "project-a", res.State); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	backup, err := os.ReadFile(statePath + ".v1.bak")
+	if err != nil {
+		t.Fatalf("expected .v1.bak, err=%v", err)
+	}
+	if string(backup) != string(prior) {
+		t.Fatalf("backup mismatch: got %s, want %s", backup, prior)
+	}
+
+	// A second Save (same-version v2 -> v2) must NOT overwrite the backup.
+	if err := Save("", "project-a", res.State); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	backup2, err := os.ReadFile(statePath + ".v1.bak")
+	if err != nil {
+		t.Fatalf("backup vanished on same-version save, err=%v", err)
+	}
+	if string(backup2) != string(prior) {
+		t.Fatalf("backup overwritten by same-version save: got %s, want %s", backup2, prior)
+	}
+}
+
+// B27: a state file with no `version` field is a pre-versioning legacy file
+// and must be upgraded to current rather than rejected.
+func TestLoadStateAcceptsMissingVersionAsLegacy(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	statePath, err := PathForProject("", "project-a")
+	if err != nil {
+		t.Fatalf("PathForProject: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"chat_hashes":{"/a":"k"}}`), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	loaded, err := Load("", "project-a")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Version != StateVersion {
+		t.Fatalf("Version = %d, want %d (after legacy upgrade)", loaded.Version, StateVersion)
+	}
+	if loaded.ChatHashes["/a"] != "k" {
+		t.Fatalf("legacy data lost during upgrade: ChatHashes=%v", loaded.ChatHashes)
+	}
+}
+
 func TestLoadStateInvalidJSONReturnsError(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
@@ -107,6 +275,19 @@ func TestSaveStateRejectsInvalidProjectName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid path separator") {
 		t.Fatalf("error = %q, want invalid path separator", err)
+	}
+}
+
+// B21: length-prefix each field so a collision cannot be constructed by
+// shifting field boundaries (e.g. path+separator vs separator+fileHash).
+func TestChatCacheKeyBoundariesAreUnambiguous(t *testing.T) {
+	// A null byte inside a field can shift the field boundary under the
+	// previous single-byte-separator scheme. Length-prefixing must keep
+	// the boundary unambiguous even with embedded NULs.
+	a := ChatCacheKey("a\x00b", "c", "d")
+	b := ChatCacheKey("a", "b\x00c", "d")
+	if a == b {
+		t.Fatalf("split-boundary fields collided: a=%q b=%q (length-prefix required)", a, b)
 	}
 }
 

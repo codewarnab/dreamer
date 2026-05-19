@@ -125,8 +125,11 @@ func recordProviderFailure(currentState *state.State, providerID string, err err
 
 // persistFailureState saves currentState on a failure path; logs but does
 // not propagate the save error because the caller is already returning a
-// more useful error.
-func persistFailureState(currentState *state.State, outputRoot, projectName string, cause error, logger *logging.Logger) {
+// more useful error. Also prunes (B28/B29) so a perma-failing project does
+// not accumulate stale entries forever.
+func persistFailureState(currentState *state.State, outputRoot, projectName string, packs []analyzer.RulePack, activeProviderID string, cause error, logger *logging.Logger) {
+	pruneLastRunPerCategory(currentState.LastRunPerCategory, packs)
+	pruneProviderUsage(currentState.ProviderUsage, activeProviderID)
 	if err := state.Save(outputRoot, projectName, currentState); err != nil && logger != nil {
 		logger.Warn("failure-path state save failed",
 			logging.Any("err", err),
@@ -135,9 +138,22 @@ func persistFailureState(currentState *state.State, outputRoot, projectName stri
 	}
 }
 
+// savePrunedState prunes stale entries (B28/B29) then writes state. Used by
+// every successful-save site in pipeline.Run so every save path gets the
+// same hygiene, not just the happy path.
+func savePrunedState(outputRoot, projectName string, currentState *state.State, packs []analyzer.RulePack, activeProviderID string) error {
+	pruneLastRunPerCategory(currentState.LastRunPerCategory, packs)
+	pruneProviderUsage(currentState.ProviderUsage, activeProviderID)
+	return state.Save(outputRoot, projectName, currentState)
+}
+
 // Run executes the end-to-end analyze pipeline against a single project path,
 // following the sequence in spec §17.
 func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, error) {
+	// Top-level CLI/daemon entry: a nil context here means the caller did
+	// not wire signal cancellation, which is a one-shot run from a script.
+	// Substitute Background defensively. Provider-layer Run methods, by
+	// contrast, treat nil as a programmer error (analyzer.ErrNilContext).
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -185,9 +201,17 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		logger.Info("lookback filter", logging.Any("since", opts.Since), logging.Any("kept", len(sources)), logging.Any("total", before))
 	}
 
-	currentState, err := state.Load(outputRoot, projectName)
+	loadResult, err := state.LoadWithResult(outputRoot, projectName)
 	if err != nil {
 		return Result{}, fmt.Errorf("load state: %w", err)
+	}
+	currentState := loadResult.State
+	if loadResult.Migrated {
+		logger.Warn("state migrated",
+			logging.Any("from_version", loadResult.PriorVersion),
+			logging.Any("to_version", loadResult.CurrentVersion),
+			logging.Any("note", "v1 ChatHashes invalidated by length-prefix change (B21); prior file backed up as state.json.v<old>.bak; this run will re-analyze all chats"),
+		)
 	}
 	repoHeadSHA := state.RepoHeadSHA(projectPath, logger)
 	logger.Info("repo state", logging.Any("head_sha", repoHeadSHA), logging.Any("prior_run", currentState.LastRunUTC.Format(time.RFC3339)), logging.Any("prior_chats", len(currentState.ChatHashes)))
@@ -205,31 +229,16 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		}
 	}
 
-	cacheKeys := make(map[string]string, len(sources))
-	hashFailures := 0
-	cached := 0
-	changed := 0
-	fresh := 0
-	for _, source := range sources {
-		fileHash, hashErr := state.HashFile(source.Path)
-		if hashErr != nil {
-			hashFailures++
-			logger.Warn("hash chat source failed", logging.Any("path", source.Path), logging.Any("err", hashErr))
-			continue
-		}
-		key := state.ChatCacheKey(source.Path, fileHash, repoHeadSHA)
-		cacheKeys[source.Path] = key
-		existing, seen := currentState.ChatHashes[source.Path]
-		switch {
-		case !seen:
-			fresh++
-		case existing != key:
-			changed++
-		default:
-			cached++
-		}
-	}
-	logger.Info("chat cache summary", logging.Any("total", len(sources)), logging.Any("cached", cached), logging.Any("changed", changed), logging.Any("new", fresh), logging.Any("hash_failed", hashFailures), logging.Any("force", opts.Force))
+	cacheKeys, cacheStats := computeCacheKeys(sources, currentState.ChatHashes, repoHeadSHA, logger)
+	logger.Info("chat cache summary",
+		logging.Any("total", len(sources)),
+		logging.Any("cached", cacheStats.Cached),
+		logging.Any("changed", cacheStats.Changed),
+		logging.Any("new", cacheStats.Fresh),
+		logging.Any("hash_failed_kept", cacheStats.HashFailedKept),
+		logging.Any("hash_failed_dropped", cacheStats.HashFailedDropped),
+		logging.Any("force", opts.Force),
+	)
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
 		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(sources)), logging.Any("reason", "all cached, head unchanged"))
@@ -239,7 +248,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			TodosPath:  todosOutputPath(outputRoot, projectName),
 		}, nil
 	}
-	logger.Info("cache miss", logging.Any("analyzing", len(sources)), logging.Any("changed", changed), logging.Any("new", fresh), logging.Any("cached", cached))
+	logger.Info("cache miss", logging.Any("analyzing", len(sources)), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("cached", cacheStats.Cached))
 
 	rulePacks := mergeRulePacks(cfg, projectFile)
 	if !anyEnabled(rulePacks) {
@@ -272,7 +281,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		currentState.LastRunUTC = time.Now().UTC()
 		currentState.RepoHeadSHA = repoHeadSHA
 		currentState.ChatHashes = cacheKeys
-		if err := state.Save(outputRoot, projectName, currentState); err != nil {
+		if err := savePrunedState(outputRoot, projectName, currentState, rulePacks, providerID); err != nil {
 			logger.Warn("preflight state save failed", logging.Any("err", err))
 		}
 
@@ -322,7 +331,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	)
 	warnings = append(warnings, chunkWarnings...)
 
-	providerCfg := buildProviderConfig(providerBlock)
+	providerCfg := buildProviderConfig(providerID, providerBlock)
 	provider, err := analyzer.NewProvider(analyzer.ProviderID(providerID), providerCfg)
 	if err != nil {
 		return Result{}, fmt.Errorf("instantiate provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))
@@ -334,7 +343,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
 		recordProviderFailure(currentState, providerID, err)
-		persistFailureState(currentState, outputRoot, projectName, err, logger)
+		persistFailureState(currentState, outputRoot, projectName, rulePacks, providerID, err, logger)
 		return Result{}, fmt.Errorf("start provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))
 	}
 	startCancel()
@@ -384,7 +393,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	analysisResult, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
 	if err != nil {
 		recordProviderFailure(currentState, providerID, err)
-		persistFailureState(currentState, outputRoot, projectName, err, logger)
+		persistFailureState(currentState, outputRoot, projectName, rulePacks, providerID, err, logger)
 		return Result{}, fmt.Errorf("run analyzer: %w", err)
 	}
 	logger.Info("orchestrator done", logging.Any("mistakes", len(analysisResult.Mistakes)), logging.Any("findings", len(analysisResult.Findings)), logging.Any("warnings", len(analysisResult.Warnings)))
@@ -445,7 +454,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	currentState.UsageStats["findings_added"] += int64(generateResult.AddedFindings)
 	currentState.UsageStats["redaction_hits"] += int64(redactionTotal)
 
-	if err := state.Save(outputRoot, projectName, currentState); err != nil {
+	if err := savePrunedState(outputRoot, projectName, currentState, rulePacks, providerID); err != nil {
 		return Result{}, fmt.Errorf("save state: %w", err)
 	}
 

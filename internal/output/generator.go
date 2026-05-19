@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/fsutil"
 )
 
 const (
@@ -64,7 +65,7 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 	if err := os.MkdirAll(filepath.Dir(todosPath), dirPerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("create todos directory %q: %w", filepath.Dir(todosPath), err)
 	}
-	if err := os.WriteFile(todosPath, []byte(merged), filePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(todosPath, []byte(merged), filePerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("write todos file %q: %w", todosPath, err)
 	}
 	return result, nil

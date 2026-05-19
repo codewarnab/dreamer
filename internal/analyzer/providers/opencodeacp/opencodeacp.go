@@ -17,7 +17,7 @@ func init() {
 			ID:           ID,
 			Command:      command,
 			Env:          cfg.Env,
-			DefaultModel: "deepseek-v4-flash",
+			DefaultModel: cfg.DefaultModel,
 		})
 	})
 }
