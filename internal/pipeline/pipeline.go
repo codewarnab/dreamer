@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/analyzer"
@@ -44,6 +45,11 @@ type Options struct {
 
 	// Events, when non-nil, receives run.start/run.done events.
 	Events *EventBus
+
+	// LiveConfig, when non-nil, is consulted once at the top of Run and (if a
+	// non-nil snapshot is present) replaces Config for the remainder of this
+	// invocation. Lets the daemon hot-swap config without rebuilding Options.
+	LiveConfig *atomic.Pointer[config.Config]
 }
 
 // Result bundles the metrics + paths the analyze command surfaces.
@@ -159,6 +165,11 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	// contrast, treat nil as a programmer error (analyzer.ErrNilContext).
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if opts.LiveConfig != nil {
+		if snap := opts.LiveConfig.Load(); snap != nil {
+			opts.Config = snap
+		}
 	}
 	cfg := opts.Config
 	if cfg == nil {

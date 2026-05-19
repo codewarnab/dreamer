@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,6 +79,24 @@ func TestServer_BindInUseReturnsError(t *testing.T) {
 	srv, _ := NewServer(Options{Config: cfg, Logger: newTestLogger(t), Events: pipeline.NewEventBus()})
 	if err := srv.Start(); err == nil {
 		t.Fatalf("expected bind error")
+	}
+}
+
+func TestServer_CurrentConfigUsesAtomicPointer(t *testing.T) {
+	var ptr atomic.Pointer[config.Config]
+	initial := &config.Config{Web: config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)}, Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	ptr.Store(initial)
+	srv, err := NewServer(Options{Config: initial, Logger: newTestLogger(t), Events: pipeline.NewEventBus(), ConfigPtr: &ptr})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if srv.currentConfig() != initial {
+		t.Fatalf("currentConfig != initial")
+	}
+	next := &config.Config{Web: config.WebConfig{Port: 0, Host: "localhost", LogTailKB: 9, Enabled: boolPtr(true)}, Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	ptr.Store(next)
+	if srv.currentConfig() != next {
+		t.Fatalf("currentConfig did not pick up CAS swap")
 	}
 }
 

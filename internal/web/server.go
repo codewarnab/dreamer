@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/config"
@@ -21,6 +22,10 @@ type Options struct {
 	Config *config.Config
 	Logger *logging.Logger
 	Events *pipeline.EventBus
+	// ConfigPtr, when non-nil, provides the live (atomically swappable) config
+	// used by handlers that must see post-overlay-reload values. Nil-safe: when
+	// unset, Server.currentConfig falls back to Options.Config.
+	ConfigPtr *atomic.Pointer[config.Config]
 }
 
 // Server is the embedded HTTP server lifecycle handle.
@@ -51,6 +56,17 @@ func (s *Server) Addr() string { return s.addr }
 
 // CSRFToken returns the per-process CSRF token minted at construction.
 func (s *Server) CSRFToken() string { return s.csrfToken }
+
+// currentConfig returns the live config when an atomic pointer is wired in,
+// otherwise the static Options.Config snapshot captured at construction.
+func (s *Server) currentConfig() *config.Config {
+	if s.opts.ConfigPtr != nil {
+		if cfg := s.opts.ConfigPtr.Load(); cfg != nil {
+			return cfg
+		}
+	}
+	return s.opts.Config
+}
 
 // Start binds the listener and serves in a background goroutine. When the
 // configured port is 0, the bound ephemeral port is written to

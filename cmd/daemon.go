@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -52,6 +53,10 @@ func newDaemonCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
+			// live holds the hot-swappable config snapshot. Watcher CASs in a new
+			// pointer on successful overlay reload; web + pipeline read through it.
+			var live atomic.Pointer[config.Config]
+			live.Store(cfg)
 			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
 			if err != nil {
 				return err
@@ -94,7 +99,7 @@ func newDaemonCommand() *cobra.Command {
 			events := pipeline.NewEventBus()
 
 			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
-				srv, srvErr := web.NewServer(web.Options{Config: cfg, Logger: logger, Events: events})
+				srv, srvErr := web.NewServer(web.Options{Config: cfg, Logger: logger, Events: events, ConfigPtr: &live})
 				if srvErr != nil {
 					logger.Error("web server construct failed", logging.Any("err", srvErr))
 				} else if startErr := srv.Start(); startErr != nil {
@@ -108,11 +113,11 @@ func newDaemonCommand() *cobra.Command {
 				}
 			}
 
-			startConfigWatcher(ctx, logger, events, resolvedConfigPath, overlayPath)
+			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 
 			cmd.Printf("daemon started: frequency=%s projects=%d\n", frequency, len(cfg.Projects))
 			logger.Info("daemon started", logging.Any("config", resolvedConfigPath), logging.Any("frequency", frequency), logging.Any("projects", len(cfg.Projects)))
-			if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache, events); err != nil {
+			if err := runDaemonCycle(ctx, live.Load(), cmd, logger, overrides, discoveryCache, events, &live); err != nil {
 				logger.Error("daemon cycle failed", logging.Any("err", err))
 				cmd.Printf("daemon cycle failed: %v\n", err)
 			}
@@ -127,7 +132,7 @@ func newDaemonCommand() *cobra.Command {
 					logger.Info("daemon stopped", logging.Any("cause", context.Cause(ctx)))
 					return nil
 				case <-ticker.C:
-					if err := runDaemonCycle(ctx, cfg, cmd, logger, overrides, discoveryCache, events); err != nil {
+					if err := runDaemonCycle(ctx, live.Load(), cmd, logger, overrides, discoveryCache, events, &live); err != nil {
 						logger.Error("daemon cycle failed", logging.Any("err", err))
 						cmd.Printf("daemon cycle failed: %v\n", err)
 					}
@@ -152,7 +157,7 @@ type daemonOverrides struct {
 	maxChunkBytesSet bool
 }
 
-func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides, discoveryCache *pipeline.DiscoveryCache, events *pipeline.EventBus) error {
+func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command, logger *logging.Logger, overrides daemonOverrides, discoveryCache *pipeline.DiscoveryCache, events *pipeline.EventBus, live *atomic.Pointer[config.Config]) error {
 	logger.Info("daemon cycle started", logging.Any("projects", len(cfg.Projects)))
 	var cycleErrors []error
 	for _, project := range cfg.Projects {
@@ -172,6 +177,7 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 			MaxConcurrencyOverride: overrides.maxConcurrency,
 			DiscoveryCache:         discoveryCache,
 			Events:                 events,
+			LiveConfig:             live,
 		}
 		if overrides.maxChunkBytesSet {
 			opts.MaxChunkBytesOverride = overrides.maxChunkBytes
@@ -207,10 +213,10 @@ func runDaemonCycle(ctx context.Context, cfg *config.Config, cmd *cobra.Command,
 
 // startConfigWatcher spawns a goroutine bound to ctx that watches the parent
 // directories of configPath and overlayPath for write events. On a successful
-// reload it publishes a config.reloaded event via the bus. Reload failures are
-// logged at warn level and never crash the daemon. The in-memory cfg is NOT
-// swapped here; that lands in a later commit.
-func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pipeline.EventBus, configPath, overlayPath string) {
+// reload it CAS-swaps the live config pointer and publishes a config.reloaded
+// event via the bus. Reload failures leave the prior pointer value active and
+// are logged at info level; they never crash the daemon.
+func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pipeline.EventBus, live *atomic.Pointer[config.Config], configPath, overlayPath string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		logger.Error("config watcher init failed", logging.Any("err", err))
@@ -261,6 +267,11 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 				if loadErr != nil {
 					logger.Info("config reload failed", logging.Any("err", loadErr))
 					continue
+				}
+				// Atomic swap must precede the SSE publish so subscribers observing
+				// the event can immediately read the new values via live.Load().
+				if live != nil {
+					live.Store(newCfg)
 				}
 				events.Publish(pipeline.Event{
 					Type: pipeline.EventConfigReload,
