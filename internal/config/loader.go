@@ -15,7 +15,7 @@ const (
 	DefaultFrequencySeconds = 3600
 	DefaultLogLevel         = "info"
 	DefaultModel            = "gpt-5.3-codex"
-	DefaultProviderID       = "copilot-sdk"
+	DefaultProviderID       = "openclaude-cli"
 
 	// DefaultSince bounds first-run input volume on long-lived projects.
 	DefaultSince = "24h"

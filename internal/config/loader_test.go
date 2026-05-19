@@ -315,6 +315,36 @@ func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	}
 }
 
+// TestDefaultProviderIDIsOpenClaudeCLI pins the v1.5 default-provider choice
+// to openclaude-cli so accidental flips back to copilot-sdk get caught.
+func TestDefaultProviderIDIsOpenClaudeCLI(t *testing.T) {
+	if got, want := DefaultProviderID, "openclaude-cli"; got != want {
+		t.Fatalf("DefaultProviderID = %q, want %q", got, want)
+	}
+}
+
+// TestDefaultProviderIDFallsBackToOpenClaudeCLI exercises the
+// applyDefaults branch that fills an empty `default_provider`.
+func TestDefaultProviderIDFallsBackToOpenClaudeCLI(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "example", "path": projectDir},
+		},
+		"analyzer": map[string]any{},
+		"daemon":   map[string]any{},
+	})
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if got, want := cfg.DefaultProvider, "openclaude-cli"; got != want {
+		t.Fatalf("DefaultProvider = %q, want %q", got, want)
+	}
+}
+
 func writeConfigFile(t *testing.T, path string, cfg map[string]any) {
 	t.Helper()
 
