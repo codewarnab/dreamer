@@ -166,3 +166,135 @@ func Apply(deps Deps) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, fs)
 	}
 }
+
+// Undo handles POST /api/projects/{name}/findings/{hash}/undo. Restores
+// the pre-image bytes captured at apply time. Refuses with 409 when the
+// target file's SHA-256 has drifted (operator edited it post-apply).
+func Undo(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUndo)
+		if !ok {
+			return
+		}
+		cfg := deps.Config()
+		fs, exists := st.Findings[hash]
+		if !exists || fs.Status != state.FindingStatusApplied || fs.AppliedReversal == nil {
+			writeJSONError(w, http.StatusNotFound, "no applied reversal for hash")
+			return
+		}
+		if err := apply.Undo(proj.Path, *fs.AppliedReversal); err != nil {
+			switch {
+			case apply.IsTargetChanged(err):
+				writeJSONError(w, http.StatusConflict, "target file has changed since apply; refusing undo")
+			case apply.IsContainment(err):
+				writeJSONError(w, http.StatusBadRequest, "target outside project root")
+			default:
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+		delete(st.Findings, hash)
+		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		publish(deps.Events, pipeline.EventFindingUndone, map[string]any{
+			"project": name,
+			"hash":    hash,
+		})
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+// Dismiss handles POST /api/projects/{name}/findings/{hash}/dismiss.
+func Dismiss(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txDismiss)
+		if !ok {
+			return
+		}
+		cfg := deps.Config()
+		fs := state.FindingState{
+			Status:      state.FindingStatusDismissed,
+			DismissedAt: time.Now().UTC(),
+			ProjectName: name,
+		}
+		st.Findings[hash] = fs
+		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		publish(deps.Events, pipeline.EventFindingDismiss, map[string]any{
+			"project": name,
+			"hash":    hash,
+		})
+		writeJSON(w, http.StatusOK, fs)
+	}
+}
+
+// Resolve handles POST /api/projects/{name}/findings/{hash}/resolve.
+func Resolve(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txResolve)
+		if !ok {
+			return
+		}
+		cfg := deps.Config()
+		fs := state.FindingState{
+			Status:      state.FindingStatusResolved,
+			ResolvedAt:  time.Now().UTC(),
+			ProjectName: name,
+		}
+		st.Findings[hash] = fs
+		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		publish(deps.Events, pipeline.EventFindingResolve, map[string]any{
+			"project": name,
+			"hash":    hash,
+		})
+		writeJSON(w, http.StatusOK, fs)
+	}
+}
+
+// Undismiss handles POST /api/projects/{name}/findings/{hash}/undismiss.
+// Drops a dismissed lifecycle entry so the finding returns to the open
+// pool. No-op (still 200) when the entry is absent or not dismissed.
+func Undismiss(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUndismiss)
+		if !ok {
+			return
+		}
+		cfg := deps.Config()
+		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusDismissed {
+			delete(st.Findings, hash)
+		}
+		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+// Unresolve handles POST /api/projects/{name}/findings/{hash}/unresolve.
+// Symmetric to Undismiss for resolved entries.
+func Unresolve(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUnresolve)
+		if !ok {
+			return
+		}
+		cfg := deps.Config()
+		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusResolved {
+			delete(st.Findings, hash)
+		}
+		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}

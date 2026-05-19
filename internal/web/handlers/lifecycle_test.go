@@ -194,3 +194,178 @@ func TestApply_UnknownProject(t *testing.T) {
 		t.Fatalf("status=%d want 404", rec.Code)
 	}
 }
+
+// applyOnce drives the Apply handler so undo/redo tests inherit a real
+// FindingReversal rather than constructing one by hand.
+func applyOnce(t *testing.T, cfg *config.Config, bus *pipeline.EventBus, hash string) {
+	t.Helper()
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "append-section",
+		Anchor:     "Cache",
+		Snippet:    "Rules for cache.",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seed apply failed: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUndo_Happy(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	hash := "11aa111111111111111111111111111111111111111111111111111111111111"
+	applyOnce(t, cfg, bus, hash)
+	target := filepath.Join(cfg.Projects[0].Path, "CLAUDE.md")
+	preApply := "# Doc\n\nIntro.\n"
+	// Sanity: file changed after apply.
+	got, _ := os.ReadFile(target)
+	if string(got) == preApply {
+		t.Fatalf("apply did not mutate target")
+	}
+
+	sub := bus.Subscribe(4)
+	defer bus.Unsubscribe(sub)
+	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undo", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ = os.ReadFile(target)
+	if string(got) != preApply {
+		t.Errorf("undo did not restore pre-image; got %q", got)
+	}
+	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	if _, ok := st.Findings[hash]; ok {
+		t.Errorf("undo did not remove state entry")
+	}
+	select {
+	case evt := <-sub:
+		if evt.Type != pipeline.EventFindingUndone {
+			t.Errorf("event type=%q", evt.Type)
+		}
+	default:
+		t.Errorf("no undone event published")
+	}
+}
+
+func TestUndo_TargetChanged(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	hash := "22aa111111111111111111111111111111111111111111111111111111111111"
+	applyOnce(t, cfg, bus, hash)
+	target := filepath.Join(cfg.Projects[0].Path, "CLAUDE.md")
+	// Operator edits the file after apply.
+	if err := os.WriteFile(target, []byte("tampered\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undo", nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d want 409 body=%s", rec.Code, rec.Body.String())
+	}
+	// State entry must still be present (undo did not run).
+	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	if _, ok := st.Findings[hash]; !ok {
+		t.Errorf("state entry dropped despite conflict")
+	}
+}
+
+func TestUndo_NotApplied(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "33aa111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undo", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404", rec.Code)
+	}
+}
+
+func TestDismiss_PersistsAndPublishes(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	sub := bus.Subscribe(4)
+	defer bus.Unsubscribe(sub)
+	h := Dismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "44aa111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/dismiss", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	fs, ok := st.Findings[hash]
+	if !ok || fs.Status != state.FindingStatusDismissed {
+		t.Fatalf("dismiss not persisted: %+v", st.Findings)
+	}
+	if fs.DismissedAt.IsZero() {
+		t.Errorf("DismissedAt zero")
+	}
+	select {
+	case evt := <-sub:
+		if evt.Type != pipeline.EventFindingDismiss {
+			t.Errorf("event type=%q", evt.Type)
+		}
+	default:
+		t.Errorf("no dismiss event published")
+	}
+}
+
+func TestResolve_PersistsAndPublishes(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	sub := bus.Subscribe(4)
+	defer bus.Unsubscribe(sub)
+	h := Resolve(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "55aa111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/resolve", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	fs, ok := st.Findings[hash]
+	if !ok || fs.Status != state.FindingStatusResolved {
+		t.Fatalf("resolve not persisted: %+v", st.Findings)
+	}
+	select {
+	case evt := <-sub:
+		if evt.Type != pipeline.EventFindingResolve {
+			t.Errorf("event type=%q", evt.Type)
+		}
+	default:
+		t.Errorf("no resolve event published")
+	}
+}
+
+func TestUndismiss_DropsEntry(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	hash := "66aa111111111111111111111111111111111111111111111111111111111111"
+	// Seed: dismissed.
+	hDismiss := Dismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	if rec := postJSON(t, hDismiss, "/api/projects/proj-a/findings/"+hash+"/dismiss", nil); rec.Code != http.StatusOK {
+		t.Fatalf("seed dismiss failed: %d", rec.Code)
+	}
+	h := Undismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undismiss", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	if _, ok := st.Findings[hash]; ok {
+		t.Errorf("undismiss did not drop entry")
+	}
+}
+
+func TestUnresolve_DropsEntry(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	hash := "77aa111111111111111111111111111111111111111111111111111111111111"
+	hResolve := Resolve(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	if rec := postJSON(t, hResolve, "/api/projects/proj-a/findings/"+hash+"/resolve", nil); rec.Code != http.StatusOK {
+		t.Fatalf("seed resolve failed: %d", rec.Code)
+	}
+	h := Unresolve(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/unresolve", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
+	if _, ok := st.Findings[hash]; ok {
+		t.Errorf("unresolve did not drop entry")
+	}
+}
