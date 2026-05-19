@@ -185,3 +185,36 @@ short-circuits to `no changes (cache hit)` and zero provider calls.
   secrets. User-supplied regexes are tagged `[REDACTED:custom]`.
 
 See [doc/spec.md](doc/spec.md) for the canonical contract.
+
+---
+
+## v1.5: setup wizard + web UI
+
+v1.5 (spec: [doc/spec.v1.5.md](doc/spec.v1.5.md)) adds an interactive setup
+wizard, an embedded loopback web UI, and per-finding apply/undo.
+
+### Quick start (v1.5)
+
+```bash
+dreamer setup            # interactive wizard; writes config.yaml
+dreamer daemon           # periodic analysis + embedded web server
+dreamer web --open       # open the dashboard in a browser
+```
+
+Once `dreamer daemon` is running, the dashboard is at
+<http://127.0.0.1:7777>. The UI is loopback-only by design — v1.5 ships
+without auth; v1.6 will introduce token auth for remote binds. Apply /
+dismiss / resolve actions persist to `state.json`; applied findings record
+a reversal (pre-image bytes + pre/post SHA-256) so undo is safe and
+refuses (409 Conflict) if the target file has drifted.
+
+### Overlay configuration
+
+- `<UserConfigDir>/dreamer/config.yaml` — operator-owned base config (written by `dreamer setup`).
+- `<UserConfigDir>/dreamer/ui-overrides.yaml` — UI-owned overlay merged on top.
+
+The daemon watches both files via fsnotify and hot-reloads on write.
+`PUT /api/settings` writes only to the overlay; `config.yaml` is never
+rewritten by the daemon. Merge rules: scalars and map keys — overlay
+wins; lists (`projects`, `redaction.patterns`) — overlay replaces when
+non-empty. See `doc/spec.v1.5.md` for the full schema.
