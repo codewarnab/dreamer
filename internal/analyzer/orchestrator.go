@@ -19,10 +19,19 @@ type Mistake struct {
 
 // Guardrail is the spec §3.4 guardrail object emitted by phase 2.
 type Guardrail struct {
-	Kind          string `json:"kind"`
-	Tool          string `json:"tool"`
-	Rule          string `json:"rule"`
-	ConfigSnippet string `json:"config_snippet,omitempty"`
+	Kind          string     `json:"kind"`
+	Tool          string     `json:"tool"`
+	Rule          string     `json:"rule"`
+	ConfigSnippet string     `json:"config_snippet,omitempty"`
+	Apply         *ApplySpec `json:"apply,omitempty"`
+}
+
+// ApplySpec describes how the web UI can write a guardrail to disk.
+type ApplySpec struct {
+	TargetFile string `json:"target_file"`
+	Strategy   string `json:"strategy"`
+	Anchor     string `json:"anchor,omitempty"`
+	Snippet    string `json:"snippet"`
 }
 
 // CodebaseEvidence is one entry in a finding's evidence array.
@@ -117,6 +126,17 @@ func materializeFindings(raws []rawFinding, defaultCategory RuleCategory) []Find
 		}
 		if guardrail.Kind == "" {
 			guardrail.Kind = string(defaultCategory)
+		}
+		if raw.Guardrail.Apply != nil {
+			guardrail.Apply = &ApplySpec{
+				TargetFile: strings.TrimSpace(raw.Guardrail.Apply.TargetFile),
+				Strategy:   strings.TrimSpace(raw.Guardrail.Apply.Strategy),
+				Anchor:     strings.TrimSpace(raw.Guardrail.Apply.Anchor),
+				Snippet:    raw.Guardrail.Apply.Snippet,
+			}
+			if guardrail.Apply.TargetFile == "" || guardrail.Apply.Snippet == "" {
+				guardrail.Apply = nil
+			}
 		}
 		evidence := make([]CodebaseEvidence, 0, len(raw.CodebaseEvidence))
 		for _, item := range raw.CodebaseEvidence {

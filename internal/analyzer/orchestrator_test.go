@@ -1,9 +1,24 @@
 package analyzer
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 )
+
+func TestGuardrail_ApplyFieldRoundTrips(t *testing.T) {
+	in := `{"kind":"doc","tool":"CLAUDE.md","rule":"Cache","config_snippet":"x","apply":{"target_file":"CLAUDE.md","strategy":"append-section","anchor":"Cache","snippet":"x"}}`
+	var g Guardrail
+	if err := json.Unmarshal([]byte(in), &g); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if g.Apply == nil {
+		t.Fatalf("Apply nil")
+	}
+	if g.Apply.TargetFile != "CLAUDE.md" || g.Apply.Strategy != "append-section" {
+		t.Fatalf("Apply = %+v", g.Apply)
+	}
+}
 
 // B14: confidence threshold filter must drop missing/zero and NaN
 // confidences rather than letting them slip through.
