@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
-
-	"dreamer/internal/web"
 )
 
 // Events returns an http.HandlerFunc for GET /api/events. Streams
@@ -18,6 +18,32 @@ func Events(deps Deps) http.HandlerFunc {
 			http.Error(w, "events bus unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		web.StreamSSE(w, r, deps.Events)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+		ch := deps.Events.Subscribe(16)
+		defer deps.Events.Unsubscribe(ch)
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case e, ok := <-ch:
+				if !ok {
+					return
+				}
+				data, err := json.Marshal(e.Payload)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, data)
+				flusher.Flush()
+			}
+		}
 	}
 }

@@ -99,7 +99,54 @@ func newDaemonCommand() *cobra.Command {
 			events := pipeline.NewEventBus()
 
 			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
-				srv, srvErr := web.NewServer(web.Options{Config: cfg, Logger: logger, Events: events, ConfigPtr: &live})
+				activity := web.NewActivityRing(20)
+				go activity.Bind(ctx, events)
+
+				restartHook := func() error {
+					// stop() cancels the signal context so the daemon's main loop
+					// exits cleanly. The caller (handlers.DaemonRestart) returns
+					// 202 to the client before this fires.
+					stop()
+					return nil
+				}
+
+				runner := web.NewRunner(func(rctx context.Context, projectName string) error {
+					curCfg := live.Load()
+					var proj config.ProjectConfig
+					found := false
+					for _, p := range curCfg.Projects {
+						if p.Name == projectName {
+							proj = p
+							found = true
+							break
+						}
+					}
+					if !found {
+						return fmt.Errorf("project %q not configured", projectName)
+					}
+					opts := pipeline.Options{
+						Config:         curCfg,
+						LiveConfig:     &live,
+						ProjectPath:    proj.Path,
+						ProjectName:    proj.Name,
+						Since:          proj.Since,
+						DiscoveryCache: discoveryCache,
+						Events:         events,
+					}
+					_, err := pipeline.Run(rctx, opts, logger)
+					return err
+				}, logger)
+
+				srv, srvErr := web.NewServer(web.Options{
+					Config:      cfg,
+					Logger:      logger,
+					Events:      events,
+					ConfigPtr:   &live,
+					OverlayPath: overlayPath,
+					Runner:      runner,
+					RestartHook: restartHook,
+					Activity:    activity,
+				})
 				if srvErr != nil {
 					logger.Error("web server construct failed", logging.Any("err", srvErr))
 				} else if startErr := srv.Start(); startErr != nil {

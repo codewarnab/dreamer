@@ -100,6 +100,64 @@ func TestServer_CurrentConfigUsesAtomicPointer(t *testing.T) {
 	}
 }
 
+func TestServer_RoutesAllHandlers(t *testing.T) {
+	outRoot := t.TempDir()
+	projPath := t.TempDir()
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: projPath, Since: "24h"}},
+		Daemon:   config.DaemonConfig{OutputRoot: outRoot},
+		Web:      config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
+	}
+	srv, err := NewServer(Options{
+		Config:      cfg,
+		Logger:      newTestLogger(t),
+		Events:      pipeline.NewEventBus(),
+		OverlayPath: filepath.Join(outRoot, "ui-overrides.yaml"),
+	})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+	base := "http://" + srv.Addr()
+	cases := []struct {
+		path   string
+		expect int
+	}{
+		{"/api/health", 200},
+		{"/api/dashboard", 200},
+		{"/api/projects", 200},
+		{"/api/projects/proj", 200},
+		{"/api/projects/unknown", 404},
+		{"/api/projects/proj/findings", 200},
+		{"/api/projects/proj/chats", 200},
+		{"/api/projects/proj/history", 200},
+		{"/api/providers", 200},
+		{"/api/settings", 200},
+		{"/api/logs/tail", 200},
+		{"/api/fs/exists?path=" + outRoot, 200},
+	}
+	for _, c := range cases {
+		resp, err := http.Get(base + c.path)
+		if err != nil {
+			t.Errorf("%s: %v", c.path, err)
+			continue
+		}
+		if resp.StatusCode != c.expect {
+			buf := make([]byte, 256)
+			n, _ := resp.Body.Read(buf)
+			t.Errorf("%s: status %d want %d (body: %s)", c.path, resp.StatusCode, c.expect, buf[:n])
+		}
+		resp.Body.Close()
+	}
+}
+
 func TestServer_HealthEndpoint(t *testing.T) {
 	cfg := &config.Config{
 		Web:    config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},

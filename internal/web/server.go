@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/web/handlers"
 )
 
 // Options bundles the dependencies a Server needs.
@@ -26,6 +28,18 @@ type Options struct {
 	// used by handlers that must see post-overlay-reload values. Nil-safe: when
 	// unset, Server.currentConfig falls back to Options.Config.
 	ConfigPtr *atomic.Pointer[config.Config]
+
+	// OverlayPath is the absolute path to ui-overrides.yaml used by the
+	// settings PUT handler. Empty disables overlay writes.
+	OverlayPath string
+	// Runner, when non-nil, enqueues on-demand runs for the run handler.
+	Runner *Runner
+	// RestartHook, when non-nil, is invoked by /api/daemon/restart to trigger
+	// graceful daemon shutdown (e.g. cancel the signal context).
+	RestartHook func() error
+	// Activity, when non-nil, provides a snapshot of recent pipeline events
+	// for the dashboard live_activity panel.
+	Activity *ActivityRing
 }
 
 // Server is the embedded HTTP server lifecycle handle.
@@ -124,8 +138,94 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) attachAPI(mux *http.ServeMux) {
+	deps := handlers.Deps{
+		Config: s.currentConfig,
+		Events: s.opts.Events,
+		OverlayPath: func() string {
+			return s.opts.OverlayPath
+		},
+		RecentActivity: func() []pipeline.Event {
+			if s.opts.Activity == nil {
+				return nil
+			}
+			return s.opts.Activity.Snapshot()
+		},
+		EnqueueRun: func(name string) (string, bool, error) {
+			if s.opts.Runner == nil {
+				return "", false, fmt.Errorf("runner not configured")
+			}
+			return s.opts.Runner.Enqueue(name)
+		},
+		RestartDaemon: func() error {
+			if s.opts.RestartHook == nil {
+				return fmt.Errorf("restart hook not configured")
+			}
+			return s.opts.RestartHook()
+		},
+	}
+
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+
+	mux.Handle("/api/dashboard", handlers.Dashboard(deps))
+	mux.Handle("/api/projects", handlers.ProjectsList(deps))
+	mux.Handle("/api/providers", handlers.Providers(deps))
+	mux.Handle("/api/settings", handlers.Settings(deps))
+	mux.Handle("/api/logs/tail", handlers.LogsTail(deps))
+	mux.Handle("/api/events", handlers.Events(deps))
+	mux.Handle("/api/fs/exists", handlers.FSExists(deps))
+	mux.Handle("/api/daemon/restart", handlers.DaemonRestart(deps))
+
+	// /api/projects/{name}[/sub...] — dispatcher routes by path shape.
+	mux.HandleFunc("/api/projects/", s.routeProject(deps))
+}
+
+// routeProject parses /api/projects/{name}[/sub[/sub2]] and dispatches to
+// the matching handler. Handlers re-parse the URL themselves, so we only
+// need to select the right one based on path shape.
+func (s *Server) routeProject(deps handlers.Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+		if rest == "" || rest == r.URL.Path {
+			http.NotFound(w, r)
+			return
+		}
+		rest = strings.TrimSuffix(rest, "/")
+		parts := strings.Split(rest, "/")
+		switch {
+		case len(parts) == 1:
+			handlers.ProjectDetail(deps)(w, r)
+		case len(parts) == 2 && parts[1] == "findings":
+			handlers.ProjectFindings(deps)(w, r)
+		case len(parts) == 2 && parts[1] == "run":
+			handlers.Run(deps)(w, r)
+		case len(parts) == 2 && parts[1] == "chats":
+			handlers.ProjectChats(deps)(w, r)
+		case len(parts) == 2 && parts[1] == "history":
+			handlers.ProjectHistory(deps)(w, r)
+		case len(parts) == 3 && parts[1] == "findings":
+			handlers.FindingDetail(deps)(w, r)
+		case len(parts) == 4 && parts[1] == "findings":
+			switch parts[3] {
+			case "apply":
+				handlers.Apply(deps)(w, r)
+			case "undo":
+				handlers.Undo(deps)(w, r)
+			case "dismiss":
+				handlers.Dismiss(deps)(w, r)
+			case "resolve":
+				handlers.Resolve(deps)(w, r)
+			case "undismiss":
+				handlers.Undismiss(deps)(w, r)
+			case "unresolve":
+				handlers.Unresolve(deps)(w, r)
+			default:
+				http.NotFound(w, r)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}
 }
