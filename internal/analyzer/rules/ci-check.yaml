@@ -43,7 +43,13 @@ guardrail_prompt_template: |
         "kind": "ci-check",
         "tool": "<github-actions | gitlab-ci | buildkite | other>",
         "rule": "<step name>",
-        "config_snippet": "<yaml or shell snippet>"
+        "config_snippet": "<yaml or shell snippet>",
+        "apply": {
+          "target_file": "<repo-relative path, e.g. .github/workflows/ci.yml or .gitlab-ci.yml>",
+          "strategy": "insert-after",
+          "anchor": "<existing step or job name to insert after>",
+          "snippet": "<exact yaml step(s) to insert>"
+        }
       },
       "codebase_evidence": [
         {"path": "<repo-relative path of the existing CI config or code area>",
@@ -72,6 +78,16 @@ response_schema:
               tool: {type: string}
               rule: {type: string}
               config_snippet: {type: string}
+              apply:
+                type: object
+                required: [target_file, strategy, snippet]
+                properties:
+                  target_file: {type: string}
+                  strategy:
+                    type: string
+                    enum: [append-section, insert-after, replace-section, append-file, replace-file]
+                  anchor: {type: string}
+                  snippet: {type: string}
           codebase_evidence:
             type: array
             items:

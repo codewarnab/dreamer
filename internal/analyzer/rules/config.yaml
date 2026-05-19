@@ -45,7 +45,13 @@ guardrail_prompt_template: |
         "kind": "config",
         "tool": "<config filename>",
         "rule": "<setting name>",
-        "config_snippet": "<yaml/json/toml snippet>"
+        "config_snippet": "<yaml/json/toml snippet>",
+        "apply": {
+          "target_file": "<repo-relative path of the toolchain-detected config file>",
+          "strategy": "replace-section",
+          "anchor": "<existing section or key path to replace, or insertion point>",
+          "snippet": "<exact config lines to insert or replace>"
+        }
       },
       "codebase_evidence": [
         {"path": "<repo-relative path of the config file>",
@@ -74,6 +80,16 @@ response_schema:
               tool: {type: string}
               rule: {type: string}
               config_snippet: {type: string}
+              apply:
+                type: object
+                required: [target_file, strategy, snippet]
+                properties:
+                  target_file: {type: string}
+                  strategy:
+                    type: string
+                    enum: [append-section, insert-after, replace-section, append-file, replace-file]
+                  anchor: {type: string}
+                  snippet: {type: string}
           codebase_evidence:
             type: array
             items:
