@@ -39,6 +39,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newListChatsCommand())
 	root.AddCommand(newStartupCommand())
 	root.AddCommand(newSetupCommand())
+	root.AddCommand(newWebCommand())
 
 	return root
 }
