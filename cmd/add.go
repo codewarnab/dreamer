@@ -1,0 +1,200 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+
+	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
+)
+
+func newAddCommand() *cobra.Command {
+	var (
+		name       string
+		since      string
+		configPath string
+	)
+	cmd := &cobra.Command{
+		Use:   "add [path]",
+		Short: "Add a project to dreamer's config (path defaults to current directory).",
+		Long: "add appends an entry to the 'projects:' list in <UserConfigDir>/dreamer/config.yaml.\n\n" +
+			"path defaults to '.' (current working directory). The path is resolved to an absolute\n" +
+			"path; --name defaults to the basename; --since defaults to '24h'. Comments and other\n" +
+			"keys in config.yaml are preserved via the yaml.v3 Node API.\n\n" +
+			"If config.yaml does not yet exist, run 'dreamer setup' first.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pathArg := "."
+			if len(args) == 1 {
+				pathArg = args[0]
+			}
+			absPath, err := resolveAddPath(pathArg)
+			if err != nil {
+				return err
+			}
+			if name == "" {
+				name = filepath.Base(absPath)
+			}
+			if since == "" {
+				since = "24h"
+			}
+			cfgPath, err := resolveConfigPath(configPath)
+			if err != nil {
+				return err
+			}
+			if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+				return fmt.Errorf("config file %q does not exist; run 'dreamer setup' first", cfgPath)
+			} else if err != nil {
+				return fmt.Errorf("stat config %q: %w", cfgPath, err)
+			}
+			data, err := os.ReadFile(cfgPath)
+			if err != nil {
+				return fmt.Errorf("read config %q: %w", cfgPath, err)
+			}
+			updated, err := appendProjectToYAML(data, name, absPath, since)
+			if err != nil {
+				return err
+			}
+			if err := fsutil.WriteFileAtomic(cfgPath, updated, 0o644); err != nil {
+				return fmt.Errorf("write config %q: %w", cfgPath, err)
+			}
+			cmd.Printf("added project %q (path=%s since=%s) to %s\n", name, absPath, since, cfgPath)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "Project name (default: basename of path).")
+	cmd.Flags().StringVar(&since, "since", "", "Lookback window (24h, 7d, 30d, lifetime). Default: 24h.")
+	cmd.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml).")
+	return cmd
+}
+
+// resolveAddPath turns the CLI arg into an absolute, existing directory path.
+func resolveAddPath(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		p = "."
+	}
+	expanded, err := expandHomePath(p)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute path %q: %w", p, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("path %q: %w", abs, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path %q is not a directory", abs)
+	}
+	return abs, nil
+}
+
+// appendProjectToYAML rewrites the projects: list to include the new
+// entry while preserving every comment and unrelated key. Returns the
+// rendered bytes.
+func appendProjectToYAML(data []byte, name, path, since string) ([]byte, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("parse config yaml: %w", err)
+	}
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return nil, fmt.Errorf("config yaml root is not a document")
+	}
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("config yaml root is not a mapping")
+	}
+
+	projectsKey, projectsVal := findMappingChild(doc, "projects")
+	entry := projectMappingNode(name, path, since)
+
+	if projectsVal == nil {
+		// projects: key missing entirely — insert a fresh sequence.
+		doc.Content = append(doc.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "projects"},
+			&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{entry}},
+		)
+	} else if projectsVal.Kind == yaml.SequenceNode {
+		// Duplicate detection by name OR path — refuse to add the same project twice.
+		if dup := findDuplicateProject(projectsVal, name, path); dup != "" {
+			return nil, fmt.Errorf("project already configured: %s", dup)
+		}
+		projectsVal.Style = 0 // force block style so multi-entry lists render line-per-entry
+		projectsVal.Content = append(projectsVal.Content, entry)
+	} else if projectsVal.Kind == yaml.ScalarNode && (projectsVal.Value == "" || projectsVal.Value == "[]" || projectsVal.Tag == "!!null") {
+		// projects: [] (or null) — replace with a block-style sequence.
+		*projectsVal = yaml.Node{Kind: yaml.SequenceNode, Style: 0, Content: []*yaml.Node{entry}}
+	} else {
+		return nil, fmt.Errorf("projects: in config is not a list (kind=%v, value=%q)", projectsVal.Kind, projectsVal.Value)
+	}
+	_ = projectsKey
+
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&strBuilderWriter{b: &buf})
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		return nil, fmt.Errorf("encode config yaml: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("close encoder: %w", err)
+	}
+	return []byte(buf.String()), nil
+}
+
+func findMappingChild(node *yaml.Node, key string) (k, v *yaml.Node) {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i], node.Content[i+1]
+		}
+	}
+	return nil, nil
+}
+
+func findDuplicateProject(seq *yaml.Node, name, path string) string {
+	for _, item := range seq.Content {
+		if item.Kind != yaml.MappingNode {
+			continue
+		}
+		_, n := findMappingChild(item, "name")
+		_, p := findMappingChild(item, "path")
+		if n != nil && n.Value == name {
+			return fmt.Sprintf("name=%q", name)
+		}
+		if p != nil && p.Value == path {
+			return fmt.Sprintf("path=%q", path)
+		}
+	}
+	return ""
+}
+
+func projectMappingNode(name, path, since string) *yaml.Node {
+	scalar := func(v string) *yaml.Node {
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: v}
+	}
+	return &yaml.Node{
+		Kind: yaml.MappingNode,
+		Content: []*yaml.Node{
+			scalar("name"), scalar(name),
+			scalar("path"), scalar(path),
+			scalar("since"), scalar(since),
+		},
+	}
+}
+
+// strBuilderWriter adapts strings.Builder to io.Writer for yaml.NewEncoder.
+type strBuilderWriter struct{ b *strings.Builder }
+
+func (w *strBuilderWriter) Write(p []byte) (int, error) {
+	return w.b.Write(p)
+}
+
+// (config import is used by callers via GlobalConfigPath through resolveConfigPath.)
+var _ = config.GlobalConfigPath

@@ -35,11 +35,11 @@ func newRootCommand() *cobra.Command {
 
 	root.AddCommand(newAnalyzeCommand())
 	root.AddCommand(newDaemonCommand())
-	root.AddCommand(newConfigCommand())
 	root.AddCommand(newListChatsCommand())
 	root.AddCommand(newStartupCommand())
 	root.AddCommand(newSetupCommand())
 	root.AddCommand(newWebCommand())
+	root.AddCommand(newAddCommand())
 
 	return root
 }

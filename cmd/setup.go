@@ -473,6 +473,7 @@ func (m setupModel) View() string {
 	if m.quit {
 		return ""
 	}
+	bannerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0"))
 	style := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).Padding(1, 2)
 	var body string
 	switch m.step {
@@ -531,7 +532,7 @@ func (m setupModel) View() string {
 		}
 		body += "\nPress Enter to confirm or Ctrl+C to cancel.\n\nNote: re-running setup rewrites the file and drops YAML comments.\nKeep ui-overrides.yaml-bound edits in the web UI to preserve config.yaml comments."
 	}
-	return style.Render(body)
+	return bannerStyle.Render(dreamerBanner) + "\n" + style.Render(body)
 }
 
 // defaultModelsFor returns the known-good models for a provider. Reuses
@@ -544,42 +545,37 @@ func defaultModelsFor(provider string) []string {
 	return []string{config.DefaultModel}
 }
 
+// dreamerBanner is the ASCII art splashed at the top of `dreamer setup`.
+const dreamerBanner = `
+  ██████╗  ██████╗  ███████╗  █████╗  ███╗   ███╗ ███████╗ ██████╗
+  ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔══██╗ ████╗ ████║ ██╔════╝ ██╔══██╗
+  ██║  ██║ ██████╔╝ █████╗   ███████║ ██╔████╔██║ █████╗   ██████╔╝
+  ██║  ██║ ██╔══██╗ ██╔══╝   ██╔══██║ ██║╚██╔╝██║ ██╔══╝   ██╔══██╗
+  ██████╔╝ ██║  ██║ ███████╗ ██║  ██║ ██║ ╚═╝ ██║ ███████╗ ██║  ██║
+  ╚═════╝  ╚═╝  ╚═╝ ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝ ╚══════╝ ╚═╝  ╚═╝
+`
+
+// buildConfigYAML renders the wizard's answers into the full commented
+// config template. Comments document every configurable knob the daemon
+// understands; the user's chosen values are interpolated into the right
+// lines while other provider blocks stay at their canonical defaults.
 func buildConfigYAML(a setupAnswers) []byte {
-	cfg := config.Config{
-		DefaultProvider: a.provider,
-		Daemon: config.DaemonConfig{
-			FrequencySeconds: a.frequency,
-			OutputRoot:       a.outputRoot,
-		},
-		Providers: map[string]config.ProviderBlock{
-			a.provider: {Model: a.model},
-		},
-	}
-	if a.logLevel != "" {
-		cfg.Logging.Level = a.logLevel
-	}
-	if a.ruleTimeout > 0 {
-		cfg.Analyzer.RuleTimeoutSeconds = a.ruleTimeout
-	}
-	if a.parallel {
-		cfg.Analyzer.Execution.Mode = config.ExecutionModeParallel
-		if a.maxConcurrency > 0 {
-			cfg.Analyzer.Execution.MaxConcurrency = a.maxConcurrency
+	out, err := renderCommentedConfig(a)
+	if err != nil {
+		// Template parse/execute failures are programmer errors; fall back
+		// to a minimal struct-marshalled config so the wizard still writes
+		// something valid rather than silently producing an empty file.
+		cfg := config.Config{
+			DefaultProvider: a.provider,
+			Daemon: config.DaemonConfig{
+				FrequencySeconds: a.frequency,
+				OutputRoot:       a.outputRoot,
+			},
+			Providers: map[string]config.ProviderBlock{a.provider: {Model: a.model}},
 		}
+		raw, _ := yaml.Marshal(&cfg)
+		return raw
 	}
-	if a.maxChunkBytes > 0 {
-		cfg.Analyzer.Chunking.MaxChunkBytes = a.maxChunkBytes
-	}
-	if a.firstProject && a.projectPath != "" {
-		name := a.projectName
-		if name == "" {
-			name = filepath.Base(a.projectPath)
-		}
-		cfg.Projects = []config.ProjectConfig{
-			{Name: name, Path: a.projectPath, Since: a.projectSince},
-		}
-	}
-	out, _ := yaml.Marshal(&cfg)
 	return out
 }
 
