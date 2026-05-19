@@ -123,6 +123,48 @@ func TestUndo_RestoresPreImageWhenPostSHAUnchanged(t *testing.T) {
 	}
 }
 
+func TestPreview_ReturnsTransformedPostBytes(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "CLAUDE.md")
+	original := "# Doc\n\nIntro.\n"
+	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	pre, post, strat, err := Preview(ApplyRequest{
+		ProjectRoot: dir, TargetFile: "CLAUDE.md",
+		Strategy: "append-section", Anchor: "Cache", Snippet: "Rules for cache.",
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if strat != "append-section" {
+		t.Errorf("strategy = %q", strat)
+	}
+	if string(pre) != original {
+		t.Errorf("pre mismatch: %q", pre)
+	}
+	wantPost := original + "\n\n## Cache\n\nRules for cache.\n"
+	if string(post) != wantPost {
+		t.Errorf("post =\n%q\nwant\n%q", post, wantPost)
+	}
+	// Preview must not have written anything.
+	got, _ := os.ReadFile(target)
+	if string(got) != original {
+		t.Fatalf("Preview mutated target: %q", got)
+	}
+}
+
+func TestPreview_RejectsContainmentEscape(t *testing.T) {
+	dir := t.TempDir()
+	_, _, _, err := Preview(ApplyRequest{
+		ProjectRoot: dir, TargetFile: "../escape.md",
+		Strategy: "append-file", Snippet: "x",
+	})
+	if !IsContainment(err) {
+		t.Fatalf("err = %v want containment", err)
+	}
+}
+
 func TestUndo_RefusesWhenTargetModifiedExternally(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "x.md")

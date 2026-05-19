@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,6 +175,82 @@ func TestProjectFindings_UnknownProject(t *testing.T) {
 	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/findings", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404", rec.Code)
+	}
+}
+
+func TestFindingDetail_ReturnsView(t *testing.T) {
+	cfg := seedFindingsProject(t)
+	h := FindingDetail(Deps{Config: func() *config.Config { return cfg }})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-x/findings/"+hashApplied, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Finding     FindingView `json:"finding"`
+		DiffPreview string      `json:"diff_preview"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Finding.Hash != hashApplied {
+		t.Errorf("hash mismatch: %+v", resp.Finding)
+	}
+	if resp.Finding.Status != state.FindingStatusApplied {
+		t.Errorf("status=%q want applied", resp.Finding.Status)
+	}
+	if !resp.Finding.Recurred {
+		t.Errorf("expected Recurred=true")
+	}
+	if resp.DiffPreview != "" {
+		t.Errorf("diff_preview should be empty without apply hints; got %q", resp.DiffPreview)
+	}
+}
+
+func TestFindingDetail_WithApplyHints_RendersDiff(t *testing.T) {
+	cfg := seedFindingsProject(t)
+	// Seed a target file inside the project so Preview has something to read.
+	proj := cfg.Projects[0]
+	targetAbs := filepath.Join(proj.Path, "CLAUDE.md")
+	if err := os.WriteFile(targetAbs, []byte("# Doc\n\nIntro.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := FindingDetail(Deps{Config: func() *config.Config { return cfg }})
+	rec := httptest.NewRecorder()
+	url := "/api/projects/proj-x/findings/" + hashOpen +
+		"?target_file=CLAUDE.md&strategy=append-section&anchor=Cache&snippet=Rules%20for%20cache."
+	h(rec, httptest.NewRequest(http.MethodGet, url, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Finding     FindingView `json:"finding"`
+		DiffPreview string      `json:"diff_preview"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.DiffPreview == "" {
+		t.Fatalf("expected non-empty diff_preview")
+	}
+	if !strings.Contains(resp.DiffPreview, "+ ## Cache") {
+		t.Errorf("diff missing added Cache section:\n%s", resp.DiffPreview)
+	}
+	// Preview must not mutate the file.
+	got, _ := os.ReadFile(targetAbs)
+	if string(got) != "# Doc\n\nIntro.\n" {
+		t.Errorf("FindingDetail wrote to target: %q", got)
+	}
+}
+
+func TestFindingDetail_UnknownHash(t *testing.T) {
+	cfg := seedFindingsProject(t)
+	h := FindingDetail(Deps{Config: func() *config.Config { return cfg }})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet,
+		"/api/projects/proj-x/findings/deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d want 404", rec.Code)
 	}

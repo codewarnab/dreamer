@@ -72,21 +72,9 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 		return nil, fmt.Errorf("%w: %s", ErrContainment, abs)
 	}
 
-	var pre []byte
-	preInfo, err := os.Stat(abs)
-	switch {
-	case err == nil:
-		if preInfo.Size() > MaxApplyTargetBytes {
-			return nil, fmt.Errorf("%w (%d bytes)", ErrTargetTooLarge, preInfo.Size())
-		}
-		pre, err = os.ReadFile(abs)
-		if err != nil {
-			return nil, fmt.Errorf("read target %q: %w", abs, err)
-		}
-	case errors.Is(err, os.ErrNotExist):
-		pre = nil
-	default:
-		return nil, fmt.Errorf("stat target %q: %w", abs, err)
+	pre, err := readPreImage(abs)
+	if err != nil {
+		return nil, err
 	}
 
 	post, actualStrategy, err := transform(string(pre), req.Strategy, req.Anchor, req.Snippet)
@@ -113,6 +101,59 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 		PostImageSHA256: hex.EncodeToString(postHash[:]),
 		PreImage:        string(pre),
 	}, nil
+}
+
+// Preview returns the pre- and post-image bytes that Apply would write,
+// without performing any write or recording a reversal. The same
+// containment, symlink, and size checks as Apply are enforced.
+func Preview(req ApplyRequest) (pre []byte, post []byte, finalStrategy string, err error) {
+	absRoot, err := filepath.EvalSymlinks(req.ProjectRoot)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
+	}
+	rel := filepath.Clean(req.TargetFile)
+	if filepath.IsAbs(rel) {
+		return nil, nil, "", fmt.Errorf("%w: target_file must be repo-relative, got %q", ErrContainment, req.TargetFile)
+	}
+	abs := filepath.Join(absRoot, rel)
+	resolved, sErr := filepath.EvalSymlinks(abs)
+	if sErr == nil {
+		abs = resolved
+	} else if !errors.Is(sErr, os.ErrNotExist) {
+		return nil, nil, "", fmt.Errorf("resolve target %q: %w", abs, sErr)
+	}
+	if !strings.HasPrefix(abs, absRoot+string(filepath.Separator)) && abs != absRoot {
+		return nil, nil, "", fmt.Errorf("%w: %s", ErrContainment, abs)
+	}
+	pre, err = readPreImage(abs)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	postStr, finalStrategy, err := transform(string(pre), req.Strategy, req.Anchor, req.Snippet)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return pre, []byte(postStr), finalStrategy, nil
+}
+
+// readPreImage stat-checks and reads the target file. A missing file is
+// treated as an empty pre-image (returns nil, nil).
+func readPreImage(abs string) ([]byte, error) {
+	info, err := os.Stat(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("stat target %q: %w", abs, err)
+	}
+	if info.Size() > MaxApplyTargetBytes {
+		return nil, fmt.Errorf("%w (%d bytes)", ErrTargetTooLarge, info.Size())
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("read target %q: %w", abs, err)
+	}
+	return data, nil
 }
 
 // Undo restores the file to its pre-image bytes. It refuses (with

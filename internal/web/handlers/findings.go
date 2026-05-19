@@ -12,6 +12,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/state"
+	"dreamer/internal/web/apply"
 )
 
 // FindingView is the per-finding shape returned by the list and detail
@@ -267,5 +268,142 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"findings": out})
+	}
+}
+
+// parseProjectAndHash extracts {name} and {hash} from
+// /api/projects/{name}/findings/{hash}, returning "" on shape mismatch.
+func parseProjectAndHash(urlPath string) (name, hash string) {
+	parts := strings.Split(strings.Trim(urlPath, "/"), "/")
+	// Expect: api, projects, {name}, findings, {hash}.
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "projects" || parts[3] != "findings" {
+		return "", ""
+	}
+	return parts[2], parts[4]
+}
+
+// unifiedDiff returns a minimal before/after rendering: every pre-image
+// line prefixed with "- " and every post-image line with "+ ". It is not
+// RFC-conformant; the SPA only needs a textual delta for its modal pane.
+func unifiedDiff(pre, post string) string {
+	if pre == post {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range strings.Split(pre, "\n") {
+		b.WriteString("- ")
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	for _, l := range strings.Split(post, "\n") {
+		b.WriteString("+ ")
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// FindingDetail handles GET /api/projects/{name}/findings/{hash}.
+//
+// Returns the FindingView for the requested hash plus an optional
+// `diff_preview` block. The diff is rendered only when the caller
+// supplies apply hints via query params (target_file + snippet are the
+// minimum; strategy + anchor are optional). This mirrors how the SPA
+// collects the apply object client-side from the list view and feeds
+// it back here for the detail modal's before/after pane.
+func FindingDetail(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		name, hash := parseProjectAndHash(r.URL.Path)
+		if name == "" || hash == "" {
+			http.NotFound(w, r)
+			return
+		}
+		cfg := deps.Config()
+		if cfg == nil {
+			http.Error(w, "config unavailable", http.StatusInternalServerError)
+			return
+		}
+		proj, ok := findProject(cfg, name)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		st, err := state.Load(cfg.Daemon.OutputRoot, name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		todosPath := filepath.Join(cfg.Daemon.OutputRoot, name, "todos.md")
+		latestRunHashes, allEntries, err := parseTodosLatestRun(todosPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		hashLower := strings.ToLower(hash)
+		// Take the most recent occurrence (file is oldest-first).
+		var found *todosEntry
+		for i := range allEntries {
+			if allEntries[i].Hash == hashLower {
+				e := allEntries[i]
+				found = &e
+			}
+		}
+		if found == nil {
+			http.NotFound(w, r)
+			return
+		}
+		view := FindingView{
+			Hash:        found.Hash,
+			Category:    found.Category,
+			Summary:     found.Summary,
+			Status:      "open",
+			LastSeenUTC: found.RunTimestamp,
+		}
+		if st != nil {
+			if fs, ok := st.Findings[hashLower]; ok {
+				if fs.Status != "" {
+					view.Status = fs.Status
+				}
+				if !fs.AppliedAt.IsZero() {
+					view.AppliedAt = fs.AppliedAt.UTC().Format(time.RFC3339)
+				}
+				if !fs.DismissedAt.IsZero() {
+					view.DismissedAt = fs.DismissedAt.UTC().Format(time.RFC3339)
+				}
+				if !fs.ResolvedAt.IsZero() {
+					view.ResolvedAt = fs.ResolvedAt.UTC().Format(time.RFC3339)
+				}
+				if (view.Status == state.FindingStatusApplied || view.Status == state.FindingStatusResolved) &&
+					latestRunHashes[hashLower] {
+					view.Recurred = true
+				}
+			}
+		}
+
+		// Diff preview is opt-in via query params.
+		var diff string
+		q := r.URL.Query()
+		if q.Get("target_file") != "" && q.Get("snippet") != "" {
+			pre, post, _, perr := apply.Preview(apply.ApplyRequest{
+				ProjectRoot: proj.Path,
+				TargetFile:  q.Get("target_file"),
+				Strategy:    q.Get("strategy"),
+				Anchor:      q.Get("anchor"),
+				Snippet:     q.Get("snippet"),
+			})
+			if perr == nil {
+				diff = unifiedDiff(string(pre), string(post))
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"finding":      view,
+			"diff_preview": diff,
+		})
 	}
 }
