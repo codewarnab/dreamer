@@ -31,7 +31,13 @@ type Options struct {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
-		command = []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"}
+		// Sandbox hardening (defense-in-depth):
+		// --permission-mode plan: blocks write tool calls at the permission layer.
+		// --tools "Read,Grep,Glob": removes Bash, Edit, Write, WebFetch, NotebookEdit
+		//   from model context entirely — the model cannot even attempt write actions.
+		// --bare: skips hooks, skills, plugins, auto-memory, CLAUDE.md discovery.
+		// --strict-mcp-config '{}': disables all MCP servers (empty config).
+		command = []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--strict-mcp-config", "{}"}
 	}
 	return &provider{options: options, command: command}, nil
 }

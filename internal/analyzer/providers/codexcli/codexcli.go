@@ -45,7 +45,11 @@ func init() {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
-		command = []string{"codex", "exec", "--json", "--sandbox", "read-only"}
+		// Sandbox hardening:
+		// --sandbox read-only: network-isolated sandbox that rejects file writes.
+		// --ask-for-approval never: write attempts silently fail without prompting
+		//   (no interactive user in headless mode).
+		command = []string{"codex", "exec", "--json", "--sandbox", "read-only", "--ask-for-approval", "never"}
 	}
 	return &provider{options: options, command: command}, nil
 }

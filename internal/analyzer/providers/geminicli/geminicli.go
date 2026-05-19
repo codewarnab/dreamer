@@ -42,6 +42,12 @@ func init() {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
+		// Sandbox note: --approval-mode plan is the primary defense, blocking tool
+		// execution. However, Gemini CLI has a known design issue: in headless mode,
+		// if the model calls exit_plan_mode, the CLI auto-switches to YOLO mode and
+		// all restrictions vanish. This is a Gemini CLI upstream issue — a fix would
+		// require either a headless-specific flag or Policy Engine TOML rules
+		// (~/.gemini/policies/). Until then, this provider carries residual risk.
 		command = []string{"gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"}
 	}
 	return &provider{options: options, command: command}, nil
