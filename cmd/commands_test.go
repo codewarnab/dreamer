@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"dreamer/internal/config"
 	"dreamer/internal/errs"
 )
 
@@ -151,8 +152,8 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 	if errs.KindOf(err) != errs.KindProviderUnavailable {
 		t.Fatalf("KindOf(err) = %q, want %q; err=%v stderr=%s", errs.KindOf(err), errs.KindProviderUnavailable, err, stderr)
 	}
-	if errs.ProviderOf(err) != "copilot-sdk" {
-		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), "copilot-sdk")
+	if errs.ProviderOf(err) != config.DefaultProviderID {
+		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), config.DefaultProviderID)
 	}
 }
 
