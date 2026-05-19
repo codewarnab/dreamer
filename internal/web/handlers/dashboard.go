@@ -19,8 +19,9 @@ import (
 // a func to return the live (post-overlay-reload) snapshot. Events is the
 // shared pub-sub used by lifecycle handlers to publish finding.* events.
 type Deps struct {
-	Config func() *config.Config
-	Events *pipeline.EventBus
+	Config     func() *config.Config
+	Events     *pipeline.EventBus
+	EnqueueRun func(projectName string) (runID string, accepted bool, err error)
 }
 
 // Dashboard returns an http.HandlerFunc for GET /api/dashboard.
