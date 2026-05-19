@@ -31,6 +31,7 @@ type fixtureOpenCodeDataset struct {
 type fixtureOpenCodeSession struct {
 	ID, Directory, Title string
 	TimeUpdated          int64
+	ParentID             string
 }
 
 type fixtureOpenCodeMessage struct {
@@ -96,7 +97,7 @@ func TestReadOpenCodeMessagesJoinsParts(t *testing.T) {
 	if messages[0].Role != "user" || messages[0].Content != "hello" {
 		t.Errorf("message[0] = %+v", messages[0])
 	}
-	if messages[1].Role != "assistant" || messages[1].Content != "thinking...\nhi back" {
+	if messages[1].Role != "assistant" || messages[1].Content != "thinking...\nhi back\nbash" {
 		t.Errorf("message[1] = %+v", messages[1])
 	}
 }
@@ -106,6 +107,78 @@ func TestReadOpenCodeMessagesRequiresSessionID(t *testing.T) {
 	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
 	if _, err := reader.ReadMessages(dbPath, ""); err == nil {
 		t.Fatalf("ReadMessages expected error for empty session id")
+	}
+}
+
+func TestReadOpenCodeMessagesToolWithResult(t *testing.T) {
+	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{
+		Sessions: []fixtureOpenCodeSession{{ID: "s1", Directory: "/p", Title: "t", TimeUpdated: 1}},
+		Messages: []fixtureOpenCodeMessage{
+			{ID: "m1", SessionID: "s1", Data: `{"role":"assistant"}`, TimeCreated: 1_700_000_000},
+		},
+		Parts: []fixtureOpenCodePart{
+			{ID: "p1", MessageID: "m1", Data: `{"type":"tool","tool":"bash","result":"exit 0"}`, TimeCreated: 1_700_000_000},
+		},
+	})
+
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+	messages, err := reader.ReadMessages(dbPath, "s1")
+	if err != nil {
+		t.Fatalf("ReadMessages returned error: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+	if messages[0].Content != "bash: exit 0" {
+		t.Errorf("content = %q, want %q", messages[0].Content, "bash: exit 0")
+	}
+}
+
+func TestReadOpenCodeMessagesSubtaskWithText(t *testing.T) {
+	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{
+		Sessions: []fixtureOpenCodeSession{{ID: "s1", Directory: "/p", Title: "t", TimeUpdated: 1}},
+		Messages: []fixtureOpenCodeMessage{
+			{ID: "m1", SessionID: "s1", Data: `{"role":"assistant"}`, TimeCreated: 1_700_000_000},
+		},
+		Parts: []fixtureOpenCodePart{
+			{ID: "p1", MessageID: "m1", Data: `{"type":"subtask","text":"delegated work"}`, TimeCreated: 1_700_000_000},
+		},
+	})
+
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+	messages, err := reader.ReadMessages(dbPath, "s1")
+	if err != nil {
+		t.Fatalf("ReadMessages returned error: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+	if messages[0].Content != "delegated work" {
+		t.Errorf("content = %q, want %q", messages[0].Content, "delegated work")
+	}
+}
+
+func TestListOpenCodeSessionsWithParentID(t *testing.T) {
+	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{
+		Sessions: []fixtureOpenCodeSession{
+			{ID: "parent1", Directory: "/proj", Title: "main", TimeUpdated: 1_700_000_000},
+			{ID: "child1", Directory: "/proj", Title: "sub", TimeUpdated: 1_700_000_010, ParentID: "parent1"},
+		},
+	})
+
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+	sessions, err := reader.ListSessions(dbPath, "/proj")
+	if err != nil {
+		t.Fatalf("ListSessions returned error: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].ParentID != "" {
+		t.Errorf("sessions[0].ParentID = %q, want empty", sessions[0].ParentID)
+	}
+	if sessions[1].ParentID != "parent1" {
+		t.Errorf("sessions[1].ParentID = %q, want %q", sessions[1].ParentID, "parent1")
 	}
 }
 
@@ -157,9 +230,13 @@ func (connection *fixtureOpenCodeConn) runQuery(query string, args []driver.Valu
 			if filter != "" && session.Directory != filter {
 				continue
 			}
-			rows = append(rows, []driver.Value{session.ID, session.Directory, session.Title, session.TimeUpdated})
+			var parentID driver.Value
+			if session.ParentID != "" {
+				parentID = session.ParentID
+			}
+			rows = append(rows, []driver.Value{session.ID, session.Directory, session.Title, session.TimeUpdated, parentID})
 		}
-		return &fixtureRows{columns: []string{"id", "directory", "title", "time_updated"}, rows: rows}, nil
+		return &fixtureRows{columns: []string{"id", "directory", "title", "time_updated", "parent_id"}, rows: rows}, nil
 	case strings.Contains(lowered, "from message"):
 		filter, _ := args[0].(string)
 		rows := make([][]driver.Value, 0)

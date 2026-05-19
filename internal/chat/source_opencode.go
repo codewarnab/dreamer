@@ -59,6 +59,7 @@ func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]C
 			Path:         dbPath + sqliteSourcePathSeparator + session.ID,
 			Tool:         SourceTypeOpenCodeSession,
 			ModifiedTime: session.ModifiedTime,
+			ParentID:     session.ParentID,
 		})
 	}
 	return discovered, nil

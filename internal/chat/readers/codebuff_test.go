@@ -185,3 +185,34 @@ func TestReadCodebuffMessagesEmptyArray(t *testing.T) {
 		t.Fatalf("got %d messages, want 0", len(msgs))
 	}
 }
+
+func TestReadCodebuffMessagesAgentBlockExtraction(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "chat-messages.json")
+
+	content := `[
+		{"id":"m1","variant":"user","content":"run tests","timestamp":"2026-05-19T10:00:00Z"},
+		{"id":"m2","variant":"ai","content":"","blocks":[
+			{"type":"agent","content":"analyzing codebase","blocks":[
+				{"type":"text","content":"found 3 issues"}
+			]},
+			{"type":"text","content":"done"}
+		],"timestamp":"2026-05-19T10:01:00Z"}
+	]`
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := ReadCodebuffMessages(file)
+	if err != nil {
+		t.Fatalf("ReadCodebuffMessages: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
+	}
+
+	want := "analyzing codebase\nfound 3 issues\ndone"
+	if msgs[1].Content != want {
+		t.Errorf("msgs[1].Content = %q, want %q", msgs[1].Content, want)
+	}
+}

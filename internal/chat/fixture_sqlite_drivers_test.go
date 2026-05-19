@@ -67,14 +67,19 @@ func (connection *discoverOpenCodeConn) runQuery(query string) (driver.Rows, err
 	}
 	rows := make([][]driver.Value, 0, len(connection.sessions))
 	for _, session := range connection.sessions {
+		var parentID driver.Value
+		if session.ParentID != "" {
+			parentID = session.ParentID
+		}
 		rows = append(rows, []driver.Value{
 			session.ID,
 			session.Directory,
 			session.Title,
 			session.ModifiedTime.Unix(),
+			parentID,
 		})
 	}
-	return &discoverRows{columns: []string{"id", "directory", "title", "time_updated"}, rows: rows}, nil
+	return &discoverRows{columns: []string{"id", "directory", "title", "time_updated", "parent_id"}, rows: rows}, nil
 }
 
 type discoverOpenCodeStmt struct {
