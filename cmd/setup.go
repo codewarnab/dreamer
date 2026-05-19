@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -65,6 +66,43 @@ type providerItem struct {
 func (p providerItem) Title() string       { return p.id }
 func (p providerItem) Description() string { return p.desc }
 func (p providerItem) FilterValue() string { return p.id }
+
+// compactDelegate renders one row per item ("id  description") so a list
+// of N items occupies exactly N lines plus the title. Avoids the default
+// delegate's 2-line + spacing layout that makes short menus look hollow.
+type compactDelegate struct{}
+
+func (compactDelegate) Height() int                             { return 1 }
+func (compactDelegate) Spacing() int                            { return 0 }
+func (compactDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (compactDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	it, ok := item.(providerItem)
+	if !ok {
+		return
+	}
+	line := it.id
+	if it.desc != "" {
+		line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#949494")).Render(it.desc)
+	}
+	cursor := "  "
+	if index == m.Index() {
+		cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Render("> ")
+		line = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Bold(true).Render(it.id)
+		if it.desc != "" {
+			line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#e9e9e9")).Render(it.desc)
+		}
+	}
+	fmt.Fprint(w, cursor+line)
+}
+
+// listHeight returns the row count a compactDelegate list needs for n
+// items, plus 2 rows for the title and a trailing spacer.
+func listHeight(n int) int {
+	if n < 1 {
+		n = 1
+	}
+	return n + 2
+}
 
 type setupModel struct {
 	step             int
@@ -145,7 +183,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerItem{"gemini-cli", "Google Gemini CLI"},
 		providerItem{"codex-cli", "OpenAI Codex CLI"},
 	}
-	pl := list.New(providers, list.NewDefaultDelegate(), 60, 14)
+	pl := list.New(providers, compactDelegate{}, 60, listHeight(len(providers)))
 	pl.Title = "1/5 - Provider"
 	pl.SetShowHelp(false)
 	pl.SetShowStatusBar(false)
@@ -171,7 +209,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerItem{"info", ""},
 		providerItem{"debug", ""},
 	}
-	ll := list.New(levels, list.NewDefaultDelegate(), 60, 10)
+	ll := list.New(levels, compactDelegate{}, 60, listHeight(len(levels)))
 	ll.Title = "6/10 - Log level"
 	ll.SetShowHelp(false)
 	ll.SetShowStatusBar(false)
@@ -216,7 +254,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerItem{"30d", ""},
 		providerItem{"lifetime", ""},
 	}
-	sl := list.New(sinces, list.NewDefaultDelegate(), 60, 10)
+	sl := list.New(sinces, compactDelegate{}, 60, listHeight(len(sinces)))
 	sl.Title = "10/10 - Project lookback (since)"
 	sl.SetShowHelp(false)
 	sl.SetShowStatusBar(false)
@@ -290,12 +328,19 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case tea.WindowSizeMsg:
-		m.providerList.SetSize(t.Width-4, t.Height-8)
-		if m.step == stepModel {
-			m.modelList.SetSize(t.Width-4, t.Height-8)
+		// Keep list height tied to item count (compactDelegate is 1 line/item)
+		// so very tall terminals do not pad empty rows after the last item.
+		// Only the width tracks the terminal so long descriptions wrap nicely.
+		w := t.Width - 4
+		if w < 30 {
+			w = 30
 		}
-		m.logLevelList.SetSize(t.Width-4, t.Height-8)
-		m.projectSinceList.SetSize(t.Width-4, t.Height-8)
+		m.providerList.SetWidth(w)
+		if m.step == stepModel {
+			m.modelList.SetWidth(w)
+		}
+		m.logLevelList.SetWidth(w)
+		m.projectSinceList.SetWidth(w)
 	}
 
 	var cmd tea.Cmd
@@ -337,7 +382,7 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		for i, mm := range models {
 			items[i] = providerItem{mm, ""}
 		}
-		ml := list.New(items, list.NewDefaultDelegate(), 60, 14)
+		ml := list.New(items, compactDelegate{}, 60, listHeight(len(items)))
 		ml.Title = "2/5 - Model for " + m.answers.provider
 		ml.SetShowHelp(false)
 		ml.SetShowStatusBar(false)
@@ -546,14 +591,11 @@ func defaultModelsFor(provider string) []string {
 }
 
 // dreamerBanner is the ASCII art splashed at the top of `dreamer setup`.
-const dreamerBanner = `
-  ██████╗  ██████╗  ███████╗  █████╗  ███╗   ███╗ ███████╗ ██████╗
-  ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔══██╗ ████╗ ████║ ██╔════╝ ██╔══██╗
-  ██║  ██║ ██████╔╝ █████╗   ███████║ ██╔████╔██║ █████╗   ██████╔╝
-  ██║  ██║ ██╔══██╗ ██╔══╝   ██╔══██║ ██║╚██╔╝██║ ██╔══╝   ██╔══██╗
-  ██████╔╝ ██║  ██║ ███████╗ ██║  ██║ ██║ ╚═╝ ██║ ███████╗ ██║  ██║
-  ╚═════╝  ╚═╝  ╚═╝ ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝ ╚══════╝ ╚═╝  ╚═╝
-`
+// Half-block (3 lines, ~49 chars wide) so it fits an 80-col terminal with
+// room to spare and does not dominate the wizard's vertical real estate.
+const dreamerBanner = ` ░█▀▄░█▀▄░█▀▀░█▀█░█▄█░█▀▀░█▀▄
+ ░█░█░█▀▄░█▀▀░█▀█░█░█░█▀▀░█▀▄
+ ░▀▀░░▀░▀░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀`
 
 // buildConfigYAML renders the wizard's answers into the full commented
 // config template. Comments document every configurable knob the daemon
