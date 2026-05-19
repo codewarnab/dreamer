@@ -33,9 +33,9 @@ const (
 	ProviderGeminiACP    ProviderID = "gemini-acp"
 	ProviderKiroACP      ProviderID = "kiro-acp"
 	ProviderCodexCLI     ProviderID = "codex-cli"
-	ProviderCodexACP     ProviderID = "codex-acp"
-	ProviderOpenCludeCLI  ProviderID = "openclaude-cli"
-	ProviderOpenCodeACP   ProviderID = "opencode-acp"
+	ProviderCodexACP       ProviderID = "codex-acp"
+	ProviderOpenClaudeCLI  ProviderID = "openclaude-cli"
+	ProviderOpenCodeACP    ProviderID = "opencode-acp"
 	ProviderOpenCodeServer ProviderID = "opencode-server"
 	ProviderCodebuffSDK    ProviderID = "codebuff-sdk"
 )
@@ -44,7 +44,8 @@ const (
 // caller (CLI/config). Unused fields per provider are ignored.
 type ProviderConfig struct {
 	// Common
-	Model string
+	Model        string
+	DefaultModel string // per-provider default; applied when Model is empty
 
 	// copilot-sdk
 	CopilotHome        string

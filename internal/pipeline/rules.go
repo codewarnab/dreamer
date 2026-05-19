@@ -58,9 +58,10 @@ func buildRedactor(cfg *config.Config, project *config.ProjectFileConfig) (*anal
 	return analyzer.NewRedactor(patterns)
 }
 
-func buildProviderConfig(block config.ProviderBlock) analyzer.ProviderConfig {
+func buildProviderConfig(providerID string, block config.ProviderBlock) analyzer.ProviderConfig {
 	out := analyzer.ProviderConfig{
 		Model:          block.Model,
+		DefaultModel:   config.DefaultModelByProvider[providerID],
 		CopilotHome:    block.CopilotHome,
 		CLIURL:         block.CLIURL,
 		Command:        append([]string(nil), block.Command...),

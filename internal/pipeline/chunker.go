@@ -49,7 +49,10 @@ func PackChunks(blocks []ProviderBlock, cfg config.ChunkingConfig, sinceLabel st
 		return packDisabled(blocks), nil
 	}
 
-	headroom := cfg.ProviderBoundaryHeadroom
+	headroom := 0.0
+	if cfg.ProviderBoundaryHeadroom != nil {
+		headroom = *cfg.ProviderBoundaryHeadroom
+	}
 	if headroom < 0 {
 		headroom = 0
 	}

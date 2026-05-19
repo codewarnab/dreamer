@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -23,11 +24,15 @@ const ID = "opencode-server"
 
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderOpenCodeServer, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+		model := cfg.Model
+		if strings.TrimSpace(model) == "" {
+			model = cfg.DefaultModel
+		}
 		return New(Options{
 			BaseURL:  cfg.BaseURL,
 			Command:  cfg.Command,
 			Env:      cfg.Env,
-			Model:    cfg.Model,
+			Model:    model,
 			Password: cfg.Password,
 		})
 	})
@@ -59,9 +64,6 @@ func New(options Options) (analyzer.Provider, error) {
 		cmd = []string{"opencode", "serve"}
 	}
 	model := strings.TrimSpace(options.Model)
-	if model == "" {
-		model = "deepseek-v4-flash"
-	}
 	return &provider{
 		baseURL: strings.TrimRight(strings.TrimSpace(options.BaseURL), "/"),
 		command: cmd,
@@ -113,7 +115,9 @@ func (p *provider) Start(ctx context.Context) error {
 
 	args := append([]string(nil), p.command[1:]...)
 	args = append(args, "--port", "0") // random port
-	cmd := exec.CommandContext(ctx, p.command[0], args...)
+	// Detach from Start ctx: pipeline cancels startCtx after Start returns,
+	// which would SIGKILL the server before any session runs.
+	cmd := exec.Command(p.command[0], args...)
 	cmd.Env = p.buildEnv()
 
 	stderr, err := cmd.StderrPipe()
@@ -207,16 +211,28 @@ func (p *provider) setAuth(req *http.Request) {
 }
 
 func (p *provider) buildEnv() []string {
-	base := p.env
-	if base == nil {
-		base = map[string]string{}
-	}
-	env := make([]string, 0, len(base)+1)
-	for k, v := range base {
-		env = append(env, k+"="+v)
+	parent := os.Environ()
+	overrides := make(map[string]string, len(p.env)+1)
+	for k, v := range p.env {
+		overrides[k] = v
 	}
 	if p.password != "" {
-		env = append(env, "OPENCODE_SERVER_PASSWORD="+p.password)
+		overrides["OPENCODE_SERVER_PASSWORD"] = p.password
+	}
+	env := make([]string, 0, len(parent)+len(overrides))
+	for _, kv := range parent {
+		eq := strings.IndexByte(kv, '=')
+		if eq <= 0 {
+			env = append(env, kv)
+			continue
+		}
+		if _, ok := overrides[kv[:eq]]; ok {
+			continue
+		}
+		env = append(env, kv)
+	}
+	for k, v := range overrides {
+		env = append(env, k+"="+v)
 	}
 	return env
 }
@@ -295,7 +311,11 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	if err != nil {
 		return "", fmt.Errorf("opencode-server: create session: %w", err)
 	}
-	defer s.deleteSession(context.Background(), sessionID)
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.deleteSession(cleanupCtx, sessionID)
+	}()
 
 	// Build the message with system message prepended.
 	text := prompt

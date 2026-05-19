@@ -20,9 +20,10 @@ func init() {
 			env[k] = v
 		}
 		return acpcore.New(acpcore.Options{
-			ID:      ID,
-			Command: command,
-			Env:     env,
+			ID:           ID,
+			Command:      command,
+			Env:          env,
+			DefaultModel: cfg.DefaultModel,
 		})
 	})
 }

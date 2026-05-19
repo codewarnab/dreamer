@@ -20,9 +20,10 @@ const ID = "claude-cli"
 
 // Options is the per-provider configuration carried over from the YAML config.
 type Options struct {
-	Command []string
-	Env     map[string]string
-	Model   string
+	Command      []string
+	Env          map[string]string
+	Model        string
+	DefaultModel string
 }
 
 // New returns a claude-cli Provider that shells out to the `claude` binary
@@ -46,7 +47,7 @@ func (p *provider) ID() string { return ID }
 // claude. Authentication is checked the first time Run is called.
 func (p *provider) Start(ctx context.Context) error {
 	if _, err := exec.LookPath(p.command[0]); err != nil {
-		return fmt.Errorf("claude binary %q not found in PATH; install the Claude CLI and run `claude auth login`", p.command[0])
+		return fmt.Errorf("claude binary %q not found in PATH; install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate", p.command[0])
 	}
 	return nil
 }
@@ -58,7 +59,11 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--add-dir", wd)
-	if model := strings.TrimSpace(cfg.Model); model != "" {
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = strings.TrimSpace(p.options.DefaultModel)
+	}
+	if model != "" {
 		command = append(command, "--model", model)
 	}
 	return &session{
@@ -80,7 +85,7 @@ type session struct {
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return "", analyzer.ErrNilContext
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc

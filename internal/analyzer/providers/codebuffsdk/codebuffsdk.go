@@ -29,9 +29,13 @@ const (
 
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderCodebuffSDK, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+		model := cfg.Model
+		if strings.TrimSpace(model) == "" {
+			model = cfg.DefaultModel
+		}
 		return New(Options{
 			BaseURL: cfg.BaseURL,
-			Model:   cfg.Model,
+			Model:   model,
 			APIKey:  resolveAPIKey(cfg),
 		})
 	})
@@ -143,6 +147,10 @@ func (p *provider) Close() error {
 }
 
 func (p *provider) healthCheck(ctx context.Context) error {
+	// Reachability check only. Codebuff may route 405 before auth, so a 200/405
+	// here doesn't prove the API key works — Run() surfaces the auth failure
+	// on first use with a clearer error. We still fail-fast on explicit
+	// 401/403 in case the server's auth path runs ahead of routing.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/chat/completions", nil)
 	if err != nil {
 		return err
@@ -154,8 +162,6 @@ func (p *provider) healthCheck(ctx context.Context) error {
 		return err
 	}
 	defer resp.Body.Close()
-	// The endpoint expects POST; a GET returning 405 or similar is fine — it
-	// proves the server is reachable and the key is accepted.
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("authentication failed (HTTP %d)", resp.StatusCode)
 	}

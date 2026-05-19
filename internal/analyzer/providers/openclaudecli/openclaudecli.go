@@ -21,9 +21,10 @@ const ID = "openclaude-cli"
 
 // Options is the per-provider configuration carried over from the YAML config.
 type Options struct {
-	Command []string
-	Env     map[string]string
-	Model   string
+	Command      []string
+	Env          map[string]string
+	Model        string
+	DefaultModel string
 }
 
 // New returns an openclaude-cli Provider that shells out to the `openclaude`
@@ -48,7 +49,7 @@ func (p *provider) ID() string { return ID }
 func (p *provider) Start(ctx context.Context) error {
 	if _, err := exec.LookPath(p.command[0]); err != nil {
 		return errs.NotInstalled("openclaude", "start",
-			"Install OpenClude (`npm i -g @gitlawb/openclaude`) and run `openclaude auth login`.", err)
+			"Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup.", err)
 	}
 	return nil
 }
@@ -60,9 +61,14 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--add-dir", wd)
-	if model := strings.TrimSpace(cfg.Model); model != "" {
-		command = append(command, "--model", model)
-	} else if model := strings.TrimSpace(p.options.Model); model != "" {
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = strings.TrimSpace(p.options.Model)
+	}
+	if model == "" {
+		model = strings.TrimSpace(p.options.DefaultModel)
+	}
+	if model != "" {
 		command = append(command, "--model", model)
 	}
 	return &session{
@@ -84,7 +90,7 @@ type session struct {
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return "", analyzer.ErrNilContext
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
