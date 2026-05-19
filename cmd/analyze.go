@@ -50,7 +50,7 @@ func newAnalyzeCommand() *cobra.Command {
 			if strings.TrimSpace(logRoot) == "" {
 				logRoot = cfg.Daemon.OutputRoot
 			}
-			logger, err := logging.New(logRoot, cfg.Logging.Level)
+			logger, err := logging.New(logRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
 			if err != nil {
 				return err
 			}

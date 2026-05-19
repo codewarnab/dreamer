@@ -10,7 +10,7 @@ import (
 func TestLoggerWritesProgressAndIssuesToLoggingFolder(t *testing.T) {
 	outputRoot := t.TempDir()
 
-	logger, err := New(outputRoot, "debug")
+	logger, err := New(outputRoot, "debug", 0)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestLoggerWritesProgressAndIssuesToLoggingFolder(t *testing.T) {
 func TestLoggerLevelFiltersDebugEntries(t *testing.T) {
 	outputRoot := t.TempDir()
 
-	logger, err := New(outputRoot, "info")
+	logger, err := New(outputRoot, "info", 0)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -61,5 +61,59 @@ func TestLoggerLevelFiltersDebugEntries(t *testing.T) {
 	}
 	if !strings.Contains(content, "visible progress") {
 		t.Fatalf("info entry should be written: %s", content)
+	}
+}
+
+func TestLoggerRotatesWhenSizeExceeded(t *testing.T) {
+	outputRoot := t.TempDir()
+	// Use 1MB max size (the minimum config value).
+	logger, err := New(outputRoot, "info", 1)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	// Each slog line is ~100 bytes; write 15000 lines to exceed 1MB.
+	for i := 0; i < 15000; i++ {
+		logger.Info("padding line for rotation test", Any("index", i))
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	logDir := filepath.Join(outputRoot, loggingDirName)
+	backupPath := filepath.Join(logDir, backupLogFileName)
+
+	// The backup should exist (rotation happened).
+	if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+		t.Fatal("backup log file should exist after rotation")
+	}
+
+	// The current log should exist and contain recent entries.
+	currentData, readErr := os.ReadFile(filepath.Join(logDir, defaultLogFileName))
+	if readErr != nil {
+		t.Fatalf("read current log: %v", readErr)
+	}
+	if len(currentData) == 0 {
+		t.Fatal("current log file should not be empty after rotation")
+	}
+}
+
+func TestLoggerRotationDisabledByDefault(t *testing.T) {
+	outputRoot := t.TempDir()
+	// maxSizeMB=0 means default (5MB). Writing a few lines won't trigger rotation.
+	logger, err := New(outputRoot, "info", 0)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	logger.Info("test message")
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	logDir := filepath.Join(outputRoot, loggingDirName)
+	backupPath := filepath.Join(logDir, backupLogFileName)
+
+	if _, statErr := os.Stat(backupPath); !os.IsNotExist(statErr) {
+		t.Fatal("backup log should not exist when rotation threshold not reached")
 	}
 }

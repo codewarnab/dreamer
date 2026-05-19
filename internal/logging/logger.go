@@ -14,8 +14,11 @@ import (
 )
 
 const (
-	defaultLogFileName = "dreamer.log"
-	loggingDirName     = "logging"
+	defaultLogFileName    = "dreamer.log"
+	backupLogFileName     = "dreamer.log.1"
+	loggingDirName        = "logging"
+	defaultMaxSizeMB      = 5
+	bytesPerMB            = 1024 * 1024
 )
 
 // Logger writes progress and issue details to a project-local Dreamer log file.
@@ -26,10 +29,11 @@ const (
 // currently needs durable progress/error breadcrumbs more than a full logging
 // framework.
 type Logger struct {
-	file   *os.File
-	logger *slog.Logger
-	level  slog.Level
-	path   string
+	file      *os.File
+	logger    *slog.Logger
+	level     slog.Level
+	path      string
+	maxSizeMB int
 }
 
 // Attr is one structured logging field.
@@ -70,7 +74,10 @@ func ErrAttr(err error) []Attr {
 // loading. The level argument accepts "error", "warn", "info", or "debug";
 // unknown values fall back to "info" so logging remains available even when a
 // config file contains a typo.
-func New(outputRoot string, level string) (*Logger, error) {
+func New(outputRoot string, level string, maxSizeMB int) (*Logger, error) {
+	if maxSizeMB <= 0 {
+		maxSizeMB = defaultMaxSizeMB
+	}
 	logDir := filepath.Join(outputRoot, loggingDirName)
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create logging directory %q: %w", logDir, err)
@@ -92,7 +99,7 @@ func New(outputRoot string, level string) (*Logger, error) {
 			return attr
 		},
 	})
-	return &Logger{file: file, logger: slog.New(handler), level: minLevel, path: logPath}, nil
+	return &Logger{file: file, logger: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
 }
 
 // Path returns the absolute log file path used by this logger.
@@ -135,11 +142,56 @@ func (logger *Logger) write(level slog.Level, message string, attrs ...Attr) {
 	if logger == nil || logger.logger == nil || level < logger.level {
 		return
 	}
+	if logger.rotateIfNeeded() {
+		// The file was rotated; rebuild the slog handler so it writes to the
+		// new file descriptor. The old MultiWriter still references the closed fd.
+		logger.rebuildHandler()
+	}
 	args := make([]any, 0, len(attrs))
 	for _, attr := range attrs {
 		args = append(args, attr)
 	}
 	logger.logger.Log(context.Background(), level, message, args...)
+}
+
+// rotateIfNeeded checks whether the log file exceeds the configured size limit
+// and rotates it by renaming the current file to .1 and opening a fresh one.
+// Returns true if rotation happened.
+func (logger *Logger) rotateIfNeeded() bool {
+	if logger.maxSizeMB <= 0 || logger.file == nil {
+		return false
+	}
+	info, err := logger.file.Stat()
+	if err != nil || info.Size() < int64(logger.maxSizeMB)*bytesPerMB {
+		return false
+	}
+
+	backupPath := filepath.Join(filepath.Dir(logger.path), backupLogFileName)
+	_ = logger.file.Close()
+	_ = os.Remove(backupPath)
+	_ = os.Rename(logger.path, backupPath)
+
+	file, openErr := os.OpenFile(logger.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if openErr != nil {
+		logger.file = nil
+		return false
+	}
+	logger.file = file
+	return true
+}
+
+// rebuildHandler creates a new slog handler that writes to the current file.
+func (logger *Logger) rebuildHandler() {
+	handler := slog.NewTextHandler(io.MultiWriter(logger.file, os.Stderr), &slog.HandlerOptions{
+		Level: logger.level,
+		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
+			if attr.Key == slog.LevelKey {
+				return slog.String(slog.LevelKey, strings.ToLower(attr.Value.String()))
+			}
+			return attr
+		},
+	})
+	logger.logger = slog.New(handler)
 }
 
 func parseLevel(value string) slog.Level {

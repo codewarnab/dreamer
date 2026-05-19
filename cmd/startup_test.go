@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -48,6 +49,10 @@ func TestStartupInstallCreatesLogonTask(t *testing.T) {
 	assertContainsArgument(t, commandArgs, "/Create")
 	assertContainsArgument(t, commandArgs, "/SC")
 	assertContainsArgument(t, commandArgs, "ONLOGON")
+	assertContainsArgument(t, commandArgs, "/RI")
+	assertContainsArgument(t, commandArgs, "5")
+	assertContainsArgument(t, commandArgs, "/DU")
+	assertContainsArgument(t, commandArgs, "9999")
 	assertContainsArgument(t, commandArgs, "/TN")
 	assertContainsArgument(t, commandArgs, startupTaskName)
 	assertContainsArgument(t, commandArgs, filepath.Join(homeDir, ".config", "dreamer", defaultConfigFileName))
@@ -74,6 +79,125 @@ func TestStartupStatusReturnsSchedulerError(t *testing.T) {
 	}
 }
 
+func TestBuildSystemdUnitContainsExpectedFields(t *testing.T) {
+	unit := buildSystemdUnit("/usr/bin/dreamer", "/home/user/.config/dreamer/config.yaml")
+
+	assertContainsString(t, unit, "ExecStart=/usr/bin/dreamer daemon --config /home/user/.config/dreamer/config.yaml")
+	assertContainsString(t, unit, "Restart=on-failure")
+	assertContainsString(t, unit, "RestartSec=30")
+	assertContainsString(t, unit, "Type=simple")
+	assertContainsString(t, unit, "After=network.target")
+	assertContainsString(t, unit, "WantedBy=default.target")
+	assertContainsString(t, unit, "StandardOutput=journal")
+}
+
+func TestStartupInstallCreatesSystemdUnit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("systemd startup is Linux-specific")
+	}
+
+	configDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+
+	var commands [][]string
+	withStartupCommandRunner(t, func(name string, args ...string) ([]byte, error) {
+		commands = append(commands, append([]string{name}, args...))
+		return []byte("SUCCESS"), nil
+	})
+
+	stdout, stderr, err := executeRootCommand("startup", "install")
+	if err != nil {
+		t.Fatalf("startup install returned error: %v\nstderr=%s", err, stderr)
+	}
+
+	// Verify unit file was written.
+	unitPath := filepath.Join(configDir, "systemd", "user", "dreamer.service")
+	data, readErr := os.ReadFile(unitPath)
+	if readErr != nil {
+		t.Fatalf("read unit file: %v", readErr)
+	}
+	content := string(data)
+	assertContainsString(t, content, "[Unit]")
+	assertContainsString(t, content, "[Service]")
+	assertContainsString(t, content, "[Install]")
+	assertContainsString(t, content, "daemon --config")
+
+	// Verify systemctl commands were called.
+	if len(commands) < 2 {
+		t.Fatalf("expected at least 2 commands, got %d", len(commands))
+	}
+	foundDaemonReload := false
+	foundEnable := false
+	for _, cmd := range commands {
+		if len(cmd) >= 3 && cmd[0] == "systemctl" && cmd[1] == "--user" && cmd[2] == "daemon-reload" {
+			foundDaemonReload = true
+		}
+		if len(cmd) >= 4 && cmd[0] == "systemctl" && cmd[1] == "--user" && cmd[2] == "enable" && cmd[3] == "dreamer" {
+			foundEnable = true
+		}
+	}
+	if !foundDaemonReload {
+		t.Fatalf("expected systemctl --user daemon-reload")
+	}
+	if !foundEnable {
+		t.Fatalf("expected systemctl --user enable dreamer")
+	}
+
+	if !strings.Contains(stdout, "systemd user service installed") {
+		t.Fatalf("stdout missing install confirmation: %s", stdout)
+	}
+}
+
+func TestStartupUninstallRemovesSystemdUnit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("systemd startup is Linux-specific")
+	}
+
+	configDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+
+	// Pre-create the unit file so uninstall can remove it.
+	unitDir := filepath.Join(configDir, "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	unitPath := filepath.Join(unitDir, "dreamer.service")
+	if err := os.WriteFile(unitPath, []byte("[Unit]\n"), 0o644); err != nil {
+		t.Fatalf("write unit: %v", err)
+	}
+
+	var commands [][]string
+	withStartupCommandRunner(t, func(name string, args ...string) ([]byte, error) {
+		commands = append(commands, append([]string{name}, args...))
+		return []byte("SUCCESS"), nil
+	})
+
+	stdout, stderr, err := executeRootCommand("startup", "uninstall")
+	if err != nil {
+		t.Fatalf("startup uninstall returned error: %v\nstderr=%s", err, stderr)
+	}
+
+	// Verify unit file was removed.
+	if _, statErr := os.Stat(unitPath); !os.IsNotExist(statErr) {
+		t.Fatalf("unit file still exists: %s", unitPath)
+	}
+
+	// Verify systemctl commands were called.
+	foundDisable := false
+	for _, cmd := range commands {
+		if len(cmd) >= 4 && cmd[0] == "systemctl" && cmd[1] == "--user" && cmd[2] == "disable" && cmd[3] == "dreamer" {
+			foundDisable = true
+		}
+	}
+	if !foundDisable {
+		t.Fatalf("expected systemctl --user disable dreamer")
+	}
+
+	if !strings.Contains(stdout, "systemd user service uninstalled") {
+		t.Fatalf("stdout missing uninstall confirmation: %s", stdout)
+	}
+}
+
 func withStartupCommandRunner(t *testing.T, runner commandRunner) {
 	t.Helper()
 
@@ -93,4 +217,11 @@ func assertContainsArgument(t *testing.T, args []string, expected string) {
 		}
 	}
 	t.Fatalf("args %q do not contain %q", args, expected)
+}
+
+func assertContainsString(t *testing.T, content, expected string) {
+	t.Helper()
+	if !strings.Contains(content, expected) {
+		t.Fatalf("content missing %q\ncontent:\n%s", expected, content)
+	}
 }

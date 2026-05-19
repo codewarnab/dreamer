@@ -6,13 +6,27 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
+	"syscall"
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
 	"github.com/spf13/cobra"
 )
+
+// daemonSignals returns the OS-specific signals that trigger graceful shutdown.
+// On Windows only os.Interrupt (Ctrl+C) is available. On Unix we also catch
+// SIGTERM so that systemd and other process managers can stop the daemon cleanly.
+func daemonSignals() []os.Signal {
+	if runtime.GOOS == "windows" {
+		return []os.Signal{os.Interrupt}
+	}
+	return []os.Signal{os.Interrupt, syscall.SIGTERM}
+}
 
 func newDaemonCommand() *cobra.Command {
 	var (
@@ -35,7 +49,7 @@ func newDaemonCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
-			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level)
+			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
 			if err != nil {
 				return err
 			}
@@ -61,9 +75,16 @@ func newDaemonCommand() *cobra.Command {
 				return fmt.Errorf("daemon frequency_seconds must be greater than zero")
 			}
 
+			lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
+			releaseLock, err := fsutil.AcquireLock(lockPath, logger)
+			if err != nil {
+				return err
+			}
+			defer releaseLock()
+
 			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
 			baseCtx := commandContext(cmd)
-			ctx, stop := signal.NotifyContext(baseCtx, os.Interrupt)
+			ctx, stop := signal.NotifyContext(baseCtx, daemonSignals()...)
 			defer stop()
 
 			discoveryCache := pipeline.NewDiscoveryCache()
