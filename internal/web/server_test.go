@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -62,6 +63,48 @@ func TestServer_StartAndServeIndex(t *testing.T) {
 	parts := strings.Split(srv.Addr(), ":")
 	if len(parts) < 2 || !strings.Contains(string(data), parts[len(parts)-1]) {
 		t.Fatalf("port file %q does not contain Addr port from %q", data, srv.Addr())
+	}
+}
+
+func TestServer_IndexCarriesCSRFAndOverlayBanner(t *testing.T) {
+	cfg := &config.Config{
+		Web:    config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
+		Daemon: config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	cfg.Notices.OverlayParseError = "bad yaml at line 7"
+	srv, err := NewServer(Options{Config: cfg, Logger: newTestLogger(t), Events: pipeline.NewEventBus()})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+	resp, err := http.Get("http://" + srv.Addr() + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, `meta name="csrf-token"`) {
+		t.Errorf("body missing csrf-token meta tag: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, srv.CSRFToken()) {
+		t.Errorf("body missing actual CSRF token value")
+	}
+	if !strings.Contains(bodyStr, "bad yaml at line 7") {
+		t.Errorf("body missing overlay parse error banner: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "overlay parse error") {
+		t.Errorf("body missing overlay banner prefix")
 	}
 }
 

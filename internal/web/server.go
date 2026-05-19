@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"net"
 	"net/http"
@@ -127,14 +128,44 @@ func (s *Server) routes() http.Handler {
 	return CSRFMiddleware(s.csrfToken, mux)
 }
 
+// layoutData is the template payload for the SPA shell.
+type layoutData struct {
+	CSRFToken         string
+	Projects          []projectNavItem
+	OverlayParseError string
+	RestartRequired   []string
+}
+
+type projectNavItem struct{ Name string }
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
+	s.renderIndex(w, r)
+}
+
+func (s *Server) renderIndex(w http.ResponseWriter, r *http.Request) {
+	cfg := s.currentConfig()
+	tmpl, err := template.ParseFS(assets, "templates/layout.html")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	items := make([]projectNavItem, 0, len(cfg.Projects))
+	for _, p := range cfg.Projects {
+		items = append(items, projectNavItem{Name: p.Name})
+	}
+	data := layoutData{
+		CSRFToken:         s.csrfToken,
+		Projects:          items,
+		OverlayParseError: cfg.Notices.OverlayParseError,
+		RestartRequired:   cfg.Notices.RestartRequired,
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'")
-	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="csrf-token" content="%s"><title>dreamer</title></head><body><div id="app"></div></body></html>`, s.csrfToken)
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'")
+	_ = tmpl.Execute(w, data)
 }
 
 func (s *Server) attachAPI(mux *http.ServeMux) {

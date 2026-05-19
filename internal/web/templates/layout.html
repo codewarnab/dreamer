@@ -1,1 +1,63 @@
-<!doctype html><title>dreamer</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{.CSRFToken}}">
+  <title>dreamer</title>
+  <link rel="stylesheet" href="/static/css/dreamer.css">
+</head>
+<body x-data="appState()">
+  {{if .OverlayParseError}}
+  <div class="banner banner--error" role="alert">overlay parse error: {{.OverlayParseError}}. Daemon is using pre-error values.</div>
+  {{end}}
+  {{if .RestartRequired}}
+  <div class="banner banner--info" role="alert">
+    settings changed that require a daemon restart: {{range $i, $f := .RestartRequired}}{{if $i}}, {{end}}{{$f}}{{end}}.
+    <button class="btn btn--ghost" hx-post="/api/daemon/restart" hx-swap="none">restart daemon</button>
+  </div>
+  {{end}}
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <span class="display-hero" style="font-size: 36px; line-height: 1;">DREAMER</span>
+      </div>
+      <nav class="kicker" aria-label="Projects" style="margin-top: var(--space-5);">
+        <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">projects</div>
+        {{range .Projects}}
+        <a href="/projects/{{.Name}}" data-nav="projects/{{.Name}}">{{.Name}}</a>
+        {{end}}
+        <a href="#" @click.prevent="$dispatch('open-modal', 'add-project')" data-nav="add">+ add project</a>
+      </nav>
+      <nav class="kicker" aria-label="System" style="margin-top: var(--space-5);">
+        <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">system</div>
+        <a href="/" data-nav="dashboard">dashboard</a>
+        <a href="/settings" data-nav="settings">settings</a>
+        <a href="/logs" data-nav="logs">logs</a>
+        <a href="/providers" data-nav="providers">providers</a>
+      </nav>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div>
+          <span class="kicker">daemon</span>
+          <span class="pill" :class="status === 'running' ? 'pill--healthy' : 'pill--warn'" x-text="status">running</span>
+        </div>
+        <button class="btn btn--primary" @click="runNow()">run now</button>
+      </header>
+      <main id="content" role="main">
+        {{block "content" .}}
+        <section class="card">
+          <div class="kicker">welcome</div>
+          <h1 class="headline-lg">dreamer is running.</h1>
+          <p class="body">Pick a project from the sidebar or open the dashboard.</p>
+        </section>
+        {{end}}
+      </main>
+    </div>
+  </div>
+  <script defer src="/static/vendor/htmx.min.js"></script>
+  <script defer src="/static/vendor/alpine.min.js"></script>
+  <script defer src="/static/js/app.js"></script>
+</body>
+</html>
