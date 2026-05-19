@@ -22,6 +22,12 @@ type flushRecorder struct {
 
 func (f *flushRecorder) Flush() {}
 
+func (f *flushRecorder) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.ResponseRecorder.Write(p)
+}
+
 func (f *flushRecorder) Body() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

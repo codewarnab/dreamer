@@ -136,4 +136,3 @@ func TestLogsTail_MissingFileOK(t *testing.T) {
 		t.Errorf("body = %q, want empty", body)
 	}
 }
-

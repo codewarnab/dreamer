@@ -194,9 +194,9 @@ func intToStr(i int) string {
 // dropped on each Save so the map does not collect cruft over time.
 func TestPruneLastRunPerCategoryDropsUnknownKeys(t *testing.T) {
 	m := map[string]time.Time{
-		"test":          time.Now(),
-		"lint-rule":     time.Now(),
-		"retired-rule":  time.Now(),
+		"test":         time.Now(),
+		"lint-rule":    time.Now(),
+		"retired-rule": time.Now(),
 	}
 	packs := []analyzer.RulePack{
 		{Category: analyzer.RuleCategory("test")},
@@ -220,10 +220,10 @@ func TestPruneLastRunPerCategoryDropsUnknownKeys(t *testing.T) {
 func TestPruneProviderUsageRespectsTTL(t *testing.T) {
 	now := time.Now().UTC()
 	m := map[string]state.ProviderUsage{
-		"copilot-sdk":      {Runs: 3, LastSuccessUTC: now},
-		"recent-inactive":  {Runs: 5, LastSuccessUTC: now.Add(-7 * 24 * time.Hour)},
-		"stale-inactive":   {Runs: 7, LastSuccessUTC: now.Add(-90 * 24 * time.Hour)},
-		"never-succeeded":  {Runs: 0, LastError: "boot failed"},
+		"copilot-sdk":     {Runs: 3, LastSuccessUTC: now},
+		"recent-inactive": {Runs: 5, LastSuccessUTC: now.Add(-7 * 24 * time.Hour)},
+		"stale-inactive":  {Runs: 7, LastSuccessUTC: now.Add(-90 * 24 * time.Hour)},
+		"never-succeeded": {Runs: 0, LastError: "boot failed"},
 	}
 	pruneProviderUsage(m, "copilot-sdk")
 	if got := m["copilot-sdk"].Runs; got != 3 {

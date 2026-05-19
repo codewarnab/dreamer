@@ -43,12 +43,12 @@ func TestParseSinceWindow(t *testing.T) {
 
 func TestChatsProjectName(t *testing.T) {
 	cases := map[string]string{
-		"/api/projects/foo/chats":  "foo",
-		"/api/projects/foo/chats/": "foo",
-		"/api/projects/foo":        "",
-		"/api/projects/":           "",
+		"/api/projects/foo/chats":    "foo",
+		"/api/projects/foo/chats/":   "foo",
+		"/api/projects/foo":          "",
+		"/api/projects/":             "",
 		"/api/projects/foo/findings": "",
-		"/other":                   "",
+		"/other":                     "",
 	}
 	for path, want := range cases {
 		if got := chatsProjectName(path); got != want {

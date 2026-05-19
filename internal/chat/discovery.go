@@ -31,11 +31,11 @@ func DiscoverChats(projectPath string) ([]ChatSource, error) {
 	}
 
 	environment := DiscoveryEnvironment{
-		HomeDir:         homeDir,
-		AppDataDir:      appDataDir,
-		DataHomeDir:     dataHomeDir,
-		ClaudeConfigDir: strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")),
-		GeminiHomeDir:   strings.TrimSpace(os.Getenv("GEMINI_HOME")),
+		HomeDir:           homeDir,
+		AppDataDir:        appDataDir,
+		DataHomeDir:       dataHomeDir,
+		ClaudeConfigDir:   strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")),
+		GeminiHomeDir:     strings.TrimSpace(os.Getenv("GEMINI_HOME")),
 		OpenCodeDBPath:    strings.TrimSpace(os.Getenv("OPENCODE_DB")),
 		KiroCLIDBPath:     strings.TrimSpace(os.Getenv("KIRO_CLI_DB")),
 		CodebuffConfigDir: strings.TrimSpace(os.Getenv("CODEBUFF_CONFIG_DIR")),

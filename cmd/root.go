@@ -6,6 +6,7 @@ import (
 	// Register provider implementations.
 	_ "dreamer/internal/analyzer/providers/claudeacp"
 	_ "dreamer/internal/analyzer/providers/claudecli"
+	_ "dreamer/internal/analyzer/providers/codebuffsdk"
 	_ "dreamer/internal/analyzer/providers/codexacp"
 	_ "dreamer/internal/analyzer/providers/codexcli"
 	_ "dreamer/internal/analyzer/providers/copilotacp"
@@ -13,10 +14,9 @@ import (
 	_ "dreamer/internal/analyzer/providers/geminiacp"
 	_ "dreamer/internal/analyzer/providers/geminicli"
 	_ "dreamer/internal/analyzer/providers/kiroacp"
+	_ "dreamer/internal/analyzer/providers/openclaudecli"
 	_ "dreamer/internal/analyzer/providers/opencodeacp"
 	_ "dreamer/internal/analyzer/providers/opencodehttp"
-	_ "dreamer/internal/analyzer/providers/openclaudecli"
-	_ "dreamer/internal/analyzer/providers/codebuffsdk"
 )
 
 var rootCmd = newRootCommand()

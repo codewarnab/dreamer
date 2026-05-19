@@ -103,7 +103,6 @@ func NewOrchestrator(packs []RulePack) *Orchestrator {
 	return &Orchestrator{Packs: cloned}
 }
 
-
 type rawFinding struct {
 	Mistake          string             `json:"mistake"`
 	Guardrail        Guardrail          `json:"guardrail"`

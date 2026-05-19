@@ -67,24 +67,24 @@ func (p providerItem) Description() string { return p.desc }
 func (p providerItem) FilterValue() string { return p.id }
 
 type setupModel struct {
-	step              int
-	advanced          bool
-	skipStartup       bool
-	answers           setupAnswers
-	providerList      list.Model
-	modelList         list.Model
-	freqInput         textinput.Model
-	outputInput       textinput.Model
-	logLevelList      list.Model
-	ruleTimeoutInput  textinput.Model
-	maxConcInput      textinput.Model
-	maxChunkInput     textinput.Model
-	projectPathInput  textinput.Model
-	projectNameInput  textinput.Model
-	projectSinceList  list.Model
-	projectPathErr    string
-	quit              bool
-	confirmed         bool
+	step             int
+	advanced         bool
+	skipStartup      bool
+	answers          setupAnswers
+	providerList     list.Model
+	modelList        list.Model
+	freqInput        textinput.Model
+	outputInput      textinput.Model
+	logLevelList     list.Model
+	ruleTimeoutInput textinput.Model
+	maxConcInput     textinput.Model
+	maxChunkInput    textinput.Model
+	projectPathInput textinput.Model
+	projectNameInput textinput.Model
+	projectSinceList list.Model
+	projectPathErr   string
+	quit             bool
+	confirmed        bool
 }
 
 // prefillFromConfig pulls defaults out of an existing config so re-running

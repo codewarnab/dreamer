@@ -18,12 +18,12 @@ import (
 type transition string
 
 const (
-	txApply      transition = "apply"
-	txUndo       transition = "undo"
-	txDismiss    transition = "dismiss"
-	txResolve    transition = "resolve"
-	txUndismiss  transition = "undismiss"
-	txUnresolve  transition = "unresolve"
+	txApply     transition = "apply"
+	txUndo      transition = "undo"
+	txDismiss   transition = "dismiss"
+	txResolve   transition = "resolve"
+	txUndismiss transition = "undismiss"
+	txUnresolve transition = "unresolve"
 )
 
 // applyRequest is the body the SPA POSTs for the /apply endpoint. The

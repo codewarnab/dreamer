@@ -35,11 +35,11 @@ func ReadCodebuffMessages(filePath string) ([]ChatMessage, error) {
 
 // codebuffRawMessage mirrors the JSON structure Codebuff writes to disk.
 type codebuffRawMessage struct {
-	ID        string               `json:"id"`
-	Variant   string               `json:"variant"`
-	Content   string               `json:"content"`
-	Blocks    []codebuffRawBlock   `json:"blocks,omitempty"`
-	Timestamp string               `json:"timestamp"`
+	ID        string             `json:"id"`
+	Variant   string             `json:"variant"`
+	Content   string             `json:"content"`
+	Blocks    []codebuffRawBlock `json:"blocks,omitempty"`
+	Timestamp string             `json:"timestamp"`
 }
 
 // codebuffRawBlock represents a single content block inside a message.

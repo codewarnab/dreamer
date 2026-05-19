@@ -155,10 +155,10 @@ var pageRoutes = map[string]pageRoute{
 }
 
 var projectTabTemplates = map[string]string{
-	"":          "project_overview.html",
-	"findings":  "project_findings.html",
-	"chats":     "project_chats.html",
-	"history":   "project_history.html",
+	"":         "project_overview.html",
+	"findings": "project_findings.html",
+	"chats":    "project_chats.html",
+	"history":  "project_history.html",
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
