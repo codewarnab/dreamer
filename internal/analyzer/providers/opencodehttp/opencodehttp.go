@@ -115,7 +115,9 @@ func (p *provider) Start(ctx context.Context) error {
 
 	args := append([]string(nil), p.command[1:]...)
 	args = append(args, "--port", "0") // random port
-	cmd := exec.CommandContext(ctx, p.command[0], args...)
+	// Detach from Start ctx: pipeline cancels startCtx after Start returns,
+	// which would SIGKILL the server before any session runs.
+	cmd := exec.Command(p.command[0], args...)
 	cmd.Env = p.buildEnv()
 
 	stderr, err := cmd.StderrPipe()
