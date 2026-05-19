@@ -59,6 +59,10 @@ type State struct {
 	// LastRunPerCategory: most recent successful completion per rule category.
 	// Stale entries flag a timing-out or erroring rule.
 	LastRunPerCategory map[string]time.Time `json:"last_run_per_category,omitempty"`
+
+	// Findings is the v1.5 per-finding lifecycle map. Open findings are
+	// absent (zero-value semantics).
+	Findings map[string]FindingState `json:"findings,omitempty"`
 }
 
 // PathForProject returns the per-project state.json path under outputRoot.
@@ -252,6 +256,7 @@ func defaultState() *State {
 		ProviderUsage:      map[string]ProviderUsage{},
 		UsageStats:         map[string]int64{},
 		LastRunPerCategory: map[string]time.Time{},
+		Findings:           map[string]FindingState{},
 	}
 }
 
@@ -270,6 +275,9 @@ func normalizeState(s *State) {
 	}
 	if s.LastRunPerCategory == nil {
 		s.LastRunPerCategory = map[string]time.Time{}
+	}
+	if s.Findings == nil {
+		s.Findings = map[string]FindingState{}
 	}
 }
 
