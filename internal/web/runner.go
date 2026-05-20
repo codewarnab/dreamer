@@ -1,79 +1,38 @@
 package web
 
 import (
-	"context"
-	"fmt"
-	"sync"
-	"time"
-
 	"dreamer/internal/logging"
 )
 
-// Runner serializes per-project on-demand pipeline runs. One worker
-// per project (max one concurrent run per project). Cross-project
-// runs proceed in parallel.
+// Runner delegates on-demand pipeline runs to the job queue. It is a
+// thin adapter — deduplication is handled by the queue's own
+// Enqueue (one active job per project). The Runner exists so the web
+// server's dependency injection layer has a clean interface.
 type Runner struct {
-	mu       sync.Mutex
-	inflight map[string]string // projectName -> runID
-	invoke   RunFunc
-	logger   *logging.Logger
-	// parent is the daemon's signal-rooted context. Every spawned
-	// worker derives its run context from parent so SIGTERM cancels
-	// in-flight web-triggered runs alongside the daemon's main loop.
-	// Nil parent (constructed via NewRunner without an explicit ctx,
-	// used by tests) falls back to context.Background.
-	parent context.Context
+	invoke RunFunc
+	logger *logging.Logger
 }
 
-// RunFunc is the function the daemon supplies to actually execute a
-// run. It receives the project name and a context bound to the
-// daemon's lifecycle.
-type RunFunc func(ctx context.Context, projectName string) error
+// RunFunc enqueues a job for the named project. Returns (jobID, true)
+// on success; ("", false) when a job is already active for the
+// project (queue-level dedup).
+type RunFunc func(projectName string) (jobID string, accepted bool)
 
-// NewRunner constructs a Runner. The daemon wires `invoke` to a
-// closure that builds pipeline.Options for the named project and
-// calls pipeline.Run. `parent` is the daemon's signal-rooted ctx;
-// pass nil only from tests that exercise Enqueue in isolation.
-func NewRunner(parent context.Context, invoke RunFunc, logger *logging.Logger) *Runner {
+// NewRunner constructs a Runner. The daemon wires invoke to a closure
+// that resolves project config and calls queue.Enqueue.
+func NewRunner(invoke RunFunc, logger *logging.Logger) *Runner {
 	return &Runner{
-		inflight: map[string]string{},
-		invoke:   invoke,
-		logger:   logger,
-		parent:   parent,
+		invoke: invoke,
+		logger: logger,
 	}
 }
 
-// Enqueue starts a run for the named project if none is in flight.
-// Returns (runID, true, nil) on enqueue; ("", false, nil) if a run is
-// already in flight for that project. The runID is a nanosecond
-// timestamp string scoped to this daemon process.
+// Enqueue starts a run for the named project if none is active.
+// Returns (runID, true, nil) on enqueue; ("", false, nil) if a run
+// is already active for that project.
 func (r *Runner) Enqueue(projectName string) (string, bool, error) {
-	r.mu.Lock()
-	if _, exists := r.inflight[projectName]; exists {
-		r.mu.Unlock()
-		return "", false, nil
-	}
-	runID := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
-	r.inflight[projectName] = runID
-	r.mu.Unlock()
-
-	go func() {
-		defer func() {
-			r.mu.Lock()
-			delete(r.inflight, projectName)
-			r.mu.Unlock()
-		}()
-		parent := r.parent
-		if parent == nil {
-			parent = context.Background()
-		}
-		ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
-		defer cancel()
-		if err := r.invoke(ctx, projectName); err != nil && r.logger != nil {
-			r.logger.Error("on-demand run failed", logging.String("project", projectName), logging.Any("err", err))
-		}
-	}()
-	return runID, true, nil
+	jobID, accepted := r.invoke(projectName)
+	return jobID, accepted, nil
 }
 
 // EnqueueFunc returns a closure suitable for handlers.Deps.EnqueueRun.

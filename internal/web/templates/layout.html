@@ -43,7 +43,8 @@
           <span class="kicker">daemon</span>
           <span class="pill" :class="status === 'running' ? 'pill--healthy' : 'pill--warn'" x-text="status">running</span>
         </div>
-        <button class="btn btn--primary" @click="runNow()">run now</button>
+        <button class="btn btn--primary" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
+        <span x-show="msg" x-text="msg" style="margin-left: var(--space-3); color: var(--text-secondary);"></span>
       </header>
       <main id="content" role="main">
         {{block "content" .}}
