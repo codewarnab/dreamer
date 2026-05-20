@@ -12,9 +12,11 @@ import (
 	"dreamer/internal/logging"
 )
 
+// lockDirPerms and lockFilePerms are aliases for the shared fsutil
+// permission constants, kept for readability in lock-specific code.
 const (
-	lockDirPerms  = 0o755
-	lockFilePerms = 0o644
+	lockDirPerms  = DirPerms
+	lockFilePerms = FilePerms
 )
 
 // AcquireLock creates a PID-based lock file at path. If the lock is already

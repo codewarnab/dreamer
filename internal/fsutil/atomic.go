@@ -6,6 +6,13 @@ import (
 	"path/filepath"
 )
 
+const (
+	// DirPerms is the default permission for newly created directories.
+	DirPerms = 0o755
+	// FilePerms is the default permission for newly created files.
+	FilePerms = 0o644
+)
+
 // WriteFileAtomic writes data to path via a sibling temp file + rename, with
 // fsync on both the temp file body and the parent directory so the new entry
 // is durable across power loss (B7). A crash mid-write leaves the previous

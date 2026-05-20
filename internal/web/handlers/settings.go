@@ -97,7 +97,7 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := fsutil.WriteFileAtomic(overlayPath, out, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomic(overlayPath, out, fsutil.FilePerms); err != nil {
 		http.Error(w, fmt.Sprintf("write overlay: %v", err), http.StatusInternalServerError)
 		return
 	}

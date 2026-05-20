@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/config"
 	"dreamer/internal/state"
 	"dreamer/internal/web/apply"
@@ -80,7 +81,7 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 		pendingSummary  string
 	)
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	sc.Buffer(make([]byte, transport.ScannerInitialBuf), transport.FileScannerMaxBuf)
 	for sc.Scan() {
 		line := sc.Text()
 		if m := runHeaderRe.FindStringSubmatch(line); m != nil {

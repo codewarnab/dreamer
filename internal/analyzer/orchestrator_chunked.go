@@ -208,11 +208,9 @@ func runWithPool(ctx context.Context, pool *SessionPool, prompt string, timeout 
 	return out, runErr
 }
 
-const defaultRuleTimeoutSecs = 45
-
 func chunkTimeout(secs int) time.Duration {
 	if secs < 0 {
-		secs = defaultRuleTimeoutSecs
+		secs = DefaultRuleTimeoutSeconds
 	}
 	return time.Duration(secs) * time.Second
 }

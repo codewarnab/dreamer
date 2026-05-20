@@ -661,7 +661,7 @@ func newSetupCommand() *cobra.Command {
 			}
 
 			out := buildConfigYAML(mm.answers)
-			if err := fsutil.WriteFileAtomic(cfgPath, out, 0o644); err != nil {
+			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)

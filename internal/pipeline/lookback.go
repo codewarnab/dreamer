@@ -33,19 +33,29 @@ func parseLookbackWindow(value string) (time.Duration, bool, error) {
 		return 0, false, fmt.Errorf("invalid lookback window %q; value must be a positive integer", value)
 	}
 
-	switch unitText {
-	case "m":
-		return time.Duration(amount) * time.Minute, true, nil
-	case "h":
-		return time.Duration(amount) * time.Hour, true, nil
-	case "d":
-		return time.Duration(amount) * 24 * time.Hour, true, nil
-	case "w":
-		return time.Duration(amount) * 7 * 24 * time.Hour, true, nil
-	case "mo":
-		return time.Duration(amount) * monthLookbackHours * time.Hour, true, nil
-	default:
+	dur, ok := ParseLookbackDuration(amount, unitText)
+	if !ok {
 		return 0, false, fmt.Errorf("invalid lookback window %q; supported units are m, h, d, w, and mo", value)
+	}
+	return dur, true, nil
+}
+
+// ParseLookbackDuration converts a (amount, unit) pair to a Duration.
+// Returns (dur, ok). Supported units: m, h, d, w, mo.
+func ParseLookbackDuration(amount int, unit string) (time.Duration, bool) {
+	switch unit {
+	case "m":
+		return time.Duration(amount) * time.Minute, true
+	case "h":
+		return time.Duration(amount) * time.Hour, true
+	case "d":
+		return time.Duration(amount) * 24 * time.Hour, true
+	case "w":
+		return time.Duration(amount) * 7 * 24 * time.Hour, true
+	case "mo":
+		return time.Duration(amount) * monthLookbackHours * time.Hour, true
+	default:
+		return 0, false
 	}
 }
 

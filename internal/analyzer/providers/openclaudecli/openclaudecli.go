@@ -171,7 +171,7 @@ func (s *session) Close() error { return nil }
 // errors (rate_limit, auth_failed, etc.) are surfaced as Go errors.
 func readStreamJSON(r io.Reader) (string, error) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1<<16), 1<<24)
+	scanner.Buffer(make([]byte, transport.ScannerInitialBuf), transport.ScannerMaxBuf)
 
 	var assistantText strings.Builder
 	var resultText string

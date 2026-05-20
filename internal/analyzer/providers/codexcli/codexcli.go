@@ -189,7 +189,7 @@ func (s *session) Close() error { return nil }
 // turn.failed/error messages instead of swallowing them.
 func readStreamJSON(r io.Reader) (string, error) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1<<16), 1<<24)
+	scanner.Buffer(make([]byte, transport.ScannerInitialBuf), transport.ScannerMaxBuf)
 	var assembled strings.Builder
 	var streamErr string
 	for scanner.Scan() {

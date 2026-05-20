@@ -72,7 +72,7 @@ func resolveWebPort(cfg *config.Config) (int, error) {
 	if cfg.Web.Port > 0 {
 		return cfg.Web.Port, nil
 	}
-	return 7777, nil
+	return config.DefaultWebPort, nil
 }
 
 func probeHealth(url string, timeout time.Duration) error {
@@ -85,7 +85,7 @@ func probeHealth(url string, timeout time.Duration) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health returned status %d", resp.StatusCode)
 	}
 	return nil

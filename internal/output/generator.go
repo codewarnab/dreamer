@@ -10,14 +10,12 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 )
 
 const (
-	configDirName = "dreamer"
 	todosFileName = "todos.md"
-	dirPerms      = 0o755
-	filePerms     = 0o644
 
 	versionMarker = "<!-- dreamer:version:1 -->"
 )
@@ -62,10 +60,10 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 	if merged == "" {
 		return result, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(todosPath), dirPerms); err != nil {
+	if err := os.MkdirAll(filepath.Dir(todosPath), fsutil.DirPerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("create todos directory %q: %w", filepath.Dir(todosPath), err)
 	}
-	if err := fsutil.WriteFileAtomic(todosPath, []byte(merged), filePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(todosPath, []byte(merged), fsutil.FilePerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("write todos file %q: %w", todosPath, err)
 	}
 	return result, nil
@@ -120,20 +118,13 @@ func todosPathForProject(projectName string, outputRoot string) (string, error) 
 
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
-		cfgDir, err := userConfigDir()
+		cfgRoot, err := config.UserConfigRoot()
 		if err != nil {
 			return "", fmt.Errorf("resolve user config dir for output root: %w", err)
 		}
-		root = filepath.Join(cfgDir, configDirName)
+		root = cfgRoot
 	}
 	return filepath.Join(root, name, todosFileName), nil
-}
-
-func userConfigDir() (string, error) {
-	if xdgConfigHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdgConfigHome != "" {
-		return xdgConfigHome, nil
-	}
-	return os.UserConfigDir()
 }
 
 func readExistingTodos(path string) (string, error) {

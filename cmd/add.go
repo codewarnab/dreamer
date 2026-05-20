@@ -60,7 +60,7 @@ func newAddCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := fsutil.WriteFileAtomic(cfgPath, updated, 0o644); err != nil {
+			if err := fsutil.WriteFileAtomic(cfgPath, updated, fsutil.FilePerms); err != nil {
 				return fmt.Errorf("write config %q: %w", cfgPath, err)
 			}
 			cmd.Printf("added project %q (path=%s since=%s) to %s\n", name, absPath, since, cfgPath)
@@ -79,7 +79,7 @@ func resolveAddPath(p string) (string, error) {
 	if p == "" {
 		p = "."
 	}
-	expanded, err := expandHomePath(p)
+	expanded, err := config.ExpandUserHome(p)
 	if err != nil {
 		return "", err
 	}

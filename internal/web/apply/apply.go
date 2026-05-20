@@ -75,10 +75,10 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 		return nil, fmt.Errorf("%w (post-image %d bytes)", ErrTargetTooLarge, len(post))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(abs), fsutil.DirPerms); err != nil {
 		return nil, fmt.Errorf("mkdir target parent: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(abs, []byte(post), 0o644); err != nil {
+	if err := fsutil.WriteFileAtomic(abs, []byte(post), fsutil.FilePerms); err != nil {
 		return nil, fmt.Errorf("write target: %w", err)
 	}
 
@@ -162,7 +162,7 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	if hex.EncodeToString(curHash[:]) != rev.PostImageSHA256 {
 		return ErrTargetChanged
 	}
-	return fsutil.WriteFileAtomic(rev.Path, []byte(rev.PreImage), 0o644)
+	return fsutil.WriteFileAtomic(rev.Path, []byte(rev.PreImage), fsutil.FilePerms)
 }
 
 func transform(pre, strategy, anchor, snippet string) (string, string, error) {

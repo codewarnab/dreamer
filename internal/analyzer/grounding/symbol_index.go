@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"dreamer/internal/analyzer/transport"
 )
 
 // Symbol is one exported declaration discovered by BuildSymbolIndex.
@@ -64,7 +66,7 @@ func scanGoFile(absPath string, relPath string) []Symbol {
 	}
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1<<16), 1<<20)
+	scanner.Buffer(make([]byte, transport.ScannerInitialBuf), transport.FileScannerMaxBuf)
 	lineNum := 0
 	var symbols []Symbol
 	for scanner.Scan() {

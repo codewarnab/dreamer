@@ -71,7 +71,7 @@ func (s *Store) Save(jobs []*Job) error {
 	if err != nil {
 		return fmt.Errorf("marshal jobs state: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(s.path, data, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomic(s.path, data, fsutil.FilePerms); err != nil {
 		return fmt.Errorf("write jobs file %q: %w", s.path, err)
 	}
 	return nil
