@@ -1,9 +1,7 @@
 package web
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"dreamer/internal/logging"
 )
@@ -19,80 +17,54 @@ func newRunnerLogger(t *testing.T) *logging.Logger {
 }
 
 func TestRunner_EnqueueAccepts(t *testing.T) {
-	started := make(chan string, 1)
-	runner := NewRunner(nil, func(ctx context.Context, project string) error {
-		started <- project
-		return nil
+	var invoked string
+	runner := NewRunner(func(project string) (string, bool) {
+		invoked = project
+		return "job-123", true
 	}, newRunnerLogger(t))
 	id, ok, err := runner.Enqueue("proj")
-	if err != nil || !ok || id == "" {
+	if err != nil || !ok || id != "job-123" {
 		t.Fatalf("Enqueue: id=%q ok=%v err=%v", id, ok, err)
 	}
-	select {
-	case got := <-started:
-		if got != "proj" {
-			t.Fatalf("invoke received %q", got)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("worker never started")
+	if invoked != "proj" {
+		t.Fatalf("invoke received %q", invoked)
 	}
 }
 
-func TestRunner_SecondEnqueueRejectedWhileInflight(t *testing.T) {
-	block := make(chan struct{})
-	runner := NewRunner(nil, func(ctx context.Context, project string) error {
-		<-block
-		return nil
+func TestRunner_EnqueueRejectedByQueue(t *testing.T) {
+	runner := NewRunner(func(project string) (string, bool) {
+		return "", false // queue dedup
 	}, newRunnerLogger(t))
-	_, ok1, _ := runner.Enqueue("proj")
-	if !ok1 {
-		t.Fatalf("first enqueue not accepted")
+	id, ok, err := runner.Enqueue("proj")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	// Give the goroutine a moment to register in-flight (Enqueue
-	// inserts before spawning, so this is just defensive).
-	time.Sleep(10 * time.Millisecond)
-	_, ok2, _ := runner.Enqueue("proj")
-	if ok2 {
-		t.Fatalf("second enqueue should be rejected (in-flight)")
+	if ok || id != "" {
+		t.Fatalf("expected rejection: id=%q ok=%v", id, ok)
 	}
-	close(block)
 }
 
-func TestRunner_DifferentProjectsConcurrent(t *testing.T) {
-	block := make(chan struct{})
-	runner := NewRunner(nil, func(ctx context.Context, project string) error {
-		<-block
-		return nil
+func TestRunner_DifferentProjectsBothAccepted(t *testing.T) {
+	runner := NewRunner(func(project string) (string, bool) {
+		return "job-" + project, true
 	}, newRunnerLogger(t))
-	_, ok1, _ := runner.Enqueue("a")
-	_, ok2, _ := runner.Enqueue("b")
+	id1, ok1, _ := runner.Enqueue("a")
+	id2, ok2, _ := runner.Enqueue("b")
 	if !ok1 || !ok2 {
-		t.Fatalf("a=%v b=%v", ok1, ok2)
+		t.Fatalf("a ok=%v b ok=%v", ok1, ok2)
 	}
-	close(block)
+	if id1 != "job-a" || id2 != "job-b" {
+		t.Fatalf("ids: %q %q", id1, id2)
+	}
 }
 
-// TestRunner_ParentCtxCancelPropagates exercises the SIGTERM/shutdown
-// contract: cancelling the daemon's parent ctx must cancel any
-// in-flight web-triggered run.
-func TestRunner_ParentCtxCancelPropagates(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cancelled := make(chan struct{})
-	runner := NewRunner(parent, func(ctx context.Context, project string) error {
-		<-ctx.Done()
-		close(cancelled)
-		return ctx.Err()
+func TestRunner_EnqueueFunc(t *testing.T) {
+	runner := NewRunner(func(project string) (string, bool) {
+		return "id", true
 	}, newRunnerLogger(t))
-	if _, ok, _ := runner.Enqueue("p"); !ok {
-		t.Fatalf("enqueue rejected")
-	}
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-	select {
-	case <-cancelled:
-		// pass
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("worker did not observe parent ctx cancel")
+	fn := runner.EnqueueFunc()
+	id, ok, err := fn("proj")
+	if err != nil || !ok || id != "id" {
+		t.Fatalf("EnqueueFunc: id=%q ok=%v err=%v", id, ok, err)
 	}
 }

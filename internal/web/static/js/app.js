@@ -17,6 +17,8 @@
 window.appState = function () {
   return {
     status: "running",
+    busy: false,
+    msg: "",
     csrf: function () {
       const meta = document.querySelector('meta[name="csrf-token"]');
       return meta ? meta.getAttribute("content") : "";
@@ -26,29 +28,53 @@ window.appState = function () {
       try {
         const es = new EventSource("/api/events");
         es.addEventListener("run.start", () => { this.status = "running"; });
-        es.addEventListener("run.done", () => { this.status = "idle"; });
+        es.addEventListener("run.done", () => { this.status = "idle"; this.busy = false; this.msg = ""; });
         this._es = es;
       } catch (_) { /* SSE unsupported */ }
     },
-    runNow: function () {
-      // Determine project from path; fallback to all-projects via /api/projects iteration.
+    runNow: async function () {
+      if (this.busy) return;
+      this.busy = true;
+      this.msg = "queuing...";
+      const csrf = this.csrf();
       const m = window.location.pathname.match(/^\/projects\/([^/]+)/);
       if (m) {
-        fetch("/api/projects/" + encodeURIComponent(m[1]) + "/run", {
-          method: "POST",
-          headers: { "X-Dreamer-CSRF": this.csrf() },
-        });
-      } else {
-        // Dashboard: fetch projects, then run each.
-        fetch("/api/projects").then(r => r.json()).then(d => {
-          (d.projects || []).forEach(p => {
-            fetch("/api/projects/" + encodeURIComponent(p.name) + "/run", {
-              method: "POST",
-              headers: { "X-Dreamer-CSRF": this.csrf() },
-            });
+        // Project page: run single project.
+        try {
+          const r = await fetch("/api/projects/" + encodeURIComponent(m[1]) + "/run", {
+            method: "POST",
+            headers: { "X-Dreamer-CSRF": csrf },
           });
-        });
+          if (r.status === 409) {
+            this.msg = "already running";
+          } else if (r.ok) {
+            this.msg = "run queued";
+          } else {
+            this.msg = "failed: HTTP " + r.status;
+          }
+        } catch (e) {
+          this.msg = "failed: " + e.message;
+        }
+      } else {
+        // Dashboard: run all projects.
+        try {
+          const listResp = await fetch("/api/projects");
+          const data = await listResp.json();
+          let queued = 0, conflict = 0;
+          for (const p of (data.projects || [])) {
+            const r = await fetch("/api/projects/" + encodeURIComponent(p.name) + "/run", {
+              method: "POST",
+              headers: { "X-Dreamer-CSRF": csrf },
+            });
+            if (r.ok) queued++;
+            else if (r.status === 409) conflict++;
+          }
+          this.msg = queued + " queued" + (conflict > 0 ? ", " + conflict + " already running" : "");
+        } catch (e) {
+          this.msg = "failed: " + e.message;
+        }
       }
+      this.busy = false;
     },
   };
 };

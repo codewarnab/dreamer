@@ -128,7 +128,7 @@ func newDaemonCommand() *cobra.Command {
 					return nil
 				}
 
-				runner := web.NewRunner(ctx, func(rctx context.Context, projectName string) error {
+				runner := web.NewRunner(func(projectName string) (string, bool) {
 					curCfg := live.Load()
 					var proj config.ProjectConfig
 					found := false
@@ -140,7 +140,7 @@ func newDaemonCommand() *cobra.Command {
 						}
 					}
 					if !found {
-						return fmt.Errorf("project %q not configured", projectName)
+						return "", false
 					}
 					job := queue.Enqueue(proj.Name, jobqueue.EnqueueConfig{
 						ProjectPath: proj.Path,
@@ -148,9 +148,9 @@ func newDaemonCommand() *cobra.Command {
 						Since:       proj.Since,
 					})
 					if job == nil {
-						return fmt.Errorf("project %q already has an active job", proj.Name)
+						return "", false
 					}
-					return nil
+					return job.ID, true
 				}, logger)
 
 				srv, srvErr := web.NewServer(web.Options{
