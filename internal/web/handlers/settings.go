@@ -69,6 +69,10 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 	}
 	overlayPath := deps.OverlayPath()
 
+	// Cap request body so a loopback caller can't OOM the daemon by
+	// streaming a multi-GB payload into json+yaml decoders. 256 KiB is
+	// well over any plausible overlay (max real config is ~few KiB).
+	r.Body = http.MaxBytesReader(w, r.Body, 256*1024)
 	body, err := readJSONObject(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

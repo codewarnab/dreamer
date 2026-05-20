@@ -72,6 +72,24 @@ func TestCSRF_PostWithRefererFallback(t *testing.T) {
 	}
 }
 
+func TestCSRF_OpaqueOriginRejected(t *testing.T) {
+	tok := MintCSRFToken()
+	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	// "null", file://, data: all parse to an empty hostname via
+	// net/url; treat those as non-loopback so a sandboxed iframe or
+	// non-browser caller cannot bypass the CSRF gate.
+	for _, origin := range []string{"null", "file:///etc/passwd", "data:text/html,foo", "http://"} {
+		r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
+		r.Header.Set("X-Dreamer-CSRF", tok)
+		r.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 403 {
+			t.Fatalf("Origin=%q: status = %d, want 403", origin, w.Code)
+		}
+	}
+}
+
 func TestCSRF_GetBypassesCheck(t *testing.T) {
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))

@@ -52,8 +52,11 @@ func CSRFMiddleware(token string, next http.Handler) http.Handler {
 }
 
 func isLoopbackHost(h string) bool {
+	// Empty hostname comes from non-http schemes like file://, data:,
+	// and the literal Origin: null; treat those as non-loopback so a
+	// sandboxed iframe or non-browser caller cannot bypass the check.
 	switch h {
-	case "127.0.0.1", "localhost", "::1", "":
+	case "127.0.0.1", "localhost", "::1":
 		return true
 	}
 	return false
