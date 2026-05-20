@@ -133,7 +133,9 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		if s.systemMsg != "" {
 			body = s.systemMsg + "\n\n" + prompt
 		}
-		_, _ = io.WriteString(stdin, body)
+		if _, writeErr := io.WriteString(stdin, body); writeErr != nil {
+			stderrBuf.WriteString(fmt.Sprintf("[stdin write failed: %v]", writeErr))
+		}
 	}()
 
 	final, parseErr := readStreamJSON(stdout)

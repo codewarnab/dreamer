@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -221,7 +222,8 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	// Optional agent tuning. Only attempt when the agent advertised the option
 	// in session/new — calling set_model with an unsupported id triggers
-	// provider-specific 400s (e.g. codex rejects "sonnet").
+	// provider-specific 400s (e.g. codex rejects "sonnet"). Best-effort:
+	// failure is expected when the agent doesn't support the knob.
 	if id, ok := pickAvailableModelID(newResult, s.model, s.modelFallbacks); ok {
 		_, _ = s.transport.call(ctx, "session/set_model", map[string]any{
 			"sessionId": sid,
@@ -229,10 +231,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		}, nil)
 	}
 	if id, ok := pickReadOnlyModeID(newResult); ok {
-		_, _ = s.transport.call(ctx, "session/set_mode", map[string]any{
+		if _, err := s.transport.call(ctx, "session/set_mode", map[string]any{
 			"sessionId": sid,
 			"modeId":    id,
-		}, nil)
+		}, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: acp set_mode(%s) failed, read-only boundary not enforced: %v\n", id, err)
+		}
 	}
 
 	// acpMaxInputBytes caps the per-prompt body fed into ACP agents. claude-code-acp

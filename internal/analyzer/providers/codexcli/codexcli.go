@@ -155,7 +155,9 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		if dump := os.Getenv("DREAMER_DUMP_CODEX_PROMPT"); dump != "" {
 			_ = os.WriteFile(dump, []byte(body), 0o644)
 		}
-		_, _ = io.WriteString(stdin, body)
+		if _, writeErr := io.WriteString(stdin, body); writeErr != nil {
+			stderrBuf.WriteString(fmt.Sprintf("[stdin write failed: %v]", writeErr))
+		}
 	}()
 
 	final, parseErr := readStreamJSON(stdout)
