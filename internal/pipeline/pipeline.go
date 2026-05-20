@@ -281,7 +281,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		return Result{}, err
 	}
 
-	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger)
+	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger, cfg.Analyzer.IncludeSubagentTranscripts)
 	if err != nil {
 		return Result{}, err
 	}

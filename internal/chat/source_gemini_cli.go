@@ -54,10 +54,34 @@ func discoverGeminiCLISessions(homeDir string, geminiHomeDir string, projectPath
 			continue
 		}
 		if pathWithinNormalizedRoot(normalizedCandidateCWD, normalizedProjectPath) {
+			candidate.ParentID = extractGeminiCLIParentID(candidate.Path)
 			discovered = append(discovered, candidate)
 		}
 	}
 	return discovered, nil
+}
+
+// extractGeminiCLIParentID returns the parent session ID for a Gemini CLI
+// subagent transcript. Paths like
+//
+//	<root>/<slug>/chats/<parentId>/<childId>.jsonl
+//
+// yield ParentID = <parentId>. Top-level sessions directly under chats/ return "".
+// The <slug> before chats/ is a project folder, not a parent session.
+func extractGeminiCLIParentID(path string) string {
+	sep := string(filepath.Separator)
+	parts := strings.Split(path, sep)
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "chats" {
+			// There must be at least 2 more segments after "chats":
+			// <parentId>/<filename>. If only 1, this is a top-level session.
+			if i+2 < len(parts) {
+				return parts[i+1]
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (geminiCLIProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

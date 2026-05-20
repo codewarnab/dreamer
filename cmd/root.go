@@ -40,6 +40,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newSetupCommand())
 	root.AddCommand(newWebCommand())
 	root.AddCommand(newAddCommand())
+	root.AddCommand(newStatusCommand())
 
 	return root
 }

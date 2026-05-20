@@ -80,13 +80,22 @@ func TestStartupStatusReturnsSchedulerError(t *testing.T) {
 func TestBuildSystemdUnitContainsExpectedFields(t *testing.T) {
 	unit := buildSystemdUnit("/usr/bin/dreamer", "/home/user/.config/dreamer/config.yaml")
 
-	assertContainsString(t, unit, "ExecStart=/usr/bin/dreamer daemon --config /home/user/.config/dreamer/config.yaml")
+	assertContainsString(t, unit, `ExecStart="/usr/bin/dreamer" daemon --config "/home/user/.config/dreamer/config.yaml"`)
 	assertContainsString(t, unit, "Restart=on-failure")
 	assertContainsString(t, unit, "RestartSec=30")
+	assertContainsString(t, unit, "StartLimitIntervalSec=600")
+	assertContainsString(t, unit, "StartLimitBurst=5")
 	assertContainsString(t, unit, "Type=simple")
 	assertContainsString(t, unit, "After=network.target")
 	assertContainsString(t, unit, "WantedBy=default.target")
 	assertContainsString(t, unit, "StandardOutput=journal")
+}
+
+// TestBuildSystemdUnitQuotesPathsWithSpaces guards the ExecStart quoting that
+// keeps the unit valid when the install paths happen to contain spaces.
+func TestBuildSystemdUnitQuotesPathsWithSpaces(t *testing.T) {
+	unit := buildSystemdUnit("/opt/My Apps/dreamer", "/home/jane doe/.config/dreamer/config.yaml")
+	assertContainsString(t, unit, `ExecStart="/opt/My Apps/dreamer" daemon --config "/home/jane doe/.config/dreamer/config.yaml"`)
 }
 
 func TestStartupInstallCreatesSystemdUnit(t *testing.T) {

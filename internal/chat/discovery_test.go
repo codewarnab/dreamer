@@ -485,6 +485,102 @@ func TestDiscoverAntigravityGeminiExtensionsMatchRuntimeSupport(t *testing.T) {
 	}
 }
 
+func TestDiscoverClaudeCodeSessionsSetsParentIDForSubagent(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	projectDir := t.TempDir()
+	sessionID := "sess-abc123"
+	agentID := "agent-001"
+	subagentFile := filepath.Join(claudeConfigDir, "projects", "project-a", sessionID, "subagents", agentID+".jsonl")
+	writeFixtureFile(t, subagentFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "repo")))
+
+	sources, err := discoverClaudeCodeSessions(t.TempDir(), claudeConfigDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverClaudeCodeSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Claude source, got %d", len(sources))
+	}
+	if sources[0].ParentID != sessionID {
+		t.Errorf("ParentID = %q, want %q", sources[0].ParentID, sessionID)
+	}
+}
+
+func TestDiscoverClaudeCodeSessionsTopLevelHasNoParentID(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	projectDir := t.TempDir()
+	claudeFile := filepath.Join(claudeConfigDir, "projects", "project-a", "session.jsonl")
+	writeFixtureFile(t, claudeFile, fmt.Sprintf(`{"cwd":%q}`, filepath.Join(projectDir, "repo")))
+
+	sources, err := discoverClaudeCodeSessions(t.TempDir(), claudeConfigDir, projectDir)
+	if err != nil {
+		t.Fatalf("discoverClaudeCodeSessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 Claude source, got %d", len(sources))
+	}
+	if sources[0].ParentID != "" {
+		t.Errorf("ParentID = %q, want empty", sources[0].ParentID)
+	}
+}
+
+func TestDiscoverGeminiCLISessionsTopLevelHasNoParentID(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	sessionFile := filepath.Join(homeDir, ".gemini", "tmp", "proj-slug", "chats", "session-1.jsonl")
+	writeFixtureFile(t, sessionFile, fmt.Sprintf(`{"sessionId":"a","directories":[%q]}`, projectDir))
+
+	sources, err := discoverGeminiCLISessions(homeDir, "", projectDir)
+	if err != nil {
+		t.Fatalf("discoverGeminiCLISessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(sources))
+	}
+	if sources[0].ParentID != "" {
+		t.Errorf("ParentID = %q, want empty for top-level session", sources[0].ParentID)
+	}
+}
+
+func TestDiscoverGeminiCLISessionsNestedSetsParentID(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	nestedFile := filepath.Join(homeDir, ".gemini", "tmp", "proj-slug", "chats", "parent-session-id", "agent-001.jsonl")
+	writeFixtureFile(t, nestedFile, fmt.Sprintf(`{"sessionId":"b","directories":[%q]}`, projectDir))
+
+	sources, err := discoverGeminiCLISessions(homeDir, "", projectDir)
+	if err != nil {
+		t.Fatalf("discoverGeminiCLISessions returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(sources))
+	}
+	if sources[0].ParentID != "parent-session-id" {
+		t.Errorf("ParentID = %q, want %q", sources[0].ParentID, "parent-session-id")
+	}
+}
+
+func TestExtractClaudeParentID(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"subagent", filepath.Join("root", "sess123", "subagents", "agent-001.jsonl"), "sess123"},
+		{"top-level", filepath.Join("root", "project", "session.jsonl"), ""},
+		{"deep nesting", filepath.Join("a", "b", "parent-id", "subagents", "child.jsonl"), "parent-id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractClaudeParentID(tt.path)
+			if got != tt.want {
+				t.Errorf("extractClaudeParentID(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func assertSource(t *testing.T, byPath map[string]ChatSource, path string, expectedTool SourceType, expectedModTime time.Time) {
 	t.Helper()
 

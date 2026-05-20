@@ -98,6 +98,32 @@ func TestLoggerRotatesWhenSizeExceeded(t *testing.T) {
 	}
 }
 
+// TestLoggerWritesAfterCloseAreNoOps guards against a regression where a late
+// goroutine's log call could be silently routed through a closed file
+// descriptor; the daemon's deferred Close runs LIFO with other shutdown
+// cleanup, so this used to be possible in principle.
+func TestLoggerWritesAfterCloseAreNoOps(t *testing.T) {
+	outputRoot := t.TempDir()
+	logger, err := New(outputRoot, "info", 0)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	// Each of these must not panic, must not write, and must not race.
+	logger.Info("post-close info")
+	logger.Warn("post-close warn")
+	logger.Error("post-close error")
+	logger.Debug("post-close debug")
+
+	// A second Close must remain idempotent.
+	if err := logger.Close(); err != nil {
+		t.Fatalf("second Close returned error: %v", err)
+	}
+}
+
 func TestLoggerRotationDisabledByDefault(t *testing.T) {
 	outputRoot := t.TempDir()
 	// maxSizeMB=0 means default (5MB). Writing a few lines won't trigger rotation.
