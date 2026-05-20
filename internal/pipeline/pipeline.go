@@ -132,14 +132,24 @@ func recordProviderFailure(currentState *state.State, providerID string, err err
 	currentState.ProviderUsage[providerID] = usage
 }
 
+// runCtx bundles the per-invocation context shared by pipeline helpers.
+// Created once in Run() after all local variables are resolved.
+type runCtx struct {
+	outputRoot string
+	project    string
+	state      *state.State
+	packs      []analyzer.RulePack
+	providerID string
+}
+
 // persistFailureState saves currentState on a failure path; logs but does
 // not propagate the save error because the caller is already returning a
 // more useful error. Also prunes (B28/B29) so a perma-failing project does
 // not accumulate stale entries forever.
-func persistFailureState(currentState *state.State, outputRoot, projectName string, packs []analyzer.RulePack, activeProviderID string, cause error, logger *logging.Logger) {
-	pruneLastRunPerCategory(currentState.LastRunPerCategory, packs)
-	pruneProviderUsage(currentState.ProviderUsage, activeProviderID)
-	if err := state.Save(outputRoot, projectName, currentState); err != nil && logger != nil {
+func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
+	pruneLastRunPerCategory(rc.state.LastRunPerCategory, rc.packs)
+	pruneProviderUsage(rc.state.ProviderUsage, rc.providerID)
+	if err := state.Save(rc.outputRoot, rc.project, rc.state); err != nil && logger != nil {
 		logger.Warn("failure-path state save failed",
 			logging.Any("err", err),
 			logging.Any("cause", cause),
@@ -150,10 +160,10 @@ func persistFailureState(currentState *state.State, outputRoot, projectName stri
 // savePrunedState prunes stale entries (B28/B29) then writes state. Used by
 // every successful-save site in pipeline.Run so every save path gets the
 // same hygiene, not just the happy path.
-func savePrunedState(outputRoot, projectName string, currentState *state.State, packs []analyzer.RulePack, activeProviderID string) error {
-	pruneLastRunPerCategory(currentState.LastRunPerCategory, packs)
-	pruneProviderUsage(currentState.ProviderUsage, activeProviderID)
-	return state.Save(outputRoot, projectName, currentState)
+func (rc *runCtx) savePrunedState() error {
+	pruneLastRunPerCategory(rc.state.LastRunPerCategory, rc.packs)
+	pruneProviderUsage(rc.state.ProviderUsage, rc.providerID)
+	return state.Save(rc.outputRoot, rc.project, rc.state)
 }
 
 // Run executes the end-to-end analyze pipeline against a single project path,
@@ -276,6 +286,14 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		return Result{}, fmt.Errorf("all rule packs disabled; nothing to analyze")
 	}
 
+	rctx := &runCtx{
+		outputRoot: outputRoot,
+		project:    projectName,
+		state:      currentState,
+		packs:      rulePacks,
+		providerID: providerID,
+	}
+
 	redactor, err := buildRedactor(cfg, projectFile)
 	if err != nil {
 		return Result{}, err
@@ -302,7 +320,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		currentState.LastRunUTC = time.Now().UTC()
 		currentState.RepoHeadSHA = repoHeadSHA
 		currentState.ChatHashes = cacheKeys
-		if err := savePrunedState(outputRoot, projectName, currentState, rulePacks, providerID); err != nil {
+		if err := rctx.savePrunedState(); err != nil {
 			logger.Warn("preflight state save failed", logging.Any("err", err))
 		}
 
@@ -365,7 +383,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
 		recordProviderFailure(currentState, providerID, err)
-		persistFailureState(currentState, outputRoot, projectName, rulePacks, providerID, err, logger)
+		rctx.persistFailureState(err, logger)
 		return Result{}, fmt.Errorf("start provider %q: %w (%s)", providerID, err, config.RemediationMessage(providerID))
 	}
 	startCancel()
@@ -425,7 +443,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	analysisResult, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
 	if err != nil {
 		recordProviderFailure(currentState, providerID, err)
-		persistFailureState(currentState, outputRoot, projectName, rulePacks, providerID, err, logger)
+		rctx.persistFailureState(err, logger)
 		return Result{}, fmt.Errorf("run analyzer: %w", err)
 	}
 	logger.Info("orchestrator done", logging.Any("mistakes", len(analysisResult.Mistakes)), logging.Any("findings", len(analysisResult.Findings)), logging.Any("warnings", len(analysisResult.Warnings)))
@@ -488,7 +506,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	currentState.UsageStats["findings_added"] += int64(generateResult.AddedFindings)
 	currentState.UsageStats["redaction_hits"] += int64(redactionTotal)
 
-	if err := savePrunedState(outputRoot, projectName, currentState, rulePacks, providerID); err != nil {
+	if err := rctx.savePrunedState(); err != nil {
 		return Result{}, fmt.Errorf("save state: %w", err)
 	}
 
