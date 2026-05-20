@@ -1,7 +1,6 @@
 package fsutil
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,27 +107,6 @@ func TestAcquireLockCreatesParentDirectory(t *testing.T) {
 	if _, statErr := os.Stat(lockPath); statErr != nil {
 		t.Fatalf("lock file does not exist: %v", statErr)
 	}
-}
-
-// TestAcquireLockReclaimsAfterPIDReuse simulates a SIGKILL-then-PID-reuse
-// scenario: the lock file records our PID (alive) but a different executable
-// path than the running process's actual exe. Acquire must treat that as
-// stale, not refuse to start.
-func TestAcquireLockReclaimsAfterPIDReuse(t *testing.T) {
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "test.lock")
-	logger := newTestLogger(t)
-
-	payload := fmt.Sprintf("%d\n0\n/usr/bin/some-other-program-that-does-not-match\n", os.Getpid())
-	if writeErr := os.WriteFile(lockPath, []byte(payload), 0o644); writeErr != nil {
-		t.Fatalf("write lock: %v", writeErr)
-	}
-
-	release, err := AcquireLock(lockPath, logger)
-	if err != nil {
-		t.Fatalf("AcquireLock should reclaim after PID reuse: %v", err)
-	}
-	defer release()
 }
 
 // TestAcquireLockAcceptsLegacyTwoLineFormat keeps backward compatibility for

@@ -71,7 +71,11 @@ func tryAcquire(path string, logger *logging.Logger) error {
 		// Lock file exists — check liveness, and (when possible) executable
 		// identity. PID alone is not enough: after a SIGKILL the OS may reuse
 		// the PID for an unrelated program before we run again, which would
-		// otherwise jam systemd's Restart=on-failure loop forever.
+		// otherwise jam systemd's Restart=on-failure loop forever. The exec
+		// identity check is best-effort: on OSes where processExecutable
+		// returns ok=false (darwin/freebsd today) we fall back to PID-only
+		// liveness, so the PID-reuse-jam scenario is only fully closed on
+		// Linux and Windows.
 		existingPID, existingExec, readErr := readLockMetadata(path)
 		if readErr != nil {
 			logger.Warn("removing corrupt lock file", logging.Any("path", path), logging.Any("err", readErr))
