@@ -158,6 +158,27 @@ func TestReadOpenCodeMessagesSubtaskWithText(t *testing.T) {
 	}
 }
 
+func TestIsMissingParentIDColumn(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "missing column", err: fmt.Errorf("query opencode sessions: no such column: parent_id"), want: true},
+		{name: "missing column uppercase", err: fmt.Errorf("SQL logic error: no such column: PARENT_ID"), want: true},
+		{name: "other error", err: fmt.Errorf("database is locked"), want: false},
+		{name: "different missing column", err: fmt.Errorf("no such column: other_col"), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isMissingParentIDColumn(tc.err); got != tc.want {
+				t.Errorf("isMissingParentIDColumn(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestListOpenCodeSessionsWithParentID(t *testing.T) {
 	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{
 		Sessions: []fixtureOpenCodeSession{

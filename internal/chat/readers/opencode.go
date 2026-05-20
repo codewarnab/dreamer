@@ -47,10 +47,23 @@ func (reader OpenCodeReader) ListSessions(dbPath string, cwdFilter string) ([]Op
 
 	sessions, err := reader.listSessionsWithParentID(database, cwdFilter)
 	if err != nil {
-		// Fallback for databases without the parent_id column (older schema).
-		return reader.listSessionsLegacy(database, cwdFilter)
+		// Only fall back when the parent_id column is missing; surface other errors.
+		if isMissingParentIDColumn(err) {
+			return reader.listSessionsLegacy(database, cwdFilter)
+		}
+		return nil, err
 	}
 	return sessions, nil
+}
+
+// isMissingParentIDColumn reports whether err looks like a SQLite "no such
+// column: parent_id" error from an older opencode schema.
+func isMissingParentIDColumn(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such column") && strings.Contains(msg, "parent_id")
 }
 
 func (reader OpenCodeReader) listSessionsWithParentID(database *sql.DB, cwdFilter string) ([]OpenCodeSession, error) {
