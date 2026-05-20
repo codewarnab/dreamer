@@ -29,6 +29,14 @@ window.appState = function () {
         const es = new EventSource("/api/events");
         es.addEventListener("run.start", () => { this.status = "running"; });
         es.addEventListener("run.done", () => { this.status = "idle"; this.busy = false; this.msg = ""; });
+        es.addEventListener("run.error", (ev) => {
+          try {
+            const p = JSON.parse(ev.data);
+            this.status = "idle";
+            this.busy = false;
+            this.msg = "run failed: " + (p.error || "unknown error");
+          } catch (_) {}
+        });
         this._es = es;
       } catch (_) { /* SSE unsupported */ }
     },

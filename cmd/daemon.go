@@ -116,7 +116,7 @@ func newDaemonCommand() *cobra.Command {
 			events := pipeline.NewEventBus()
 			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
 
-			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, overrides)
+			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, events, overrides)
 			workers.Start()
 
 			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {

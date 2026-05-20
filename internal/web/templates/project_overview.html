@@ -88,6 +88,15 @@ window.projectOverviewPage = function () {
             }
           } catch (_) {}
         });
+        this._es.addEventListener("run.error", (ev) => {
+          try {
+            const p = JSON.parse(ev.data);
+            if (p && p.project === this.name) {
+              this.busy = false;
+              this.msg = "run failed: " + (p.error || "unknown error");
+            }
+          } catch (_) {}
+        });
       } catch (_) {}
     },
     lastRunText: function () {

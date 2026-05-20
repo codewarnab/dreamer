@@ -531,3 +531,14 @@ func publishRunDone(bus *EventBus, project string, findingsNew, sources, message
 		"messages":     messages,
 	}})
 }
+
+// PublishRunError is a nil-safe helper for the run.error event payload.
+func PublishRunError(bus *EventBus, project string, err error) {
+	if bus == nil {
+		return
+	}
+	bus.Publish(Event{Type: EventRunError, Payload: map[string]any{
+		"project": project,
+		"error":   err.Error(),
+	}})
+}

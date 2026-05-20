@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -26,18 +27,20 @@ type workerPool struct {
 	cfg       *config.Config
 	logger    *logging.Logger
 	cache     *pipeline.DiscoveryCache
+	events    *pipeline.EventBus
 	overrides daemonOverrides
 	wg        sync.WaitGroup
 }
 
 // newWorkerPool creates a pool that will spawn MaxConcurrent workers.
-func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, logger *logging.Logger, cache *pipeline.DiscoveryCache, overrides daemonOverrides) *workerPool {
+func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, logger *logging.Logger, cache *pipeline.DiscoveryCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
 	return &workerPool{
 		ctx:       ctx,
 		queue:     queue,
 		cfg:       cfg,
 		logger:    logger,
 		cache:     cache,
+		events:    events,
 		overrides: overrides,
 	}
 }
@@ -97,6 +100,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		// load time. Log and fail the job rather than silently fall back so
 		// a regression in validation is visible.
 		wp.queue.Failed(job, durErr)
+		pipeline.PublishRunError(wp.events, job.Project, durErr)
 		wp.logger.Error("resolve max duration failed", append([]logging.Attr{logging.Any("job", job.ID)}, logging.ErrAttr(durErr)...)...)
 		return
 	}
@@ -111,6 +115,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		Force:                  false,
 		Since:                  job.Since,
 		DiscoveryCache:         wp.cache,
+		Events:                 wp.events,
 		ParallelOverride:       wp.overrides.parallel,
 		MaxConcurrencyOverride: wp.overrides.maxConcurrency,
 	}
@@ -123,12 +128,15 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 
 	if errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
 		wp.queue.TimedOut(job)
+		pipeline.PublishRunError(wp.events, job.Project, fmt.Errorf("max analysis duration exceeded (%s)", maxDur))
 		wp.logger.Warn("job timed out", logging.Any("job", job.ID), logging.Any("duration", maxDur))
 	} else if errors.Is(jobCtx.Err(), context.Canceled) {
 		wp.queue.Cancel(job)
+		pipeline.PublishRunError(wp.events, job.Project, fmt.Errorf("job cancelled: daemon shutdown"))
 		wp.logger.Info("job cancelled", logging.Any("job", job.ID))
 	} else if err != nil {
 		wp.queue.Failed(job, err)
+		pipeline.PublishRunError(wp.events, job.Project, err)
 		wp.logger.Error("job failed", append([]logging.Attr{logging.Any("job", job.ID)}, logging.ErrAttr(err)...)...)
 	} else {
 		wp.queue.Complete(job, result.Findings, result.MessagesRead, result.SourcesAnalyzed)
