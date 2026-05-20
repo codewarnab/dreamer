@@ -112,13 +112,16 @@ func (logger *Logger) Path() string {
 	return logger.path
 }
 
-// Close flushes and closes the underlying log file.
+// Close flushes and closes the underlying log file. Subsequent
+// Info/Warn/Error/Debug calls become no-ops so racing callers cannot drive
+// writes through a closed file descriptor after the daemon has shut down.
 func (logger *Logger) Close() error {
 	if logger == nil {
 		return nil
 	}
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
+	logger.logger = nil
 	if logger.file == nil {
 		return nil
 	}

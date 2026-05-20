@@ -108,3 +108,23 @@ func TestAcquireLockCreatesParentDirectory(t *testing.T) {
 		t.Fatalf("lock file does not exist: %v", statErr)
 	}
 }
+
+// TestAcquireLockAcceptsLegacyTwoLineFormat keeps backward compatibility for
+// lock files written by dreamer versions before the exec-identity field was
+// added. The recorded PID is high enough to be unowned in any sane test
+// environment, so liveness alone drives the stale-cleanup path.
+func TestAcquireLockAcceptsLegacyTwoLineFormat(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+	logger := newTestLogger(t)
+
+	if writeErr := os.WriteFile(lockPath, []byte("4194303\n0\n"), 0o644); writeErr != nil {
+		t.Fatalf("write legacy lock: %v", writeErr)
+	}
+
+	release, err := AcquireLock(lockPath, logger)
+	if err != nil {
+		t.Fatalf("AcquireLock should accept legacy two-line format: %v", err)
+	}
+	defer release()
+}
