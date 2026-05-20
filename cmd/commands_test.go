@@ -2,16 +2,55 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"dreamer/internal/config"
+	"dreamer/internal/analyzer"
 	"dreamer/internal/errs"
 )
+
+// cmdTestFailProviderID is a test-only provider whose Start() always returns
+// errs.ProviderUnavailable. Registering it in init() lets command-level tests
+// exercise provider-startup failure without depending on any real binary,
+// environment variable, or authentication state. This decouples the test from
+// whichever provider is the current default — the test sets
+// "default_provider": "cmd-test-fail" in the config and gets a deterministic
+// failure every time.
+const cmdTestFailProviderID = "cmd-test-fail"
+
+func init() {
+	analyzer.RegisterProvider(analyzer.ProviderID(cmdTestFailProviderID), func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+		return cmdTestFailProvider{}, nil
+	})
+}
+
+// cmdTestFailProvider satisfies analyzer.Provider but fails Start() with a
+// KindProviderUnavailable error, simulating a provider that cannot be reached.
+type cmdTestFailProvider struct{}
+
+func (cmdTestFailProvider) ID() string { return cmdTestFailProviderID }
+func (cmdTestFailProvider) Start(ctx context.Context) error {
+	return errs.ProviderUnavailable(cmdTestFailProviderID, "start", fmt.Errorf("injected test failure"))
+}
+func (cmdTestFailProvider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+	return nil, fmt.Errorf("cmdTestFailProvider: should not reach NewSession")
+}
+func (cmdTestFailProvider) Close() error { return nil }
+
+// cmdTestFailSession is never used in practice because Start() always fails,
+// but it satisfies the analyzer.Session interface for completeness.
+type cmdTestFailSession struct{}
+
+func (cmdTestFailSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+	return "", fmt.Errorf("cmdTestFailSession: should not be called")
+}
+func (cmdTestFailSession) Close() error { return nil }
 
 func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
 	command := newRootCommand()
@@ -49,16 +88,28 @@ func TestAnalyzeRequiresProjectFlag(t *testing.T) {
 	}
 }
 
+// TestAnalyzeReturnsAnalyzerClientStartupError verifies that when a provider
+// fails to start, the error propagates through the pipeline with the correct
+// Kind (KindProviderUnavailable) and Provider fields.
+//
+// Previous versions of this test set COPILOT_CLI_PATH to a nonexistent binary
+// to force the (then-default) copilot-sdk provider to fail. That approach
+// breaks whenever the default provider changes because the new provider may
+// ignore that env var entirely. The fix: inject a dedicated test-only provider
+// ("cmd-test-fail") whose Start() always returns errs.ProviderUnavailable,
+// then point the config's default_provider at it. This way the test exercises
+// the pipeline's error-propagation contract without depending on any real
+// binary, environment variable, or authentication state.
 func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)
 	t.Setenv("APPDATA", t.TempDir())
-	t.Setenv("COPILOT_CLI_PATH", filepath.Join(t.TempDir(), "missing-copilot-cli"))
 
 	projectDir := t.TempDir()
 	outputRoot := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	writeJSONConfig(t, configPath, map[string]any{
+		"default_provider": cmdTestFailProviderID,
 		"projects": []map[string]string{
 			{"name": "example", "path": projectDir},
 		},
@@ -72,6 +123,7 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 		},
 	})
 
+	// Create a minimal chat source so the pipeline reaches provider startup.
 	chatPath := filepath.Join(homeDir, ".copilot", "session-state", "workspace", "chat.jsonl")
 	if err := os.MkdirAll(filepath.Dir(chatPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll chat path: %v", err)
@@ -87,8 +139,8 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 	if errs.KindOf(err) != errs.KindProviderUnavailable {
 		t.Fatalf("KindOf(err) = %q, want %q; err=%v stderr=%s", errs.KindOf(err), errs.KindProviderUnavailable, err, stderr)
 	}
-	if errs.ProviderOf(err) != config.DefaultProviderID {
-		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), config.DefaultProviderID)
+	if errs.ProviderOf(err) != cmdTestFailProviderID {
+		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), cmdTestFailProviderID)
 	}
 }
 
