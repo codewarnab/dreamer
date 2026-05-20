@@ -19,9 +19,10 @@ const configTemplate = `# dreamer global config (v1.5). See doc/spec.md, doc/spe
 # settings page (writes to ui-overrides.yaml) to preserve comments here.
 
 # Provider used when --provider is not passed and no per-project config sets one.
-# Options: copilot-sdk | copilot-acp | claude-cli | claude-acp |
-#          gemini-cli  | gemini-acp  | kiro-acp   |
-#          codex-cli   | codex-acp   | openclaude-cli
+# Options: openclaude-cli | copilot-sdk | copilot-acp |
+#          claude-cli     | claude-acp  | gemini-cli  | gemini-acp  |
+#          kiro-acp       | codex-cli   | codex-acp   |
+#          opencode-acp   | opencode-server | codebuff-sdk
 default_provider: {{.DefaultProvider}}
 
 # Projects iterated by the daemon. Each entry: {name, path, since}.

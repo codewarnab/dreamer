@@ -11,4 +11,9 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderOpenClaudeCLI,
+		DisplayName: "OpenClaude CLI (recommended)",
+		Order:       10,
+	})
 }

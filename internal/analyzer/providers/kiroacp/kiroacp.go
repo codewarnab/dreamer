@@ -20,4 +20,9 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderKiroACP,
+		DisplayName: "Kiro via ACP",
+		Order:       80,
+	})
 }

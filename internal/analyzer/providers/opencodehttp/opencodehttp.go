@@ -36,6 +36,11 @@ func init() {
 			Password: cfg.Password,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderOpenCodeServer,
+		DisplayName: "OpenCode Server (HTTP)",
+		Order:       120,
+	})
 }
 
 // Options carries per-provider configuration.
