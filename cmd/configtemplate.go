@@ -127,9 +127,19 @@ providers:
 
   openclaude-cli:
     # OpenClaude CLI via stream-json in headless mode.
-    model: {{provModel "openclaude-cli" "mimo-v2.5-pro" .UserProvider .UserModel}}             # default. Uses Gitlawb Opengateway endpoint.
+    # Routed through Gitlawb Opengateway — free MiMo models, no auth needed
+    # by the gateway itself. openclaude's openai-compatible transport still
+    # checks for OPENAI_API_KEY when CLAUDE_CODE_USE_OPENAI=1, so we pass a
+    # placeholder value the gateway ignores. OPENAI_BASE_URL + OPENAI_MODEL
+    # mirror ~/.openclaude/.openclaude-profile.json so the subprocess does
+    # not have to inherit them from an interactive shell.
+    model: {{provModel "openclaude-cli" "mimo-v2.5-pro" .UserProvider .UserModel}}
     command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
-    # env: {}
+    env:
+      OPENAI_BASE_URL: "https://opengateway.gitlawb.com/v1"
+      OPENAI_MODEL: "mimo-v2.5-pro"
+      OPENAI_API_KEY: "free-via-opengateway"
+      CLAUDE_CODE_USE_OPENAI: "1"
 
 # Analyzer settings.
 # rule_timeout_seconds: global timeout for every provider call (phase-1 + phase-2).
