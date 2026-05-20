@@ -5,14 +5,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build / test commands
 
 ```bash
-go build ./...                  # build all packages
-go run . <command> [flags]      # run dreamer CLI
-go test ./...                   # full test suite
-go test ./cmd -run TestName     # single test (any package)
-go test -race ./...             # race detector
+make build                    # release build (stripped, ~18MB)
+make build-dev                # dev build with debug symbols (~26MB)
+make build-linux              # cross-compile for Linux
+make test                     # full test suite
+make test-race                # tests with race detector
+make vet                      # go vet
+make fmt                      # gofmt -w .
 ```
 
-No lint/format target is wired in; use `go vet ./...` and `gofmt -w .` directly.
+Or directly:
+```bash
+go build -ldflags="-s -w" -o dreamer.exe .   # release build
+go build -o dreamer.exe .                     # dev build
+go run . <command> [flags]                    # run dreamer CLI
+go test ./...                                 # full test suite
+go test ./cmd -run TestName                   # single test
+go test -race ./...                           # race detector
+```
+
+No lint target is wired in; use `go vet ./...` and `gofmt -w .` directly.
 
 ## Architecture
 
