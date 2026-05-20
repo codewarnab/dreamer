@@ -39,16 +39,54 @@ func newRootCommand() *cobra.Command {
 
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 
-	root.AddCommand(newAnalyzeCommand())
-	root.AddCommand(newDaemonCommand())
-	root.AddCommand(newListChatsCommand())
-	root.AddCommand(newStartCommand())
-	root.AddCommand(newStartupCommand())
-	root.AddCommand(newStatusCommand())
-	root.AddCommand(newStopCommand())
-	root.AddCommand(newSetupCommand())
-	root.AddCommand(newWebCommand())
-	root.AddCommand(newAddCommand())
+	// Command groups for styled help output.
+	root.AddGroup(commandGroups...)
+
+	// Core commands.
+	analyzeCmd := newAnalyzeCommand()
+	analyzeCmd.GroupID = groupCore
+	root.AddCommand(analyzeCmd)
+
+	daemonCmd := newDaemonCommand()
+	daemonCmd.GroupID = groupCore
+	root.AddCommand(daemonCmd)
+
+	startCmd := newStartCommand()
+	startCmd.GroupID = groupCore
+	root.AddCommand(startCmd)
+
+	stopCmd := newStopCommand()
+	stopCmd.GroupID = groupCore
+	root.AddCommand(stopCmd)
+
+	statusCmd := newStatusCommand()
+	statusCmd.GroupID = groupCore
+	root.AddCommand(statusCmd)
+
+	// Setup & Config commands.
+	setupCmd := newSetupCommand()
+	setupCmd.GroupID = groupSetup
+	root.AddCommand(setupCmd)
+
+	addCmd := newAddCommand()
+	addCmd.GroupID = groupSetup
+	root.AddCommand(addCmd)
+
+	startupCmd := newStartupCommand()
+	startupCmd.GroupID = groupSetup
+	root.AddCommand(startupCmd)
+
+	// Inspect commands.
+	lsCmd := newListChatsCommand()
+	lsCmd.GroupID = groupInspect
+	root.AddCommand(lsCmd)
+
+	webCmd := newWebCommand()
+	webCmd.GroupID = groupInspect
+	root.AddCommand(webCmd)
+
+	// Styled help output via lipgloss.
+	root.SetHelpFunc(styledHelp)
 
 	return root
 }
