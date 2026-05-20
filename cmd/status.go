@@ -149,11 +149,13 @@ func printStatusTable(cmd *cobra.Command, status jobqueue.QueueStatus) {
 		cmd.Println("RUNNING")
 		for _, j := range jobs {
 			elapsed := ""
+			started := "-"
 			if j.StartedAt != nil {
 				elapsed = time.Since(*j.StartedAt).Truncate(time.Minute).String()
+				started = j.StartedAt.Format("15:04")
 			}
 			cmd.Printf("  %-20s  started %s  elapsed %-8s  provider %-15s findings: %d\n",
-				j.Project, j.StartedAt.Format("15:04"), elapsed, j.Provider, j.FindingsAdded)
+				j.Project, started, elapsed, j.Provider, j.FindingsAdded)
 		}
 		cmd.Println()
 	}

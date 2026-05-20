@@ -97,6 +97,7 @@ func newDaemonCommand() *cobra.Command {
 				StorePath:     filepath.Join(cfg.Daemon.OutputRoot, "jobs.json"),
 				MaxConcurrent: cfg.Daemon.MaxConcurrentJobs,
 				MaxDuration:   maxDur,
+				Logger:        logger,
 			})
 			if err := queue.Recover(); err != nil {
 				logger.Warn("failed to recover job queue", logging.Any("err", err))
@@ -128,7 +129,11 @@ func newDaemonCommand() *cobra.Command {
 				case <-ctx.Done():
 					cmd.Printf("daemon stopping: %v\n", context.Cause(ctx))
 					logger.Info("daemon stopping", logging.Any("cause", context.Cause(ctx)))
-					queue.CancelRunning()
+					// Don't call CancelRunning here: that would race with the
+					// worker's own terminal write when pipeline.Run returns
+					// from the cancelled ctx. Workers detect ctx.Canceled and
+					// call Cancel(job) themselves; the IsTerminal guard on
+					// queue mutators makes either order safe.
 					workers.Stop()
 					cmd.Printf("daemon stopped\n")
 					return nil

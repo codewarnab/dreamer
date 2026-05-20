@@ -61,8 +61,12 @@ func newAnalyzeCommand() *cobra.Command {
 			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
 			logDefaultedSinceNotices(logger, cfg)
 
-			if conflict := checkJobConflict(cfg, projectPath); conflict != "" {
-				return fmt.Errorf("%s", conflict)
+			// --force bypasses the conflict guard so an operator can re-run
+			// even while a daemon-scheduled job is in flight.
+			if !force {
+				if conflict := checkJobConflict(cfg, projectPath); conflict != "" {
+					return fmt.Errorf("%s", conflict)
+				}
 			}
 
 			opts := pipeline.Options{
@@ -151,18 +155,30 @@ func checkJobConflict(cfg *config.Config, projectPath string) string {
 		return "" // best-effort; don't block analyze on a corrupt queue
 	}
 
-	// Derive the project name the same way the pipeline does.
-	absPath, err := filepath.Abs(projectPath)
+	// Derive the project name the same way config.LoadConfig does: expand
+	// `~` first, then Abs+Clean. Without ExpandUserHome, `dreamer analyze
+	// --path ~/foo` would compare a literal "~" against the canonicalised
+	// project paths and silently bypass the guard.
+	expanded, err := config.ExpandUserHome(projectPath)
 	if err != nil {
 		return ""
 	}
+	absPath, err := filepath.Abs(expanded)
+	if err != nil {
+		return ""
+	}
+	absPath = filepath.Clean(absPath)
 
+	// Note: this is a snapshot read. With max_concurrent_jobs > 1 the daemon
+	// may dequeue or enqueue between this check and pipeline.Run, so the
+	// guard is best-effort dedup, not a hard lock. A per-project lockfile
+	// would close the window if it ever becomes a problem in practice.
 	for _, p := range cfg.Projects {
-		if p.Path == absPath || filepath.Clean(p.Path) == absPath {
+		if filepath.Clean(p.Path) == absPath {
 			status := queue.Status()
 			for _, j := range status.Jobs {
 				if j.Project == p.Name && !j.Status.IsTerminal() {
-					return fmt.Sprintf("analysis already in progress for %q (job %s, status: %s); use --force to override", p.Name, j.ID, j.Status)
+					return fmt.Sprintf("analysis already in progress for %q (job %s, status: %s); pass --force to bypass this check", p.Name, j.ID, j.Status)
 				}
 			}
 		}

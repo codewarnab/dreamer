@@ -1,6 +1,8 @@
 package jobqueue
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 )
@@ -52,8 +54,12 @@ type Job struct {
 // and current timestamp to be human-readable and unique enough for dedup.
 func newJob(project, projectPath, provider, since string) *Job {
 	now := time.Now().UTC()
+	// 4-byte suffix so two enqueues within the same millisecond produce
+	// distinct ids — matters when a job completes and is immediately retried.
+	var suffix [4]byte
+	_, _ = rand.Read(suffix[:])
 	return &Job{
-		ID:         fmt.Sprintf("%s-%d", project, now.UnixMilli()),
+		ID:         fmt.Sprintf("%s-%d-%s", project, now.UnixMilli(), hex.EncodeToString(suffix[:])),
 		Project:    project,
 		ProjectPath: projectPath,
 		Status:     StatusPending,

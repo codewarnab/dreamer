@@ -13,6 +13,12 @@ import (
 	"dreamer/internal/pipeline"
 )
 
+// workerIdleInterval is the worst-case latency between Enqueue and a worker
+// noticing a new job in the absence of the wake signal. Kept short so a
+// missed wake (e.g. coalesced with a concurrent signal already drained by
+// another worker) still recovers quickly.
+const workerIdleInterval = 1 * time.Second
+
 // workerPool manages a set of goroutines that dequeue and run analysis jobs.
 type workerPool struct {
 	ctx       context.Context
@@ -50,18 +56,28 @@ func (wp *workerPool) Stop() {
 	wp.wg.Wait()
 }
 
-// worker polls the queue until the context is cancelled.
+// worker polls the queue until the context is cancelled. The ctx check sits
+// at the top of every iteration so a shutdown is honoured even when the
+// queue is non-empty — otherwise a backlog would block daemon stop for the
+// full max_analysis_duration of each remaining job.
 func (wp *workerPool) worker(id int) {
 	defer wp.wg.Done()
 	for {
+		if wp.ctx.Err() != nil {
+			return
+		}
 		job := wp.queue.Dequeue()
 		if job == nil {
+			timer := time.NewTimer(workerIdleInterval)
 			select {
 			case <-wp.ctx.Done():
+				timer.Stop()
 				return
-			case <-time.After(5 * time.Second):
-				continue
+			case <-wp.queue.Wake():
+				timer.Stop()
+			case <-timer.C:
 			}
+			continue
 		}
 		wp.runJob(id, job)
 	}
@@ -75,19 +91,27 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		logging.Any("worker", workerID),
 	)
 
-	maxDur := resolveMaxDuration(job, wp.cfg)
+	maxDur, durErr := resolveMaxDuration(job, wp.cfg)
+	if durErr != nil {
+		// Should never happen — config validation rejects bad durations at
+		// load time. Log and fail the job rather than silently fall back so
+		// a regression in validation is visible.
+		wp.queue.Failed(job, durErr)
+		wp.logger.Error("resolve max duration failed", append([]logging.Attr{logging.Any("job", job.ID)}, logging.ErrAttr(durErr)...)...)
+		return
+	}
 	jobCtx, cancel := context.WithTimeout(wp.ctx, maxDur)
 	defer cancel()
 
 	opts := pipeline.Options{
-		Config:           wp.cfg,
-		ProjectPath:      job.ProjectPath,
-		ProjectName:      job.Project,
-		ProviderID:       job.Provider,
-		Force:            false,
-		Since:            job.Since,
-		DiscoveryCache:   wp.cache,
-		ParallelOverride: wp.overrides.parallel,
+		Config:                 wp.cfg,
+		ProjectPath:            job.ProjectPath,
+		ProjectName:            job.Project,
+		ProviderID:             job.Provider,
+		Force:                  false,
+		Since:                  job.Since,
+		DiscoveryCache:         wp.cache,
+		ParallelOverride:       wp.overrides.parallel,
 		MaxConcurrencyOverride: wp.overrides.maxConcurrency,
 	}
 	if wp.overrides.maxChunkBytesSet {
@@ -117,29 +141,26 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 }
 
 // resolveMaxDuration returns the per-project or global max analysis duration.
-func resolveMaxDuration(job *jobqueue.Job, cfg *config.Config) time.Duration {
-	dur, err := cfg.ResolveMaxDuration(job.Project)
-	if err != nil {
-		return 8 * time.Hour
-	}
-	return dur
+// Returns the underlying error so callers can surface regressions in config
+// validation rather than papering over them with an 8h default.
+func resolveMaxDuration(job *jobqueue.Job, cfg *config.Config) (time.Duration, error) {
+	return cfg.ResolveMaxDuration(job.Project)
 }
 
-// recoverStaleJobs marks running jobs from a prior daemon run as failed
-// if the old process (identified by stalePID) is no longer alive.
-// Pass stalePID=0 when the lock file didn't exist or was unreadable.
+// recoverStaleJobs cleans up running jobs left over from a prior daemon run.
+// We hold the daemon lock by the time this is called, so by definition no
+// other process is mutating jobs.json. Any row still in Running state is a
+// zombie — either the old process died before writing its terminal status
+// or the lockfile was lost. Reap unconditionally rather than gating on
+// stalePID, which can be 0 when the lockfile didn't exist.
 func recoverStaleJobs(queue *jobqueue.Queue, stalePID int, logger *logging.Logger) {
-	if stalePID == 0 {
+	// If we can prove the old process is still alive, leave its jobs alone —
+	// AcquireLock would normally have failed in that case, but check defensively.
+	if stalePID != 0 && fsutil.IsProcessAlive(stalePID) {
 		return
 	}
-	if fsutil.IsProcessAlive(stalePID) {
-		return
-	}
-	status := queue.Status()
-	for _, j := range status.Jobs {
-		if j.Status == jobqueue.StatusRunning {
-			queue.Failed(j, errors.New("daemon restarted during analysis"))
-			logger.Warn("marked stale job as failed", logging.Any("job", j.ID), logging.Any("project", j.Project))
-		}
+	n := queue.ReapRunning("daemon restarted during analysis")
+	if n > 0 {
+		logger.Warn("reaped stale running jobs", logging.Any("count", n))
 	}
 }
