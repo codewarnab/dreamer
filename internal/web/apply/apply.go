@@ -57,19 +57,9 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
 	}
-	rel := filepath.Clean(req.TargetFile)
-	if filepath.IsAbs(rel) {
-		return nil, fmt.Errorf("%w: target_file must be repo-relative, got %q", ErrContainment, req.TargetFile)
-	}
-	abs := filepath.Join(absRoot, rel)
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err == nil {
-		abs = resolved
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("resolve target %q: %w", abs, err)
-	}
-	if !strings.HasPrefix(abs, absRoot+string(filepath.Separator)) && abs != absRoot {
-		return nil, fmt.Errorf("%w: %s", ErrContainment, abs)
+	abs, err := resolveTargetUnderRoot(absRoot, req.TargetFile)
+	if err != nil {
+		return nil, err
 	}
 
 	pre, err := readPreImage(abs)
@@ -111,19 +101,9 @@ func Preview(req ApplyRequest) (pre []byte, post []byte, finalStrategy string, e
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
 	}
-	rel := filepath.Clean(req.TargetFile)
-	if filepath.IsAbs(rel) {
-		return nil, nil, "", fmt.Errorf("%w: target_file must be repo-relative, got %q", ErrContainment, req.TargetFile)
-	}
-	abs := filepath.Join(absRoot, rel)
-	resolved, sErr := filepath.EvalSymlinks(abs)
-	if sErr == nil {
-		abs = resolved
-	} else if !errors.Is(sErr, os.ErrNotExist) {
-		return nil, nil, "", fmt.Errorf("resolve target %q: %w", abs, sErr)
-	}
-	if !strings.HasPrefix(abs, absRoot+string(filepath.Separator)) && abs != absRoot {
-		return nil, nil, "", fmt.Errorf("%w: %s", ErrContainment, abs)
+	abs, err := resolveTargetUnderRoot(absRoot, req.TargetFile)
+	if err != nil {
+		return nil, nil, "", err
 	}
 	pre, err = readPreImage(abs)
 	if err != nil {
@@ -165,7 +145,13 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	if err != nil {
 		return fmt.Errorf("resolve project root: %w", err)
 	}
-	if !strings.HasPrefix(rev.Path, absRoot+string(filepath.Separator)) && rev.Path != absRoot {
+	// Re-evaluate symlinks on rev.Path so a parent dir swapped into a
+	// symlink between apply and undo still gets caught by containment.
+	cleanPath := rev.Path
+	if resolved, rerr := filepath.EvalSymlinks(rev.Path); rerr == nil {
+		cleanPath = resolved
+	}
+	if !strings.HasPrefix(cleanPath, absRoot+string(filepath.Separator)) && cleanPath != absRoot {
 		return fmt.Errorf("%w: reversal path %s", ErrContainment, rev.Path)
 	}
 	current, err := os.ReadFile(rev.Path)
@@ -222,6 +208,47 @@ func replaceSection(pre, anchor, snippet string) (string, error) {
 		tail = ""
 	}
 	return pre[:idx] + header + "\n\n" + snippet + "\n" + tail, nil
+}
+
+// resolveTargetUnderRoot resolves req.TargetFile against absRoot and
+// returns the absolute target path, refusing absolute inputs and any
+// path that escapes absRoot via parent-dir symlinks. Symlinks on every
+// existing ancestor are walked so a parent symlink that points outside
+// the root cannot be used to write through it.
+func resolveTargetUnderRoot(absRoot, targetFile string) (string, error) {
+	rel := filepath.Clean(targetFile)
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("%w: target_file must be repo-relative, got %q", ErrContainment, targetFile)
+	}
+	abs := filepath.Join(absRoot, rel)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("resolve target %q: %w", abs, err)
+	} else {
+		// Target file missing: resolve the deepest existing ancestor and
+		// re-join the remainder so a symlinked parent escape is caught.
+		parent := abs
+		var trail []string
+		for {
+			next := filepath.Dir(parent)
+			if next == parent {
+				break
+			}
+			if resolved, rerr := filepath.EvalSymlinks(parent); rerr == nil {
+				abs = filepath.Join(resolved, filepath.Join(trail...))
+				break
+			} else if !errors.Is(rerr, os.ErrNotExist) {
+				return "", fmt.Errorf("resolve target ancestor %q: %w", parent, rerr)
+			}
+			trail = append([]string{filepath.Base(parent)}, trail...)
+			parent = next
+		}
+	}
+	if !strings.HasPrefix(abs, absRoot+string(filepath.Separator)) && abs != absRoot {
+		return "", fmt.Errorf("%w: %s", ErrContainment, abs)
+	}
+	return abs, nil
 }
 
 func insertAfter(pre, anchor, snippet string) (string, error) {

@@ -295,6 +295,29 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 
 	go func() {
 		defer func() { _ = watcher.Close() }()
+		// Debounce coalesces editor save bursts (vim/VS Code emit several
+		// WRITE/CREATE events per save via temp+rename) into a single
+		// reload + config.reloaded publish.
+		const debounce = 200 * time.Millisecond
+		var pending *time.Timer
+		var pendingC <-chan time.Time
+		reload := func() {
+			newCfg, loadErr := config.LoadConfigWithOverlay(configPath, overlayPath)
+			if loadErr != nil {
+				logger.Info("config reload failed", logging.Any("err", loadErr))
+				return
+			}
+			if live != nil {
+				live.Store(newCfg)
+			}
+			events.Publish(pipeline.Event{
+				Type: pipeline.EventConfigReload,
+				Payload: map[string]any{
+					"overlay":          newCfg.Notices.OverlayApplied,
+					"restart_required": newCfg.Notices.RestartRequired,
+				},
+			})
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -310,23 +333,14 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 				if clean != filepath.Clean(configPath) && clean != filepath.Clean(overlayPath) {
 					continue
 				}
-				newCfg, loadErr := config.LoadConfigWithOverlay(configPath, overlayPath)
-				if loadErr != nil {
-					logger.Info("config reload failed", logging.Any("err", loadErr))
-					continue
+				if pending != nil {
+					pending.Stop()
 				}
-				// Atomic swap must precede the SSE publish so subscribers observing
-				// the event can immediately read the new values via live.Load().
-				if live != nil {
-					live.Store(newCfg)
-				}
-				events.Publish(pipeline.Event{
-					Type: pipeline.EventConfigReload,
-					Payload: map[string]any{
-						"overlay":          newCfg.Notices.OverlayApplied,
-						"restart_required": newCfg.Notices.RestartRequired,
-					},
-				})
+				pending = time.NewTimer(debounce)
+				pendingC = pending.C
+			case <-pendingC:
+				pendingC = nil
+				reload()
 			case werr, ok := <-watcher.Errors:
 				if !ok {
 					return

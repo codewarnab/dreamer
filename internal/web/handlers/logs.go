@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"os"
@@ -46,9 +47,13 @@ func LogsTail(deps Deps) http.HandlerFunc {
 		}
 
 		if r.Header.Get("HX-Request") == "true" {
+			// Log lines carry user-influenced fields (project paths,
+			// provider stderr, finding text). Escape before injecting
+			// into HTML so a stray "<script>" cannot execute under the
+			// SPA's permissive CSP.
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = io.WriteString(w, "<pre>")
-			_, _ = io.WriteString(w, text)
+			_, _ = io.WriteString(w, html.EscapeString(text))
 			_, _ = io.WriteString(w, "</pre>")
 			return
 		}

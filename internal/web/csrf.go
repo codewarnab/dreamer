@@ -29,13 +29,23 @@ func CSRFMiddleware(token string, next http.Handler) http.Handler {
 			http.Error(w, "CSRF token missing or wrong", http.StatusForbidden)
 			return
 		}
+		// Require a loopback Origin (or Referer fallback) on every
+		// state-changing request. An entirely missing Origin can come
+		// from non-browser clients that may have read the CSRF token
+		// out of the SPA HTML; rejecting forces them to identify as
+		// loopback so DNS-rebinding/cross-tool scripts can't sneak in.
 		origin := r.Header.Get("Origin")
-		if origin != "" {
-			u, err := url.Parse(origin)
-			if err != nil || !isLoopbackHost(u.Hostname()) {
-				http.Error(w, "non-loopback Origin", http.StatusForbidden)
-				return
-			}
+		if origin == "" {
+			origin = r.Header.Get("Referer")
+		}
+		if origin == "" {
+			http.Error(w, "Origin or Referer required", http.StatusForbidden)
+			return
+		}
+		u, err := url.Parse(origin)
+		if err != nil || !isLoopbackHost(u.Hostname()) {
+			http.Error(w, "non-loopback Origin", http.StatusForbidden)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})

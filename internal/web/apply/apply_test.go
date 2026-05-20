@@ -165,6 +165,31 @@ func TestPreview_RejectsContainmentEscape(t *testing.T) {
 	}
 }
 
+func TestApply_RejectsParentSymlinkEscape(t *testing.T) {
+	// Containment must not be defeated by a parent directory symlink
+	// pointing outside the project root for a target that does not yet
+	// exist (EvalSymlinks(abs) returns ENOENT so the resolved path
+	// falls back to the joined-and-cleaned absRoot/rel — without
+	// walking the parent symlink, the prefix check would pass while
+	// the actual write goes through the link).
+	outside := t.TempDir()
+	root := t.TempDir()
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	_, err := Apply(ApplyRequest{
+		ProjectRoot: root, TargetFile: "escape/pwned.md",
+		Strategy: "append-file", Snippet: "x\n",
+	})
+	if !IsContainment(err) {
+		t.Fatalf("err = %v, want containment", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "pwned.md")); statErr == nil {
+		t.Fatalf("write leaked outside project root")
+	}
+}
+
 func TestUndo_RefusesWhenTargetModifiedExternally(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "x.md")
