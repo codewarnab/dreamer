@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"dreamer/internal/config"
 )
 
 // ErrRateLimited is the legacy sentinel for provider rate-limit / quota errors.
@@ -19,24 +21,27 @@ var ErrRateLimited = errors.New("provider rate limited")
 // Providers join via errors.Join(analyzer.ErrUnavailable, cause).
 var ErrUnavailable = errors.New("provider unavailable")
 
-// ProviderID identifies a known provider implementation. Values match the
-// strings used in the configuration system (§3, §4.1 of doc/spec.md).
-type ProviderID string
+// ProviderID is a type alias for config.ProviderID — the canonical definition
+// lives in the config package so it can be used in config maps without import
+// cycles. This alias preserves backward compatibility for provider packages
+// that reference analyzer.ProviderID and analyzer.ProviderXxx constants.
+type ProviderID = config.ProviderID
 
+// Re-exported from config so existing provider packages compile unchanged.
 const (
-	ProviderCopilotSDK     ProviderID = "copilot-sdk"
-	ProviderCopilotACP     ProviderID = "copilot-acp"
-	ProviderClaudeCLI      ProviderID = "claude-cli"
-	ProviderClaudeACP      ProviderID = "claude-acp"
-	ProviderGeminiCLI      ProviderID = "gemini-cli"
-	ProviderGeminiACP      ProviderID = "gemini-acp"
-	ProviderKiroACP        ProviderID = "kiro-acp"
-	ProviderCodexCLI       ProviderID = "codex-cli"
-	ProviderCodexACP       ProviderID = "codex-acp"
-	ProviderOpenClaudeCLI  ProviderID = "openclaude-cli"
-	ProviderOpenCodeACP    ProviderID = "opencode-acp"
-	ProviderOpenCodeServer ProviderID = "opencode-server"
-	ProviderCodebuffSDK    ProviderID = "codebuff-sdk"
+	ProviderCopilotSDK     = config.ProviderCopilotSDK
+	ProviderCopilotACP     = config.ProviderCopilotACP
+	ProviderClaudeCLI      = config.ProviderClaudeCLI
+	ProviderClaudeACP      = config.ProviderClaudeACP
+	ProviderGeminiCLI      = config.ProviderGeminiCLI
+	ProviderGeminiACP      = config.ProviderGeminiACP
+	ProviderKiroACP        = config.ProviderKiroACP
+	ProviderCodexCLI       = config.ProviderCodexCLI
+	ProviderCodexACP       = config.ProviderCodexACP
+	ProviderOpenClaudeCLI  = config.ProviderOpenClaudeCLI
+	ProviderOpenCodeACP    = config.ProviderOpenCodeACP
+	ProviderOpenCodeServer = config.ProviderOpenCodeServer
+	ProviderCodebuffSDK    = config.ProviderCodebuffSDK
 )
 
 // ProviderConfig is the per-provider configuration block resolved by the

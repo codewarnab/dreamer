@@ -19,7 +19,7 @@ func init() {
 			Command:        command,
 			Env:            cfg.Env,
 			DefaultModel:   cfg.DefaultModel,
-			ModelFallbacks: config.DefaultModelFallbacks["gemini-acp"],
+			ModelFallbacks: config.DefaultModelFallbacks[config.ProviderGeminiACP],
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

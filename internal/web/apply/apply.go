@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/state"
 )
@@ -20,11 +21,12 @@ const MaxApplyTargetBytes = 4 << 20
 
 // EligibleCategories lists the analyzer rule categories whose findings
 // the UI is allowed to apply automatically (spec.v1.5 §6.4).
+// Keys derived from analyzer.RuleCategory constants; keep in sync.
 var EligibleCategories = map[string]bool{
-	"doc":       true,
-	"lint-rule": true,
-	"ci-check":  true,
-	"config":    true,
+	string(analyzer.RuleCategoryDoc):       true,
+	string(analyzer.RuleCategoryLintRule):  true,
+	string(analyzer.RuleCategoryCICheck):   true,
+	string(analyzer.RuleCategoryConfig):    true,
 }
 
 var (

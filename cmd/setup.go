@@ -589,7 +589,7 @@ func (m setupModel) View() string {
 // config.DefaultModelByProvider; falls back to config.DefaultModel when the
 // provider id is not in the map.
 func defaultModelsFor(provider string) []string {
-	if m, ok := config.DefaultModelByProvider[provider]; ok && m != "" {
+	if m, ok := config.DefaultModelByProvider[config.ProviderID(provider)]; ok && m != "" {
 		return []string{m}
 	}
 	return []string{config.DefaultModel}
