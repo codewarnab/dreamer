@@ -32,6 +32,12 @@ daemon:
   frequency_seconds: 3600
   # Output root override. Empty = <UserConfigDir>/dreamer.
   # output_root: ""
+  # How many analyses can run simultaneously. Default: 1.
+  max_concurrent_jobs: 1
+  # Per-job timeout (Go duration). Default: "8h".
+  max_analysis_duration: "8h"
+  # How long to keep completed job records. Default: "720h" (30 days).
+  job_history_retention: "720h"
 
 logging:
   # Verbosity. Options: error | warn | info | debug

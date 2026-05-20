@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -31,6 +32,13 @@ const (
 
 	// DefaultProviderBoundaryHeadroom: min free fraction before packing the next provider.
 	DefaultProviderBoundaryHeadroom = 0.20
+
+	// DefaultMaxConcurrentJobs: one analysis at a time by default.
+	DefaultMaxConcurrentJobs = 1
+	// DefaultMaxAnalysisDuration caps a single job's wall-clock time.
+	DefaultMaxAnalysisDuration = "8h"
+	// DefaultJobHistoryRetention: keep completed job records for 30 days.
+	DefaultJobHistoryRetention = "720h"
 
 	configDirName     = "dreamer"
 	globalConfigFile  = "config.yaml"
@@ -63,15 +71,19 @@ type ConfigNotices struct {
 
 // ProjectConfig is one entry in `projects:` — daemon iterates these.
 type ProjectConfig struct {
-	Name  string `yaml:"name" json:"name"`
-	Path  string `yaml:"path" json:"path"`
-	Since string `yaml:"since,omitempty" json:"since,omitempty"`
+	Name                 string `yaml:"name" json:"name"`
+	Path                 string `yaml:"path" json:"path"`
+	Since                string `yaml:"since,omitempty" json:"since,omitempty"`
+	MaxAnalysisDuration  string `yaml:"max_analysis_duration,omitempty" json:"max_analysis_duration,omitempty"`
 }
 
 // DaemonConfig governs daemon mode runtime.
 type DaemonConfig struct {
-	FrequencySeconds int    `yaml:"frequency_seconds" json:"frequency_seconds"`
-	OutputRoot       string `yaml:"output_root,omitempty" json:"output_root,omitempty"`
+	FrequencySeconds    int    `yaml:"frequency_seconds" json:"frequency_seconds"`
+	OutputRoot          string `yaml:"output_root,omitempty" json:"output_root,omitempty"`
+	MaxConcurrentJobs   int    `yaml:"max_concurrent_jobs,omitempty" json:"max_concurrent_jobs,omitempty"`
+	MaxAnalysisDuration string `yaml:"max_analysis_duration,omitempty" json:"max_analysis_duration,omitempty"`
+	JobHistoryRetention string `yaml:"job_history_retention,omitempty" json:"job_history_retention,omitempty"`
 }
 
 // LoggingConfig configures the structured logger.
@@ -245,6 +257,7 @@ func applyDefaults(cfg *Config) error {
 	applyAnalyzerExecutionDefaults(&cfg.Analyzer.Execution)
 	applyAnalyzerChunkingDefaults(&cfg.Analyzer.Chunking)
 	applyProjectSinceDefaults(cfg)
+	applyDaemonJobQueueDefaults(cfg)
 	return nil
 }
 
@@ -268,6 +281,19 @@ func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
 	if chunk.ProviderBoundaryHeadroom == nil {
 		def := DefaultProviderBoundaryHeadroom
 		chunk.ProviderBoundaryHeadroom = &def
+	}
+}
+
+// applyDaemonJobQueueDefaults fills job-queue fields with sane defaults.
+func applyDaemonJobQueueDefaults(cfg *Config) {
+	if cfg.Daemon.MaxConcurrentJobs <= 0 {
+		cfg.Daemon.MaxConcurrentJobs = DefaultMaxConcurrentJobs
+	}
+	if strings.TrimSpace(cfg.Daemon.MaxAnalysisDuration) == "" {
+		cfg.Daemon.MaxAnalysisDuration = DefaultMaxAnalysisDuration
+	}
+	if strings.TrimSpace(cfg.Daemon.JobHistoryRetention) == "" {
+		cfg.Daemon.JobHistoryRetention = DefaultJobHistoryRetention
 	}
 }
 
@@ -332,6 +358,23 @@ func validateConfig(cfg *Config) error {
 		return errs.ConfigInvalid("daemon.output_root", cfg.Daemon.OutputRoot, fmt.Errorf("daemon output_root must be absolute: %q", cfg.Daemon.OutputRoot))
 	}
 	cfg.Daemon.OutputRoot = filepath.Clean(outputRoot)
+
+	if cfg.Daemon.FrequencySeconds <= 0 {
+		return errs.ConfigInvalid("daemon.frequency_seconds", cfg.Daemon.FrequencySeconds, fmt.Errorf("must be positive"))
+	}
+	if _, err := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration); err != nil {
+		return errs.ConfigInvalid("daemon.max_analysis_duration", cfg.Daemon.MaxAnalysisDuration, fmt.Errorf("parse duration: %w", err))
+	}
+	if _, err := time.ParseDuration(cfg.Daemon.JobHistoryRetention); err != nil {
+		return errs.ConfigInvalid("daemon.job_history_retention", cfg.Daemon.JobHistoryRetention, fmt.Errorf("parse duration: %w", err))
+	}
+	for i := range cfg.Projects {
+		if dur := cfg.Projects[i].MaxAnalysisDuration; dur != "" {
+			if _, err := time.ParseDuration(dur); err != nil {
+				return errs.ConfigInvalid(fmt.Sprintf("projects.%s.max_analysis_duration", cfg.Projects[i].Name), dur, fmt.Errorf("parse duration: %w", err))
+			}
+		}
+	}
 	return nil
 }
 
@@ -371,6 +414,17 @@ func (cfg *Config) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProv
 		}
 	}
 	return id, block
+}
+
+// ResolveMaxDuration returns the analysis timeout for the named project.
+// A per-project override takes precedence over the daemon default.
+func (cfg *Config) ResolveMaxDuration(projectName string) (time.Duration, error) {
+	for _, p := range cfg.Projects {
+		if p.Name == projectName && p.MaxAnalysisDuration != "" {
+			return time.ParseDuration(p.MaxAnalysisDuration)
+		}
+	}
+	return time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
 }
 
 func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
