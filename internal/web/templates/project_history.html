@@ -13,15 +13,15 @@
 
   <div class="card">
     <table class="table">
-      <thead><tr><th>day</th><th>runs</th><th>findings</th><th>tokens</th><th>cache hits</th></tr></thead>
+      <thead><tr><th>date</th><th>runs</th><th>findings new</th><th>findings total</th><th>avg run (ms)</th></tr></thead>
       <tbody>
-        <template x-for="d in days" :key="d.day">
+        <template x-for="d in days" :key="d.date">
           <tr>
-            <td x-text="d.day"></td>
+            <td x-text="d.date"></td>
             <td x-text="d.runs ?? 0"></td>
             <td x-text="d.findings_new ?? 0"></td>
-            <td x-text="d.tokens_total ?? 0"></td>
-            <td x-text="d.cache_hits ?? 0"></td>
+            <td x-text="d.findings_total ?? 0"></td>
+            <td x-text="d.avg_run_millis ?? 0"></td>
           </tr>
         </template>
       </tbody>

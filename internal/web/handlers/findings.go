@@ -400,10 +400,19 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			}
 		}
 
+		// Flat response shape: every FindingView field at the top level plus
+		// apply_eligible + diff_preview. The SPA's modal binds to active.X
+		// directly without re-aliasing.
+		out := struct {
+			FindingView
+			ApplyEligible bool   `json:"apply_eligible"`
+			DiffPreview   string `json:"diff_preview,omitempty"`
+		}{
+			FindingView:   view,
+			ApplyEligible: apply.EligibleCategories[strings.ToLower(found.Category)],
+			DiffPreview:   diff,
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"finding":      view,
-			"diff_preview": diff,
-		})
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }

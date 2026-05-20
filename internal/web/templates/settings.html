@@ -3,6 +3,10 @@
   <header style="margin-bottom: var(--space-5);">
     <span class="kicker">configuration</span>
     <h1 class="headline-lg">settings</h1>
+    <p class="body" style="color: var(--text-secondary); max-width: 60ch;">
+      Writes land in <code>ui-overrides.yaml</code>; <code>config.yaml</code> stays untouched.
+      Fields under <em>web</em> require a daemon restart to take effect.
+    </p>
   </header>
 
   <template x-for="sec in sections" :key="sec.id">
@@ -11,11 +15,17 @@
       <template x-for="f in sec.fields" :key="f.key">
         <div style="margin: var(--space-3) 0;">
           <label class="label-mono" x-text="f.key" :for="sec.id + '-' + f.key"></label>
-          <input class="input" :id="sec.id + '-' + f.key" :type="f.type || 'text'" x-model="values[sec.id][f.key]" style="display: block; margin-top: var(--space-2);"/>
+          <template x-if="f.type === 'textarea'">
+            <textarea class="input" :id="sec.id + '-' + f.key" rows="4" x-model="values[sec.id][f.key]" style="display:block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);"></textarea>
+          </template>
+          <template x-if="f.type !== 'textarea'">
+            <input class="input" :id="sec.id + '-' + f.key" :type="f.type || 'text'" x-model="values[sec.id][f.key]" style="display: block; margin-top: var(--space-2);"/>
+          </template>
         </div>
       </template>
       <button class="btn btn--primary" @click="save(sec.id)">save</button>
-      <span x-show="saved[sec.id]" style="margin-left: var(--space-3); color: var(--text-secondary);">saved</span>
+      <span x-show="saved[sec.id] === true" style="margin-left: var(--space-3); color: var(--jelly-mint);">saved</span>
+      <span x-show="saved[sec.id] === 'error'" style="margin-left: var(--space-3); color: #ef476f;">save failed</span>
     </div>
   </template>
 </section>
@@ -24,8 +34,8 @@
 window.settingsPage = function () {
   return {
     sections: [
-      { id: "provider", label: "provider", fields: [
-        { key: "id" }, { key: "model" }, { key: "copilot_home" },
+      { id: "general", label: "general", fields: [
+        { key: "default_provider" },
       ]},
       { id: "daemon", label: "daemon", fields: [
         { key: "frequency_seconds", type: "number" }, { key: "output_root" },
@@ -34,31 +44,75 @@ window.settingsPage = function () {
         { key: "rule_timeout_seconds", type: "number" },
       ]},
       { id: "logging", label: "logging", fields: [
-        { key: "level" }, { key: "max_size_mb", type: "number" },
+        { key: "level" }, { key: "file" }, { key: "max_size_mb", type: "number" },
       ]},
       { id: "redaction", label: "redaction", fields: [
-        { key: "enabled" },
+        { key: "patterns", type: "textarea" },
       ]},
-      { id: "web", label: "web", fields: [
+      { id: "web", label: "web (restart required)", fields: [
         { key: "host" }, { key: "port", type: "number" }, { key: "log_tail_kb", type: "number" },
       ]},
     ],
-    values: { provider:{}, daemon:{}, analyzer:{}, logging:{}, redaction:{}, web:{} },
+    values: { general: {}, daemon: {}, analyzer: {}, logging: {}, redaction: {}, web: {} },
     saved: {},
+    csrf: function () {
+      return document.querySelector('meta[name="csrf-token"]')?.content || "";
+    },
     load: async function () {
       const r = await fetch("/api/settings");
       if (!r.ok) return;
       const data = await r.json();
-      for (const k of Object.keys(this.values)) {
+      // general.default_provider is a scalar at the top level.
+      this.values.general.default_provider = data.default_provider || "";
+      // daemon / analyzer / logging / web nest as sub-objects.
+      for (const k of ["daemon", "analyzer", "logging", "web"]) {
         if (data[k]) Object.assign(this.values[k], data[k]);
       }
+      // redaction.patterns is a string array — render as newline-joined text.
+      const pats = (data.redaction && data.redaction.patterns) || [];
+      this.values.redaction.patterns = pats.join("\n");
+    },
+    sectionBody: function (secId) {
+      const v = this.values[secId] || {};
+      // Build the partial body the PUT handler expects: scalars at the
+      // top-level for `general`, nested for everything else.
+      if (secId === "general") {
+        return { default_provider: v.default_provider || null };
+      }
+      if (secId === "redaction") {
+        const patterns = (v.patterns || "").split("\n").map(s => s.trim()).filter(Boolean);
+        return { redaction: { patterns } };
+      }
+      // Coerce numbers — section field definitions tell us which.
+      const sec = this.sections.find(s => s.id === secId);
+      const out = {};
+      for (const f of sec.fields) {
+        let val = v[f.key];
+        if (f.type === "number") {
+          if (val === "" || val === undefined || val === null) {
+            val = null;
+          } else {
+            const n = Number(val);
+            val = isNaN(n) ? null : n;
+          }
+        }
+        out[f.key] = val;
+      }
+      return { [secId]: out };
     },
     save: async function (secId) {
-      const tok = document.querySelector('meta[name=csrf-token]')?.content || "";
-      const body = {}; body[secId] = this.values[secId];
-      const r = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": tok }, body: JSON.stringify(body) });
-      this.saved[secId] = r.ok;
-      setTimeout(() => { this.saved[secId] = false; }, 2000);
+      const body = this.sectionBody(secId);
+      try {
+        const r = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": this.csrf() },
+          body: JSON.stringify(body),
+        });
+        this.saved[secId] = r.ok ? true : "error";
+      } catch (_) {
+        this.saved[secId] = "error";
+      }
+      setTimeout(() => { this.saved[secId] = false; }, 3000);
     },
   };
 };

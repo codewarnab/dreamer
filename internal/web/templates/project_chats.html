@@ -20,14 +20,14 @@
 
   <div class="card">
     <table class="table">
-      <thead><tr><th>tool</th><th>path</th><th>modified</th><th>size</th></tr></thead>
+      <thead><tr><th>tool</th><th>path</th><th>modified</th><th>included</th></tr></thead>
       <tbody>
         <template x-for="c in filtered()" :key="c.path">
           <tr>
             <td x-text="c.tool"></td>
-            <td x-text="c.path"></td>
-            <td x-text="c.modified_time ? new Date(c.modified_time).toLocaleString() : ''"></td>
-            <td x-text="c.size_bytes != null ? c.size_bytes : ''"></td>
+            <td x-text="c.path" style="word-break: break-all;"></td>
+            <td x-text="c.modified_utc ? new Date(c.modified_utc).toLocaleString() : ''"></td>
+            <td x-text="c.included ? 'yes' : 'no'"></td>
           </tr>
         </template>
       </tbody>
@@ -49,7 +49,7 @@ window.projectChatsPage = function () {
       const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats");
       if (!r.ok) return;
       const data = await r.json();
-      this.chats = data.chats || data || [];
+      this.chats = data.sources || [];
     },
     tools: function () {
       return [...new Set(this.chats.map(c => c.tool))].filter(Boolean);

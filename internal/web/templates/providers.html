@@ -7,17 +7,19 @@
 
   <div class="card">
     <table class="table">
-      <thead><tr><th>id</th><th>model</th><th>status</th><th>last used</th><th>tokens</th></tr></thead>
+      <thead><tr><th>id</th><th>model</th><th>status</th><th>runs</th><th>last success</th><th>tokens</th><th>failures</th></tr></thead>
       <tbody>
         <template x-for="p in providers" :key="p.id">
           <tr>
             <td x-text="p.id"></td>
-            <td x-text="p.model"></td>
+            <td x-text="p.model || '—'"></td>
             <td>
-              <span class="pill" :class="p.healthy ? 'pill--healthy' : 'pill--warn'" x-text="p.healthy ? 'healthy' : 'down'"></span>
+              <span class="pill" :class="p.healthy ? 'pill--healthy' : 'pill--warn'" x-text="p.healthy ? 'healthy' : (p.runs > 0 ? 'stale' : 'unused')"></span>
             </td>
-            <td x-text="p.last_used ? new Date(p.last_used).toLocaleString() : '—'"></td>
-            <td x-text="p.tokens_used ?? '—'"></td>
+            <td x-text="p.runs ?? 0"></td>
+            <td x-text="p.last_success_utc ? new Date(p.last_success_utc).toLocaleString() : '—'"></td>
+            <td x-text="p.total_tokens ?? 0"></td>
+            <td x-text="p.failures ?? 0"></td>
           </tr>
         </template>
       </tbody>

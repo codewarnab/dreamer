@@ -15,6 +15,7 @@ type ProviderHealth struct {
 	ID             string `json:"id"`
 	Model          string `json:"model"`
 	Runs           int64  `json:"runs"`
+	TotalTokens    int64  `json:"total_tokens"`
 	LastSuccessUTC string `json:"last_success_utc"`
 	LastError      string `json:"last_error"`
 	Failures       int64  `json:"failures"`
@@ -91,6 +92,7 @@ func Providers(deps Deps) http.HandlerFunc {
 				ID:             id,
 				Model:          model,
 				Runs:           pu.Runs,
+				TotalTokens:    pu.TotalTokens,
 				LastSuccessUTC: lastSuccess,
 				LastError:      pu.LastError,
 				Failures:       pu.Failures,

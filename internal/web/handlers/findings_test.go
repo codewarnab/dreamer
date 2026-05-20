@@ -188,20 +188,23 @@ func TestFindingDetail_ReturnsView(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// Detail response is flat: FindingView fields at top level plus
+	// apply_eligible + diff_preview.
 	var resp struct {
-		Finding     FindingView `json:"finding"`
-		DiffPreview string      `json:"diff_preview"`
+		FindingView
+		ApplyEligible bool   `json:"apply_eligible"`
+		DiffPreview   string `json:"diff_preview"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Finding.Hash != hashApplied {
-		t.Errorf("hash mismatch: %+v", resp.Finding)
+	if resp.Hash != hashApplied {
+		t.Errorf("hash mismatch: %+v", resp.FindingView)
 	}
-	if resp.Finding.Status != state.FindingStatusApplied {
-		t.Errorf("status=%q want applied", resp.Finding.Status)
+	if resp.Status != state.FindingStatusApplied {
+		t.Errorf("status=%q want applied", resp.Status)
 	}
-	if !resp.Finding.Recurred {
+	if !resp.Recurred {
 		t.Errorf("expected Recurred=true")
 	}
 	if resp.DiffPreview != "" {
@@ -226,8 +229,9 @@ func TestFindingDetail_WithApplyHints_RendersDiff(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Finding     FindingView `json:"finding"`
-		DiffPreview string      `json:"diff_preview"`
+		FindingView
+		ApplyEligible bool   `json:"apply_eligible"`
+		DiffPreview   string `json:"diff_preview"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)

@@ -26,7 +26,7 @@
         <template x-for="f in filtered()" :key="f.hash">
           <tr @click="open(f)" style="cursor: pointer;">
             <td x-text="f.category"></td>
-            <td x-text="f.description"></td>
+            <td x-text="f.summary"></td>
             <td x-text="f.status || 'open'"></td>
             <td x-text="f.confidence != null ? f.confidence.toFixed(2) : ''"></td>
             <td><button class="btn btn--ghost" @click.stop="open(f)">view</button></td>
@@ -41,7 +41,7 @@
     <div class="card" style="max-width: 720px; width: 90%;">
       <div class="kicker">finding</div>
       <h2 class="headline-lg" x-text="active?.category"></h2>
-      <p class="body" x-text="active?.description"></p>
+      <p class="body" x-text="active?.summary"></p>
       <pre x-show="active?.diff_preview" x-text="active?.diff_preview" style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px;"></pre>
       <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3);">
         <button class="btn btn--primary" @click="act('apply')" x-show="active?.apply_eligible">apply</button>
@@ -85,7 +85,10 @@ window.projectFindingsPage = function () {
       if (!this.active) return;
       const tok = document.querySelector('meta[name=csrf-token]')?.content || "";
       const url = "/api/projects/" + encodeURIComponent(this.name) + "/findings/" + encodeURIComponent(this.active.hash) + "/" + verb;
-      await fetch(url, { method: "POST", headers: { "X-CSRF-Token": tok } });
+      const res = await fetch(url, { method: "POST", headers: { "X-Dreamer-CSRF": tok } });
+      if (!res.ok) {
+        console.warn("finding action failed", verb, res.status);
+      }
       this.active = null;
       this.load();
     },

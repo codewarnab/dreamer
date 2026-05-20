@@ -197,10 +197,13 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// CSP loosens to allow inline <script> blocks that define each page's
-	// Alpine factory function. A future task can move those into a single
-	// static bundle and drop 'unsafe-inline'.
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'")
+	// CSP allows inline <script> for per-page Alpine factory definitions
+	// and 'unsafe-eval' for Alpine's Function()-constructor expression
+	// evaluator (x-text, x-show, ternaries, ?? operators). Loopback-only
+	// binding + CSRF + zero third-party scripts make this acceptable for
+	// v1.5; future migration to Alpine's CSP build (or a single static
+	// bundle) can tighten both directives.
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self'; connect-src 'self'")
 	_ = tmpl.Execute(w, s.layoutData(extra))
 }
 
