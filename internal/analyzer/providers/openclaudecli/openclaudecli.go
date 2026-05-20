@@ -32,13 +32,16 @@ type Options struct {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
-		// Sandbox hardening (defense-in-depth):
-		// --permission-mode plan: blocks write tool calls at the permission layer.
-		// --tools "Read,Grep,Glob": removes Bash, Edit, Write, WebFetch, NotebookEdit
-		//   from model context entirely — the model cannot even attempt write actions.
-		// --bare: skips hooks, skills, plugins, auto-memory, CLAUDE.md discovery.
-		// --strict-mcp-config '{}': disables all MCP servers (empty config).
-		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--strict-mcp-config", "{}"}
+		// Defense-in-depth (NOT a true sandbox — policy-only, no isolation):
+		// --permission-mode plan: permission layer rejects write tool calls.
+		// --tools "Read,Grep,Glob": narrows the top-level model's tool list to
+		//   read-only built-ins. Skills/subagents (if any) keep their own grants.
+		// --bare: skip hook, skill, plugin, auto-memory, CLAUDE.md, and MCP
+		//   auto-discovery.
+		// Note: --strict-mcp-config is a boolean flag (no value). The previous
+		// "--strict-mcp-config {}" form caused '{}' to be consumed as the
+		// positional prompt argument. Rely on --bare for MCP-off.
+		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare"}
 	}
 	return &provider{options: options, command: command}, nil
 }

@@ -17,12 +17,16 @@ func TestDefaultCommandIncludesSandboxFlags(t *testing.T) {
 
 	requiredFlags := []string{
 		"--sandbox read-only",
-		"--ask-for-approval never",
 	}
 	for _, flag := range requiredFlags {
 		if !strings.Contains(got, flag) {
 			t.Errorf("default command missing %q\ngot: %s", flag, got)
 		}
+	}
+	// --ask-for-approval is not a valid `codex exec` flag; it lives on the
+	// interactive `codex` command. Guard against re-introducing it.
+	if strings.Contains(got, "--ask-for-approval") {
+		t.Errorf("default command must not include --ask-for-approval (rejected by codex exec)\ngot: %s", got)
 	}
 }
 

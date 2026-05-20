@@ -19,12 +19,17 @@ func TestDefaultCommandIncludesSandboxFlags(t *testing.T) {
 		"--permission-mode plan",
 		"--tools Read,Grep,Glob",
 		"--bare",
-		"--strict-mcp-config {}",
 	}
 	for _, flag := range requiredFlags {
 		if !strings.Contains(got, flag) {
 			t.Errorf("default command missing %q\ngot: %s", flag, got)
 		}
+	}
+	// --strict-mcp-config is a boolean flag on Claude Code; passing it with
+	// "{}" causes the value to be consumed as the positional prompt argument.
+	// Guard against re-introducing the broken form.
+	if strings.Contains(got, "--strict-mcp-config {}") {
+		t.Errorf("default command must not pass a value to boolean flag --strict-mcp-config\ngot: %s", got)
 	}
 }
 
