@@ -104,7 +104,11 @@ type ProviderBlock struct {
 
 // AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
 type AnalyzerConfig struct {
-	RuleTimeoutSeconds int                   `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
+	RuleTimeoutSeconds int  `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
+	// IncludeSubagentTranscripts controls whether subagent/child chat
+	// transcripts are included in analysis. When false (default), sources
+	// with a non-empty ParentID are skipped.
+	IncludeSubagentTranscripts bool                   `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
 	Rules              map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
 	Execution          ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
 	Chunking           ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`

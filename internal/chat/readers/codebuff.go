@@ -43,9 +43,11 @@ type codebuffRawMessage struct {
 }
 
 // codebuffRawBlock represents a single content block inside a message.
+// Agent blocks may nest child blocks via the Blocks field.
 type codebuffRawBlock struct {
-	Type    string `json:"type"`
-	Content string `json:"content,omitempty"`
+	Type    string             `json:"type"`
+	Content string             `json:"content,omitempty"`
+	Blocks  []codebuffRawBlock `json:"blocks,omitempty"`
 }
 
 // convertCodebuffMessage maps a raw Codebuff message to a readers.ChatMessage.
@@ -92,15 +94,25 @@ func extractCodebuffContent(raw codebuffRawMessage) string {
 }
 
 // extractCodebuffBlockText walks content blocks and collects text entries.
+// Agent blocks are recursed into: their Content and nested Blocks are both
+// extracted so subagent reasoning and output become visible.
 func extractCodebuffBlockText(blocks []codebuffRawBlock) string {
 	if len(blocks) == 0 {
 		return ""
 	}
 	pieces := make([]string, 0, len(blocks))
 	for _, block := range blocks {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			if trimmed := strings.TrimSpace(block.Content); trimmed != "" {
 				pieces = append(pieces, trimmed)
+			}
+		case "agent":
+			if trimmed := strings.TrimSpace(block.Content); trimmed != "" {
+				pieces = append(pieces, trimmed)
+			}
+			if nested := extractCodebuffBlockText(block.Blocks); nested != "" {
+				pieces = append(pieces, nested)
 			}
 		}
 	}

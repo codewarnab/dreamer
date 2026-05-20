@@ -26,6 +26,9 @@ type ChatSource struct {
 	Path         string
 	Tool         SourceType
 	ModifiedTime time.Time
+	// ParentID identifies the parent session when this source is a
+	// subagent/child transcript. Empty for top-level sessions.
+	ParentID string
 }
 
 // DiscoveryEnvironment captures the OS-derived inputs that drive chat source

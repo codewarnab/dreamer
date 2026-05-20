@@ -50,11 +50,29 @@ func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectP
 			continue
 		}
 		if pathWithinNormalizedRoot(normalizedCandidateCWD, normalizedProjectPath) {
+			candidate.ParentID = extractClaudeParentID(candidate.Path)
 			discovered = append(discovered, candidate)
 		}
 	}
 
 	return discovered, nil
+}
+
+// extractClaudeParentID returns the parent session ID for a Claude Code
+// subagent transcript. Paths like
+//
+//	<root>/<sessionId>/subagents/agent-<agentId>.jsonl
+//
+// yield ParentID = <sessionId>. Top-level sessions return "".
+func extractClaudeParentID(path string) string {
+	sep := string(filepath.Separator)
+	parts := strings.Split(path, sep)
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "subagents" && i > 0 {
+			return parts[i-1]
+		}
+	}
+	return ""
 }
 
 func (claudeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

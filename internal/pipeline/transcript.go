@@ -33,7 +33,8 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 
 // buildProviderBlocks reads + redacts every source and groups results by tool.
 // Returns one ProviderBlock per tool with messages in discovery order.
-func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger) ([]ProviderBlock, []chat.ChatSource, int, []string, int, error) {
+// When includeSubagents is false, sources with a non-empty ParentID are skipped.
+func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger, includeSubagents bool) ([]ProviderBlock, []chat.ChatSource, int, []string, int, error) {
 	type accumulator struct {
 		tool     string
 		paths    []string
@@ -46,6 +47,10 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 	messageCount := 0
 	totalHits := 0
 	for _, source := range sources {
+		if !includeSubagents && source.ParentID != "" {
+			logger.Info("skipping subagent transcript", logging.Any("path", source.Path), logging.Any("parent_id", source.ParentID))
+			continue
+		}
 		messages, err := readMessagesFromSource(source)
 		if err != nil {
 			logger.Warn("source read failed", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("err", err))

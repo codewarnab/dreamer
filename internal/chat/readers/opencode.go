@@ -16,6 +16,9 @@ type OpenCodeSession struct {
 	Directory    string
 	Title        string
 	ModifiedTime time.Time
+	// ParentID is set when this session is a subagent/child transcript.
+	// Empty for top-level sessions.
+	ParentID string
 }
 
 type OpenCodeReader struct {
@@ -42,6 +45,70 @@ func (reader OpenCodeReader) ListSessions(dbPath string, cwdFilter string) ([]Op
 	}
 	defer database.Close()
 
+	sessions, err := reader.listSessionsWithParentID(database, cwdFilter)
+	if err != nil {
+		// Only fall back when the parent_id column is missing; surface other errors.
+		if isMissingParentIDColumn(err) {
+			return reader.listSessionsLegacy(database, cwdFilter)
+		}
+		return nil, err
+	}
+	return sessions, nil
+}
+
+// isMissingParentIDColumn reports whether err looks like a SQLite "no such
+// column: parent_id" error from an older opencode schema.
+func isMissingParentIDColumn(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such column") && strings.Contains(msg, "parent_id")
+}
+
+func (reader OpenCodeReader) listSessionsWithParentID(database *sql.DB, cwdFilter string) ([]OpenCodeSession, error) {
+	query := "SELECT id, directory, title, time_updated, parent_id FROM session"
+	args := []any{}
+	if trimmed := strings.TrimSpace(cwdFilter); trimmed != "" {
+		query += " WHERE directory = ?"
+		args = append(args, trimmed)
+	}
+
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query opencode sessions: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := make([]OpenCodeSession, 0)
+	for rows.Next() {
+		var (
+			id        string
+			directory string
+			title     string
+			updated   any
+			parentID  sql.NullString
+		)
+		if err := rows.Scan(&id, &directory, &title, &updated, &parentID); err != nil {
+			return nil, fmt.Errorf("scan opencode session row: %w", err)
+		}
+		modified, _ := parseTimestamp(updated)
+		sessions = append(sessions, OpenCodeSession{
+			ID:           id,
+			Directory:    directory,
+			Title:        title,
+			ModifiedTime: modified,
+			ParentID:     parentID.String,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate opencode session rows: %w", err)
+	}
+
+	return sessions, nil
+}
+
+func (reader OpenCodeReader) listSessionsLegacy(database *sql.DB, cwdFilter string) ([]OpenCodeSession, error) {
 	query := "SELECT id, directory, title, time_updated FROM session"
 	args := []any{}
 	if trimmed := strings.TrimSpace(cwdFilter); trimmed != "" {
@@ -219,6 +286,67 @@ func openCodePartText(data string) string {
 		if text, ok := record["text"].(string); ok {
 			return strings.TrimSpace(text)
 		}
+	case "subtask":
+		return extractOpenCodeSubtask(record)
+	case "tool":
+		return extractOpenCodeTool(record)
 	}
 	return ""
+}
+
+// extractOpenCodeSubtask extracts text from a subtask part. The content may
+// be nested under "data" (as a JSON string or object) or under "text".
+func extractOpenCodeSubtask(record map[string]any) string {
+	// Try "text" first (direct content).
+	if text, ok := record["text"].(string); ok {
+		if trimmed := strings.TrimSpace(text); trimmed != "" {
+			return trimmed
+		}
+	}
+	// Try "data" as a string containing JSON or plain text.
+	if data, ok := record["data"].(string); ok {
+		trimmed := strings.TrimSpace(data)
+		if trimmed == "" {
+			return ""
+		}
+		// Attempt to parse as JSON to extract nested text/content fields.
+		var nested map[string]any
+		if json.Unmarshal([]byte(trimmed), &nested) == nil {
+			if text, ok := nested["text"].(string); ok {
+				if t := strings.TrimSpace(text); t != "" {
+					return t
+				}
+			}
+			if content, ok := nested["content"].(string); ok {
+				if t := strings.TrimSpace(content); t != "" {
+					return t
+				}
+			}
+		}
+		// Fall back to the raw data string.
+		return trimmed
+	}
+	return ""
+}
+
+// extractOpenCodeTool extracts a summary from a tool part: tool name plus
+// result status when available.
+func extractOpenCodeTool(record map[string]any) string {
+	name, _ := record["tool"].(string)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	// Append result/output summary if present.
+	if result, ok := record["result"].(string); ok {
+		if trimmed := strings.TrimSpace(result); trimmed != "" {
+			return name + ": " + trimmed
+		}
+	}
+	if output, ok := record["output"].(string); ok {
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			return name + ": " + trimmed
+		}
+	}
+	return name
 }
