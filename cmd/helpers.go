@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +20,7 @@ func resolveConfigPath(configPath string) (string, error) {
 		return path, nil
 	}
 
-	expandedPath, err := expandHomePath(configPath)
+	expandedPath, err := config.ExpandUserHome(configPath)
 	if err != nil {
 		return "", err
 	}
@@ -49,18 +48,4 @@ func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.Config) {
 			logging.Any("hint", "set `since: lifetime` to restore prior behavior"),
 		)
 	}
-}
-
-func expandHomePath(path string) (string, error) {
-	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home: %w", err)
-		}
-		if path == "~" {
-			return homeDir, nil
-		}
-		return filepath.Join(homeDir, path[2:]), nil
-	}
-	return path, nil
 }

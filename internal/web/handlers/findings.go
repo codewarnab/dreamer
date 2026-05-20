@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bufio"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/config"
 	"dreamer/internal/state"
 	"dreamer/internal/web/apply"
@@ -79,8 +79,7 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 		currentCategory string
 		pendingSummary  string
 	)
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	sc := transport.NewFileScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
 		if m := runHeaderRe.FindStringSubmatch(line); m != nil {

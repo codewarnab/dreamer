@@ -255,4 +255,3 @@ func printStatusJSON(cmd *cobra.Command, status jobqueue.QueueStatus) error {
 	cmd.Println(string(data))
 	return nil
 }
-

@@ -7,6 +7,10 @@ import (
 	"dreamer/internal/analyzer/toolchain"
 )
 
+// defaultSymbolCap is the max number of exported symbols to include in
+// the grounding context passed to analyzer prompts.
+const defaultSymbolCap = 800
+
 // BuildCodebaseContext assembles the grounding markdown blob that orchestrator
 // prompts use for repo-aware analysis. The returned string may be empty when
 // the project is too small or the toolchain produces no symbols.
@@ -15,8 +19,8 @@ func BuildCodebaseContext(projectRoot string, _ toolchain.Toolchain) (string, er
 	if err != nil {
 		return "", fmt.Errorf("detect files: %w", err)
 	}
-	symbols := grounding.BuildSymbolIndex(projectRoot, files, 800)
-	return grounding.BuildContext(files, symbols, grounding.DefaultFileCap, 800), nil
+	symbols := grounding.BuildSymbolIndex(projectRoot, files, defaultSymbolCap)
+	return grounding.BuildContext(files, symbols, grounding.DefaultFileCap, defaultSymbolCap), nil
 }
 
 // CodebaseFiles returns the path-only file list used for phase-2 grounding.

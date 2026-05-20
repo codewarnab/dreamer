@@ -102,7 +102,7 @@ func (s *Server) Start() error {
 		// Atomic write (temp + rename) matches the project-wide convention
 		// from B3 so a racing `dreamer web` can never observe a partial
 		// or empty port file mid-write.
-		_ = fsutil.WriteFileAtomic(portPath, portBytes, 0o644)
+		_ = fsutil.WriteFileAtomic(portPath, portBytes, fsutil.FilePerms)
 	}
 	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {

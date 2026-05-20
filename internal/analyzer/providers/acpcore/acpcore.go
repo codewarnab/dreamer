@@ -27,6 +27,10 @@ import (
 // Joins with analyzer.ErrUnavailable so callers can detect via errors.Is.
 var ErrTransportClosed = errors.New("acp: transport closed")
 
+// errCodeTransportClosed is the JSON-RPC error code used when the transport
+// is closed and pending requests must be rejected.
+const errCodeTransportClosed = -32000
+
 // Options carries the per-provider configuration carried by ACP adapter packages.
 type Options struct {
 	// ID is the provider id this acpcore Provider answers to (eg.
@@ -441,8 +445,7 @@ func (t *transport) readLoop(initial *bytes.Buffer) {
 	if initial != nil {
 		_ = initial // placeholder for future buffering
 	}
-	scanner := bufio.NewScanner(t.stdout)
-	scanner.Buffer(make([]byte, 1<<16), 1<<24)
+	scanner := transportutil.NewScanner(t.stdout)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -489,7 +492,7 @@ func (t *transport) markClosed() {
 	t.closed = true
 	t.mu.Unlock()
 
-	closedErr := &rpcError{Code: -32000, Message: ErrTransportClosed.Error()}
+	closedErr := &rpcError{Code: errCodeTransportClosed, Message: ErrTransportClosed.Error()}
 	t.pending.Range(func(key, value any) bool {
 		if ch, ok := value.(chan rpcResponse); ok {
 			select {

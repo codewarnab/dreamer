@@ -4,7 +4,6 @@
 package codexcli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -188,8 +187,7 @@ func (s *session) Close() error { return nil }
 // We collect text from agent_message item.completed events and surface
 // turn.failed/error messages instead of swallowing them.
 func readStreamJSON(r io.Reader) (string, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1<<16), 1<<24)
+	scanner := transport.NewScanner(r)
 	var assembled strings.Builder
 	var streamErr string
 	for scanner.Scan() {

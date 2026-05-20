@@ -10,6 +10,7 @@ import (
 
 	"dreamer/internal/chat"
 	"dreamer/internal/config"
+	"dreamer/internal/pipeline"
 )
 
 // ChatSourceDTO is the JSON payload entry for one discovered chat source.
@@ -128,17 +129,5 @@ func parseSinceWindow(value string) (time.Duration, bool) {
 	if err != nil || amount <= 0 {
 		return 0, false
 	}
-	switch unitText {
-	case "m":
-		return time.Duration(amount) * time.Minute, true
-	case "h":
-		return time.Duration(amount) * time.Hour, true
-	case "d":
-		return time.Duration(amount) * 24 * time.Hour, true
-	case "w":
-		return time.Duration(amount) * 7 * 24 * time.Hour, true
-	case "mo":
-		return time.Duration(amount) * 30 * 24 * time.Hour, true
-	}
-	return 0, false
+	return pipeline.ParseLookbackDuration(amount, unitText)
 }

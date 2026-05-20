@@ -13,15 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 )
 
 const (
-	configDirName = "dreamer"
-	stateFile     = "state.json"
-	dirPerms      = 0o755
-	statePerms    = 0o644
+	stateFile = "state.json"
 
 	// StateVersion bumps when the on-disk shape of state.json or the
 	// derivation of a stored value changes such that a v(N-1) file cannot
@@ -81,20 +79,13 @@ func PathForProject(outputRoot string, projectName string) (string, error) {
 
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
-		cfgDir, err := userConfigDir()
+		cfgRoot, err := config.UserConfigRoot()
 		if err != nil {
 			return "", fmt.Errorf("resolve user config dir: %w", err)
 		}
-		root = filepath.Join(cfgDir, configDirName)
+		root = cfgRoot
 	}
 	return filepath.Join(root, name, stateFile), nil
-}
-
-func userConfigDir() (string, error) {
-	if xdgConfigHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdgConfigHome != "" {
-		return xdgConfigHome, nil
-	}
-	return os.UserConfigDir()
 }
 
 // LoadResult bundles the loaded State with metadata about any migration
@@ -202,7 +193,7 @@ func Save(outputRoot, projectName string, state *State) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), dirPerms); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), fsutil.DirPerms); err != nil {
 		return fmt.Errorf("create state directory %q: %w", filepath.Dir(path), err)
 	}
 
@@ -211,7 +202,7 @@ func Save(outputRoot, projectName string, state *State) error {
 		if priorVersion >= 0 && priorVersion < StateVersion {
 			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
 			if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, statePerms); writeErr != nil {
+				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms); writeErr != nil {
 					return fmt.Errorf("write schema-upgrade backup %q: %w", backupPath, writeErr)
 				}
 			}
@@ -228,7 +219,7 @@ func Save(outputRoot, projectName string, state *State) error {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
 
-	if err := fsutil.WriteFileAtomic(path, data, statePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(path, data, fsutil.FilePerms); err != nil {
 		return fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
 	return nil

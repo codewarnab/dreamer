@@ -1,7 +1,6 @@
 package claudecli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -160,8 +159,7 @@ func (s *session) Close() error { return nil }
 // readStreamJSON consumes the stream-json output and returns the concatenated
 // text of the final assistant message.
 func readStreamJSON(r io.Reader) (string, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1<<16), 1<<24)
+	scanner := transport.NewScanner(r)
 	var assistantText strings.Builder
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

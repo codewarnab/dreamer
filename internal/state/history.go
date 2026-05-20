@@ -82,14 +82,14 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), dirPerms); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), fsutil.DirPerms); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(h, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, data, statePerms)
+	return fsutil.WriteFileAtomic(path, data, fsutil.FilePerms)
 }
 
 // UpdateHistoryToday merges delta into the bucket whose Date == today (a

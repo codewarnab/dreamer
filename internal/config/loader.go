@@ -34,6 +34,9 @@ const (
 	// DefaultProviderBoundaryHeadroom: min free fraction before packing the next provider.
 	DefaultProviderBoundaryHeadroom = 0.20
 
+	// DefaultWebPort is the loopback port for the embedded web server.
+	DefaultWebPort = 7777
+
 	// DefaultMaxConcurrentJobs: one analysis at a time by default.
 	DefaultMaxConcurrentJobs = 1
 	// DefaultMaxAnalysisDuration caps a single job's wall-clock time.
@@ -76,10 +79,10 @@ type ConfigNotices struct {
 
 // ProjectConfig is one entry in `projects:` — daemon iterates these.
 type ProjectConfig struct {
-	Name                 string `yaml:"name" json:"name"`
-	Path                 string `yaml:"path" json:"path"`
-	Since                string `yaml:"since,omitempty" json:"since,omitempty"`
-	MaxAnalysisDuration  string `yaml:"max_analysis_duration,omitempty" json:"max_analysis_duration,omitempty"`
+	Name                string `yaml:"name" json:"name"`
+	Path                string `yaml:"path" json:"path"`
+	Since               string `yaml:"since,omitempty" json:"since,omitempty"`
+	MaxAnalysisDuration string `yaml:"max_analysis_duration,omitempty" json:"max_analysis_duration,omitempty"`
 }
 
 // DaemonConfig governs daemon mode runtime.
@@ -121,14 +124,14 @@ type ProviderBlock struct {
 
 // AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
 type AnalyzerConfig struct {
-	RuleTimeoutSeconds int  `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
+	RuleTimeoutSeconds int `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
 	// IncludeSubagentTranscripts controls whether subagent/child chat
 	// transcripts are included in analysis. When false (default), sources
 	// with a non-empty ParentID are skipped.
-	IncludeSubagentTranscripts bool                   `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
-	Rules              map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
-	Execution          ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
-	Chunking           ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`
+	IncludeSubagentTranscripts bool                  `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
+	Rules                      map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Execution                  ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
+	Chunking                   ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`
 }
 
 // ExecutionConfig: how the orchestrator dispatches per-chunk provider calls.
@@ -183,16 +186,22 @@ func GlobalConfigPath() (string, error) {
 	return filepath.Join(root, globalConfigFile), nil
 }
 
+// ConfigDirBase returns the platform config directory (XDG_CONFIG_HOME
+// or os.UserConfigDir) without the "dreamer" subdirectory appended.
+func ConfigDirBase() (string, error) {
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return xdg, nil
+	}
+	return os.UserConfigDir()
+}
+
 // UserConfigRoot returns `<UserConfigDir>/dreamer`.
 func UserConfigRoot() (string, error) {
-	if xdgConfigHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdgConfigHome != "" {
-		return filepath.Join(xdgConfigHome, configDirName), nil
-	}
-	dir, err := os.UserConfigDir()
+	base, err := ConfigDirBase()
 	if err != nil {
 		return "", fmt.Errorf("resolve user config dir: %w", err)
 	}
-	return filepath.Join(dir, configDirName), nil
+	return filepath.Join(base, configDirName), nil
 }
 
 // ProjectConfigPath returns `<projectPath>/.dreamer/config.yaml`.
@@ -278,7 +287,7 @@ func applyDefaults(cfg *Config) error {
 		cfg.Web.Enabled = &t
 	}
 	if cfg.Web.Port == 0 {
-		cfg.Web.Port = 7777
+		cfg.Web.Port = DefaultWebPort
 	}
 	if cfg.Web.Host == "" {
 		cfg.Web.Host = "127.0.0.1"

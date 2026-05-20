@@ -59,13 +59,13 @@ func newJob(project, projectPath, provider, since string) *Job {
 	var suffix [4]byte
 	_, _ = rand.Read(suffix[:])
 	return &Job{
-		ID:         fmt.Sprintf("%s-%d-%s", project, now.UnixMilli(), hex.EncodeToString(suffix[:])),
-		Project:    project,
+		ID:          fmt.Sprintf("%s-%d-%s", project, now.UnixMilli(), hex.EncodeToString(suffix[:])),
+		Project:     project,
 		ProjectPath: projectPath,
-		Status:     StatusPending,
-		EnqueuedAt: now,
-		Provider:   provider,
-		Since:      since,
+		Status:      StatusPending,
+		EnqueuedAt:  now,
+		Provider:    provider,
+		Since:       since,
 	}
 }
 

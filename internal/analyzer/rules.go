@@ -25,6 +25,10 @@ const (
 	RuleCategoryRefactorBoundary RuleCategory = "refactor-boundary"
 )
 
+// DefaultRuleTimeoutSeconds is the fallback per-rule prompt timeout
+// when a rule pack's timeout_seconds is unset or non-positive.
+const DefaultRuleTimeoutSeconds = 45
+
 // AllRuleCategories returns the canonical list of v1 categories in fixed order.
 func AllRuleCategories() []RuleCategory {
 	return []RuleCategory{
@@ -52,7 +56,7 @@ type RulePack struct {
 // 45s default when unset or non-positive.
 func (r RulePack) Timeout() time.Duration {
 	if r.TimeoutSeconds <= 0 {
-		return 45 * time.Second
+		return DefaultRuleTimeoutSeconds * time.Second
 	}
 	return time.Duration(r.TimeoutSeconds) * time.Second
 }
