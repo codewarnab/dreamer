@@ -45,6 +45,12 @@ func init() {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
+		// Sandbox hardening:
+		// --sandbox read-only: codex's built-in policy that rejects file writes
+		// and network access for model-generated shell commands. `codex exec` is
+		// already non-interactive (no approval prompts), so no --ask-for-approval
+		// flag is needed; that flag belongs to the interactive `codex` command
+		// and is rejected by `codex exec`.
 		command = []string{"codex", "exec", "--json", "--sandbox", "read-only"}
 	}
 	return &provider{options: options, command: command}, nil
