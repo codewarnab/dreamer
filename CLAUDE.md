@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build / test commands
 
 ```bash
-make build                    # release build (stripped, ~18MB)
+make build                    # release build (trimmed, stripped, ~18MB)
 make build-dev                # dev build with debug symbols (~26MB)
 make build-linux              # cross-compile for Linux
 make test                     # full test suite
@@ -16,13 +16,15 @@ make fmt                      # gofmt -w .
 
 Or directly:
 ```bash
-go build -ldflags="-s -w" -o dreamer.exe .   # release build
-go build -o dreamer.exe .                     # dev build
-go run . <command> [flags]                    # run dreamer CLI
-go test ./...                                 # full test suite
-go test ./cmd -run TestName                   # single test
-go test -race ./...                           # race detector
+go build -trimpath -ldflags="-s -w" -o dreamer.exe .   # release build
+go build -trimpath -o dreamer.exe .                     # dev build
+go run . <command> [flags]                              # run dreamer CLI
+go test ./...                                           # full test suite
+go test ./cmd -run TestName                             # single test
+go test -race ./...                                     # race detector
 ```
+
+**Important:** Always use `-trimpath` when building. It strips local filesystem paths from the binary so stack traces don't leak your directory structure and builds are reproducible. The binary warns at startup if built without it. Use `-tags notrimpath` to suppress the check (e.g. for CI fast-builds).
 
 No lint target is wired in; use `go vet ./...` and `gofmt -w .` directly.
 

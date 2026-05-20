@@ -32,6 +32,11 @@ func newAnalyzeCommand() *cobra.Command {
 		Use:   "analyze",
 		Short: "Run one analysis pass for a single project path.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Lazy-init note: analyze deliberately skips web server, fsnotify,
+			// and job queue — those are daemon-only. SQLite readers open
+			// per-source on demand (not eagerly). See daemon.go for the full
+			// init-gating rationale.
+
 			if strings.TrimSpace(projectPath) == "" {
 				return fmt.Errorf("--path is required")
 			}

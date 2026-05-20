@@ -43,6 +43,15 @@ func newDaemonCommand() *cobra.Command {
 		Use:   "daemon",
 		Short: "Run periodic analysis for all configured projects.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Lazy-init note: subsystem initialization is gated by command,
+			// not deferred via sync.Once. The web server, fsnotify watchers,
+			// and job queue only start in daemon mode. The analyze command
+			// only touches config, logging, and pipeline.Run. SQLite readers
+			// (opencode, kiro) open per-source on demand. We considered
+			// sync.Once-based lazy init but the command-level separation is
+			// simpler and avoids first-use latency spikes in the hot path.
+			// If a future command needs cross-cutting shared state, revisit.
+
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err
