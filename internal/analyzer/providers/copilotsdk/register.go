@@ -13,4 +13,9 @@ func init() {
 			Model:              cfg.Model,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderCopilotSDK,
+		DisplayName: "GitHub Copilot SDK",
+		Order:       20,
+	})
 }

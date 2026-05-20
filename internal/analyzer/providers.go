@@ -113,6 +113,31 @@ func NewProvider(id ProviderID, cfg ProviderConfig) (Provider, error) {
 	return factory(cfg)
 }
 
+// ProviderMeta carries display metadata for a registered provider.
+// Providers self-register via RegisterProviderMeta in init().
+type ProviderMeta struct {
+	ID          ProviderID
+	DisplayName string // e.g. "OpenClaude CLI (recommended)"
+	Order       int    // sort order in UI (lower = higher)
+}
+
+var providerMetaRegistry []ProviderMeta
+
+// RegisterProviderMeta installs display metadata for a provider. Provider
+// implementation packages call this from init() alongside RegisterProvider.
+func RegisterProviderMeta(meta ProviderMeta) {
+	providerMetaRegistry = append(providerMetaRegistry, meta)
+}
+
+// RegisteredProviderMeta returns all registered provider metadata sorted by
+// Order (ascending). The slice must not be mutated by callers.
+func RegisteredProviderMeta() []ProviderMeta {
+	out := make([]ProviderMeta, len(providerMetaRegistry))
+	copy(out, providerMetaRegistry)
+	sort.Slice(out, func(i, j int) bool { return out[i].Order < out[j].Order })
+	return out
+}
+
 func joinProviderIDs(ids []ProviderID, sep string) string {
 	parts := make([]string, 0, len(ids))
 	for _, id := range ids {

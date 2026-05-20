@@ -38,6 +38,11 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderCodexCLI,
+		DisplayName: "OpenAI Codex CLI",
+		Order:       90,
+	})
 }
 
 // New returns a codex-cli Provider.

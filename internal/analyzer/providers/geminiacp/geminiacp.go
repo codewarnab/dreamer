@@ -22,4 +22,9 @@ func init() {
 			ModelFallbacks: config.DefaultModelFallbacks["gemini-acp"],
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderGeminiACP,
+		DisplayName: "Gemini via ACP",
+		Order:       70,
+	})
 }

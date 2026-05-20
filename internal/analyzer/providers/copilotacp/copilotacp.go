@@ -20,4 +20,9 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderCopilotACP,
+		DisplayName: "Copilot via ACP",
+		Order:       30,
+	})
 }

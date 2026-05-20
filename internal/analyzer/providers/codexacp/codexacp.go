@@ -26,4 +26,9 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderCodexACP,
+		DisplayName: "Codex via ACP",
+		Order:       100,
+	})
 }

@@ -34,6 +34,11 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderGeminiCLI,
+		DisplayName: "Google Gemini CLI",
+		Order:       60,
+	})
 }
 
 // New returns a gemini-cli Provider that shells out to the `gemini` binary

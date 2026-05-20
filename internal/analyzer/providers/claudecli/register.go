@@ -11,4 +11,9 @@ func init() {
 			DefaultModel: cfg.DefaultModel,
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderClaudeCLI,
+		DisplayName: "Anthropic Claude (stream-json)",
+		Order:       40,
+	})
 }

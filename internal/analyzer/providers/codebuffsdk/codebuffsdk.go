@@ -39,6 +39,11 @@ func init() {
 			APIKey:  resolveAPIKey(cfg),
 		})
 	})
+	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
+		ID:          analyzer.ProviderCodebuffSDK,
+		DisplayName: "Codebuff SDK",
+		Order:       130,
+	})
 }
 
 // Options carries per-provider configuration.

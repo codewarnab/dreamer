@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 )
@@ -174,15 +175,19 @@ func prefillFromConfig(prior *config.Config) setupAnswers {
 	return a
 }
 
-func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel {
-	providers := []list.Item{
-		providerItem{"openclaude-cli", "OpenClaude CLI (recommended)"},
-		providerItem{"copilot-sdk", "GitHub Copilot SDK"},
-		providerItem{"copilot-acp", "Copilot via ACP"},
-		providerItem{"claude-cli", "Anthropic Claude (stream-json)"},
-		providerItem{"gemini-cli", "Google Gemini CLI"},
-		providerItem{"codex-cli", "OpenAI Codex CLI"},
+// providerItems builds the setup wizard's provider list from the analyzer
+// registry so it stays in sync when new providers are added.
+func providerItems() []list.Item {
+	meta := analyzer.RegisteredProviderMeta()
+	items := make([]list.Item, 0, len(meta))
+	for _, m := range meta {
+		items = append(items, providerItem{string(m.ID), m.DisplayName})
 	}
+	return items
+}
+
+func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel {
+	providers := providerItems()
 	pl := list.New(providers, compactDelegate{}, 60, listHeight(len(providers)))
 	pl.Title = "1/5 - Provider"
 	pl.SetShowHelp(false)
