@@ -14,8 +14,6 @@ import (
 )
 
 func newStartCommand() *cobra.Command {
-	var configPath string
-
 	command := &cobra.Command{
 		Use:   "start",
 		Short: "Start the daemon in the background.",
@@ -80,7 +78,6 @@ func newStartCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 	return command
 }
 

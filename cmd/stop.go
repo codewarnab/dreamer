@@ -12,8 +12,6 @@ import (
 )
 
 func newStopCommand() *cobra.Command {
-	var configPath string
-
 	command := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the running daemon.",
@@ -66,7 +64,6 @@ func newStopCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 	return command
 }
 

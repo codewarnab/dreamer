@@ -19,8 +19,7 @@ import (
 
 func newWebCommand() *cobra.Command {
 	var (
-		configPath string
-		openFlag   bool
+		openFlag bool
 	)
 	cmd := &cobra.Command{
 		Use:   "web",
@@ -41,8 +40,24 @@ func newWebCommand() *cobra.Command {
 			}
 			url := fmt.Sprintf("http://127.0.0.1:%d", port)
 			if err := probeHealth(url+"/api/health", 250*time.Millisecond); err != nil {
-				fmt.Fprintf(cmd.OutOrStderr(), "daemon UI not running on %s\nstart with: dreamer daemon\n(or: systemctl --user start dreamer)\n", url)
-				return fmt.Errorf("daemon UI not reachable: %w", err)
+				line1 := fmt.Sprintf("daemon UI not running on %s", url)
+				line2 := "start with:"
+				line3 := "dreamer daemon"
+				maxLen := len(line1)
+				if len(line2)+2 > maxLen {
+					maxLen = len(line2) + 2
+				}
+				if len(line3)+4 > maxLen {
+					maxLen = len(line3) + 4
+				}
+				w := maxLen + 4 // padding inside the box
+				fmt.Fprintf(cmd.OutOrStderr(), "╔%s╗\n", strings.Repeat("═", w))
+				fmt.Fprintf(cmd.OutOrStderr(), "║  %-*s  ║\n", maxLen, line1)
+				fmt.Fprintf(cmd.OutOrStderr(), "╠%s╣\n", strings.Repeat("═", w))
+				fmt.Fprintf(cmd.OutOrStderr(), "║  %-*s  ║\n", maxLen, line2)
+				fmt.Fprintf(cmd.OutOrStderr(), "║    %-*s  ║\n", maxLen-2, line3)
+				fmt.Fprintf(cmd.OutOrStderr(), "╚%s╝\n", strings.Repeat("═", w))
+				return nil
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), url)
 			if openFlag {
@@ -53,7 +68,6 @@ func newWebCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 	cmd.Flags().BoolVar(&openFlag, "open", false, "Open the URL in the OS default browser.")
 	return cmd
 }

@@ -15,9 +15,8 @@ import (
 
 func newAddCommand() *cobra.Command {
 	var (
-		name       string
-		since      string
-		configPath string
+		name  string
+		since string
 	)
 	cmd := &cobra.Command{
 		Use:   "add [path]",
@@ -39,9 +38,6 @@ func newAddCommand() *cobra.Command {
 			}
 			if name == "" {
 				name = filepath.Base(absPath)
-			}
-			if since == "" {
-				since = "24h"
 			}
 			cfgPath, err := resolveConfigPath(configPath)
 			if err != nil {
@@ -67,9 +63,8 @@ func newAddCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "Project name (default: basename of path).")
-	cmd.Flags().StringVar(&since, "since", "", "Lookback window (24h, 7d, 30d, lifetime). Default: 24h.")
-	cmd.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml).")
+	cmd.Flags().StringVarP(&name, "name", "n", "", "Project name (default: basename of path).")
+	cmd.Flags().StringVarP(&since, "since", "s", config.DefaultSince, "Lookback window for chat history (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime)")
 	return cmd
 }
 

@@ -32,12 +32,7 @@ func daemonSignals() []os.Signal {
 }
 
 func newDaemonCommand() *cobra.Command {
-	var (
-		configPath     string
-		parallel       bool
-		maxConcurrency int
-		maxChunkBytes  int
-	)
+	var afv analyzerFlagVars
 
 	command := &cobra.Command{
 		Use:   "daemon",
@@ -76,12 +71,12 @@ func newDaemonCommand() *cobra.Command {
 			logDefaultedSinceNotices(logger, cfg)
 
 			overrides := daemonOverrides{
-				parallel:       parallel,
-				maxConcurrency: maxConcurrency,
+				parallel:       afv.parallel,
+				maxConcurrency: afv.jobs,
 			}
-			if cmd.Flags().Changed("max-chunk-bytes") {
+			if cmd.Flags().Changed(flagChunkSize) {
 				overrides.maxChunkBytesSet = true
-				overrides.maxChunkBytes = maxChunkBytes
+				overrides.maxChunkBytes = afv.chunkSize
 			}
 			if len(cfg.Projects) == 0 {
 				logger.Error("daemon configuration has no projects", logging.Any("config", resolvedConfigPath))
@@ -222,10 +217,7 @@ func newDaemonCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
-	command.Flags().BoolVar(&parallel, "parallel", false, "Force analyzer.execution.mode=parallel (provider must implement ParallelCapable; fallback logged)")
-	command.Flags().IntVar(&maxConcurrency, "max-concurrency", 0, "Cap parallel session count. 0 = len(chunks). Ignored when sequential.")
-	command.Flags().IntVar(&maxChunkBytes, "max-chunk-bytes", 0, "Override analyzer.chunking.max_chunk_bytes for every cycle. 0 disables chunking.")
+	registerAnalyzerFlags(command.Flags(), &afv)
 
 	return command
 }

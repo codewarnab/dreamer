@@ -40,8 +40,6 @@ func newStartupCommand() *cobra.Command {
 }
 
 func newStartupInstallCommand() *cobra.Command {
-	var configPath string
-
 	command := &cobra.Command{
 		Use:   "install",
 		Short: "Start the daemon automatically at login/boot.",
@@ -63,7 +61,6 @@ func newStartupInstallCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 	return command
 }
 

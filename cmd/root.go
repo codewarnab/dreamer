@@ -19,6 +19,10 @@ import (
 	_ "dreamer/internal/analyzer/providers/opencodehttp"
 )
 
+// configPath is the resolved --config flag value, shared by all subcommands
+// via PersistentFlags on the root command.
+var configPath string
+
 var rootCmd = newRootCommand()
 
 func newRootCommand() *cobra.Command {
@@ -32,6 +36,8 @@ func newRootCommand() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+
+	root.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
 
 	root.AddCommand(newAnalyzeCommand())
 	root.AddCommand(newDaemonCommand())
