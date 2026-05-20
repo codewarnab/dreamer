@@ -9,6 +9,7 @@ import (
 const (
 	EventRunStart       = "run.start"
 	EventRunDone        = "run.done"
+	EventRunError       = "run.error"
 	EventFindingApplied = "finding.applied"
 	EventFindingUndone  = "finding.undone"
 	EventFindingDismiss = "finding.dismissed"
