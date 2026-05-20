@@ -20,7 +20,7 @@ func newRunnerLogger(t *testing.T) *logging.Logger {
 
 func TestRunner_EnqueueAccepts(t *testing.T) {
 	started := make(chan string, 1)
-	runner := NewRunner(func(ctx context.Context, project string) error {
+	runner := NewRunner(nil, func(ctx context.Context, project string) error {
 		started <- project
 		return nil
 	}, newRunnerLogger(t))
@@ -40,7 +40,7 @@ func TestRunner_EnqueueAccepts(t *testing.T) {
 
 func TestRunner_SecondEnqueueRejectedWhileInflight(t *testing.T) {
 	block := make(chan struct{})
-	runner := NewRunner(func(ctx context.Context, project string) error {
+	runner := NewRunner(nil, func(ctx context.Context, project string) error {
 		<-block
 		return nil
 	}, newRunnerLogger(t))
@@ -60,7 +60,7 @@ func TestRunner_SecondEnqueueRejectedWhileInflight(t *testing.T) {
 
 func TestRunner_DifferentProjectsConcurrent(t *testing.T) {
 	block := make(chan struct{})
-	runner := NewRunner(func(ctx context.Context, project string) error {
+	runner := NewRunner(nil, func(ctx context.Context, project string) error {
 		<-block
 		return nil
 	}, newRunnerLogger(t))
@@ -70,4 +70,29 @@ func TestRunner_DifferentProjectsConcurrent(t *testing.T) {
 		t.Fatalf("a=%v b=%v", ok1, ok2)
 	}
 	close(block)
+}
+
+// TestRunner_ParentCtxCancelPropagates exercises the SIGTERM/shutdown
+// contract: cancelling the daemon's parent ctx must cancel any
+// in-flight web-triggered run.
+func TestRunner_ParentCtxCancelPropagates(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelled := make(chan struct{})
+	runner := NewRunner(parent, func(ctx context.Context, project string) error {
+		<-ctx.Done()
+		close(cancelled)
+		return ctx.Err()
+	}, newRunnerLogger(t))
+	if _, ok, _ := runner.Enqueue("p"); !ok {
+		t.Fatalf("enqueue rejected")
+	}
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case <-cancelled:
+		// pass
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("worker did not observe parent ctx cancel")
+	}
 }

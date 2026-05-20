@@ -126,6 +126,15 @@ func Apply(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "category not eligible for apply")
 			return
 		}
+		// Refuse re-apply over an already-applied finding so we never
+		// clobber a captured AppliedReversal: the prior PreImage is the
+		// only way to undo back to the original file, and overwriting it
+		// would silently strand the operator without a clean recovery.
+		// The contract is: undo first, then apply again.
+		if prior, ok := st.Findings[hash]; ok && prior.Status == state.FindingStatusApplied && prior.AppliedReversal != nil {
+			writeJSONError(w, http.StatusConflict, "finding already applied; undo first before re-applying")
+			return
+		}
 		rev, err := apply.Apply(apply.ApplyRequest{
 			ProjectRoot: proj.Path,
 			TargetFile:  req.TargetFile,
@@ -146,12 +155,13 @@ func Apply(deps Deps) http.HandlerFunc {
 			}
 			return
 		}
-		fs := state.FindingState{
-			Status:          state.FindingStatusApplied,
-			AppliedAt:       time.Now().UTC(),
-			AppliedReversal: rev,
-			ProjectName:     name,
-		}
+		// Merge into any existing entry so a dismissed/resolved record's
+		// timestamps survive the transition into applied.
+		fs := st.Findings[hash]
+		fs.Status = state.FindingStatusApplied
+		fs.AppliedAt = time.Now().UTC()
+		fs.AppliedReversal = rev
+		fs.ProjectName = name
 		st.Findings[hash] = fs
 		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -214,11 +224,13 @@ func Dismiss(deps Deps) http.HandlerFunc {
 			return
 		}
 		cfg := deps.Config()
-		fs := state.FindingState{
-			Status:      state.FindingStatusDismissed,
-			DismissedAt: time.Now().UTC(),
-			ProjectName: name,
-		}
+		// Preserve prior fields (AppliedAt + AppliedReversal in particular)
+		// so a later undismiss can fall back to the applied state and a
+		// captured reversal remains valid.
+		fs := st.Findings[hash]
+		fs.Status = state.FindingStatusDismissed
+		fs.DismissedAt = time.Now().UTC()
+		fs.ProjectName = name
 		st.Findings[hash] = fs
 		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -240,11 +252,12 @@ func Resolve(deps Deps) http.HandlerFunc {
 			return
 		}
 		cfg := deps.Config()
-		fs := state.FindingState{
-			Status:      state.FindingStatusResolved,
-			ResolvedAt:  time.Now().UTC(),
-			ProjectName: name,
-		}
+		// Preserve prior AppliedAt + AppliedReversal so a later unresolve
+		// returns the finding to its applied state with the reversal intact.
+		fs := st.Findings[hash]
+		fs.Status = state.FindingStatusResolved
+		fs.ResolvedAt = time.Now().UTC()
+		fs.ProjectName = name
 		st.Findings[hash] = fs
 		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -269,7 +282,18 @@ func Undismiss(deps Deps) http.HandlerFunc {
 		}
 		cfg := deps.Config()
 		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusDismissed {
-			delete(st.Findings, hash)
+			// If a prior Apply captured a reversal that we preserved
+			// through dismiss, fall back to the applied state instead of
+			// dropping the entry — otherwise the reversal becomes
+			// unreachable (state.Findings[hash] is the only path Undo
+			// reads from). Drop only when there was no underlying apply.
+			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
+				fs.Status = state.FindingStatusApplied
+				fs.DismissedAt = time.Time{}
+				st.Findings[hash] = fs
+			} else {
+				delete(st.Findings, hash)
+			}
 		}
 		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -289,7 +313,14 @@ func Unresolve(deps Deps) http.HandlerFunc {
 		}
 		cfg := deps.Config()
 		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusResolved {
-			delete(st.Findings, hash)
+			// Same fallback as Undismiss: keep an applied reversal reachable.
+			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
+				fs.Status = state.FindingStatusApplied
+				fs.ResolvedAt = time.Time{}
+				st.Findings[hash] = fs
+			} else {
+				delete(st.Findings, hash)
+			}
 		}
 		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())

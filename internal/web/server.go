@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
 	"dreamer/internal/web/handlers"
@@ -98,7 +98,11 @@ func (s *Server) Start() error {
 	s.addr = l.Addr().String()
 	if port == 0 {
 		portPath := filepath.Join(s.opts.Config.Daemon.OutputRoot, "web.port")
-		_ = os.WriteFile(portPath, []byte(fmt.Sprintf("%d\n", l.Addr().(*net.TCPAddr).Port)), 0o644)
+		portBytes := []byte(fmt.Sprintf("%d\n", l.Addr().(*net.TCPAddr).Port))
+		// Atomic write (temp + rename) matches the project-wide convention
+		// from B3 so a racing `dreamer web` can never observe a partial
+		// or empty port file mid-write.
+		_ = fsutil.WriteFileAtomic(portPath, portBytes, 0o644)
 	}
 	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {

@@ -110,7 +110,7 @@ func newDaemonCommand() *cobra.Command {
 					return nil
 				}
 
-				runner := web.NewRunner(func(rctx context.Context, projectName string) error {
+				runner := web.NewRunner(ctx, func(rctx context.Context, projectName string) error {
 					curCfg := live.Load()
 					var proj config.ProjectConfig
 					found := false

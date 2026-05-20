@@ -17,6 +17,12 @@ type Runner struct {
 	inflight map[string]string // projectName -> runID
 	invoke   RunFunc
 	logger   *logging.Logger
+	// parent is the daemon's signal-rooted context. Every spawned
+	// worker derives its run context from parent so SIGTERM cancels
+	// in-flight web-triggered runs alongside the daemon's main loop.
+	// Nil parent (constructed via NewRunner without an explicit ctx,
+	// used by tests) falls back to context.Background.
+	parent context.Context
 }
 
 // RunFunc is the function the daemon supplies to actually execute a
@@ -26,12 +32,14 @@ type RunFunc func(ctx context.Context, projectName string) error
 
 // NewRunner constructs a Runner. The daemon wires `invoke` to a
 // closure that builds pipeline.Options for the named project and
-// calls pipeline.Run.
-func NewRunner(invoke RunFunc, logger *logging.Logger) *Runner {
+// calls pipeline.Run. `parent` is the daemon's signal-rooted ctx;
+// pass nil only from tests that exercise Enqueue in isolation.
+func NewRunner(parent context.Context, invoke RunFunc, logger *logging.Logger) *Runner {
 	return &Runner{
 		inflight: map[string]string{},
 		invoke:   invoke,
 		logger:   logger,
+		parent:   parent,
 	}
 }
 
@@ -55,7 +63,11 @@ func (r *Runner) Enqueue(projectName string) (string, bool, error) {
 			delete(r.inflight, projectName)
 			r.mu.Unlock()
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		parent := r.parent
+		if parent == nil {
+			parent = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
 		defer cancel()
 		if err := r.invoke(ctx, projectName); err != nil && r.logger != nil {
 			r.logger.Error("on-demand run failed", logging.String("project", projectName), logging.Any("err", err))

@@ -23,13 +23,13 @@ No lint/format target is wired in; use `go vet ./...` and `gofmt -w .` directly.
 Cobra commands registered in `cmd/root.go`:
 - `analyze` — one-shot analysis for one project (`--project` required).
 - `daemon` — periodic analysis of all configured projects on `daemon.frequency_seconds`. Uses `signal.NotifyContext` for graceful shutdown. v1.5: also spawns the embedded web server.
-- `config init` — writes default `~/.dreamer/config.yaml`.
-- `setup` — interactive TUI wizard (v1.5) that writes `config.yaml` directly (overwrites; YAML comments dropped — Open Issue I6).
+- `setup` — interactive TUI wizard (v1.5) that writes `config.yaml` directly (overwrites; YAML comments dropped — Open Issue I6). Replaces the removed `config init`.
+- `add [path]` — append a project to `config.yaml` (v1.5). Preserves comments via the yaml.v3 Node API; rejects duplicates by name or path.
 - `web` — opens the running daemon's dashboard (`--open` shells out to the OS opener) using the port from `<output_root>/web.port`.
 - `ls-chats` — debug command to list discovered chat sources for a directory.
 - `startup install|uninstall|status` — Windows-only Task Scheduler integration (`schtasks.exe`). Guarded by `runtime.GOOS == "windows"`.
 
-`cmd/analyze_pipeline.go:executeAnalyze` is the analysis core (spec §17). Both `analyze` and `daemon` call into it. Pipeline per project:
+`internal/pipeline/pipeline.go:Run` is the analysis core (spec §17, since v1.5). Both `analyze` and `daemon` call into it. Pipeline per project:
 1. `resolveAbsoluteProjectPath` + `DeriveProjectName` derive the absolute path and the `project-<basename>[-<hash>]` directory name used under the output root.
 2. `config.LoadProjectFileConfig` + `cfg.ResolveProviderConfig` resolve the active provider id and `ProviderBlock` (global → per-project → `--provider`).
 3. `chat.DiscoverChats(projectPath)` enumerates chat sources; `filterSourcesByLookback` (from `--since`) prunes them.
@@ -67,7 +67,7 @@ Per-source decoders that return `[]ChatMessage{Role, Content, Timestamp}`. Each 
 
 - `client.go` wraps `github.com/github/copilot-sdk/go`. `NewClient` builds `copilot.ClientOptions` honoring `CopilotHome` (sets `COPILOT_HOME` env), `CLIURL` (external CLI server — incompatible with `UseLoggedInUser`), and `UseLoggedInUser` (defaults to true when no `CLIURL`). Per-session `WorkingDirectory` plus a custom `OnPermissionRequest` enforce read-only mode: file reads/shell/MCP must resolve under the project root; URL fetches allowed; any write/delete/shell write-redirection rejected. Model fallback: if the configured model fails, retry once with `Model: ""` (SDK auto-select).
 - `orchestrator.go` runs each enabled `AnalysisRule` as its own prompt against the same session, parses JSON (tolerates ```fenced``` blocks and both bare arrays and `{"findings": [...]}`), applies per-rule confidence `Threshold`, normalizes categories, dedupes by `(category, description)`.
-- `rules.go` defines built-in `RuleCategory` values with per-rule prompt templates and timeouts. `mergeRulePacks` + `applyRuleToggles` in `cmd/analyze_pipeline.go` toggle them via `analyzer.rules.<category>.enabled` in global or per-project config.
+- `rules.go` defines built-in `RuleCategory` values with per-rule prompt templates and timeouts. `mergeRulePacks` + `applyRuleToggles` live in `internal/pipeline/rules.go` (since v1.5) and toggle categories via `analyzer.rules.<category>.enabled` in global or per-project config.
 
 ### Config (`internal/config`)
 
