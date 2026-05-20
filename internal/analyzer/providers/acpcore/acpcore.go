@@ -21,6 +21,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	transportutil "dreamer/internal/analyzer/transport"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -244,9 +245,9 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	// 200 KB ≈ 50k tokens keeps Opus runs well under their per-turn budget too.
 	const acpMaxInputBytes = 200_000
 
-	body := prompt
+	body := chat.PrependMarker(prompt)
 	if s.systemMessage != "" {
-		body = s.systemMessage + "\n\n" + prompt
+		body = s.systemMessage + "\n\n" + body
 	}
 	body = transportutil.CapInputBytes(body, acpMaxInputBytes, "\n\n[transcript truncated to fit agent input cap]\n")
 

@@ -17,14 +17,18 @@ type copilotProvider struct{}
 func (copilotProvider) Type() SourceType { return SourceTypeCopilotSessionJSONL }
 
 func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]ChatSource, error) {
-	return discoverCopilotSessionState(env.HomeDir)
+	copilotHome := strings.TrimSpace(env.CopilotHome)
+	if copilotHome == "" {
+		copilotHome = env.HomeDir
+	}
+	return discoverCopilotSessionState(copilotHome)
 }
 
 func discoverCopilotSessionState(homeDir string) ([]ChatSource, error) {
 	root := filepath.Join(strings.TrimSpace(homeDir), ".copilot", "session-state")
 	return walkChatFiles(root, SourceTypeCopilotSessionJSONL, map[string]struct{}{
 		".jsonl": {},
-	})
+	}, skipDreamerMarkedFiles)
 }
 
 func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

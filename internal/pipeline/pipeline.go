@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -214,7 +215,19 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		outputRoot = cfg.Daemon.OutputRoot
 	}
 
-	sources, err := chat.DiscoverChats(projectPath)
+	discoverEnv, err := chat.DefaultDiscoveryEnvironment()
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve discovery environment: %w", err)
+	}
+	if copilotHome := strings.TrimSpace(providerBlock.CopilotHome); copilotHome != "" {
+		discoverEnv.CopilotHome = copilotHome
+	} else if isCopilotProvider(config.ProviderID(providerID)) && outputRoot != "" {
+		// Auto-redirect Copilot SDK sessions to a dedicated directory under
+		// output_root so dreamer's analysis sessions don't land in the user's
+		// ~/.copilot/session-state/ and get re-discovered on the next run.
+		discoverEnv.CopilotHome = filepath.Join(outputRoot, ".copilot-state")
+	}
+	sources, err := chat.DiscoverChatsWithEnvironment(discoverEnv, projectPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("discover chats: %w", err)
 	}
@@ -559,4 +572,10 @@ func PublishRunError(bus *EventBus, project string, err error) {
 		"project": project,
 		"error":   err.Error(),
 	}})
+}
+
+// isCopilotProvider reports whether the provider ID is a Copilot variant
+// (SDK or ACP) that writes session files to the Copilot home directory.
+func isCopilotProvider(id config.ProviderID) bool {
+	return id == config.ProviderCopilotSDK || id == config.ProviderCopilotACP
 }

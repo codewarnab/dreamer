@@ -13,11 +13,29 @@ import (
 
 // DiscoverChats enumerates every supported chat source whose evidence places
 // it inside projectPath. The result is sorted by ModifiedTime (newest first),
-// tie-breaking on Path.
+// tie-breaking on Path. Uses environment variables for provider paths.
 func DiscoverChats(projectPath string) ([]ChatSource, error) {
+	env, err := DefaultDiscoveryEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	return discoverChatsFromEnvironment(env, projectPath)
+}
+
+// DiscoverChatsWithEnvironment is like DiscoverChats but accepts a
+// pre-built DiscoveryEnvironment. Callers that have config access should
+// use this to pass provider-specific paths (e.g. CopilotHome for isolation).
+func DiscoverChatsWithEnvironment(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+	return discoverChatsFromEnvironment(env, projectPath)
+}
+
+// DefaultDiscoveryEnvironment builds a DiscoveryEnvironment from
+// environment variables and OS defaults. Callers can override specific
+// fields (e.g. CopilotHome) before calling DiscoverChatsWithEnvironment.
+func DefaultDiscoveryEnvironment() (DiscoveryEnvironment, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("resolve user home: %w", err)
+		return DiscoveryEnvironment{}, fmt.Errorf("resolve user home: %w", err)
 	}
 
 	appDataDir := strings.TrimSpace(os.Getenv("APPDATA"))
@@ -30,7 +48,7 @@ func DiscoverChats(projectPath string) ([]ChatSource, error) {
 		dataHomeDir = filepath.Join(homeDir, ".local", "share")
 	}
 
-	environment := DiscoveryEnvironment{
+	return DiscoveryEnvironment{
 		HomeDir:           homeDir,
 		AppDataDir:        appDataDir,
 		DataHomeDir:       dataHomeDir,
@@ -39,9 +57,7 @@ func DiscoverChats(projectPath string) ([]ChatSource, error) {
 		OpenCodeDBPath:    strings.TrimSpace(os.Getenv("OPENCODE_DB")),
 		KiroCLIDBPath:     strings.TrimSpace(os.Getenv("KIRO_CLI_DB")),
 		CodebuffConfigDir: strings.TrimSpace(os.Getenv("CODEBUFF_CONFIG_DIR")),
-	}
-
-	return discoverChatsFromEnvironment(environment, projectPath)
+	}, nil
 }
 
 // discoverChatsFromEnvironment runs every registered provider's Discover hook

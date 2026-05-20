@@ -12,6 +12,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -40,7 +41,7 @@ func New(options Options) (analyzer.Provider, error) {
 		// passing it without --mcp-config is meaningless and the previous
 		// "--strict-mcp-config {}" form caused '{}' to be consumed as the
 		// positional prompt argument. We rely on --bare to keep MCP off.
-		command = []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare"}
+		command = []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--no-session-persistence"}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -124,9 +125,9 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	go func() {
 		defer stdin.Close()
-		body := prompt
+		body := chat.PrependMarker(prompt)
 		if s.systemMsg != "" {
-			body = s.systemMsg + "\n\n" + prompt
+			body = s.systemMsg + "\n\n" + body
 		}
 		if _, writeErr := io.WriteString(stdin, body); writeErr != nil {
 			stderrBuf.WriteString(fmt.Sprintf("[stdin write failed: %v]", writeErr))

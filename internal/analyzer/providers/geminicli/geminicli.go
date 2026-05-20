@@ -12,6 +12,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -139,9 +140,9 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	go func() {
 		defer stdin.Close()
-		body := prompt
+		body := chat.PrependMarker(prompt)
 		if s.systemMsg != "" {
-			body = s.systemMsg + "\n\n" + prompt
+			body = s.systemMsg + "\n\n" + body
 		}
 		if _, writeErr := io.WriteString(stdin, body); writeErr != nil {
 			stderrBuf.WriteString(fmt.Sprintf("[stdin write failed: %v]", writeErr))

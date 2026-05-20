@@ -18,6 +18,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -242,7 +243,7 @@ func (s *session) buildMessages(prompt string) []chatMessage {
 
 	messages = append(messages, chatMessage{
 		Role:    "user",
-		Content: prompt,
+		Content: chat.PrependMarker(prompt),
 	})
 
 	return messages

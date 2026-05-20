@@ -65,7 +65,7 @@ func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSo
 		workspaceChats, err := walkChatFiles(chatRoot, SourceTypeVSCodeChatSession, map[string]struct{}{
 			".json":  {},
 			".jsonl": {},
-		})
+		}, skipDreamerMarkedFiles)
 		if err != nil {
 			return nil, err
 		}
