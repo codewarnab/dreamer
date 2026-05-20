@@ -10,5 +10,6 @@ func IsProcessAlive(pid int) bool {
 // ReadLockPID reads the PID from the given lock file. Used by the job
 // queue recovery logic to check whether a prior daemon process is alive.
 func ReadLockPID(path string) (int, error) {
-	return readLockPID(path)
+	pid, _, err := readLockMetadata(path)
+	return pid, err
 }

@@ -65,10 +65,10 @@ func New(options Options) (analyzer.Provider, error) {
 	}
 	model := strings.TrimSpace(options.Model)
 	return &provider{
-		baseURL: strings.TrimRight(strings.TrimSpace(options.BaseURL), "/"),
-		command: cmd,
-		env:     options.Env,
-		model:   model,
+		baseURL:  strings.TrimRight(strings.TrimSpace(options.BaseURL), "/"),
+		command:  cmd,
+		env:      options.Env,
+		model:    model,
 		password: options.Password,
 	}, nil
 }
@@ -83,8 +83,8 @@ type provider struct {
 	mu        sync.Mutex
 	started   bool
 	closed    bool
-	autoStart bool        // true if we spawned the server ourselves
-	cmd       *exec.Cmd   // non-nil when auto-started
+	autoStart bool      // true if we spawned the server ourselves
+	cmd       *exec.Cmd // non-nil when auto-started
 }
 
 func (p *provider) ID() string { return ID }
@@ -164,10 +164,10 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 	}
 
 	return &session{
-		provider:    p,
-		workingDir:  cfg.WorkingDirectory,
-		model:       model,
-		sysMessage:  cfg.SystemMessage,
+		provider:   p,
+		workingDir: cfg.WorkingDirectory,
+		model:      model,
+		sysMessage: cfg.SystemMessage,
 	}, nil
 }
 

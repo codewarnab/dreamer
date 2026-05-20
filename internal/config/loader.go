@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ const (
 	DefaultFrequencySeconds = 3600
 	DefaultLogLevel         = "info"
 	DefaultModel            = "gpt-5.3-codex"
-	DefaultProviderID       = "copilot-sdk"
+	DefaultProviderID       = "openclaude-cli"
 
 	// DefaultSince bounds first-run input volume on long-lived projects.
 	DefaultSince = "24h"
@@ -55,6 +56,7 @@ type Config struct {
 	Redaction       RedactionConfig          `yaml:"redaction" json:"redaction"`
 	Providers       map[string]ProviderBlock `yaml:"providers" json:"providers"`
 	Analyzer        AnalyzerConfig           `yaml:"analyzer" json:"analyzer"`
+	Web             WebConfig                `yaml:"web,omitempty" json:"web,omitempty"`
 
 	// Notices collects soft signals discovered during config load. Not
 	// serialized; callers (cmd/analyze.go, cmd/daemon.go) log them at
@@ -66,7 +68,10 @@ type Config struct {
 // Callers log them once per process at info level.
 type ConfigNotices struct {
 	// DefaultedSince: project names whose `since` field was filled with DefaultSince.
-	DefaultedSince []string
+	DefaultedSince    []string
+	OverlayApplied    bool
+	OverlayParseError string
+	RestartRequired   []string
 }
 
 // ProjectConfig is one entry in `projects:` — daemon iterates these.
@@ -142,6 +147,17 @@ type ChunkingConfig struct {
 	// the next provider. Pointer so an explicit zero (disable) can be
 	// distinguished from "unset" (use the documented default) — B5.
 	ProviderBoundaryHeadroom *float64 `yaml:"provider_boundary_headroom,omitempty" json:"provider_boundary_headroom,omitempty"`
+}
+
+// WebConfig governs the daemon's embedded HTTP server.
+// Enabled is a pointer so applyDefaults can distinguish "unset" (flip to
+// true) from explicit "enabled: false" (preserve). Same pattern as
+// ProviderBlock.UseLoggedInUser.
+type WebConfig struct {
+	Enabled   *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Port      int    `yaml:"port,omitempty" json:"port,omitempty"`
+	Host      string `yaml:"host,omitempty" json:"host,omitempty"`
+	LogTailKB int    `yaml:"log_tail_kb,omitempty" json:"log_tail_kb,omitempty"`
 }
 
 // RuleConfig is a global override toggle for a rule category.
@@ -257,6 +273,19 @@ func applyDefaults(cfg *Config) error {
 	applyAnalyzerExecutionDefaults(&cfg.Analyzer.Execution)
 	applyAnalyzerChunkingDefaults(&cfg.Analyzer.Chunking)
 	applyProjectSinceDefaults(cfg)
+	if cfg.Web.Enabled == nil {
+		t := true
+		cfg.Web.Enabled = &t
+	}
+	if cfg.Web.Port == 0 {
+		cfg.Web.Port = 7777
+	}
+	if cfg.Web.Host == "" {
+		cfg.Web.Host = "127.0.0.1"
+	}
+	if cfg.Web.LogTailKB == 0 {
+		cfg.Web.LogTailKB = 256
+	}
 	applyDaemonJobQueueDefaults(cfg)
 	return nil
 }
@@ -358,6 +387,9 @@ func validateConfig(cfg *Config) error {
 		return errs.ConfigInvalid("daemon.output_root", cfg.Daemon.OutputRoot, fmt.Errorf("daemon output_root must be absolute: %q", cfg.Daemon.OutputRoot))
 	}
 	cfg.Daemon.OutputRoot = filepath.Clean(outputRoot)
+	if err := validateWebHost(cfg.Web.Host); err != nil {
+		return err
+	}
 
 	if cfg.Daemon.FrequencySeconds <= 0 {
 		return errs.ConfigInvalid("daemon.frequency_seconds", cfg.Daemon.FrequencySeconds, fmt.Errorf("must be positive"))
@@ -376,6 +408,20 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+// validateWebHost rejects any host that isn't loopback. v1.5 ships
+// without auth; v1.6 may relax this behind a token-auth flag.
+func validateWebHost(host string) error {
+	switch host {
+	case "127.0.0.1", "localhost", "::1":
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("web.host %q must be loopback (127.0.0.1, ::1, or localhost); non-loopback binds are reserved for v1.6", host)
 }
 
 // ExpandUserHome expands a leading `~` or `~/` into the user's home directory.

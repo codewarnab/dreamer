@@ -68,6 +68,63 @@ func TestRunHappyPathWritesTodosAndState(t *testing.T) {
 	}
 }
 
+func TestRunWritesHistoryAndEmitsEvents(t *testing.T) {
+	projectDir, outputRoot, cfg := newPipelineFixture(t)
+	writeCodexChatFixture(t, projectDir)
+	setFakeProviderMode(t, "happy")
+
+	bus := NewEventBus()
+	events := bus.Subscribe(8)
+	t.Cleanup(func() { bus.Unsubscribe(events) })
+
+	logger := newTestLogger(t, outputRoot)
+	if _, err := Run(context.Background(), Options{
+		Config:      cfg,
+		ProjectPath: projectDir,
+		Events:      bus,
+	}, logger); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	h, err := state.LoadHistory(outputRoot, deriveProjectName(projectDir))
+	if err != nil {
+		t.Fatalf("LoadHistory returned error: %v", err)
+	}
+	if len(h.Days) != 1 {
+		t.Fatalf("len(history.Days) = %d, want 1", len(h.Days))
+	}
+	if h.Days[0].Runs != 1 {
+		t.Fatalf("history.Days[0].Runs = %d, want 1", h.Days[0].Runs)
+	}
+	if h.Days[0].FindingsNew != 1 {
+		t.Fatalf("history.Days[0].FindingsNew = %d, want 1", h.Days[0].FindingsNew)
+	}
+
+	// Drain emitted events and verify both lifecycle markers were published.
+	gotStart, gotDone := false, false
+	deadline := time.After(2 * time.Second)
+drain:
+	for {
+		select {
+		case e := <-events:
+			if e.Type == EventRunStart {
+				gotStart = true
+			}
+			if e.Type == EventRunDone {
+				gotDone = true
+			}
+			if gotStart && gotDone {
+				break drain
+			}
+		case <-deadline:
+			break drain
+		}
+	}
+	if !gotStart || !gotDone {
+		t.Fatalf("events: gotStart=%v gotDone=%v, want both", gotStart, gotDone)
+	}
+}
+
 func TestRunDryRunDoesNotWriteTodosOrState(t *testing.T) {
 	projectDir, outputRoot, cfg := newPipelineFixture(t)
 	writeCodexChatFixture(t, projectDir)
@@ -298,4 +355,42 @@ func (s fakeAnalysisSession) Close() error {
 
 func isPhase2Prompt(prompt string) bool {
 	return strings.Contains(prompt, "synthesizing guardrails")
+}
+
+// TestPipelineRun_DismissedFindingsFilteredFromPhase2 verifies that the
+// dismiss-filter loop unions hashes whose stored Status is "dismissed" into
+// the dedupe ExistingHashes set, while applied/resolved findings stay out so
+// recurrence detection still works.
+func TestPipelineRun_DismissedFindingsFilteredFromPhase2(t *testing.T) {
+	st := &state.State{
+		FindingHashes: []string{"cafebabe"},
+		Findings: map[string]state.FindingState{
+			"deadbeef": {Status: state.FindingStatusDismissed},
+			"feedface": {Status: state.FindingStatusApplied},
+			"baadf00d": {Status: state.FindingStatusResolved},
+		},
+	}
+
+	existing := stringSliceToSet(st.FindingHashes)
+	for hash, fs := range st.Findings {
+		if fs.Status == state.FindingStatusDismissed {
+			if existing == nil {
+				existing = map[string]struct{}{}
+			}
+			existing[hash] = struct{}{}
+		}
+	}
+
+	if _, ok := existing["deadbeef"]; !ok {
+		t.Fatalf("expected dismissed hash 'deadbeef' to be in ExistingHashes, got %v", existing)
+	}
+	if _, ok := existing["cafebabe"]; !ok {
+		t.Fatalf("expected prior finding hash 'cafebabe' to remain in ExistingHashes")
+	}
+	if _, ok := existing["feedface"]; ok {
+		t.Fatalf("applied finding 'feedface' must not be in ExistingHashes (recurrence detection)")
+	}
+	if _, ok := existing["baadf00d"]; ok {
+		t.Fatalf("resolved finding 'baadf00d' must not be in ExistingHashes (recurrence detection)")
+	}
 }

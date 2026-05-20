@@ -1,0 +1,44 @@
+{{define "content"}}
+<section x-data="providersPage()" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">system</span>
+    <h1 class="headline-lg">providers</h1>
+  </header>
+
+  <div class="card">
+    <table class="table">
+      <thead><tr><th>id</th><th>model</th><th>status</th><th>runs</th><th>last success</th><th>tokens</th><th>failures</th></tr></thead>
+      <tbody>
+        <template x-for="p in providers" :key="p.id">
+          <tr>
+            <td x-text="p.id"></td>
+            <td x-text="p.model || '—'"></td>
+            <td>
+              <span class="pill" :class="p.healthy ? 'pill--healthy' : 'pill--warn'" x-text="p.healthy ? 'healthy' : (p.runs > 0 ? 'stale' : 'unused')"></span>
+            </td>
+            <td x-text="p.runs ?? 0"></td>
+            <td x-text="p.last_success_utc ? new Date(p.last_success_utc).toLocaleString() : '—'"></td>
+            <td x-text="p.total_tokens ?? 0"></td>
+            <td x-text="p.failures ?? 0"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="providers.length === 0" style="color: var(--text-secondary);">no providers configured.</div>
+  </div>
+</section>
+
+<script>
+window.providersPage = function () {
+  return {
+    providers: [],
+    load: async function () {
+      const r = await fetch("/api/providers");
+      if (!r.ok) return;
+      const data = await r.json();
+      this.providers = data.providers || data || [];
+    },
+  };
+};
+</script>
+{{end}}

@@ -40,7 +40,13 @@ guardrail_prompt_template: |
         "kind": "doc",
         "tool": "<filename>",
         "rule": "<short heading or section name>",
-        "config_snippet": "<the paragraph to add>"
+        "config_snippet": "<the paragraph to add>",
+        "apply": {
+          "target_file": "<repo-relative path, e.g. CLAUDE.md>",
+          "strategy": "append-section",
+          "anchor": "<heading text>",
+          "snippet": "<exact markdown to insert under that heading>"
+        }
       },
       "codebase_evidence": [
         {"path": "<repo-relative doc path>",
@@ -69,6 +75,16 @@ response_schema:
               tool: {type: string}
               rule: {type: string}
               config_snippet: {type: string}
+              apply:
+                type: object
+                required: [target_file, strategy, snippet]
+                properties:
+                  target_file: {type: string}
+                  strategy:
+                    type: string
+                    enum: [append-section, insert-after, replace-section, append-file, replace-file]
+                  anchor: {type: string}
+                  snippet: {type: string}
           codebase_evidence:
             type: array
             items:

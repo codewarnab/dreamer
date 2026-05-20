@@ -24,14 +24,14 @@ var ErrUnavailable = errors.New("provider unavailable")
 type ProviderID string
 
 const (
-	ProviderCopilotSDK   ProviderID = "copilot-sdk"
-	ProviderCopilotACP   ProviderID = "copilot-acp"
-	ProviderClaudeCLI    ProviderID = "claude-cli"
-	ProviderClaudeACP    ProviderID = "claude-acp"
-	ProviderGeminiCLI    ProviderID = "gemini-cli"
-	ProviderGeminiACP    ProviderID = "gemini-acp"
-	ProviderKiroACP      ProviderID = "kiro-acp"
-	ProviderCodexCLI     ProviderID = "codex-cli"
+	ProviderCopilotSDK     ProviderID = "copilot-sdk"
+	ProviderCopilotACP     ProviderID = "copilot-acp"
+	ProviderClaudeCLI      ProviderID = "claude-cli"
+	ProviderClaudeACP      ProviderID = "claude-acp"
+	ProviderGeminiCLI      ProviderID = "gemini-cli"
+	ProviderGeminiACP      ProviderID = "gemini-acp"
+	ProviderKiroACP        ProviderID = "kiro-acp"
+	ProviderCodexCLI       ProviderID = "codex-cli"
 	ProviderCodexACP       ProviderID = "codex-acp"
 	ProviderOpenClaudeCLI  ProviderID = "openclaude-cli"
 	ProviderOpenCodeACP    ProviderID = "opencode-acp"

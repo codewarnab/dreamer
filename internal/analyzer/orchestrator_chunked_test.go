@@ -32,9 +32,9 @@ func (s *fakeSession) Run(ctx context.Context, prompt string, timeout time.Durat
 func (s *fakeSession) Close() error { s.closed = true; return nil }
 
 type capturedTranscript struct {
-	mu          sync.Mutex
-	allPrompts  []string
-	callCount   int32
+	mu         sync.Mutex
+	allPrompts []string
+	callCount  int32
 }
 
 func (c *capturedTranscript) record(prompt string) {

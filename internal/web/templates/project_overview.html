@@ -1,0 +1,139 @@
+{{define "content"}}
+<section x-data="projectOverviewPage()" x-init="load()" data-project="{{.Extra.ProjectName}}">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">project</span>
+    <h1 class="headline-lg" x-text="name"></h1>
+    <nav class="kicker" style="margin-top: var(--space-3);">
+      <a :href="'/projects/' + name">overview</a>
+      <a :href="'/projects/' + name + '/findings'" style="margin-left: var(--space-3);">findings</a>
+      <a :href="'/projects/' + name + '/chats'" style="margin-left: var(--space-3);">chats</a>
+      <a :href="'/projects/' + name + '/history'" style="margin-left: var(--space-3);">history</a>
+    </nav>
+  </header>
+
+  <div class="stat-grid" style="margin-bottom: var(--space-5);">
+    <div class="stat-card">
+      <div class="stat-label">findings open</div>
+      <div class="stat-value" x-text="detail.findings_open ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">chats indexed</div>
+      <div class="stat-value" x-text="detail.chats_count ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">last run</div>
+      <div class="stat-value" x-text="lastRunText()" style="font-size: 18px; line-height: 1.2;"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">guardrails applied</div>
+      <div class="stat-value" x-text="detail.findings_applied ?? '—'"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">dismissed</div>
+      <div class="stat-value" x-text="detail.findings_dismissed ?? '—'"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="pill pill--healthy" x-text="nextRunText()"></span>
+    <button class="btn btn--primary" @click="runNow()" :disabled="busy" style="margin-left: var(--space-3);" x-text="busy ? 'queued...' : 'run now'"></button>
+    <span x-show="msg" x-text="msg" style="margin-left: var(--space-3); color: var(--text-secondary);"></span>
+  </div>
+</section>
+
+<script>
+window.projectOverviewPage = function () {
+  return {
+    name: "",
+    detail: {},
+    busy: false,
+    msg: "",
+    csrf: function () {
+      const m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.getAttribute("content") : "";
+    },
+    load: async function () {
+      const el = document.querySelector("[data-project]");
+      this.name = el ? el.dataset.project : "";
+      if (!this.name) return;
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name));
+      if (!r.ok) {
+        this.msg = "load failed: HTTP " + r.status;
+        return;
+      }
+      this.detail = await r.json();
+      // Bind SSE: refresh stats when this project's run completes.
+      this._bindSSE();
+    },
+    _bindSSE: function () {
+      if (this._es) return;
+      try {
+        this._es = new EventSource("/api/events");
+        this._es.addEventListener("run.done", (ev) => {
+          try {
+            const p = JSON.parse(ev.data);
+            if (p && p.project === this.name) {
+              this.busy = false;
+              this.msg = "run complete: " + (p.findings_new || 0) + " new finding(s)";
+              this.load();
+            }
+          } catch (_) {}
+        });
+        this._es.addEventListener("run.start", (ev) => {
+          try {
+            const p = JSON.parse(ev.data);
+            if (p && p.project === this.name) {
+              this.busy = true;
+              this.msg = "run started";
+            }
+          } catch (_) {}
+        });
+      } catch (_) {}
+    },
+    lastRunText: function () {
+      if (!this.detail.last_run_utc) return "never";
+      const d = new Date(this.detail.last_run_utc);
+      if (isNaN(d.getTime())) return "never";
+      const diffMs = Date.now() - d.getTime();
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 1) return "just now";
+      if (mins < 60) return mins + "m ago";
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + "h ago";
+      return Math.floor(hrs / 24) + "d ago";
+    },
+    nextRunText: function () {
+      if (!this.detail.next_run_utc) return "idle";
+      const d = new Date(this.detail.next_run_utc);
+      if (isNaN(d.getTime())) return "idle";
+      const diffMs = d.getTime() - Date.now();
+      if (diffMs <= 0) return "due now";
+      const mins = Math.ceil(diffMs / 60000);
+      if (mins < 60) return "next run in " + mins + "m";
+      const hrs = Math.ceil(mins / 60);
+      return "next run in " + hrs + "h";
+    },
+    runNow: async function () {
+      if (!this.name || this.busy) return;
+      this.busy = true;
+      this.msg = "queued";
+      try {
+        const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/run", {
+          method: "POST",
+          headers: { "X-Dreamer-CSRF": this.csrf() },
+        });
+        if (r.status === 409) {
+          this.msg = "already running";
+        } else if (!r.ok) {
+          this.busy = false;
+          this.msg = "run failed: HTTP " + r.status;
+        }
+      } catch (e) {
+        this.busy = false;
+        this.msg = "run failed: " + e.message;
+      }
+    },
+  };
+};
+</script>
+{{end}}

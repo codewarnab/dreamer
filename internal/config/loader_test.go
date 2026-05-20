@@ -315,6 +315,36 @@ func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	}
 }
 
+// TestDefaultProviderIDIsOpenClaudeCLI pins the v1.5 default-provider choice
+// to openclaude-cli so accidental flips back to copilot-sdk get caught.
+func TestDefaultProviderIDIsOpenClaudeCLI(t *testing.T) {
+	if got, want := DefaultProviderID, "openclaude-cli"; got != want {
+		t.Fatalf("DefaultProviderID = %q, want %q", got, want)
+	}
+}
+
+// TestDefaultProviderIDFallsBackToOpenClaudeCLI exercises the
+// applyDefaults branch that fills an empty `default_provider`.
+func TestDefaultProviderIDFallsBackToOpenClaudeCLI(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	writeConfigFile(t, configPath, map[string]any{
+		"projects": []map[string]string{
+			{"name": "example", "path": projectDir},
+		},
+		"analyzer": map[string]any{},
+		"daemon":   map[string]any{},
+	})
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if got, want := cfg.DefaultProvider, "openclaude-cli"; got != want {
+		t.Fatalf("DefaultProvider = %q, want %q", got, want)
+	}
+}
+
 func writeConfigFile(t *testing.T, path string, cfg map[string]any) {
 	t.Helper()
 
@@ -324,5 +354,77 @@ func writeConfigFile(t *testing.T, path string, cfg map[string]any) {
 	}
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatalf("write config file: %v", err)
+	}
+}
+
+func TestWebConfig_DefaultsWhenUnset(t *testing.T) {
+	cfg := &Config{}
+	applyDefaults(cfg)
+	if cfg.Web.Enabled == nil || *cfg.Web.Enabled != true {
+		t.Fatalf("Web.Enabled = %v, want true", cfg.Web.Enabled)
+	}
+	if cfg.Web.Port != 7777 {
+		t.Fatalf("Web.Port = %d, want 7777", cfg.Web.Port)
+	}
+	if cfg.Web.Host != "127.0.0.1" {
+		t.Fatalf("Web.Host = %q, want 127.0.0.1", cfg.Web.Host)
+	}
+	if cfg.Web.LogTailKB != 256 {
+		t.Fatalf("Web.LogTailKB = %d, want 256", cfg.Web.LogTailKB)
+	}
+}
+
+func TestWebConfig_ExplicitFalseEnabledSurvives(t *testing.T) {
+	f := false
+	cfg := &Config{Web: WebConfig{Enabled: &f}}
+	applyDefaults(cfg)
+	if cfg.Web.Enabled == nil || *cfg.Web.Enabled != false {
+		t.Fatalf("Web.Enabled = %v, want false (preserved)", cfg.Web.Enabled)
+	}
+}
+
+func TestValidate_RejectsNonLoopbackWebHost(t *testing.T) {
+	cases := []string{"0.0.0.0", "192.168.1.1", "example.com"}
+	for _, host := range cases {
+		t.Run(host, func(t *testing.T) {
+			cfg := &Config{
+				Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir()},
+				Web:    WebConfig{Host: host, Port: 7777, LogTailKB: 1},
+			}
+			applyDefaults(cfg)
+			err := validateConfig(cfg)
+			if err == nil {
+				t.Fatalf("validate accepted host %q, want loopback error", host)
+			}
+			if !strings.Contains(err.Error(), "loopback") {
+				t.Fatalf("validate error %v, want mention of loopback", err)
+			}
+		})
+	}
+}
+
+func TestValidate_AcceptsLoopbackWebHost(t *testing.T) {
+	cases := []string{"127.0.0.1", "localhost", "::1"}
+	for _, host := range cases {
+		t.Run(host, func(t *testing.T) {
+			cfg := &Config{
+				Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir()},
+				Web:    WebConfig{Host: host, Port: 7777, LogTailKB: 1},
+			}
+			applyDefaults(cfg)
+			if err := validateConfig(cfg); err != nil {
+				t.Fatalf("validate rejected loopback %q: %v", host, err)
+			}
+		})
+	}
+}
+
+func TestConfigNotices_OverlayFieldsExist(t *testing.T) {
+	n := ConfigNotices{}
+	n.OverlayApplied = true
+	n.OverlayParseError = "boom"
+	n.RestartRequired = []string{"web.port"}
+	if !n.OverlayApplied || n.OverlayParseError != "boom" || len(n.RestartRequired) != 1 {
+		t.Fatalf("notice fields missing or wrong: %+v", n)
 	}
 }

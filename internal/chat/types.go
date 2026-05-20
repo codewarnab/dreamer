@@ -35,11 +35,11 @@ type ChatSource struct {
 // discovery. Tests build this manually; DiscoverChats resolves it from the
 // process environment.
 type DiscoveryEnvironment struct {
-	HomeDir         string
-	AppDataDir      string
-	DataHomeDir     string
-	ClaudeConfigDir string
-	GeminiHomeDir   string
+	HomeDir           string
+	AppDataDir        string
+	DataHomeDir       string
+	ClaudeConfigDir   string
+	GeminiHomeDir     string
 	OpenCodeDBPath    string
 	KiroCLIDBPath     string
 	CodebuffConfigDir string

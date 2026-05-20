@@ -42,7 +42,13 @@ guardrail_prompt_template: |
         "kind": "refactor-boundary",
         "tool": "<package or directory>",
         "rule": "<name of new abstraction>",
-        "config_snippet": "<signature stub>"
+        "config_snippet": "<signature stub>",
+        "apply": {
+          "target_file": "<repo-relative path of the file the boundary lives in>",
+          "strategy": "insert-after",
+          "anchor": "<existing symbol or section to insert after>",
+          "snippet": "<exact signature/stub source to insert>"
+        }
       },
       "codebase_evidence": [
         {"path": "<repo-relative path of an existing symbol that motivates it>",
@@ -71,6 +77,16 @@ response_schema:
               tool: {type: string}
               rule: {type: string}
               config_snippet: {type: string}
+              apply:
+                type: object
+                required: [target_file, strategy, snippet]
+                properties:
+                  target_file: {type: string}
+                  strategy:
+                    type: string
+                    enum: [append-section, insert-after, replace-section, append-file, replace-file]
+                  anchor: {type: string}
+                  snippet: {type: string}
           codebase_evidence:
             type: array
             items:

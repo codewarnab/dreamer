@@ -1,0 +1,153 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+)
+
+// OverlayFileName is the conventional name of the ui-overrides file.
+const OverlayFileName = "ui-overrides.yaml"
+
+// GlobalOverlayPath returns the conventional overlay path under the user
+// config dir. It mirrors GlobalConfigPath's resolution.
+func GlobalOverlayPath() (string, error) {
+	base, err := UserConfigRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, OverlayFileName), nil
+}
+
+// LoadConfigWithOverlay loads the base config.yaml then merges
+// ui-overrides.yaml on top per spec.v1.5 §3.3. A missing overlay is a
+// silent no-op (no error, OverlayApplied stays false). An overlay that
+// fails to parse is captured in Notices.OverlayParseError and the base
+// config is returned unmodified so the daemon keeps running on malformed
+// overlay.
+func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
+	cfg, err := LoadConfig(basePath)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(overlayPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("read overlay %q: %w", overlayPath, err)
+	}
+	if len(data) == 0 {
+		return cfg, nil
+	}
+	var overlay Config
+	if err := yaml.Unmarshal(data, &overlay); err != nil {
+		cfg.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
+		return cfg, nil
+	}
+	mergeOverlay(cfg, &overlay)
+	cfg.Notices.OverlayApplied = true
+	if err := applyDefaults(cfg); err != nil {
+		// Post-merge defaults failed: roll back by re-loading base.
+		base, loadErr := LoadConfig(basePath)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		base.Notices.OverlayParseError = fmt.Sprintf("overlay %q failed defaults: %v", overlayPath, err)
+		return base, nil
+	}
+	if err := validateConfig(cfg); err != nil {
+		base, loadErr := LoadConfig(basePath)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		base.Notices.OverlayParseError = fmt.Sprintf("overlay %q failed validation: %v", overlayPath, err)
+		return base, nil
+	}
+	return cfg, nil
+}
+
+// mergeOverlay applies overlay onto base per spec.v1.5 §3.3:
+//   - Scalars: overlay value wins when present (non-zero).
+//   - Maps (providers, analyzer.rules): per-key, overlay value wins.
+//   - Lists (projects, redaction.patterns): overlay replaces entire list
+//     when non-empty.
+func mergeOverlay(base, overlay *Config) {
+	if overlay.DefaultProvider != "" {
+		base.DefaultProvider = overlay.DefaultProvider
+	}
+	if overlay.Daemon.FrequencySeconds != 0 {
+		base.Daemon.FrequencySeconds = overlay.Daemon.FrequencySeconds
+	}
+	if overlay.Daemon.OutputRoot != "" {
+		base.Daemon.OutputRoot = overlay.Daemon.OutputRoot
+	}
+	if overlay.Logging.Level != "" {
+		base.Logging.Level = overlay.Logging.Level
+	}
+	if overlay.Logging.File != "" {
+		base.Logging.File = overlay.Logging.File
+	}
+	if overlay.Logging.MaxSizeMB != 0 {
+		base.Logging.MaxSizeMB = overlay.Logging.MaxSizeMB
+	}
+	if len(overlay.Redaction.Patterns) > 0 {
+		base.Redaction.Patterns = append([]string(nil), overlay.Redaction.Patterns...)
+	}
+	if len(overlay.Projects) > 0 {
+		base.Projects = append([]ProjectConfig(nil), overlay.Projects...)
+	}
+	if len(overlay.Providers) > 0 {
+		if base.Providers == nil {
+			base.Providers = map[string]ProviderBlock{}
+		}
+		for k, v := range overlay.Providers {
+			base.Providers[k] = v
+		}
+	}
+	mergeAnalyzer(&base.Analyzer, &overlay.Analyzer)
+	mergeWeb(&base.Web, &overlay.Web)
+}
+
+func mergeAnalyzer(base, overlay *AnalyzerConfig) {
+	if overlay.RuleTimeoutSeconds != 0 {
+		base.RuleTimeoutSeconds = overlay.RuleTimeoutSeconds
+	}
+	if overlay.Execution.Mode != "" {
+		base.Execution.Mode = overlay.Execution.Mode
+	}
+	if overlay.Execution.MaxConcurrency != 0 {
+		base.Execution.MaxConcurrency = overlay.Execution.MaxConcurrency
+	}
+	if overlay.Chunking.MaxChunkBytes != 0 {
+		base.Chunking.MaxChunkBytes = overlay.Chunking.MaxChunkBytes
+	}
+	if overlay.Chunking.ProviderBoundaryHeadroom != nil {
+		base.Chunking.ProviderBoundaryHeadroom = overlay.Chunking.ProviderBoundaryHeadroom
+	}
+	if len(overlay.Rules) > 0 {
+		if base.Rules == nil {
+			base.Rules = map[string]RuleConfig{}
+		}
+		for k, v := range overlay.Rules {
+			base.Rules[k] = v
+		}
+	}
+}
+
+func mergeWeb(base, overlay *WebConfig) {
+	if overlay.Enabled != nil {
+		base.Enabled = overlay.Enabled
+	}
+	if overlay.Port != 0 {
+		base.Port = overlay.Port
+	}
+	if overlay.Host != "" {
+		base.Host = overlay.Host
+	}
+	if overlay.LogTailKB != 0 {
+		base.LogTailKB = overlay.LogTailKB
+	}
+}

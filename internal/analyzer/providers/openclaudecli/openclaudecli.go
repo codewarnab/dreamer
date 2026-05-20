@@ -124,7 +124,8 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("openclaude-cli: start openclaude: %w", err)
+		return "", errs.ProviderUnavailable(ID, "session.run",
+			fmt.Errorf("openclaude-cli: start openclaude: %w", err))
 	}
 
 	go func() {

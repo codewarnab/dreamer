@@ -1,0 +1,31 @@
+# Binaries
+/dreamer
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test / coverage
+*.test
+*.out
+coverage.*
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Local tooling state
+.claude/
+.superpowers/
+
+# Env
+.env
+.env.*

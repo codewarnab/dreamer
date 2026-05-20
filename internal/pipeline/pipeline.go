@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/analyzer"
@@ -41,6 +42,14 @@ type Options struct {
 	// DiscoveryCache is an optional mtime-based cache that lets the daemon skip
 	// the expensive HashFile loop when source files haven't changed. Nil disables caching.
 	DiscoveryCache *DiscoveryCache
+
+	// Events, when non-nil, receives run.start/run.done events.
+	Events *EventBus
+
+	// LiveConfig, when non-nil, is consulted once at the top of Run and (if a
+	// non-nil snapshot is present) replaces Config for the remainder of this
+	// invocation. Lets the daemon hot-swap config without rebuilding Options.
+	LiveConfig *atomic.Pointer[config.Config]
 }
 
 // Result bundles the metrics + paths the analyze command surfaces.
@@ -157,9 +166,19 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if opts.LiveConfig != nil {
+		if snap := opts.LiveConfig.Load(); snap != nil {
+			opts.Config = snap
+		}
+	}
 	cfg := opts.Config
 	if cfg == nil {
 		return Result{}, fmt.Errorf("pipeline.Run: config is required")
+	}
+
+	runStart := time.Now()
+	if opts.Events != nil {
+		opts.Events.Publish(Event{Type: EventRunStart, Payload: map[string]any{"project": opts.ProjectName}})
 	}
 
 	projectPath, err := resolveAbsoluteProjectPath(opts.ProjectPath)
@@ -221,6 +240,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	if !opts.Force && opts.DiscoveryCache != nil {
 		if opts.DiscoveryCache.Check(projectPath, sources, repoHeadSHA) {
 			logger.Info("discovery cache hit", logging.Any("project", projectName), logging.Any("sources", len(sources)))
+			publishRunDone(opts.Events, projectName, 0, 0, 0)
 			return Result{
 				ProviderID: providerID,
 				CacheHit:   true,
@@ -242,6 +262,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
 		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(sources)), logging.Any("reason", "all cached, head unchanged"))
+		publishRunDone(opts.Events, projectName, 0, 0, 0)
 		return Result{
 			ProviderID: providerID,
 			CacheHit:   true,
@@ -285,6 +306,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			logger.Warn("preflight state save failed", logging.Any("err", err))
 		}
 
+		publishRunDone(opts.Events, projectName, 0, 0, 0)
 		return Result{
 			ProviderID:      providerID,
 			SourcesAnalyzed: 0,
@@ -365,6 +387,16 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	existingFindingHashes := stringSliceToSet(currentState.FindingHashes)
+	if currentState != nil {
+		for hash, fs := range currentState.Findings {
+			if fs.Status == state.FindingStatusDismissed {
+				if existingFindingHashes == nil {
+					existingFindingHashes = map[string]struct{}{}
+				}
+				existingFindingHashes[hash] = struct{}{}
+			}
+		}
+	}
 	phaseReq := analyzer.PhaseRequest{
 		ProjectRoot:       projectPath,
 		ToolchainSummary:  tc.Summary(),
@@ -413,6 +445,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 
 	if opts.DryRun {
 		result.TodosPath = todosOutputPath(outputRoot, projectName)
+		publishRunDone(opts.Events, projectName, result.Findings, result.SourcesAnalyzed, result.MessagesRead)
 		return result, nil
 	}
 
@@ -437,6 +470,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	currentState.RepoHeadSHA = repoHeadSHA
 	currentState.ChatHashes = cacheKeys
 	currentState.FindingHashes = mergeHashLists(currentState.FindingHashes, collectFindingHashes(analysisResult.Findings))
+	recordFindingApplySpecs(currentState, analysisResult.Findings, projectName)
 	if currentState.LastRunPerCategory == nil {
 		currentState.LastRunPerCategory = map[string]time.Time{}
 	}
@@ -462,5 +496,38 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		opts.DiscoveryCache.Update(projectPath, sources, repoHeadSHA)
 	}
 
+	// Per-category counts for today's history bucket are derived from the
+	// findings actually appended to todos.md this run.
+	perCategory := map[string]int{}
+	for _, f := range analysisResult.Findings {
+		perCategory[string(f.Category)]++
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	// TODO: surface provider token totals on Result; tokens=0 for now.
+	if err := state.UpdateHistoryToday(outputRoot, projectName, today, state.DaySummaryDelta{
+		Runs:          1,
+		FindingsNew:   result.Findings,
+		FindingsTotal: len(currentState.FindingHashes),
+		Tokens:        0,
+		RunMillis:     time.Since(runStart).Milliseconds(),
+		PerCategory:   perCategory,
+	}); err != nil {
+		logger.Warn("history update failed", logging.Any("err", err))
+	}
+
+	publishRunDone(opts.Events, projectName, result.Findings, result.SourcesAnalyzed, result.MessagesRead)
 	return result, nil
+}
+
+// publishRunDone is a nil-safe helper for the run.done event payload.
+func publishRunDone(bus *EventBus, project string, findingsNew, sources, messages int) {
+	if bus == nil {
+		return
+	}
+	bus.Publish(Event{Type: EventRunDone, Payload: map[string]any{
+		"project":      project,
+		"findings_new": findingsNew,
+		"sources":      sources,
+		"messages":     messages,
+	}})
 }

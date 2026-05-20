@@ -194,9 +194,9 @@ func intToStr(i int) string {
 // dropped on each Save so the map does not collect cruft over time.
 func TestPruneLastRunPerCategoryDropsUnknownKeys(t *testing.T) {
 	m := map[string]time.Time{
-		"test":          time.Now(),
-		"lint-rule":     time.Now(),
-		"retired-rule":  time.Now(),
+		"test":         time.Now(),
+		"lint-rule":    time.Now(),
+		"retired-rule": time.Now(),
 	}
 	packs := []analyzer.RulePack{
 		{Category: analyzer.RuleCategory("test")},
@@ -220,10 +220,10 @@ func TestPruneLastRunPerCategoryDropsUnknownKeys(t *testing.T) {
 func TestPruneProviderUsageRespectsTTL(t *testing.T) {
 	now := time.Now().UTC()
 	m := map[string]state.ProviderUsage{
-		"copilot-sdk":      {Runs: 3, LastSuccessUTC: now},
-		"recent-inactive":  {Runs: 5, LastSuccessUTC: now.Add(-7 * 24 * time.Hour)},
-		"stale-inactive":   {Runs: 7, LastSuccessUTC: now.Add(-90 * 24 * time.Hour)},
-		"never-succeeded":  {Runs: 0, LastError: "boot failed"},
+		"copilot-sdk":     {Runs: 3, LastSuccessUTC: now},
+		"recent-inactive": {Runs: 5, LastSuccessUTC: now.Add(-7 * 24 * time.Hour)},
+		"stale-inactive":  {Runs: 7, LastSuccessUTC: now.Add(-90 * 24 * time.Hour)},
+		"never-succeeded": {Runs: 0, LastError: "boot failed"},
 	}
 	pruneProviderUsage(m, "copilot-sdk")
 	if got := m["copilot-sdk"].Runs; got != 3 {
@@ -252,5 +252,73 @@ func TestForceBypassesCacheDecisionInCaller(t *testing.T) {
 	shouldSkip := !force && cacheUnchanged(current, cacheKeys, "abc123")
 	if shouldSkip {
 		t.Fatalf("force should bypass cache hit")
+	}
+}
+
+func TestRecordFindingApplySpecsPersistsServerTrustedSpec(t *testing.T) {
+	st := &state.State{Findings: map[string]state.FindingState{}}
+	findings := []analyzer.Finding{
+		{
+			Hash:     "AABBCCDD",
+			Category: "doc",
+			Guardrail: analyzer.Guardrail{
+				Apply: &analyzer.ApplySpec{
+					TargetFile: "CLAUDE.md",
+					Strategy:   "append-file",
+					Snippet:    "rule",
+				},
+			},
+		},
+		// Finding without an Apply object: no spec recorded.
+		{
+			Hash:     "ee11",
+			Category: "perf",
+		},
+	}
+	recordFindingApplySpecs(st, findings, "proj-a")
+
+	got, ok := st.Findings["aabbccdd"]
+	if !ok {
+		t.Fatalf("hash not lower-cased into Findings map: %+v", st.Findings)
+	}
+	if got.ApplySpec == nil {
+		t.Fatalf("ApplySpec not recorded")
+	}
+	if got.ApplySpec.TargetFile != "CLAUDE.md" || got.ApplySpec.Strategy != "append-file" || got.ApplySpec.Category != "doc" {
+		t.Errorf("ApplySpec mismatch: %+v", got.ApplySpec)
+	}
+	if got.ProjectName != "proj-a" {
+		t.Errorf("ProjectName=%q want proj-a", got.ProjectName)
+	}
+	if _, ok := st.Findings["ee11"]; ok {
+		t.Errorf("finding without Apply object should not create entry")
+	}
+}
+
+func TestRecordFindingApplySpecsPreservesLifecycleFields(t *testing.T) {
+	hash := "aabbccdd"
+	prior := state.FindingState{
+		Status:      state.FindingStatusDismissed,
+		DismissedAt: time.Now().UTC(),
+		ProjectName: "proj-a",
+	}
+	st := &state.State{Findings: map[string]state.FindingState{hash: prior}}
+	findings := []analyzer.Finding{{
+		Hash:     hash,
+		Category: "doc",
+		Guardrail: analyzer.Guardrail{Apply: &analyzer.ApplySpec{
+			TargetFile: "CLAUDE.md", Strategy: "append-file", Snippet: "rule",
+		}},
+	}}
+	recordFindingApplySpecs(st, findings, "proj-a")
+	got := st.Findings[hash]
+	if got.Status != state.FindingStatusDismissed {
+		t.Errorf("Status clobbered: %q", got.Status)
+	}
+	if got.DismissedAt.IsZero() {
+		t.Errorf("DismissedAt cleared")
+	}
+	if got.ApplySpec == nil || got.ApplySpec.TargetFile != "CLAUDE.md" {
+		t.Errorf("ApplySpec missing: %+v", got.ApplySpec)
 	}
 }

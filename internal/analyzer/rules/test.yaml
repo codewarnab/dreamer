@@ -45,7 +45,13 @@ guardrail_prompt_template: |
         "kind": "test",
         "tool": "<test framework>",
         "rule": "<one-line description of the test case>",
-        "config_snippet": "<test stub or assertion snippet>"
+        "config_snippet": "<test stub or assertion snippet>",
+        "apply": {
+          "target_file": "<repo-relative path of the test file>",
+          "strategy": "insert-after",
+          "anchor": "<existing test func or section to insert after>",
+          "snippet": "<exact test source to insert>"
+        }
       },
       "codebase_evidence": [
         {"path": "<repo-relative path of the code under test>",
@@ -74,6 +80,16 @@ response_schema:
               tool: {type: string}
               rule: {type: string}
               config_snippet: {type: string}
+              apply:
+                type: object
+                required: [target_file, strategy, snippet]
+                properties:
+                  target_file: {type: string}
+                  strategy:
+                    type: string
+                    enum: [append-section, insert-after, replace-section, append-file, replace-file]
+                  anchor: {type: string}
+                  snippet: {type: string}
           codebase_evidence:
             type: array
             items:

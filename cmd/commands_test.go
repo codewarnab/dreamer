@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"dreamer/internal/config"
 	"dreamer/internal/errs"
 )
 
@@ -18,9 +19,11 @@ func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
 	expected := map[string]bool{
 		"analyze":  false,
 		"daemon":   false,
-		"config":   false,
 		"ls-chats": false,
 		"startup":  false,
+		"setup":    false,
+		"web":      false,
+		"add":      false,
 	}
 
 	for _, subcommand := range command.Commands() {
@@ -33,73 +36,6 @@ func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
 		if !found {
 			t.Fatalf("expected subcommand %q to be registered", name)
 		}
-	}
-}
-
-func TestConfigInitCreatesDefaultConfigFile(t *testing.T) {
-	homeDir := t.TempDir()
-	setTestHome(t, homeDir)
-
-	stdout, stderr, err := executeRootCommand("config", "init")
-	if err != nil {
-		t.Fatalf("execute config init: %v\nstderr=%s", err, stderr)
-	}
-
-	configPath := filepath.Join(homeDir, ".config", "dreamer", "config.yaml")
-	data, readErr := os.ReadFile(configPath)
-	if readErr != nil {
-		t.Fatalf("read generated config: %v", readErr)
-	}
-
-	content := string(data)
-	if !strings.Contains(content, "projects: []") {
-		t.Fatalf("generated config missing projects section: %s", content)
-	}
-	if !strings.Contains(stdout, configPath) {
-		t.Fatalf("stdout %q does not include config path %q", stdout, configPath)
-	}
-}
-
-func TestConfigInitRejectsExistingFileWithoutForce(t *testing.T) {
-	homeDir := t.TempDir()
-	setTestHome(t, homeDir)
-
-	if _, _, err := executeRootCommand("config", "init"); err != nil {
-		t.Fatalf("first config init failed: %v", err)
-	}
-
-	_, _, err := executeRootCommand("config", "init")
-	if err == nil {
-		t.Fatalf("second config init expected error")
-	}
-	if !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("error = %q, want existing file error", err)
-	}
-}
-
-func TestConfigInitForceOverwritesExistingFile(t *testing.T) {
-	homeDir := t.TempDir()
-	setTestHome(t, homeDir)
-
-	if _, _, err := executeRootCommand("config", "init"); err != nil {
-		t.Fatalf("first config init failed: %v", err)
-	}
-
-	configPath := filepath.Join(homeDir, ".config", "dreamer", "config.yaml")
-	if err := os.WriteFile(configPath, []byte("projects:\n  - name: stale"), 0o644); err != nil {
-		t.Fatalf("overwrite config fixture: %v", err)
-	}
-
-	if _, stderr, err := executeRootCommand("config", "init", "--force"); err != nil {
-		t.Fatalf("forced config init failed: %v\nstderr=%s", err, stderr)
-	}
-
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read overwritten config: %v", err)
-	}
-	if !strings.Contains(string(content), "projects: []") {
-		t.Fatalf("forced config init did not restore default template: %s", string(content))
 	}
 }
 
@@ -151,8 +87,8 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 	if errs.KindOf(err) != errs.KindProviderUnavailable {
 		t.Fatalf("KindOf(err) = %q, want %q; err=%v stderr=%s", errs.KindOf(err), errs.KindProviderUnavailable, err, stderr)
 	}
-	if errs.ProviderOf(err) != "copilot-sdk" {
-		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), "copilot-sdk")
+	if errs.ProviderOf(err) != config.DefaultProviderID {
+		t.Fatalf("ProviderOf(err) = %q, want %q", errs.ProviderOf(err), config.DefaultProviderID)
 	}
 }
 

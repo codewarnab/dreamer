@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/web"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -44,11 +47,16 @@ func newDaemonCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			overlayPath, _ := config.GlobalOverlayPath()
 
-			cfg, err := config.LoadConfig(resolvedConfigPath)
+			cfg, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
+			// live holds the hot-swappable config snapshot. Watcher CASs in a new
+			// pointer on successful overlay reload; web + pipeline read through it.
+			var live atomic.Pointer[config.Config]
+			live.Store(cfg)
 			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
 			if err != nil {
 				return err
@@ -105,10 +113,70 @@ func newDaemonCommand() *cobra.Command {
 			recoverStaleJobs(queue, stalePID, logger)
 
 			discoveryCache := pipeline.NewDiscoveryCache()
+			events := pipeline.NewEventBus()
 			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
 
 			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, overrides)
 			workers.Start()
+
+			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
+				activity := web.NewActivityRing(20)
+				go activity.Bind(ctx, events)
+
+				restartHook := func() error {
+					stop()
+					return nil
+				}
+
+				runner := web.NewRunner(ctx, func(rctx context.Context, projectName string) error {
+					curCfg := live.Load()
+					var proj config.ProjectConfig
+					found := false
+					for _, p := range curCfg.Projects {
+						if p.Name == projectName {
+							proj = p
+							found = true
+							break
+						}
+					}
+					if !found {
+						return fmt.Errorf("project %q not configured", projectName)
+					}
+					job := queue.Enqueue(proj.Name, jobqueue.EnqueueConfig{
+						ProjectPath: proj.Path,
+						Provider:    resolveProvider(curCfg, proj),
+						Since:       proj.Since,
+					})
+					if job == nil {
+						return fmt.Errorf("project %q already has an active job", proj.Name)
+					}
+					return nil
+				}, logger)
+
+				srv, srvErr := web.NewServer(web.Options{
+					Config:      cfg,
+					Logger:      logger,
+					Events:      events,
+					ConfigPtr:   &live,
+					OverlayPath: overlayPath,
+					Runner:      runner,
+					RestartHook: restartHook,
+					Activity:    activity,
+				})
+				if srvErr != nil {
+					logger.Error("web server construct failed", logging.Any("err", srvErr))
+				} else if startErr := srv.Start(); startErr != nil {
+					logger.Error("web server start failed", logging.Any("err", startErr))
+				} else {
+					defer func() {
+						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						_ = srv.Shutdown(shutdownCtx)
+					}()
+				}
+			}
+
+			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 
 			enqueueMissingJobs(ctx, queue, cfg, logger)
 
@@ -161,3 +229,95 @@ type daemonOverrides struct {
 	maxChunkBytesSet bool
 }
 
+// startConfigWatcher spawns a goroutine bound to ctx that watches the parent
+// directories of configPath and overlayPath for write events. On a successful
+// reload it CAS-swaps the live config pointer and publishes a config.reloaded
+// event via the bus. Reload failures leave the prior pointer value active and
+// are logged at info level; they never crash the daemon.
+func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pipeline.EventBus, live *atomic.Pointer[config.Config], configPath, overlayPath string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Error("config watcher init failed", logging.Any("err", err))
+		return
+	}
+
+	watched := map[string]struct{}{}
+	addWatch := func(p string) {
+		if p == "" {
+			return
+		}
+		dir := filepath.Dir(p)
+		if _, ok := watched[dir]; ok {
+			return
+		}
+		if err := watcher.Add(dir); err != nil {
+			logger.Error("config watcher add failed", logging.Any("dir", dir), logging.Any("err", err))
+			return
+		}
+		watched[dir] = struct{}{}
+	}
+	addWatch(configPath)
+	addWatch(overlayPath)
+
+	if len(watched) == 0 {
+		_ = watcher.Close()
+		return
+	}
+
+	go func() {
+		defer func() { _ = watcher.Close() }()
+		// Debounce coalesces editor save bursts (vim/VS Code emit several
+		// WRITE/CREATE events per save via temp+rename) into a single
+		// reload + config.reloaded publish.
+		const debounce = 200 * time.Millisecond
+		var pending *time.Timer
+		var pendingC <-chan time.Time
+		reload := func() {
+			newCfg, loadErr := config.LoadConfigWithOverlay(configPath, overlayPath)
+			if loadErr != nil {
+				logger.Info("config reload failed", logging.Any("err", loadErr))
+				return
+			}
+			if live != nil {
+				live.Store(newCfg)
+			}
+			events.Publish(pipeline.Event{
+				Type: pipeline.EventConfigReload,
+				Payload: map[string]any{
+					"overlay":          newCfg.Notices.OverlayApplied,
+					"restart_required": newCfg.Notices.RestartRequired,
+				},
+			})
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if ev.Op&fsnotify.Write == 0 && ev.Op&fsnotify.Create == 0 {
+					continue
+				}
+				clean := filepath.Clean(ev.Name)
+				if clean != filepath.Clean(configPath) && clean != filepath.Clean(overlayPath) {
+					continue
+				}
+				if pending != nil {
+					pending.Stop()
+				}
+				pending = time.NewTimer(debounce)
+				pendingC = pending.C
+			case <-pendingC:
+				pendingC = nil
+				reload()
+			case werr, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				logger.Info("config watcher error", logging.Any("err", werr))
+			}
+		}
+	}()
+}

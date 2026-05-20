@@ -141,8 +141,8 @@ func extractMessagePayload(record map[string]any) map[string]any {
 
 type contentBlock struct {
 	blockType string
-	text      string          // for type="text"
-	toolUse   *toolUseBlock   // for type="tool_use"
+	text      string           // for type="text"
+	toolUse   *toolUseBlock    // for type="tool_use"
 	toolRes   *toolResultBlock // for type="tool_result"
 }
 

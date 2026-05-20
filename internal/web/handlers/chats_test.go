@@ -1,0 +1,182 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+
+	"dreamer/internal/config"
+)
+
+func TestParseSinceWindow(t *testing.T) {
+	cases := []struct {
+		in        string
+		wantOK    bool
+		wantHours float64
+	}{
+		{"", false, 0},
+		{"lifetime", false, 0},
+		{"24h", true, 24},
+		{"7d", true, 7 * 24},
+		{"1w", true, 7 * 24},
+		{"1mo", true, 30 * 24},
+		{"30m", true, 0.5},
+		{"garbage", false, 0},
+		{"0h", false, 0},
+	}
+	for _, c := range cases {
+		got, ok := parseSinceWindow(c.in)
+		if ok != c.wantOK {
+			t.Errorf("parseSinceWindow(%q) ok=%v, want %v", c.in, ok, c.wantOK)
+			continue
+		}
+		if ok && got.Hours() != c.wantHours {
+			t.Errorf("parseSinceWindow(%q) = %v, want %vh", c.in, got, c.wantHours)
+		}
+	}
+}
+
+func TestChatsProjectName(t *testing.T) {
+	cases := map[string]string{
+		"/api/projects/foo/chats":    "foo",
+		"/api/projects/foo/chats/":   "foo",
+		"/api/projects/foo":          "",
+		"/api/projects/":             "",
+		"/api/projects/foo/findings": "",
+		"/other":                     "",
+	}
+	for path, want := range cases {
+		if got := chatsProjectName(path); got != want {
+			t.Errorf("chatsProjectName(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// TestProjectChats_Discovery exercises the full handler against a real
+// chat.DiscoverChats run with a fake $HOME containing one copilot session
+// file. Copilot discovery is unscoped — every file under
+// $HOME/.copilot/session-state matches — so we can seed it without caring
+// about the project path.
+func TestProjectChats_Discovery(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based fixture is POSIX-flavored; copilot discovery uses HomeDir")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recent := filepath.Join(sessionDir, "recent.jsonl")
+	old := filepath.Join(sessionDir, "old.jsonl")
+	if err := os.WriteFile(recent, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	projectPath := t.TempDir()
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{
+			{Name: "p1", Path: projectPath, Since: "24h"},
+		},
+	}
+	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/chats", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp chatsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Sources) != 2 {
+		t.Fatalf("len(sources) = %d, want 2; body=%s", len(resp.Sources), rec.Body.String())
+	}
+	byPath := map[string]ChatSourceDTO{}
+	for _, s := range resp.Sources {
+		byPath[s.Path] = s
+		if s.Tool != "copilot-session-jsonl" {
+			t.Errorf("tool = %q, want copilot-session-jsonl", s.Tool)
+		}
+		if s.MessageCount != -1 {
+			t.Errorf("message_count = %d, want -1", s.MessageCount)
+		}
+	}
+	if !byPath[recent].Included {
+		t.Errorf("recent should be included within 24h window")
+	}
+	if byPath[old].Included {
+		t.Errorf("old (72h) should NOT be included within 24h window")
+	}
+}
+
+func TestProjectChats_ToolFilter(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based fixture is POSIX-flavored")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "a.jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "p1", Path: t.TempDir(), Since: "lifetime"}},
+	}
+	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+
+	// Matching filter keeps the source.
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/chats?tool=copilot-session-jsonl", nil))
+	var resp chatsResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Sources) != 1 {
+		t.Errorf("filter match: len=%d, want 1", len(resp.Sources))
+	}
+
+	// Non-matching filter drops it.
+	rec = httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/chats?tool=claude-code-session-jsonl", nil))
+	resp = chatsResponse{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Sources) != 0 {
+		t.Errorf("filter mismatch: len=%d, want 0", len(resp.Sources))
+	}
+
+	// Lifetime since: every source is included=true.
+	rec = httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/chats", nil))
+	resp = chatsResponse{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Sources) != 1 || !resp.Sources[0].Included {
+		t.Errorf("lifetime: want 1 included source, got %+v", resp.Sources)
+	}
+}
+
+func TestProjectChats_UnknownProject(t *testing.T) {
+	cfg := &config.Config{Projects: []config.ProjectConfig{{Name: "p1", Path: "/tmp/x"}}}
+	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/chats", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}

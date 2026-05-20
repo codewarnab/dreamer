@@ -84,6 +84,40 @@ func cacheUnchanged(currentState *state.State, cacheKeys map[string]string, repo
 	return true
 }
 
+// recordFindingApplySpecs persists each emitted finding's apply plan
+// into state.Findings[hash].ApplySpec so the web UI's Apply handler can
+// look it up by hash instead of trusting client-supplied fields. Only
+// findings with a non-nil Guardrail.Apply contribute a spec; existing
+// entries (dismissed/resolved/applied) are preserved with their lifecycle
+// state, and ApplySpec is overwritten with the latest analyzer output.
+func recordFindingApplySpecs(st *state.State, findings []analyzer.Finding, projectName string) {
+	if st == nil {
+		return
+	}
+	if st.Findings == nil {
+		st.Findings = map[string]state.FindingState{}
+	}
+	for _, f := range findings {
+		hash := strings.ToLower(strings.TrimSpace(f.Hash))
+		if hash == "" || f.Guardrail.Apply == nil {
+			continue
+		}
+		spec := &state.FindingApplySpec{
+			Category:   string(f.Category),
+			TargetFile: f.Guardrail.Apply.TargetFile,
+			Strategy:   f.Guardrail.Apply.Strategy,
+			Anchor:     f.Guardrail.Apply.Anchor,
+			Snippet:    f.Guardrail.Apply.Snippet,
+		}
+		fs := st.Findings[hash]
+		fs.ApplySpec = spec
+		if fs.ProjectName == "" {
+			fs.ProjectName = projectName
+		}
+		st.Findings[hash] = fs
+	}
+}
+
 func collectFindingHashes(findings []analyzer.Finding) []string {
 	hashes := make([]string, 0, len(findings))
 	for _, finding := range findings {

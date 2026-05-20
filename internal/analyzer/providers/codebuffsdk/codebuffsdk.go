@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	id            = "codebuff-sdk"
-	defaultModel  = "claude-opus-4-7"
+	id             = "codebuff-sdk"
+	defaultModel   = "claude-opus-4-7"
 	defaultBaseURL = "https://codebuff.com/api/v1"
 )
 
