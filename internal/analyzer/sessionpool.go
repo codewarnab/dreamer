@@ -23,6 +23,10 @@ type SessionPool struct {
 	all       []Session
 	closed    bool
 	allClosed bool
+
+	// factoryMu serializes factory() calls so concurrent Acquires
+	// never invoke the caller-supplied factory in parallel.
+	factoryMu sync.Mutex
 }
 
 // NewSessionPool builds a pool. capacity<=0 falls back to sequentialPoolCap (1).
@@ -72,7 +76,11 @@ func (p *SessionPool) Acquire(ctx context.Context) (Session, error) {
 		if p.live < p.capacity {
 			p.live++
 			p.mu.Unlock()
+			// Serialize factory calls; callers (and tests) may use
+			// non-thread-safe factories.
+			p.factoryMu.Lock()
 			s, err := p.factory()
+			p.factoryMu.Unlock()
 			if err != nil {
 				p.mu.Lock()
 				p.live--
