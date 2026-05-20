@@ -470,6 +470,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	currentState.RepoHeadSHA = repoHeadSHA
 	currentState.ChatHashes = cacheKeys
 	currentState.FindingHashes = mergeHashLists(currentState.FindingHashes, collectFindingHashes(analysisResult.Findings))
+	recordFindingApplySpecs(currentState, analysisResult.Findings, projectName)
 	if currentState.LastRunPerCategory == nil {
 		currentState.LastRunPerCategory = map[string]time.Time{}
 	}

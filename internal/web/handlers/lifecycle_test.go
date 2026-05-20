@@ -38,6 +38,27 @@ func seedApplyProject(t *testing.T) (*config.Config, *pipeline.EventBus) {
 	return cfg, pipeline.NewEventBus()
 }
 
+// seedApplySpec records a server-trusted ApplySpec for the given hash so
+// the Apply handler treats the finding as analyzer-emitted. Tests must
+// seed before invoking Apply since the body's apply fields are ignored.
+func seedApplySpec(t *testing.T, cfg *config.Config, hash string, spec state.FindingApplySpec) {
+	t.Helper()
+	st, err := state.Load(cfg.Daemon.OutputRoot, cfg.Projects[0].Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Findings == nil {
+		st.Findings = map[string]state.FindingState{}
+	}
+	fs := st.Findings[hash]
+	cp := spec
+	fs.ApplySpec = &cp
+	st.Findings[hash] = fs
+	if err := state.Save(cfg.Daemon.OutputRoot, cfg.Projects[0].Name, st); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func postJSON(t *testing.T, h http.HandlerFunc, url string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var rdr *bytes.Buffer
@@ -61,13 +82,14 @@ func TestApply_Happy(t *testing.T) {
 	defer bus.Unsubscribe(sub)
 	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
 	hash := "aaaa111111111111111111111111111111111111111111111111111111111111"
-	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
 		TargetFile: "CLAUDE.md",
 		Strategy:   "append-section",
 		Anchor:     "Cache",
 		Snippet:    "Rules for cache.",
 	})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -113,12 +135,13 @@ func TestApply_IneligibleCategory(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
 	hash := "bbbb111111111111111111111111111111111111111111111111111111111111"
-	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "perf",
 		TargetFile: "CLAUDE.md",
 		Strategy:   "append-file",
 		Snippet:    "x",
 	})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
 	}
@@ -128,12 +151,13 @@ func TestApply_Containment(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
 	hash := "cccc111111111111111111111111111111111111111111111111111111111111"
-	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
 		TargetFile: "../etc/passwd",
 		Strategy:   "append-file",
 		Snippet:    "x",
 	})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d want 400 body=%s", rec.Code, rec.Body.String())
 	}
@@ -143,13 +167,14 @@ func TestApply_AnchorMissing(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
 	hash := "dddd111111111111111111111111111111111111111111111111111111111111"
-	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
 		TargetFile: "CLAUDE.md",
 		Strategy:   "replace-section",
 		Anchor:     "NonexistentSection",
 		Snippet:    "x",
 	})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d want 404 body=%s", rec.Code, rec.Body.String())
 	}
@@ -164,12 +189,13 @@ func TestApply_OversizeTarget(t *testing.T) {
 	}
 	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
 	hash := "eeee111111111111111111111111111111111111111111111111111111111111"
-	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
 		TargetFile: "CLAUDE.md",
 		Strategy:   "append-file",
 		Snippet:    "x",
 	})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status=%d want 413 body=%s", rec.Code, rec.Body.String())
 	}
@@ -182,6 +208,67 @@ func TestApply_MethodNotAllowed(t *testing.T) {
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-a/findings/ffff111111111111111111111111111111111111111111111111111111111111/apply", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status=%d want 405", rec.Code)
+	}
+}
+
+// TestApply_BodyIgnored_AttackerCannotRedirectWrite asserts that an
+// attacker-shaped request body (replace-file targeting an arbitrary path
+// outside the project) is ignored: the server uses the persisted spec.
+func TestApply_BodyIgnored_AttackerCannotRedirectWrite(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "b1aa111111111111111111111111111111111111111111111111111111111111"
+	// Server's recorded plan: a safe append to CLAUDE.md.
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
+		Category:   "doc",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "append-file",
+		Snippet:    "trusted-snippet",
+	})
+	// Attacker tries to redirect the write via replace-file.
+	attackTarget := filepath.Join(t.TempDir(), "victim.txt")
+	if err := os.WriteFile(attackTarget, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: attackTarget,
+		Strategy:   "replace-file",
+		Snippet:    "OWNED",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// Victim file must be unchanged.
+	got, _ := os.ReadFile(attackTarget)
+	if string(got) != "untouched\n" {
+		t.Errorf("attacker-supplied target was written: %q", got)
+	}
+	// Server's actual write landed on the trusted target.
+	claude, _ := os.ReadFile(filepath.Join(cfg.Projects[0].Path, "CLAUDE.md"))
+	if !bytes.Contains(claude, []byte("trusted-snippet")) {
+		t.Errorf("trusted snippet not written to CLAUDE.md; got %q", claude)
+	}
+	if bytes.Contains(claude, []byte("OWNED")) {
+		t.Errorf("attacker snippet leaked into CLAUDE.md: %q", claude)
+	}
+}
+
+// TestApply_MissingApplySpec_Returns404 covers findings without a recorded
+// ApplySpec (older state.json files or non-apply-eligible findings). The
+// handler refuses rather than falling back to the request body.
+func TestApply_MissingApplySpec_Returns404(t *testing.T) {
+	cfg, bus := seedApplyProject(t)
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hash := "b2aa111111111111111111111111111111111111111111111111111111111111"
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+		Category:   "doc",
+		TargetFile: "CLAUDE.md",
+		Strategy:   "append-file",
+		Snippet:    "x",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404 body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -199,14 +286,15 @@ func TestApply_UnknownProject(t *testing.T) {
 // FindingReversal rather than constructing one by hand.
 func applyOnce(t *testing.T, cfg *config.Config, bus *pipeline.EventBus, hash string) {
 	t.Helper()
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
-	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
+	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
 		TargetFile: "CLAUDE.md",
 		Strategy:   "append-section",
 		Anchor:     "Cache",
 		Snippet:    "Rules for cache.",
 	})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed apply failed: %d %s", rec.Code, rec.Body.String())
 	}

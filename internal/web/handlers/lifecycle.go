@@ -27,9 +27,11 @@ const (
 )
 
 // applyRequest is the body the SPA POSTs for the /apply endpoint. The
-// SPA carries the rule pack's `apply` object client-side from the list
-// view and feeds it back here. Category is sent for eligibility gating
-// rather than re-derived server-side.
+// fields below are accepted for backward compatibility with older
+// clients but are NOT trusted: the server resolves the apply plan from
+// state.Findings[hash].ApplySpec, which was recorded by the analyzer
+// when the finding was first emitted. A loopback client with the CSRF
+// token cannot redirect the write by re-shaping the body.
 type applyRequest struct {
 	Category   string `json:"category"`
 	TargetFile string `json:"target_file"`
@@ -117,30 +119,30 @@ func Apply(deps Deps) http.HandlerFunc {
 			return
 		}
 		cfg := deps.Config()
-		var req applyRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		// Trusted apply plan lives in state; body fields are ignored
+		// so a loopback caller cannot redirect the write to any path.
+		prior, hasPrior := st.Findings[hash]
+		if !hasPrior || prior.ApplySpec == nil {
+			writeJSONError(w, http.StatusNotFound, "no apply spec recorded for this finding; re-run analysis to capture it")
 			return
 		}
-		if !apply.EligibleCategories[req.Category] {
+		spec := prior.ApplySpec
+		if !apply.EligibleCategories[spec.Category] {
 			writeJSONError(w, http.StatusBadRequest, "category not eligible for apply")
 			return
 		}
-		// Refuse re-apply over an already-applied finding so we never
-		// clobber a captured AppliedReversal: the prior PreImage is the
-		// only way to undo back to the original file, and overwriting it
-		// would silently strand the operator without a clean recovery.
-		// The contract is: undo first, then apply again.
-		if prior, ok := st.Findings[hash]; ok && prior.Status == state.FindingStatusApplied && prior.AppliedReversal != nil {
+		// Refuse re-apply: would clobber the AppliedReversal preimage,
+		// stranding undo. Caller must undo first then re-apply.
+		if prior.Status == state.FindingStatusApplied && prior.AppliedReversal != nil {
 			writeJSONError(w, http.StatusConflict, "finding already applied; undo first before re-applying")
 			return
 		}
 		rev, err := apply.Apply(apply.ApplyRequest{
 			ProjectRoot: proj.Path,
-			TargetFile:  req.TargetFile,
-			Strategy:    req.Strategy,
-			Anchor:      req.Anchor,
-			Snippet:     req.Snippet,
+			TargetFile:  spec.TargetFile,
+			Strategy:    spec.Strategy,
+			Anchor:      spec.Anchor,
+			Snippet:     spec.Snippet,
 		})
 		if err != nil {
 			switch {

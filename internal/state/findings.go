@@ -14,12 +14,24 @@ const (
 // canonical hash (the same value rendered as
 // <!-- dreamer:finding:<hex> --> in todos.md).
 type FindingState struct {
-	Status          string           `json:"status"`
-	AppliedAt       time.Time        `json:"applied_at,omitempty"`
-	AppliedReversal *FindingReversal `json:"applied_reversal,omitempty"`
-	DismissedAt     time.Time        `json:"dismissed_at,omitempty"`
-	ResolvedAt      time.Time        `json:"resolved_at,omitempty"`
-	ProjectName     string           `json:"project_name,omitempty"`
+	Status          string            `json:"status"`
+	AppliedAt       time.Time         `json:"applied_at,omitempty"`
+	AppliedReversal *FindingReversal  `json:"applied_reversal,omitempty"`
+	DismissedAt     time.Time         `json:"dismissed_at,omitempty"`
+	ResolvedAt      time.Time         `json:"resolved_at,omitempty"`
+	ProjectName     string            `json:"project_name,omitempty"`
+	ApplySpec       *FindingApplySpec `json:"apply_spec,omitempty"`
+}
+
+// FindingApplySpec is the server-trusted apply plan emitted by the
+// analyzer when the finding was first recorded. The Apply handler reads
+// these fields by hash; the request body's apply fields are ignored.
+type FindingApplySpec struct {
+	Category   string `json:"category"`
+	TargetFile string `json:"target_file"`
+	Strategy   string `json:"strategy"`
+	Anchor     string `json:"anchor,omitempty"`
+	Snippet    string `json:"snippet"`
 }
 
 // FindingReversal captures everything required to undo an applied
