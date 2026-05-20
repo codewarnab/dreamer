@@ -1,7 +1,6 @@
 package geminicli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -171,8 +170,7 @@ func (s *session) Close() error { return nil }
 // and returns the final text. It prefers the `response` field from a result event,
 // falling back to concatenated message text. Error events are surfaced as Go errors.
 func readStreamJSON(r io.Reader) (string, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, transport.ScannerInitialBuf), transport.ScannerMaxBuf)
+	scanner := transport.NewScanner(r)
 
 	var assistantText strings.Builder
 	var resultText string

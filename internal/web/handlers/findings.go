@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bufio"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -80,8 +79,7 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 		currentCategory string
 		pendingSummary  string
 	)
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, transport.ScannerInitialBuf), transport.FileScannerMaxBuf)
+	sc := transport.NewFileScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
 		if m := runHeaderRe.FindStringSubmatch(line); m != nil {

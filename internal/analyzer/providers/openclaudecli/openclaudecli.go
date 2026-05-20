@@ -1,7 +1,6 @@
 package openclaudecli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -170,8 +169,7 @@ func (s *session) Close() error { return nil }
 // concatenated assistant message text. Error results and assistant-level API
 // errors (rate_limit, auth_failed, etc.) are surfaced as Go errors.
 func readStreamJSON(r io.Reader) (string, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, transport.ScannerInitialBuf), transport.ScannerMaxBuf)
+	scanner := transport.NewScanner(r)
 
 	var assistantText strings.Builder
 	var resultText string

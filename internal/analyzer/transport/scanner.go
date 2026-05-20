@@ -1,6 +1,9 @@
 package transport
 
-import "bufio"
+import (
+	"bufio"
+	"io"
+)
 
 // ScannerInitialBuf is the initial buffer size for line-oriented
 // stdout/stderr scanners in provider transports and file parsers.
@@ -19,7 +22,7 @@ const FileScannerMaxBuf = 1 << 20 // 1 MiB
 
 // NewScanner returns a *bufio.Scanner configured with the standard
 // provider transport buffer sizes.
-func NewScanner(r interface{ Read([]byte) (int, error) }) *bufio.Scanner {
+func NewScanner(r io.Reader) *bufio.Scanner {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, ScannerInitialBuf), ScannerMaxBuf)
 	return sc
@@ -27,7 +30,7 @@ func NewScanner(r interface{ Read([]byte) (int, error) }) *bufio.Scanner {
 
 // NewFileScanner returns a *bufio.Scanner configured with file-parsing
 // buffer sizes (smaller max than provider transports).
-func NewFileScanner(r interface{ Read([]byte) (int, error) }) *bufio.Scanner {
+func NewFileScanner(r io.Reader) *bufio.Scanner {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, ScannerInitialBuf), FileScannerMaxBuf)
 	return sc

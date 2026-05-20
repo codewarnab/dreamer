@@ -445,8 +445,7 @@ func (t *transport) readLoop(initial *bytes.Buffer) {
 	if initial != nil {
 		_ = initial // placeholder for future buffering
 	}
-	scanner := bufio.NewScanner(t.stdout)
-	scanner.Buffer(make([]byte, transportutil.ScannerInitialBuf), transportutil.ScannerMaxBuf)
+	scanner := transportutil.NewScanner(t.stdout)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

@@ -1,7 +1,6 @@
 package grounding
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,8 +64,7 @@ func scanGoFile(absPath string, relPath string) []Symbol {
 		return nil
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, transport.ScannerInitialBuf), transport.FileScannerMaxBuf)
+	scanner := transport.NewFileScanner(f)
 	lineNum := 0
 	var symbols []Symbol
 	for scanner.Scan() {

@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	stateFile  = "state.json"
-	statePerms = 0o644
+	stateFile = "state.json"
 
 	// StateVersion bumps when the on-disk shape of state.json or the
 	// derivation of a stored value changes such that a v(N-1) file cannot
@@ -203,7 +202,7 @@ func Save(outputRoot, projectName string, state *State) error {
 		if priorVersion >= 0 && priorVersion < StateVersion {
 			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
 			if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, statePerms); writeErr != nil {
+				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms); writeErr != nil {
 					return fmt.Errorf("write schema-upgrade backup %q: %w", backupPath, writeErr)
 				}
 			}
@@ -220,7 +219,7 @@ func Save(outputRoot, projectName string, state *State) error {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
 
-	if err := fsutil.WriteFileAtomic(path, data, statePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(path, data, fsutil.FilePerms); err != nil {
 		return fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
 	return nil

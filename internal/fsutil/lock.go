@@ -12,13 +12,6 @@ import (
 	"dreamer/internal/logging"
 )
 
-// lockDirPerms and lockFilePerms are aliases for the shared fsutil
-// permission constants, kept for readability in lock-specific code.
-const (
-	lockDirPerms  = DirPerms
-	lockFilePerms = FilePerms
-)
-
 // AcquireLock creates a PID-based lock file at path. If the lock is already
 // held by a live process running the same executable, it returns an error.
 // Stale locks — from a crashed process, or from a PID that has since been
@@ -26,7 +19,7 @@ const (
 // release function removes the lock file and should be called via defer.
 func AcquireLock(path string, logger *logging.Logger) (release func(), err error) {
 	parent := filepath.Dir(path)
-	if mkErr := os.MkdirAll(parent, lockDirPerms); mkErr != nil {
+	if mkErr := os.MkdirAll(parent, DirPerms); mkErr != nil {
 		return nil, fmt.Errorf("create lock dir %q: %w", parent, mkErr)
 	}
 
@@ -49,7 +42,7 @@ const maxLockRetries = 3
 func tryAcquire(path string, logger *logging.Logger) error {
 	ownExec, _ := os.Executable()
 	for attempt := 0; attempt < maxLockRetries; attempt++ {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, lockFilePerms)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, FilePerms)
 		if err == nil {
 			payload := fmt.Sprintf("%d\n%d\n%s\n", os.Getpid(), time.Now().Unix(), ownExec)
 			if _, writeErr := f.WriteString(payload); writeErr != nil {

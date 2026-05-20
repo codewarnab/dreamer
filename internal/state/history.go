@@ -89,7 +89,7 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, data, statePerms)
+	return fsutil.WriteFileAtomic(path, data, fsutil.FilePerms)
 }
 
 // UpdateHistoryToday merges delta into the bucket whose Date == today (a
