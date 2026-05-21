@@ -191,5 +191,4 @@ func (w *strBuilderWriter) Write(p []byte) (int, error) {
 	return w.b.Write(p)
 }
 
-// (config import is used by callers via GlobalConfigPath through resolveConfigPath.)
-var _ = config.GlobalConfigPath
+
