@@ -275,6 +275,6 @@ func normalizeVSCodeChatText(content string) string {
 	if normalized == "" {
 		return ""
 	}
-	normalized = copilotWhitespaceBurstRegex.ReplaceAllString(normalized, " ")
+	normalized = WhitespaceBurstRegex.ReplaceAllString(normalized, " ")
 	return strings.TrimSpace(normalized)
 }

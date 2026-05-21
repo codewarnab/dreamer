@@ -11,11 +11,7 @@ const (
 	claudeMaxMessagesPerSource = 250
 )
 
-var (
-	claudeANSIEscapePattern    = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
-	claudeWrapperTagPattern    = regexp.MustCompile(`(?s)</?[^>]+>`)
-	claudeWhitespaceBurstRegex = regexp.MustCompile(`[\t\r\n ]+`)
-)
+var claudeWrapperTagPattern = regexp.MustCompile(`(?s)</?[^>]+>`)
 
 type claudeDropRule struct {
 	name               string
@@ -46,46 +42,13 @@ var claudeDropRules = []claudeDropRule{
 }
 
 func SanitizeClaudeMessages(messages []ChatMessage) []ChatMessage {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	sanitized := make([]ChatMessage, 0, min(len(messages), claudeMaxMessagesPerSource))
-	previousKey := ""
-
-	for _, message := range messages {
-		normalizedContent := normalizeClaudeContent(message.Content)
-		if normalizedContent == "" {
-			continue
-		}
-
-		rawLower := strings.ToLower(message.Content)
-		normalizedLower := strings.ToLower(normalizedContent)
-		if shouldDropClaudeMessage(rawLower, normalizedLower) {
-			continue
-		}
-
-		dedupeKey := message.Role + "\x00" + normalizedContent
-		if dedupeKey == previousKey {
-			continue
-		}
-
-		message.Content = normalizedContent
-		sanitized = append(sanitized, message)
-		previousKey = dedupeKey
-
-		if claudeMaxMessagesPerSource > 0 && len(sanitized) >= claudeMaxMessagesPerSource {
-			break
-		}
-	}
-
-	return sanitized
+	return sanitizeMessages(messages, normalizeClaudeContent, shouldDropClaudeMessage, claudeMaxMessagesPerSource)
 }
 
 func normalizeClaudeContent(content string) string {
-	normalized := claudeANSIEscapePattern.ReplaceAllString(content, "")
+	normalized := ANSIEscapePattern.ReplaceAllString(content, "")
 	normalized = claudeWrapperTagPattern.ReplaceAllString(normalized, " ")
-	normalized = claudeWhitespaceBurstRegex.ReplaceAllString(normalized, " ")
+	normalized = WhitespaceBurstRegex.ReplaceAllString(normalized, " ")
 	normalized = strings.TrimSpace(normalized)
 	if normalized == "" {
 		return ""

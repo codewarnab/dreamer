@@ -207,25 +207,7 @@ func (reader OpenCodeReader) ReadMessages(dbPath string, sessionID string) ([]Ch
 }
 
 func (reader OpenCodeReader) openDatabase(dbPath string) (*sql.DB, error) {
-	path := strings.TrimSpace(dbPath)
-	if path == "" {
-		return nil, fmt.Errorf("opencode database path is required")
-	}
-
-	driverName := strings.TrimSpace(reader.DriverName)
-	if driverName == "" {
-		driverName = defaultSQLiteDriverName
-	}
-	openDB := reader.Open
-	if openDB == nil {
-		openDB = sql.Open
-	}
-
-	database, err := openDB(driverName, path)
-	if err != nil {
-		return nil, fmt.Errorf("open opencode database %q with driver %q: %w", path, driverName, err)
-	}
-	return database, nil
+	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "opencode")
 }
 
 func openCodeRoleFromMessageData(data string) string {

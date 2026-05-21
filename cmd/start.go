@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"dreamer/internal/config"
@@ -126,20 +125,3 @@ func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.Co
 	printBox(cmd, lines)
 }
 
-// printBox renders a Unicode box around the given lines. Matches the style
-// used by the web command's error output.
-func printBox(cmd *cobra.Command, lines []string) {
-	maxLen := 0
-	for _, l := range lines {
-		if len(l) > maxLen {
-			maxLen = len(l)
-		}
-	}
-	w := maxLen + 4 // padding inside the box
-
-	cmd.Printf("╔%s╗\n", strings.Repeat("═", w))
-	for _, l := range lines {
-		cmd.Printf("║  %-*s  ║\n", maxLen, l)
-	}
-	cmd.Printf("╚%s╝\n", strings.Repeat("═", w))
-}

@@ -104,25 +104,7 @@ func (reader KiroReader) ReadConversation(dbPath string, conversationID string) 
 }
 
 func (reader KiroReader) openDatabase(dbPath string) (*sql.DB, error) {
-	path := strings.TrimSpace(dbPath)
-	if path == "" {
-		return nil, fmt.Errorf("kiro database path is required")
-	}
-
-	driverName := strings.TrimSpace(reader.DriverName)
-	if driverName == "" {
-		driverName = defaultSQLiteDriverName
-	}
-	openDB := reader.Open
-	if openDB == nil {
-		openDB = sql.Open
-	}
-
-	database, err := openDB(driverName, path)
-	if err != nil {
-		return nil, fmt.Errorf("open kiro database %q with driver %q: %w", path, driverName, err)
-	}
-	return database, nil
+	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "kiro")
 }
 
 func parseKiroConversationValue(value string) []ChatMessage {

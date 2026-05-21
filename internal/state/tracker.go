@@ -66,17 +66,11 @@ type State struct {
 // PathForProject returns the per-project state.json path under outputRoot.
 // If outputRoot is empty, falls back to <UserConfigDir>/dreamer.
 func PathForProject(outputRoot string, projectName string) (string, error) {
-	name := strings.TrimSpace(projectName)
-	if name == "" {
-		return "", fmt.Errorf("project name is required")
-	}
-	if strings.ContainsAny(name, `\/`) {
-		return "", fmt.Errorf("project name contains invalid path separator: %q", projectName)
-	}
-	if name == "." || name == ".." {
-		return "", fmt.Errorf("project name is invalid: %q", projectName)
+	if err := config.ValidateProjectName(projectName); err != nil {
+		return "", err
 	}
 
+	name := strings.TrimSpace(projectName)
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
 		cfgRoot, err := config.UserConfigRoot()

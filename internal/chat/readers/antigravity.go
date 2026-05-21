@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -13,10 +12,6 @@ const (
 	antigravityMaxMessagesPerSource = 250
 )
 
-var (
-	antigravityANSIEscapePattern    = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
-	antigravityWhitespaceBurstRegex = regexp.MustCompile(`[\t\r\n ]+`)
-)
 
 type antigravityDropRule struct {
 	name               string
@@ -90,39 +85,9 @@ func readAntigravityProtobuf(filePath string) ([]ChatMessage, error) {
 // SanitizeAntigravityMessages normalizes Antigravity chat turns and removes
 // source noise that is not useful for analyzer input.
 func SanitizeAntigravityMessages(messages []ChatMessage) []ChatMessage {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	sanitized := make([]ChatMessage, 0, min(len(messages), antigravityMaxMessagesPerSource))
-	previousKey := ""
-
-	for _, message := range messages {
-		normalizedContent := normalizeAntigravityContent(message.Content)
-		if normalizedContent == "" {
-			continue
-		}
-
-		normalizedLower := strings.ToLower(normalizedContent)
-		if shouldDropAntigravityMessage(normalizedLower) {
-			continue
-		}
-
-		dedupeKey := message.Role + "\x00" + normalizedContent
-		if dedupeKey == previousKey {
-			continue
-		}
-
-		message.Content = normalizedContent
-		sanitized = append(sanitized, message)
-		previousKey = dedupeKey
-
-		if antigravityMaxMessagesPerSource > 0 && len(sanitized) >= antigravityMaxMessagesPerSource {
-			break
-		}
-	}
-
-	return sanitized
+	return sanitizeMessages(messages, normalizeAntigravityContent, func(_, normalizedLower string) bool {
+		return shouldDropAntigravityMessage(normalizedLower)
+	}, antigravityMaxMessagesPerSource)
 }
 
 func parseAntigravityTextProtoMessages(content string) []ChatMessage {
@@ -205,8 +170,8 @@ func isAntigravityTextKey(key string) bool {
 }
 
 func normalizeAntigravityContent(content string) string {
-	normalized := antigravityANSIEscapePattern.ReplaceAllString(content, "")
-	normalized = antigravityWhitespaceBurstRegex.ReplaceAllString(normalized, " ")
+	normalized := ANSIEscapePattern.ReplaceAllString(content, "")
+	normalized = WhitespaceBurstRegex.ReplaceAllString(normalized, " ")
 	normalized = strings.TrimSpace(normalized)
 	if normalized == "" {
 		return ""

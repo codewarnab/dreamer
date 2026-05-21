@@ -7,6 +7,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -72,4 +73,21 @@ func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.Config) {
 			logging.Any("hint", "set `since: lifetime` to restore prior behavior"),
 		)
 	}
+}
+
+// printBox renders a Unicode box around the given lines.
+func printBox(cmd *cobra.Command, lines []string) {
+	maxLen := 0
+	for _, l := range lines {
+		if len(l) > maxLen {
+			maxLen = len(l)
+		}
+	}
+	w := maxLen + 4 // padding inside the box
+
+	cmd.Printf("╔%s╗\n", strings.Repeat("═", w))
+	for _, l := range lines {
+		cmd.Printf("║  %-*s  ║\n", maxLen, l)
+	}
+	cmd.Printf("╚%s╝\n", strings.Repeat("═", w))
 }

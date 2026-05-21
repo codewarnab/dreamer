@@ -541,3 +541,20 @@ func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
 	}
 	return out
 }
+
+// ValidateProjectName checks that a project name is safe to use as a
+// directory name under the output root. Shared by state.PathForProject
+// and output.todosPathForProject.
+func ValidateProjectName(projectName string) error {
+	name := strings.TrimSpace(projectName)
+	if name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	if strings.ContainsAny(name, `\/`) {
+		return fmt.Errorf("project name contains invalid path separator: %q", projectName)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("project name is invalid: %q", projectName)
+	}
+	return nil
+}
