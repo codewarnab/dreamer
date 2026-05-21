@@ -53,22 +53,11 @@ func newDaemonCommand() *cobra.Command {
 			}
 			overlayPath, _ := config.GlobalOverlayPath()
 
-			cfg, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
-			if err != nil {
-				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
-			}
-			// live holds the hot-swappable config snapshot. Watcher CASs in a new
-			// pointer on successful overlay reload; web + pipeline read through it.
-			var live atomic.Pointer[config.Config]
-			live.Store(cfg)
-			logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
+			cfg, logger, err := loadDaemonConfig(resolvedConfigPath, overlayPath)
 			if err != nil {
 				return err
 			}
-			defer func() {
-				_ = logger.Close()
-			}()
-			logDefaultedSinceNotices(logger, cfg)
+			defer func() { _ = logger.Close() }()
 
 			overrides := daemonOverrides{
 				parallel:       afv.parallel,
@@ -83,107 +72,25 @@ func newDaemonCommand() *cobra.Command {
 				return fmt.Errorf("config %q has no projects configured", resolvedConfigPath)
 			}
 
-			lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
-			// Read the stale PID before AcquireLock overwrites it with ours.
-			stalePID, _ := fsutil.ReadLockPID(lockPath)
-			releaseLock, err := fsutil.AcquireLock(lockPath, logger)
+			baseCtx := commandContext(cmd)
+			ctx, stop, queue, discoveryCache, events, releaseLock, err := initDaemonRuntime(baseCtx, cfg, logger)
 			if err != nil {
 				return err
 			}
-			defer releaseLock()
-
-			baseCtx := commandContext(cmd)
-			ctx, stop := signal.NotifyContext(baseCtx, daemonSignals()...)
 			defer stop()
-
-			maxDur, err := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
-			if err != nil {
-				return fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, err)
-			}
-			retDur, err := time.ParseDuration(cfg.Daemon.JobHistoryRetention)
-			if err != nil {
-				return fmt.Errorf("parse job_history_retention %q: %w", cfg.Daemon.JobHistoryRetention, err)
-			}
-
-			queue := jobqueue.New(jobqueue.Options{
-				StorePath:     filepath.Join(cfg.Daemon.OutputRoot, "jobs.json"),
-				MaxConcurrent: cfg.Daemon.MaxConcurrentJobs,
-				MaxDuration:   maxDur,
-				Logger:        logger,
-			})
-			if err := queue.Recover(); err != nil {
-				logger.Warn("failed to recover job queue", logging.Any("err", err))
-			}
-			recoverStaleJobs(queue, stalePID, logger)
-
-			discoveryCache := pipeline.NewDiscoveryCache()
-			events := pipeline.NewEventBus()
-			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
+			defer releaseLock()
 
 			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, events, overrides)
 			workers.Start()
 
-			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
-				activity := web.NewActivityRing(activityRingSize)
-				go activity.Bind(ctx, events)
-
-				restartHook := func() error {
-					stop()
-					return nil
-				}
-
-				runner := web.NewRunner(func(projectName string) (string, bool) {
-					curCfg := live.Load()
-					var proj config.ProjectConfig
-					found := false
-					for _, p := range curCfg.Projects {
-						if p.Name == projectName {
-							proj = p
-							found = true
-							break
-						}
-					}
-					if !found {
-						return "", false
-					}
-					job := queue.Enqueue(proj.Name, jobqueue.EnqueueConfig{
-						ProjectPath: proj.Path,
-						Provider:    resolveProvider(curCfg, proj),
-						Since:       proj.Since,
-					})
-					if job == nil {
-						return "", false
-					}
-					return job.ID, true
-				}, logger)
-
-				srv, srvErr := web.NewServer(web.Options{
-					Config:      cfg,
-					Logger:      logger,
-					Events:      events,
-					ConfigPtr:   &live,
-					OverlayPath: overlayPath,
-					Runner:      runner,
-					RestartHook: restartHook,
-					Activity:    activity,
-				})
-				if srvErr != nil {
-					logger.Error("web server construct failed", logging.Any("err", srvErr))
-				} else if startErr := srv.Start(); startErr != nil {
-					logger.Error("web server start failed", logging.Any("err", startErr))
-				} else {
-					defer func() {
-						shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
-						defer cancel()
-						_ = srv.Shutdown(shutdownCtx)
-					}()
-				}
-			}
+			var live atomic.Pointer[config.Config]
+			live.Store(cfg)
+			startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
-
 			enqueueMissingJobs(ctx, queue, cfg, logger)
 
+			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
 			cmd.Printf("daemon started: frequency=%s projects=%d max_concurrent=%d\n",
 				frequency, len(cfg.Projects), cfg.Daemon.MaxConcurrentJobs)
 			logger.Info("daemon started",
@@ -193,27 +100,9 @@ func newDaemonCommand() *cobra.Command {
 				logging.Any("max_concurrent", cfg.Daemon.MaxConcurrentJobs),
 			)
 
-			ticker := time.NewTicker(frequency)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ctx.Done():
-					cmd.Printf("daemon stopping: %v\n", context.Cause(ctx))
-					logger.Info("daemon stopping", logging.Any("cause", context.Cause(ctx)))
-					// Don't call CancelRunning here: that would race with the
-					// worker's own terminal write when pipeline.Run returns
-					// from the cancelled ctx. Workers detect ctx.Canceled and
-					// call Cancel(job) themselves; the IsTerminal guard on
-					// queue mutators makes either order safe.
-					workers.Stop()
-					cmd.Printf("daemon stopped\n")
-					return nil
-				case <-ticker.C:
-					queue.PruneHistory(retDur)
-					enqueueMissingJobs(ctx, queue, cfg, logger)
-				}
-			}
+			retDur, _ := time.ParseDuration(cfg.Daemon.JobHistoryRetention)
+			runDaemonLoop(ctx, cmd, queue, cfg, frequency, retDur, logger, workers)
+			return nil
 		},
 	}
 
@@ -228,6 +117,150 @@ type daemonOverrides struct {
 	maxConcurrency   int
 	maxChunkBytes    int
 	maxChunkBytesSet bool
+}
+
+// loadDaemonConfig resolves the config path, loads config with overlay, and
+// creates the logger. Returns the config, logger, and any error.
+func loadDaemonConfig(configPath, overlayPath string) (*config.Config, *logging.Logger, error) {
+	cfg, err := config.LoadConfigWithOverlay(configPath, overlayPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load config %q: %w", configPath, err)
+	}
+	logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
+	if err != nil {
+		return nil, nil, err
+	}
+	logDefaultedSinceNotices(logger, cfg)
+	return cfg, logger, nil
+}
+
+// initDaemonRuntime acquires the daemon lock, sets up signal-aware context,
+// creates the job queue with recovery, and initializes the discovery cache
+// and event bus. Returns cleanup functions that the caller must defer.
+func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logging.Logger) (
+	ctx context.Context, stop context.CancelFunc,
+	queue *jobqueue.Queue, discoveryCache *pipeline.DiscoveryCache,
+	events *pipeline.EventBus, releaseLock func(), err error,
+) {
+	lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
+	stalePID, _ := fsutil.ReadLockPID(lockPath)
+	releaseLock, err = fsutil.AcquireLock(lockPath, logger)
+	if err != nil {
+		return
+	}
+
+	ctx, stop = signal.NotifyContext(baseCtx, daemonSignals()...)
+
+	maxDur, perr := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
+	if perr != nil {
+		err = fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, perr)
+		return
+	}
+
+	queue = jobqueue.New(jobqueue.Options{
+		StorePath:     filepath.Join(cfg.Daemon.OutputRoot, "jobs.json"),
+		MaxConcurrent: cfg.Daemon.MaxConcurrentJobs,
+		MaxDuration:   maxDur,
+		Logger:        logger,
+	})
+	if rerr := queue.Recover(); rerr != nil {
+		logger.Warn("failed to recover job queue", logging.Any("err", rerr))
+	}
+	recoverStaleJobs(queue, stalePID, logger)
+
+	discoveryCache = pipeline.NewDiscoveryCache()
+	events = pipeline.NewEventBus()
+	return
+}
+
+// startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
+func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc) {
+	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
+		return
+	}
+
+	activity := web.NewActivityRing(activityRingSize)
+	go activity.Bind(ctx, events)
+
+	restartHook := func() error {
+		stop()
+		return nil
+	}
+
+	runner := web.NewRunner(func(projectName string) (string, bool) {
+		curCfg := live.Load()
+		var proj config.ProjectConfig
+		found := false
+		for _, p := range curCfg.Projects {
+			if p.Name == projectName {
+				proj = p
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", false
+		}
+		job := queue.Enqueue(proj.Name, jobqueue.EnqueueConfig{
+			ProjectPath: proj.Path,
+			Provider:    resolveProvider(curCfg, proj),
+			Since:       proj.Since,
+		})
+		if job == nil {
+			return "", false
+		}
+		return job.ID, true
+	}, logger)
+
+	srv, srvErr := web.NewServer(web.Options{
+		Config:      cfg,
+		Logger:      logger,
+		Events:      events,
+		ConfigPtr:   live,
+		OverlayPath: overlayPath,
+		Runner:      runner,
+		RestartHook: restartHook,
+		Activity:    activity,
+	})
+	if srvErr != nil {
+		logger.Error("web server construct failed", logging.Any("err", srvErr))
+		return
+	}
+	if startErr := srv.Start(); startErr != nil {
+		logger.Error("web server start failed", logging.Any("err", startErr))
+		return
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+}
+
+// runDaemonLoop runs the main daemon scheduling loop until ctx is cancelled.
+func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queue, cfg *config.Config, frequency, retDur time.Duration, logger *logging.Logger, workers *workerPool) {
+	ticker := time.NewTicker(frequency)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			cmd.Printf("daemon stopping: %v\n", context.Cause(ctx))
+			logger.Info("daemon stopping", logging.Any("cause", context.Cause(ctx)))
+			// Don't call CancelRunning here: that would race with the
+			// worker's own terminal write when pipeline.Run returns
+			// from the cancelled ctx. Workers detect ctx.Canceled and
+			// call Cancel(job) themselves; the IsTerminal guard on
+			// queue mutators makes either order safe.
+			workers.Stop()
+			cmd.Printf("daemon stopped\n")
+			return
+		case <-ticker.C:
+			queue.PruneHistory(retDur)
+			enqueueMissingJobs(ctx, queue, cfg, logger)
+		}
+	}
 }
 
 // startConfigWatcher spawns a goroutine bound to ctx that watches the parent
