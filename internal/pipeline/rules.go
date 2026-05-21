@@ -46,7 +46,30 @@ func applyRuleToggles(packs []analyzer.RulePack, overrides map[string]config.Rul
 		if !ok {
 			continue
 		}
-		packs[i].Enabled = override.Enabled
+		if override.Enabled != nil {
+			packs[i].Enabled = *override.Enabled
+		}
+		if override.MistakePromptTemplate != "" {
+			packs[i].MistakePromptTemplate = override.MistakePromptTemplate
+		}
+		if override.GuardrailPromptTemplate != "" {
+			packs[i].GuardrailPromptTemplate = override.GuardrailPromptTemplate
+		}
+		if override.Phase1Preamble != "" {
+			packs[i].Phase1Preamble = override.Phase1Preamble
+		}
+		if override.Phase1CategoryDescription != "" {
+			packs[i].Phase1CategoryDescription = override.Phase1CategoryDescription
+		}
+		if override.Phase1ResponseSchema != "" {
+			packs[i].Phase1ResponseSchema = override.Phase1ResponseSchema
+		}
+		if override.Phase2Preamble != "" {
+			packs[i].Phase2Preamble = override.Phase2Preamble
+		}
+		if override.Phase2ResponseSchema != "" {
+			packs[i].Phase2ResponseSchema = override.Phase2ResponseSchema
+		}
 	}
 }
 

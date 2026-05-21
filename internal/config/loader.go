@@ -165,8 +165,18 @@ type WebConfig struct {
 
 // RuleConfig is a global override toggle for a rule category.
 type RuleConfig struct {
-	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	Enabled  *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	Severity string `yaml:"severity,omitempty" json:"severity,omitempty"`
+
+	// Template overrides (optional). When set, these replace the
+	// corresponding fields from the embedded YAML rule pack.
+	MistakePromptTemplate     string `yaml:"mistake_prompt_template,omitempty" json:"mistake_prompt_template,omitempty"`
+	GuardrailPromptTemplate   string `yaml:"guardrail_prompt_template,omitempty" json:"guardrail_prompt_template,omitempty"`
+	Phase1Preamble            string `yaml:"phase1_preamble,omitempty" json:"phase1_preamble,omitempty"`
+	Phase1CategoryDescription string `yaml:"phase1_category_description,omitempty" json:"phase1_category_description,omitempty"`
+	Phase1ResponseSchema      string `yaml:"phase1_response_schema,omitempty" json:"phase1_response_schema,omitempty"`
+	Phase2Preamble            string `yaml:"phase2_preamble,omitempty" json:"phase2_preamble,omitempty"`
+	Phase2ResponseSchema      string `yaml:"phase2_response_schema,omitempty" json:"phase2_response_schema,omitempty"`
 }
 
 // ProjectFileConfig is the per-project `<project>/.dreamer/config.yaml`.

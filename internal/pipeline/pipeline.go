@@ -357,11 +357,6 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
 
-	codebaseFiles, err := analyzer.CodebaseFiles(projectPath)
-	if err != nil {
-		logger.Warn("codebase files detection failed", logging.Any("err", err))
-	}
-
 	chunkCfg := cfg.Analyzer.Chunking
 	if opts.MaxChunkBytesOverrideSet {
 		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
@@ -449,7 +444,6 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 	in := analyzer.ChunkInputs{
 		Chunks:          chunks,
-		CodebaseFiles:   codebaseFiles,
 		RuleTimeoutSecs: cfg.Analyzer.RuleTimeoutSeconds,
 	}
 	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(chunks)), logging.Any("concurrency", rc.MaxConcurrency))

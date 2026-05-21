@@ -1,42 +1,21 @@
 category: test
 enabled: true
 threshold: 0.65
-timeout_seconds: 45
+
+phase1_category_description: "regressions or edge cases that a new automated test would have prevented"
+
 mistake_prompt_template: |
-  You are reading a chat transcript between a developer and an AI coding
-  assistant working on the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
   Identify recurring mistakes the assistant made that a NEW TEST (unit,
   integration, regression, fuzz) would have prevented. Look for: missing
   edge-case coverage, regressions reintroduced because no test guards them,
   silent failure modes never asserted, behaviour drift between agent attempts.
 
-  Return JSON of the shape:
-  {"mistakes": [
-    {"category": "test", "summary": "<one sentence>",
-     "evidence_excerpt": "<short quote from the chat>", "confidence": 0.0-1.0}
-  ]}
-
   Only emit mistakes you can quote evidence for.
 
 guardrail_prompt_template: |
-  Propose the smallest TEST that would have caught the listed mistake on
-  the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
-  Relevant codebase context:
-  {{codebase_context}}
-
-  Mistakes to address:
-  {{mistakes}}
-
-  Return JSON of this shape. The `path` MUST exist in the codebase context.
+  Propose the smallest TEST that would have caught the listed mistake.
   Prefer the project's existing test framework ({{test_framework}}).
+  The `path` MUST exist in the codebase.
 
   {"findings": [
     {

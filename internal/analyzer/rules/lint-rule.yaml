@@ -1,45 +1,20 @@
 category: lint-rule
 enabled: true
 threshold: 0.70
-timeout_seconds: 45
+
+phase1_category_description: "static-analysis miss the assistant kept making (would a lint rule have caught it?)"
+
 mistake_prompt_template: |
-  You are reading a chat transcript between a developer and an AI coding assistant
-  working on the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
-  Identify recurring mistakes the assistant made in this chat that a LINT RULE
-  would have prevented. Examples: nil dereference patterns the linter could
-  catch, missing error checks, shadowed variables, unsafe type assertions,
-  banned API usage, formatting drift, dead code, exhaustiveness gaps.
-
-  Return JSON of the shape:
-  {"mistakes": [
-    {"category": "lint-rule", "summary": "<one sentence>",
-     "evidence_excerpt": "<short quote from the chat>", "confidence": 0.0-1.0}
-  ]}
-
-  Be strict. Only emit mistakes that you can quote evidence for. If no mistakes
-  qualify, return {"mistakes": []}.
+  Identify recurring mistakes the assistant made that a LINT RULE would
+  have prevented. Look for: nil dereference patterns, missing error
+  checks, shadowed variables, unsafe type assertions, banned API usage,
+  formatting drift, dead code, exhaustiveness gaps.
 
 guardrail_prompt_template: |
-  You are proposing the smallest preventative LINT RULE that would have
-  stopped the assistant making the listed mistake on the project at
-  {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
-  Relevant codebase context (file list capped):
-  {{codebase_context}}
-
-  Mistakes to address:
-  {{mistakes}}
-
-  Return JSON conforming to this schema. Cite at least one real path/symbol
-  from the codebase context as `codebase_evidence`. Pick a lint rule that
-  actually exists in the toolchain's linter ({{primary_linter}}).
+  Propose the smallest LINT RULE that would have prevented the listed
+  mistake. Pick a lint rule that actually exists in the toolchain's
+  linter ({{primary_linter}}). Cite at least one real path/symbol from
+  the codebase as `codebase_evidence`.
 
   Schema:
   {"findings": [

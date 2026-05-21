@@ -1,40 +1,20 @@
 category: ci-check
 enabled: true
 threshold: 0.70
-timeout_seconds: 45
+
+phase1_category_description: "process gaps a CI/pre-commit check would have caught before merge"
+
 mistake_prompt_template: |
-  You are reading a chat transcript between a developer and an AI coding
-  assistant working on the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
   Identify recurring mistakes the assistant made that a NEW CI CHECK would
   have caught before merge. Look for: missed lint runs, missing type check
   gate, format drift not caught in CI, missing security scan, missing
   build/compile gate, missing integration smoke, missing migration dry-run.
 
-  Return JSON of the shape:
-  {"mistakes": [
-    {"category": "ci-check", "summary": "<one sentence>",
-     "evidence_excerpt": "<short quote from the chat>", "confidence": 0.0-1.0}
-  ]}
-
 guardrail_prompt_template: |
   Propose the smallest CI CHECK (job, step, or gate) that would have
-  prevented the listed mistake on the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
-  Relevant codebase context:
-  {{codebase_context}}
-
-  Mistakes to address:
-  {{mistakes}}
-
-  Return JSON. `config_snippet` must be valid for whatever CI system the
-  project uses (GitHub Actions / GitLab CI / Buildkite / etc.).
+  prevented the listed mistake. `config_snippet` must be valid for
+  whatever CI system the project uses (GitHub Actions / GitLab CI /
+  Buildkite / etc.).
 
   {"findings": [
     {

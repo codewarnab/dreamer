@@ -248,7 +248,8 @@ func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg
 func onlyTestRuleEnabled() map[string]config.RuleConfig {
 	rules := map[string]config.RuleConfig{}
 	for _, category := range analyzer.AllRuleCategories() {
-		rules[string(category)] = config.RuleConfig{Enabled: category == analyzer.RuleCategoryTest}
+		enabled := category == analyzer.RuleCategoryTest
+		rules[string(category)] = config.RuleConfig{Enabled: &enabled}
 	}
 	return rules
 }
