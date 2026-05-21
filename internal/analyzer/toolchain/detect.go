@@ -24,74 +24,150 @@ type LinterConfig struct {
 	EnabledRules []string
 }
 
+// linterCandidate describes how to detect one linter for a detection rule.
+type linterCandidate struct {
+	configFiles []string // sentinel config files to search for (OR-combined)
+	tool        string   // linter tool name when config is found
+	fallbacks   []string // linters to register when no config is found
+}
+
+// detectionRule defines one ecosystem to detect in a project root.
+type detectionRule struct {
+	sentinels      []string          // trigger files (OR-combined)
+	languages      []string          // languages to register
+	testFrameworks []string          // literal test frameworks (empty if callback used)
+	linters        []linterCandidate // linters to probe
+	configFiles    []string          // always-recorded config paths (relative to root)
+	detectTestFW   func(root string) string // override for test framework detection
+}
+
+var detectionRules = []detectionRule{
+	{
+		sentinels:      []string{"go.mod"},
+		languages:      []string{"go"},
+		testFrameworks: []string{"go test"},
+		linters: []linterCandidate{
+			{
+				configFiles: []string{".golangci.yml", ".golangci.yaml", ".golangci.toml"},
+				tool:        "golangci-lint",
+				fallbacks:   []string{"go vet", "staticcheck"},
+			},
+		},
+	},
+	{
+		sentinels:   []string{"package.json"},
+		languages:   []string{"javascript"},
+		configFiles: []string{"package.json"},
+		linters: []linterCandidate{
+			{
+				configFiles: []string{
+					"eslint.config.js", "eslint.config.cjs", "eslint.config.mjs", "eslint.config.ts",
+					".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yaml", ".eslintrc.yml",
+				},
+				tool: "eslint",
+			},
+			{
+				configFiles: []string{"biome.json", "biome.jsonc"},
+				tool:        "biome",
+			},
+		},
+		detectTestFW: deriveJSTestFramework,
+	},
+	{
+		sentinels:      []string{"pyproject.toml", "ruff.toml"},
+		languages:      []string{"python"},
+		testFrameworks: []string{"pytest"},
+		linters: []linterCandidate{
+			{
+				configFiles: []string{"ruff.toml", "pyproject.toml"},
+				tool:        "ruff",
+			},
+		},
+	},
+	{
+		sentinels: []string{".flake8", "setup.cfg"},
+		languages: []string{"python"},
+		linters: []linterCandidate{
+			{
+				configFiles: []string{".flake8", "setup.cfg"},
+				tool:        "flake8",
+			},
+		},
+	},
+	{
+		sentinels: []string{"mypy.ini"},
+		linters: []linterCandidate{
+			{
+				configFiles: []string{"mypy.ini"},
+				tool:        "mypy",
+			},
+		},
+	},
+	{
+		sentinels:      []string{"Cargo.toml"},
+		languages:      []string{"rust"},
+		testFrameworks: []string{"cargo test"},
+		linters: []linterCandidate{
+			{tool: "clippy"},
+		},
+		configFiles: []string{"Cargo.toml"},
+	},
+}
+
 // Detect inspects a project root and returns a best-effort Toolchain.
 func Detect(projectRoot string) Toolchain {
 	root := strings.TrimSpace(projectRoot)
 	if root == "" {
 		return Toolchain{}
 	}
-	t := Toolchain{}
-	if has(root, "go.mod") {
-		t.Languages = appendUnique(t.Languages, "go")
-		t.TestFrameworks = appendUnique(t.TestFrameworks, "go test")
-		if cfg := findFirst(root, ".golangci.yml", ".golangci.yaml", ".golangci.toml"); cfg != "" {
-			t.Linters = append(t.Linters, LinterConfig{Tool: "golangci-lint", ConfigPath: cfg})
-			t.ConfigFiles = append(t.ConfigFiles, cfg)
-		} else {
-			t.Linters = append(t.Linters,
-				LinterConfig{Tool: "go vet"},
-				LinterConfig{Tool: "staticcheck"},
-			)
+	var t Toolchain
+	for _, rule := range detectionRules {
+		if !anyPresent(root, rule.sentinels) {
+			continue
+		}
+		for _, lang := range rule.languages {
+			t.Languages = appendUnique(t.Languages, lang)
+		}
+		for _, fw := range rule.testFrameworks {
+			t.TestFrameworks = appendUnique(t.TestFrameworks, fw)
+		}
+		if rule.detectTestFW != nil {
+			t.TestFrameworks = appendUnique(t.TestFrameworks, rule.detectTestFW(root))
+		}
+		for _, l := range rule.linters {
+			if len(l.configFiles) == 0 {
+				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool})
+			} else if cfg := findFirst(root, l.configFiles...); cfg != "" {
+				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool, ConfigPath: cfg})
+				t.ConfigFiles = append(t.ConfigFiles, cfg)
+			} else {
+				for _, fb := range l.fallbacks {
+					t.Linters = append(t.Linters, LinterConfig{Tool: fb})
+				}
+			}
+		}
+		for _, cf := range rule.configFiles {
+			t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, cf))
 		}
 	}
-	if has(root, "package.json") {
-		t.Languages = appendUnique(t.Languages, "javascript")
-		if has(root, "tsconfig.json") {
-			t.Languages = appendUnique(t.Languages, "typescript")
-			t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, "tsconfig.json"))
-		}
-		if cfg := findFirst(root,
-			"eslint.config.js", "eslint.config.cjs", "eslint.config.mjs", "eslint.config.ts",
-			".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yaml", ".eslintrc.yml"); cfg != "" {
-			t.Linters = append(t.Linters, LinterConfig{Tool: "eslint", ConfigPath: cfg})
-			t.ConfigFiles = append(t.ConfigFiles, cfg)
-		}
-		if cfg := findFirst(root, "biome.json", "biome.jsonc"); cfg != "" {
-			t.Linters = append(t.Linters, LinterConfig{Tool: "biome", ConfigPath: cfg})
-			t.ConfigFiles = append(t.ConfigFiles, cfg)
-		}
-		t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, "package.json"))
-		t.TestFrameworks = appendUnique(t.TestFrameworks, deriveJSTestFramework(root))
-	}
-	if has(root, "pyproject.toml") || has(root, "ruff.toml") {
-		t.Languages = appendUnique(t.Languages, "python")
-		if cfg := findFirst(root, "ruff.toml", "pyproject.toml"); cfg != "" {
-			t.Linters = append(t.Linters, LinterConfig{Tool: "ruff", ConfigPath: cfg})
-			t.ConfigFiles = append(t.ConfigFiles, cfg)
-		}
-		t.TestFrameworks = appendUnique(t.TestFrameworks, "pytest")
-	}
-	if has(root, ".flake8") || has(root, "setup.cfg") {
-		t.Languages = appendUnique(t.Languages, "python")
-		if cfg := findFirst(root, ".flake8", "setup.cfg"); cfg != "" {
-			t.Linters = append(t.Linters, LinterConfig{Tool: "flake8", ConfigPath: cfg})
-			t.ConfigFiles = append(t.ConfigFiles, cfg)
-		}
-	}
-	if has(root, "mypy.ini") {
-		t.Linters = append(t.Linters, LinterConfig{Tool: "mypy", ConfigPath: filepath.Join(root, "mypy.ini")})
-		t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, "mypy.ini"))
-	}
-	if has(root, "Cargo.toml") {
-		t.Languages = appendUnique(t.Languages, "rust")
-		t.Linters = append(t.Linters, LinterConfig{Tool: "clippy"})
-		t.TestFrameworks = appendUnique(t.TestFrameworks, "cargo test")
-		t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, "Cargo.toml"))
+	// JS conditional: typescript language when tsconfig.json present.
+	if has(root, "package.json") && has(root, "tsconfig.json") {
+		t.Languages = appendUnique(t.Languages, "typescript")
+		t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, "tsconfig.json"))
 	}
 	sort.Strings(t.Languages)
 	sort.Strings(t.TestFrameworks)
 	sort.Strings(t.ConfigFiles)
 	return t
+}
+
+func anyPresent(root string, names []string) bool {
+	for _, n := range names {
+		if has(root, n) {
+			return true
+		}
+	}
+	return false
 }
 
 // PrimaryLinter returns the first detected linter tool, or empty.
