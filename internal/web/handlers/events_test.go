@@ -14,7 +14,7 @@ import (
 )
 
 // flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher
-// so StreamSSE can write events to it.
+// so the Events handler can write SSE frames to it.
 type flushRecorder struct {
 	*httptest.ResponseRecorder
 	mu sync.Mutex
@@ -67,7 +67,7 @@ func TestEventsHandler_Streams(t *testing.T) {
 		h(rec, req)
 		close(done)
 	}()
-	// Wait for the subscriber to register inside StreamSSE.
+	// Wait for the subscriber to register inside the Events handler.
 	time.Sleep(20 * time.Millisecond)
 	bus.Publish(pipeline.Event{Type: "run.done", Payload: map[string]any{"project": "x"}})
 
