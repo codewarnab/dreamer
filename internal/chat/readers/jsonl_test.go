@@ -125,7 +125,7 @@ func TestReadJSONLWithOptionsSanitizesClaudeRecords(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{SanitizeClaude: true})
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{Sanitizer: SanitizeClaudeMessages})
 	if err != nil {
 		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestReadJSONLWithOptionsSanitizesNoisyClaudePayloadAndKeepsSignal(t *testin
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{SanitizeClaude: true})
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{Sanitizer: SanitizeClaudeMessages})
 	if err != nil {
 		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestReadJSONLWithOptionsSanitizesCopilotSessionNoise(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{SanitizeCopilotSession: true})
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{Sanitizer: SanitizeCopilotSessionMessages})
 	if err != nil {
 		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestReadJSONLWithOptionsSanitizesCodexBootstrapMessages(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{SanitizeCodex: true})
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{Sanitizer: SanitizeCodexMessages})
 	if err != nil {
 		t.Fatalf("ReadJSONLWithOptions returned error: %v", err)
 	}

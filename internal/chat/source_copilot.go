@@ -33,7 +33,7 @@ func discoverCopilotSessionState(homeDir string) ([]ChatSource, error) {
 
 func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
-		SanitizeCopilotSession: true,
+		Sanitizer: readers.SanitizeCopilotSessionMessages,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
