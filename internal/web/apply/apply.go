@@ -23,10 +23,10 @@ const MaxApplyTargetBytes = 4 << 20
 // the UI is allowed to apply automatically (spec.v1.5 §6.4).
 // Keys derived from analyzer.RuleCategory constants; keep in sync.
 var EligibleCategories = map[string]bool{
-	string(analyzer.RuleCategoryDoc):       true,
-	string(analyzer.RuleCategoryLintRule):  true,
-	string(analyzer.RuleCategoryCICheck):   true,
-	string(analyzer.RuleCategoryConfig):    true,
+	string(analyzer.RuleCategoryDoc):      true,
+	string(analyzer.RuleCategoryLintRule): true,
+	string(analyzer.RuleCategoryCICheck):  true,
+	string(analyzer.RuleCategoryConfig):   true,
 }
 
 var (

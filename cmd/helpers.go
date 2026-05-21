@@ -14,9 +14,9 @@ const (
 	defaultConfigFileName = "config.yaml"
 
 	// Flag names for analyzer execution overrides shared by analyze and daemon.
-	flagParallel    = "parallel"
-	flagJobs        = "jobs"
-	flagChunkSize   = "chunk-size"
+	flagParallel  = "parallel"
+	flagJobs      = "jobs"
+	flagChunkSize = "chunk-size"
 )
 
 // analyzerFlagVars holds the variables bound to the analyzer execution flags.
