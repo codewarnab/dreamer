@@ -58,7 +58,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 		return result, nil
 	}
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, pool, builder, mistakesByCategory, in.CodebaseFiles, in.RuleTimeoutSecs, req)
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, pool, builder, mistakesByCategory, in.RuleTimeoutSecs, req)
 	result.Warnings = append(result.Warnings, p2Warnings...)
 	if err != nil {
 		return result, err
@@ -184,8 +184,8 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 // LLM completion).
 const phase2ToolMultiplier = 3
 
-func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder *PromptBuilder, mistakes map[RuleCategory][]Mistake, files []string, ruleTimeoutSecs int, req PhaseRequest) (map[RuleCategory][]Finding, []string, error) {
-	prompt, fileWarnings := builder.BuildPhase2(mistakes, files, req)
+func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder *PromptBuilder, mistakes map[RuleCategory][]Mistake, ruleTimeoutSecs int, req PhaseRequest) (map[RuleCategory][]Finding, []string, error) {
+	prompt, fileWarnings := builder.BuildPhase2(mistakes, req)
 	timeout := chunkTimeout(ruleTimeoutSecs) * phase2ToolMultiplier
 	raw, err := runWithPool(ctx, pool, prompt, timeout)
 	if err != nil {
@@ -215,7 +215,7 @@ func runWithPool(ctx context.Context, pool *SessionPool, prompt string, timeout 
 }
 
 func chunkTimeout(secs int) time.Duration {
-	if secs < 0 {
+	if secs <= 0 {
 		secs = defaultRuleTimeoutSeconds
 	}
 	return time.Duration(secs) * time.Second

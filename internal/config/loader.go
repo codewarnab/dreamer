@@ -14,18 +14,12 @@ import (
 )
 
 const (
-	// DefaultFrequencySeconds is the daemon polling interval (1 hour).
-	// Balances analysis freshness against provider API cost/rate limits.
-	// Each cycle runs the full pipeline across all projects.
 	DefaultFrequencySeconds = 3600
 	DefaultLogLevel         = "info"
-	// DefaultProviderID is the provider selected when neither config YAML nor
-	// CLI flag specifies one. Chosen because OpenClaude offers free unlimited usage.
-	DefaultProviderID = "openclaude-cli"
+	DefaultModel            = "gpt-5.3-codex"
+	DefaultProviderID       = "openclaude-cli"
 
 	// DefaultSince bounds first-run input volume on long-lived projects.
-	// Prevents ingesting months of history on first run. Users can set
-	// "since: lifetime" in config or --since lifetime on CLI to restore full history.
 	DefaultSince = "24h"
 
 	// LifetimeSinceValue restores unlimited-lookback behavior.
@@ -34,35 +28,25 @@ const (
 	ExecutionModeSequential = "sequential"
 	ExecutionModeParallel   = "parallel"
 
-	// DefaultMaxChunkBytes caps transcript bytes per chunk.
-	// ≈120k-160k tokens depending on content (3 bytes/token is a lower-bound
-	// estimate for code-heavy transcripts). Fits within ~200k-token context windows.
+	// DefaultMaxChunkBytes ≈ 160k tokens at 3 bytes/token.
 	DefaultMaxChunkBytes = 480_000
 
-	// Leave 20% of each chunk free so we don't overflow when adding the next provider's data.
+	// DefaultProviderBoundaryHeadroom: min free fraction before packing the next provider.
 	DefaultProviderBoundaryHeadroom = 0.20
 
 	// DefaultWebPort is the loopback port for the embedded web server.
-	// Chosen to avoid common dev ports (3000, 8080, etc.). Override via web.port in config.
 	DefaultWebPort = 7777
 
 	// DefaultMaxConcurrentJobs: one analysis at a time by default.
 	DefaultMaxConcurrentJobs = 1
 	// DefaultMaxAnalysisDuration caps a single job's wall-clock time.
-	// Typical runs finish in minutes; 8h is a safety net for large monorepos + slow providers.
 	DefaultMaxAnalysisDuration = "8h"
-	// DefaultJobHistoryRetention: keep completed job records for 30 days (720h = 30 * 24h).
-	// Long enough to debug patterns, short enough to not bloat jobs.json.
+	// DefaultJobHistoryRetention: keep completed job records for 30 days.
 	DefaultJobHistoryRetention = "720h"
 
-	// configDirName is the subdirectory under the platform config root (e.g. ~/.config/).
-	// Changing this migrates all users; coordinate with docs.
-	configDirName = "dreamer"
-	// globalConfigFile is the base config filename inside configDirName.
-	globalConfigFile = "config.yaml"
-	// projectConfigDir is the per-project config directory (e.g. <project>/.dreamer/).
-	projectConfigDir = ".dreamer"
-	// projectConfigFile is the per-project config filename inside projectConfigDir.
+	configDirName     = "dreamer"
+	globalConfigFile  = "config.yaml"
+	projectConfigDir  = ".dreamer"
 	projectConfigFile = "config.yaml"
 )
 
@@ -181,7 +165,7 @@ type WebConfig struct {
 
 // RuleConfig is a global override toggle for a rule category.
 type RuleConfig struct {
-	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	Enabled  *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	Severity string `yaml:"severity,omitempty" json:"severity,omitempty"`
 
 	// Template overrides (optional). When set, these replace the

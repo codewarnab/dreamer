@@ -540,7 +540,7 @@ func TestPromptBuilderPhase2UsesYAMLTemplates(t *testing.T) {
 	mistakes := map[RuleCategory][]Mistake{
 		RuleCategoryTest: {{Summary: "m1", Confidence: 0.9}},
 	}
-	prompt, _ := builder.BuildPhase2(mistakes, nil, PhaseRequest{})
+	prompt, _ := builder.BuildPhase2(mistakes, PhaseRequest{})
 
 	if !strings.Contains(prompt, "Custom phase2 preamble.") {
 		t.Fatalf("phase-2 prompt missing custom preamble:\n%s", prompt)

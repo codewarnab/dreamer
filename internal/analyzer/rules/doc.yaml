@@ -2,25 +2,7 @@ category: doc
 enabled: true
 threshold: 0.60
 
-phase1_preamble: |
-  You are auditing chat transcripts of a developer working with an AI coding assistant.
-
 phase1_category_description: "behavior the assistant misunderstood because the docs/comments were missing or wrong"
-
-phase1_response_schema: |
-  {"summary": "<= 2000 chars summarizing themes, in-progress threads, and the mistakes you flagged>",
-   "mistakes": {"<category-id>": [{"category": "<id>", "summary": "<one sentence>",
-    "evidence_excerpt": "<short quote>", "confidence": 0.0-1.0}]}}
-
-phase2_preamble: |
-  You are synthesizing guardrails from mistakes found across multiple transcript chunks.
-
-phase2_response_schema: |
-  {"findings": {"<category-id>": [{"category": "<id>", "mistake": "<one sentence>",
-   "guardrail": {"kind": "<category>", "tool": "...", "rule": "...", "config_snippet": "...",
-    "apply": {"target_file": "...", "strategy": "...", "anchor": "...", "snippet": "..."}},
-   "codebase_evidence": [{"path": "...", "lines": "1-10", "symbol": "..."}],
-   "confidence": 0.0-1.0}]}}
 
 mistake_prompt_template: |
   Identify recurring mistakes the assistant made that a DOC update would
@@ -30,17 +12,6 @@ mistake_prompt_template: |
   surprise at sandbox/permission contract.
 
 guardrail_prompt_template: |
-  You have access to these tools to verify findings against the actual codebase:
-  - Grep(pattern, path): search for patterns in files
-  - Read(file_path, offset, limit): read specific file contents
-  - Glob(pattern): find files by pattern
-
-  For each mistake:
-  1. Use Grep to find the relevant code patterns in the codebase
-  2. Read the specific files to understand the actual implementation
-  3. Only propose a guardrail if you can cite real code evidence (path, lines, symbol)
-  4. If the mistake doesn't match the actual code, skip it
-
   Propose the smallest DOC update (a new paragraph, callout, or section)
   that would have prevented the listed mistake. `path` MUST be a real
   doc-shaped file (README.md, CLAUDE.md, doc/*.md, ARCHITECTURE.md, ...)

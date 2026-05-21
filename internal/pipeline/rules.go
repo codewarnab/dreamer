@@ -46,8 +46,9 @@ func applyRuleToggles(packs []analyzer.RulePack, overrides map[string]config.Rul
 		if !ok {
 			continue
 		}
-		packs[i].Enabled = override.Enabled
-		// Apply template overrides when set.
+		if override.Enabled != nil {
+			packs[i].Enabled = *override.Enabled
+		}
 		if override.MistakePromptTemplate != "" {
 			packs[i].MistakePromptTemplate = override.MistakePromptTemplate
 		}

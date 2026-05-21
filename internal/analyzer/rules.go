@@ -143,17 +143,6 @@ func (r RulePack) EffectivePhase2ResponseSchema() string {
 	return defaultPhase2ResponseSchema
 }
 
-// EffectiveToolUseInstructions returns the pack's tool-use instructions
-// from guardrail_prompt_template, or the default if the template lacks
-// all three tool references (Grep, Read, Glob).
-func (r RulePack) EffectiveToolUseInstructions() string {
-	tmpl := r.GuardrailPromptTemplate
-	if strings.Contains(tmpl, "Grep(") && strings.Contains(tmpl, "Read(") && strings.Contains(tmpl, "Glob(") {
-		return "" // all three tools are already embedded in the template
-	}
-	return defaultToolUseInstructions
-}
-
 // Timeout returns the duration form of TimeoutSeconds, falling back to
 // the computed default when unset or non-positive.
 func (r RulePack) Timeout() time.Duration {

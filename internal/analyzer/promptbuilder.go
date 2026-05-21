@@ -57,13 +57,12 @@ func firstEnabledPack(packs []RulePack) *RulePack {
 
 // BuildPhase1 builds the prompt for one chunk. chunkIndex is 0-based; total is K.
 // priorSummary is the prior chunk's summary (sequential K>1 only); empty otherwise.
-// Prompt assembly uses YAML-driven preamble, category descriptions, and response schema.
 func (b *PromptBuilder) BuildPhase1(chunk Chunk, req PhaseRequest, priorSummary string, total int) string {
 	var sb strings.Builder
+	lead := firstEnabledPack(b.Packs)
 
-	// Preamble from first enabled pack (all packs share the same preamble).
-	if p := firstEnabledPack(b.Packs); p != nil {
-		sb.WriteString(p.EffectivePhase1Preamble())
+	if lead != nil {
+		sb.WriteString(lead.EffectivePhase1Preamble())
 		sb.WriteString("\n")
 	}
 	writeGroundingPreamble(&sb, req)
@@ -85,7 +84,6 @@ func (b *PromptBuilder) BuildPhase1(chunk Chunk, req PhaseRequest, priorSummary 
 	}
 	sb.WriteString("\n")
 
-	// Per-category mistake prompt hints (optional detail from YAML).
 	for _, p := range b.Packs {
 		if p.Enabled && p.MistakePromptTemplate != "" {
 			fmt.Fprintf(&sb, "<%s_guidance>\n", p.Category)
@@ -100,9 +98,8 @@ func (b *PromptBuilder) BuildPhase1(chunk Chunk, req PhaseRequest, priorSummary 
 	sb.WriteString("\n</transcript_chunk>\n\n")
 
 	sb.WriteString("Return JSON only with this exact shape:\n")
-	// Response schema from first enabled pack.
-	if p := firstEnabledPack(b.Packs); p != nil {
-		sb.WriteString(p.EffectivePhase1ResponseSchema())
+	if lead != nil {
+		sb.WriteString(lead.EffectivePhase1ResponseSchema())
 	} else {
 		sb.WriteString(defaultPhase1ResponseSchema)
 	}
@@ -112,39 +109,25 @@ func (b *PromptBuilder) BuildPhase1(chunk Chunk, req PhaseRequest, priorSummary 
 	return sb.String()
 }
 
-// BuildPhase2 builds the single guardrail-synthesis prompt. Instead of dumping
-// file paths, tool-use instructions tell the LLM to verify findings with
-// Grep/Read/Glob. Per-category guardrail_prompt_template provides the
-// verification strategy and output schema.
-func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistake, _ []string, req PhaseRequest) (string, []string) {
+// BuildPhase2 builds the guardrail-synthesis prompt. The LLM verifies findings
+// against actual code via Grep/Read/Glob tool calls; per-category guardrail
+// templates supply the verification strategy and output schema.
+func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistake, req PhaseRequest) (string, []string) {
 	enabled := b.EnabledCategories()
+	lead := firstEnabledPack(b.Packs)
 
 	var sb strings.Builder
 
-	// Preamble from first enabled pack.
-	if p := firstEnabledPack(b.Packs); p != nil {
-		sb.WriteString(p.EffectivePhase2Preamble())
+	if lead != nil {
+		sb.WriteString(lead.EffectivePhase2Preamble())
 		sb.WriteString("\n")
 	}
 	writeGroundingPreamble(&sb, req)
 	sb.WriteString("\n")
 
-	// Tool-use instructions: aggregate from enabled packs.
-	seenInstructions := map[string]bool{}
-	for _, p := range b.Packs {
-		if !p.Enabled {
-			continue
-		}
-		instr := p.EffectiveToolUseInstructions()
-		if instr == "" || seenInstructions[instr] {
-			continue
-		}
-		seenInstructions[instr] = true
-		sb.WriteString(instr)
-		sb.WriteString("\n\n")
-	}
+	sb.WriteString(defaultToolUseInstructions)
+	sb.WriteString("\n\n")
 
-	// Per-category guardrail prompt templates.
 	for _, p := range b.Packs {
 		if !p.Enabled {
 			continue
@@ -166,9 +149,8 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.WriteString("\n\n")
 
 	sb.WriteString("Return JSON only with this exact shape:\n")
-	// Response schema from first enabled pack.
-	if p := firstEnabledPack(b.Packs); p != nil {
-		sb.WriteString(p.EffectivePhase2ResponseSchema())
+	if lead != nil {
+		sb.WriteString(lead.EffectivePhase2ResponseSchema())
 	} else {
 		sb.WriteString(defaultPhase2ResponseSchema)
 	}
