@@ -36,6 +36,11 @@ const (
 
 	// DefaultWebPort is the loopback port for the embedded web server.
 	DefaultWebPort = 7777
+	// DefaultWebHost is the loopback address the web server binds to.
+	DefaultWebHost = "127.0.0.1"
+	// DefaultLogTailKB is the default number of kilobytes to read from
+	// the tail of dreamer.log for the /api/logs/tail endpoint.
+	DefaultLogTailKB = 256
 
 	// DefaultMaxConcurrentJobs: one analysis at a time by default.
 	DefaultMaxConcurrentJobs = 1
@@ -300,10 +305,10 @@ func applyDefaults(cfg *Config) error {
 		cfg.Web.Port = DefaultWebPort
 	}
 	if cfg.Web.Host == "" {
-		cfg.Web.Host = "127.0.0.1"
+		cfg.Web.Host = DefaultWebHost
 	}
 	if cfg.Web.LogTailKB == 0 {
-		cfg.Web.LogTailKB = 256
+		cfg.Web.LogTailKB = DefaultLogTailKB
 	}
 	applyDaemonJobQueueDefaults(cfg)
 	return nil

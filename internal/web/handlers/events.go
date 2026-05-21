@@ -6,6 +6,10 @@ import (
 	"net/http"
 )
 
+// sseSubscribeBuffer is the channel buffer size for SSE event subscribers.
+// Matches the constant in internal/web to keep the two SSE paths consistent.
+const sseSubscribeBuffer = 16
+
 // Events returns an http.HandlerFunc for GET /api/events. Streams
 // pipeline events to the client over SSE until the connection closes.
 func Events(deps Deps) http.HandlerFunc {
@@ -26,7 +30,7 @@ func Events(deps Deps) http.HandlerFunc {
 			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 			return
 		}
-		ch := deps.Events.Subscribe(16)
+		ch := deps.Events.Subscribe(sseSubscribeBuffer)
 		defer deps.Events.Unsubscribe(ch)
 		ctx := r.Context()
 		for {
