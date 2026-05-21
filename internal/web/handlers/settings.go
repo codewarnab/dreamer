@@ -34,9 +34,16 @@ func Settings(deps Deps) http.HandlerFunc {
 func settingsGet(deps Deps, w http.ResponseWriter, r *http.Request) {
 	cfg := deps.Config()
 	// JSON round-trip clone so sanitization doesn't mutate the live config.
-	raw, _ := json.Marshal(cfg)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		http.Error(w, "failed to marshal config", http.StatusInternalServerError)
+		return
+	}
 	var clone map[string]any
-	_ = json.Unmarshal(raw, &clone)
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		http.Error(w, "failed to clone config", http.StatusInternalServerError)
+		return
+	}
 	sanitizeProviderEnv(clone)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(clone)

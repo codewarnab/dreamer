@@ -136,7 +136,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	staticSub, _ := fs.Sub(assets, "static")
+	staticSub, err := fs.Sub(assets, "static")
+	if err != nil {
+		panic("embed: static subtree missing: " + err.Error())
+	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	mux.HandleFunc("/", s.handleIndex)
 	s.attachAPI(mux)
