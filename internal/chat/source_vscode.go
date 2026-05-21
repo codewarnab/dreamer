@@ -110,7 +110,7 @@ func readVSCodeWorkspaceEvidence(workspaceJSONPath string) (string, bool) {
 		return "", false
 	}
 
-	path := recursiveExtract(document, vscodeWorkspaceEvidenceKeys, 6)
+	path := recursiveExtract(document, vscodeWorkspaceEvidenceKeys, vscodeProbeMaxDepth)
 	if path == "" {
 		return "", false
 	}

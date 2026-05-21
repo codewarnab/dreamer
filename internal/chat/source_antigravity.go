@@ -139,7 +139,7 @@ func probeAntigravityJSONEvidence(payload []byte) (string, bool) {
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			continue
 		}
-		if path := recursiveExtract(record, claudeCWDEvidenceKeys, 8); path != "" {
+		if path := recursiveExtract(record, claudeCWDEvidenceKeys, probeMaxDepth); path != "" {
 			return path, true
 		}
 	}
