@@ -278,8 +278,7 @@ func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
 
 	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{
-		Chunks:        []Chunk{{Transcript: "x"}},
-		CodebaseFiles: []string{"a.go", "b.go", "sub/c.go"},
+		Chunks: []Chunk{{Transcript: "x"}},
 	}
 	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
 

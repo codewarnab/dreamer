@@ -13,8 +13,7 @@ import (
 // ChunkInputs is the phase-1 input bundle for the chunked orchestrator path.
 type ChunkInputs struct {
 	Chunks          []Chunk
-	CodebaseFiles   []string // path-only, fed to phase-2 grounding
-	RuleTimeoutSecs int      // applies to each phase-1 chunk call and phase-2 call
+	RuleTimeoutSecs int // applies to each phase-1 chunk call and phase-2 call
 }
 
 // RunChunks executes phase 1 (per chunk) and phase 2 (single union call) against
@@ -215,7 +214,7 @@ func runWithPool(ctx context.Context, pool *SessionPool, prompt string, timeout 
 }
 
 func chunkTimeout(secs int) time.Duration {
-	if secs <= 0 {
+	if secs < 0 {
 		secs = defaultRuleTimeoutSeconds
 	}
 	return time.Duration(secs) * time.Second

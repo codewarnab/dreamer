@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"dreamer/internal/config"
 )
 
 //go:embed rules/*.yaml
@@ -27,19 +25,9 @@ const (
 	RuleCategoryRefactorBoundary RuleCategory = "refactor-boundary"
 )
 
-// defaultRuleTimeoutSeconds is computed as maxAnalysisDuration / numRules.
-// This auto-adjusts when new rule categories are added.
-var defaultRuleTimeoutSeconds = func() int {
-	dur, err := time.ParseDuration(config.DefaultMaxAnalysisDuration)
-	if err != nil || dur <= 0 {
-		dur = 8 * time.Hour
-	}
-	n := len(AllRuleCategories())
-	if n == 0 {
-		n = 1
-	}
-	return int(dur.Seconds()) / n
-}()
+// defaultRuleTimeoutSeconds is the fallback per-rule prompt timeout
+// when neither config nor the rule pack supplies one.
+const defaultRuleTimeoutSeconds = 45
 
 // AllRuleCategories returns the canonical list of v1 categories in fixed order.
 // Keep in sync with the RuleCategory constants above when adding new categories.
