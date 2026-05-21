@@ -1,42 +1,50 @@
 category: config
 enabled: true
 threshold: 0.70
-timeout_seconds: 40
+
+phase1_preamble: |
+  You are auditing chat transcripts of a developer working with an AI coding assistant.
+
+phase1_category_description: "misconfiguration the assistant repeated because the config schema or example lacked a guardrail"
+
+phase1_response_schema: |
+  {"summary": "<= 2000 chars summarizing themes, in-progress threads, and the mistakes you flagged>",
+   "mistakes": {"<category-id>": [{"category": "<id>", "summary": "<one sentence>",
+    "evidence_excerpt": "<short quote>", "confidence": 0.0-1.0}]}}
+
+phase2_preamble: |
+  You are synthesizing guardrails from mistakes found across multiple transcript chunks.
+
+phase2_response_schema: |
+  {"findings": {"<category-id>": [{"category": "<id>", "mistake": "<one sentence>",
+   "guardrail": {"kind": "<category>", "tool": "...", "rule": "...", "config_snippet": "...",
+    "apply": {"target_file": "...", "strategy": "...", "anchor": "...", "snippet": "..."}},
+   "codebase_evidence": [{"path": "...", "lines": "1-10", "symbol": "..."}],
+   "confidence": 0.0-1.0}]}}
+
 mistake_prompt_template: |
-  You are reading a chat transcript between a developer and an AI coding
-  assistant working on the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
   Identify recurring mistakes the assistant made that a CONFIG file change
   (golangci.yml, eslint.config.js, ruff.toml, tsconfig.json, .editorconfig,
   pyproject.toml, etc.) would have prevented. Look for: assistant
   re-introducing patterns the config could ban, formatter drift, dependency
   pinning gaps, missing strictness flags.
 
-  Return JSON of the shape:
-  {"mistakes": [
-    {"category": "config", "summary": "<one sentence>",
-     "evidence_excerpt": "<short quote from the chat>", "confidence": 0.0-1.0}
-  ]}
-
 guardrail_prompt_template: |
+  You have access to these tools to verify findings against the actual codebase:
+  - Grep(pattern, path): search for patterns in files
+  - Read(file_path, offset, limit): read specific file contents
+  - Glob(pattern): find files by pattern
+
+  For each mistake:
+  1. Use Grep to find the relevant code patterns in the codebase
+  2. Read the specific files to understand the actual implementation
+  3. Only propose a guardrail if you can cite real code evidence (path, lines, symbol)
+  4. If the mistake doesn't match the actual code, skip it
+
   Propose the smallest CONFIG change that would have prevented the listed
-  mistake on the project at {{project_root}}.
-
-  Toolchain in use:
-  {{toolchain_summary}}
-
-  Relevant codebase context (file list):
-  {{codebase_context}}
-
-  Mistakes to address:
-  {{mistakes}}
-
-  Return JSON. `tool` is the config filename (must exist in the codebase
-  context or be a well-known canonical filename). `config_snippet` is the
-  exact lines to add or modify.
+  mistake. `tool` is the config filename (must exist in the codebase or
+  be a well-known canonical filename). `config_snippet` is the exact
+  lines to add or modify.
 
   {"findings": [
     {

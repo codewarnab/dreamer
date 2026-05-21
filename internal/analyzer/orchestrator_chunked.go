@@ -179,9 +179,15 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 	return mistakes, completed, warnings, nil
 }
 
+// phase2ToolMultiplier extends the timeout for phase 2 to account for
+// tool-use verification (Grep/Read/Glob calls take longer than a single
+// LLM completion).
+const phase2ToolMultiplier = 3
+
 func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder *PromptBuilder, mistakes map[RuleCategory][]Mistake, files []string, ruleTimeoutSecs int, req PhaseRequest) (map[RuleCategory][]Finding, []string, error) {
 	prompt, fileWarnings := builder.BuildPhase2(mistakes, files, req)
-	raw, err := runWithPool(ctx, pool, prompt, chunkTimeout(ruleTimeoutSecs))
+	timeout := chunkTimeout(ruleTimeoutSecs) * phase2ToolMultiplier
+	raw, err := runWithPool(ctx, pool, prompt, timeout)
 	if err != nil {
 		if errs.Is(err, errs.KindRateLimit) {
 			return nil, fileWarnings, fmt.Errorf("phase-2 hit provider rate limit: %w", err)
@@ -210,7 +216,7 @@ func runWithPool(ctx context.Context, pool *SessionPool, prompt string, timeout 
 
 func chunkTimeout(secs int) time.Duration {
 	if secs < 0 {
-		secs = DefaultRuleTimeoutSeconds
+		secs = defaultRuleTimeoutSeconds
 	}
 	return time.Duration(secs) * time.Second
 }

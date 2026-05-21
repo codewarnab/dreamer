@@ -265,7 +265,7 @@ func TestRunChunksSequentialFinalChunkSummaryOptional(t *testing.T) {
 	}
 }
 
-func TestRunChunksPhase2GroundingFilesOnly(t *testing.T) {
+func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
 	cap := &capturedTranscript{}
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
@@ -290,14 +290,18 @@ func TestRunChunksPhase2GroundingFilesOnly(t *testing.T) {
 	cap.mu.Lock()
 	defer cap.mu.Unlock()
 	p2 := cap.allPrompts[1]
-	for _, want := range []string{"a.go", "b.go", "sub/c.go"} {
+
+	// Phase 2 now contains tool-use instructions instead of file paths.
+	for _, want := range []string{"Grep(", "Read(", "Glob("} {
 		if !strings.Contains(p2, want) {
-			t.Fatalf("phase-2 prompt missing file %q:\n%s", want, p2)
+			t.Fatalf("phase-2 prompt missing tool-use instruction %q:\n%s", want, p2)
 		}
 	}
-	// No function symbols should appear: phase-2 grounding is files-only.
-	if strings.Contains(p2, "func ") {
-		t.Fatalf("phase-2 prompt unexpectedly contains symbol grounding (`func `):\n%s", p2)
+	// File paths should NOT appear as a dump (no path-only grounding).
+	for _, avoid := range []string{"a.go\n", "b.go\n", "sub/c.go\n"} {
+		if strings.Contains(p2, avoid) {
+			t.Fatalf("phase-2 prompt unexpectedly contains file path dump:\n%s", p2)
+		}
 	}
 }
 
@@ -495,6 +499,93 @@ func TestRunChunksSequentialAllParseMarksCompleted(t *testing.T) {
 	}
 	if len(res.CompletedCategories) != 1 || res.CompletedCategories[0] != string(RuleCategoryTest) {
 		t.Fatalf("CompletedCategories = %v, want [test]", res.CompletedCategories)
+	}
+}
+
+func TestRunChunksPhase2TimeoutMultiplier(t *testing.T) {
+	// Verify that phase 2 uses a 3x timeout multiplier.
+	timeout := chunkTimeout(10) * phase2ToolMultiplier
+	if timeout != 30*time.Second {
+		t.Fatalf("phase2 timeout = %v, want 30s (10s * 3)", timeout)
+	}
+}
+
+func TestPromptBuilderPhase1UsesYAMLPreamble(t *testing.T) {
+	packs := []RulePack{
+		{Category: RuleCategoryTest, Enabled: true, Phase1Preamble: "Custom preamble for testing.",
+			Phase1CategoryDescription: "custom category desc"},
+	}
+	builder := NewPromptBuilder(packs)
+	chunk := Chunk{Index: 0, Transcript: "hello", SourceLabels: []string{"codex"}}
+	prompt := builder.BuildPhase1(chunk, PhaseRequest{}, "", 1)
+
+	if !strings.Contains(prompt, "Custom preamble for testing.") {
+		t.Fatalf("phase-1 prompt missing custom preamble:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "custom category desc") {
+		t.Fatalf("phase-1 prompt missing custom category description:\n%s", prompt)
+	}
+}
+
+func TestPromptBuilderPhase2UsesYAMLTemplates(t *testing.T) {
+	packs := []RulePack{
+		{
+			Category:                RuleCategoryTest,
+			Enabled:                 true,
+			GuardrailPromptTemplate: "Custom guardrail instructions for test.",
+			Phase2Preamble:          "Custom phase2 preamble.",
+		},
+	}
+	builder := NewPromptBuilder(packs)
+	mistakes := map[RuleCategory][]Mistake{
+		RuleCategoryTest: {{Summary: "m1", Confidence: 0.9}},
+	}
+	prompt, _ := builder.BuildPhase2(mistakes, nil, PhaseRequest{})
+
+	if !strings.Contains(prompt, "Custom phase2 preamble.") {
+		t.Fatalf("phase-2 prompt missing custom preamble:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Custom guardrail instructions for test.") {
+		t.Fatalf("phase-2 prompt missing guardrail template:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Grep(") {
+		t.Fatalf("phase-2 prompt missing default tool-use instructions:\n%s", prompt)
+	}
+}
+
+func TestPromptBuilderSkipsDisabledPacks(t *testing.T) {
+	packs := []RulePack{
+		{Category: RuleCategoryLintRule, Enabled: false, Phase1Preamble: "SHOULD NOT APPEAR"},
+		{Category: RuleCategoryTest, Enabled: true, Phase1Preamble: "Correct preamble."},
+	}
+	builder := NewPromptBuilder(packs)
+	chunk := Chunk{Index: 0, Transcript: "x", SourceLabels: []string{"codex"}}
+	prompt := builder.BuildPhase1(chunk, PhaseRequest{}, "", 1)
+
+	if strings.Contains(prompt, "SHOULD NOT APPEAR") {
+		t.Fatalf("phase-1 prompt used disabled pack's preamble:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Correct preamble.") {
+		t.Fatalf("phase-1 prompt missing enabled pack's preamble:\n%s", prompt)
+	}
+}
+
+func TestFirstEnabledPackNil(t *testing.T) {
+	packs := []RulePack{
+		{Category: RuleCategoryLintRule, Enabled: false},
+		{Category: RuleCategoryTest, Enabled: false},
+	}
+	// Should not panic when all packs are disabled. The orchestrator
+	// rejects this case before calling BuildPhase1, but the builder
+	// itself should handle it gracefully (no preamble, no category list).
+	builder := NewPromptBuilder(packs)
+	chunk := Chunk{Index: 0, Transcript: "x", SourceLabels: []string{"codex"}}
+	prompt := builder.BuildPhase1(chunk, PhaseRequest{}, "", 1)
+	if strings.Contains(prompt, "Identify recurring mistakes") {
+		// Categories section should be empty (no enabled packs).
+		if strings.Contains(prompt, "- lint-rule:") || strings.Contains(prompt, "- test:") {
+			t.Fatalf("phase-1 prompt should not list disabled categories:\n%s", prompt)
+		}
 	}
 }
 

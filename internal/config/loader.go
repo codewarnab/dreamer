@@ -14,12 +14,18 @@ import (
 )
 
 const (
+	// DefaultFrequencySeconds is the daemon polling interval (1 hour).
+	// Balances analysis freshness against provider API cost/rate limits.
+	// Each cycle runs the full pipeline across all projects.
 	DefaultFrequencySeconds = 3600
 	DefaultLogLevel         = "info"
-	DefaultModel            = "gpt-5.3-codex"
-	DefaultProviderID       = "openclaude-cli"
+	// DefaultProviderID is the provider selected when neither config YAML nor
+	// CLI flag specifies one. Chosen because OpenClaude offers free unlimited usage.
+	DefaultProviderID = "openclaude-cli"
 
 	// DefaultSince bounds first-run input volume on long-lived projects.
+	// Prevents ingesting months of history on first run. Users can set
+	// "since: lifetime" in config or --since lifetime on CLI to restore full history.
 	DefaultSince = "24h"
 
 	// LifetimeSinceValue restores unlimited-lookback behavior.
@@ -28,25 +34,35 @@ const (
 	ExecutionModeSequential = "sequential"
 	ExecutionModeParallel   = "parallel"
 
-	// DefaultMaxChunkBytes ≈ 160k tokens at 3 bytes/token.
+	// DefaultMaxChunkBytes caps transcript bytes per chunk.
+	// ≈120k-160k tokens depending on content (3 bytes/token is a lower-bound
+	// estimate for code-heavy transcripts). Fits within ~200k-token context windows.
 	DefaultMaxChunkBytes = 480_000
 
-	// DefaultProviderBoundaryHeadroom: min free fraction before packing the next provider.
+	// Leave 20% of each chunk free so we don't overflow when adding the next provider's data.
 	DefaultProviderBoundaryHeadroom = 0.20
 
 	// DefaultWebPort is the loopback port for the embedded web server.
+	// Chosen to avoid common dev ports (3000, 8080, etc.). Override via web.port in config.
 	DefaultWebPort = 7777
 
 	// DefaultMaxConcurrentJobs: one analysis at a time by default.
 	DefaultMaxConcurrentJobs = 1
 	// DefaultMaxAnalysisDuration caps a single job's wall-clock time.
+	// Typical runs finish in minutes; 8h is a safety net for large monorepos + slow providers.
 	DefaultMaxAnalysisDuration = "8h"
-	// DefaultJobHistoryRetention: keep completed job records for 30 days.
+	// DefaultJobHistoryRetention: keep completed job records for 30 days (720h = 30 * 24h).
+	// Long enough to debug patterns, short enough to not bloat jobs.json.
 	DefaultJobHistoryRetention = "720h"
 
-	configDirName     = "dreamer"
-	globalConfigFile  = "config.yaml"
-	projectConfigDir  = ".dreamer"
+	// configDirName is the subdirectory under the platform config root (e.g. ~/.config/).
+	// Changing this migrates all users; coordinate with docs.
+	configDirName = "dreamer"
+	// globalConfigFile is the base config filename inside configDirName.
+	globalConfigFile = "config.yaml"
+	// projectConfigDir is the per-project config directory (e.g. <project>/.dreamer/).
+	projectConfigDir = ".dreamer"
+	// projectConfigFile is the per-project config filename inside projectConfigDir.
 	projectConfigFile = "config.yaml"
 )
 
@@ -167,6 +183,16 @@ type WebConfig struct {
 type RuleConfig struct {
 	Enabled  bool   `yaml:"enabled" json:"enabled"`
 	Severity string `yaml:"severity,omitempty" json:"severity,omitempty"`
+
+	// Template overrides (optional). When set, these replace the
+	// corresponding fields from the embedded YAML rule pack.
+	MistakePromptTemplate     string `yaml:"mistake_prompt_template,omitempty" json:"mistake_prompt_template,omitempty"`
+	GuardrailPromptTemplate   string `yaml:"guardrail_prompt_template,omitempty" json:"guardrail_prompt_template,omitempty"`
+	Phase1Preamble            string `yaml:"phase1_preamble,omitempty" json:"phase1_preamble,omitempty"`
+	Phase1CategoryDescription string `yaml:"phase1_category_description,omitempty" json:"phase1_category_description,omitempty"`
+	Phase1ResponseSchema      string `yaml:"phase1_response_schema,omitempty" json:"phase1_response_schema,omitempty"`
+	Phase2Preamble            string `yaml:"phase2_preamble,omitempty" json:"phase2_preamble,omitempty"`
+	Phase2ResponseSchema      string `yaml:"phase2_response_schema,omitempty" json:"phase2_response_schema,omitempty"`
 }
 
 // ProjectFileConfig is the per-project `<project>/.dreamer/config.yaml`.
