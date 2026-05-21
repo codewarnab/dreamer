@@ -68,7 +68,7 @@ func newStartCommand() *cobra.Command {
 			}
 
 			// Poll lockfile to confirm the daemon started successfully.
-			daemonPID := waitForLockfile(lockPath, 2*time.Second)
+			daemonPID := waitForLockfile(lockPath, lockfileWaitTimeoutShort)
 			if daemonPID == 0 {
 				return fmt.Errorf("daemon process started (PID %d) but did not write lockfile; check %s", child.Process.Pid, logPath)
 			}
@@ -89,7 +89,7 @@ func waitForLockfile(lockPath string, timeout time.Duration) int {
 		if pid, err := fsutil.ReadLockPID(lockPath); err == nil && pid > 0 {
 			return pid
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(lockfilePollIntervalFast)
 	}
 	return 0
 }

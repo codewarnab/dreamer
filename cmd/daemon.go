@@ -124,7 +124,7 @@ func newDaemonCommand() *cobra.Command {
 			workers.Start()
 
 			if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
-				activity := web.NewActivityRing(20)
+				activity := web.NewActivityRing(activityRingSize)
 				go activity.Bind(ctx, events)
 
 				restartHook := func() error {
@@ -173,7 +173,7 @@ func newDaemonCommand() *cobra.Command {
 					logger.Error("web server start failed", logging.Any("err", startErr))
 				} else {
 					defer func() {
-						shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
 						defer cancel()
 						_ = srv.Shutdown(shutdownCtx)
 					}()

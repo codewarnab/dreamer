@@ -46,7 +46,7 @@ func newStopCommand() *cobra.Command {
 			}
 
 			// Wait for lockfile removal (daemon cleans up via signal handler).
-			if waitErr := waitForLockfileRemoval(lockPath, 5*time.Second); waitErr != nil {
+			if waitErr := waitForLockfileRemoval(lockPath, lockfileWaitTimeoutLong); waitErr != nil {
 				// On Windows, taskkill terminates the process without triggering
 				// the signal handler, so the lockfile may not be cleaned up by
 				// the daemon itself. Remove it if the process is gone.
@@ -74,7 +74,7 @@ func waitForLockfileRemoval(lockPath string, timeout time.Duration) error {
 		if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 			return nil
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(lockfilePollIntervalSlow)
 	}
 	return fmt.Errorf("timeout waiting for lockfile removal")
 }
