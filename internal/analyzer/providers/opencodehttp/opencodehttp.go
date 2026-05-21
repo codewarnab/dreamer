@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -323,9 +324,9 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	}()
 
 	// Build the message with system message prepended.
-	text := prompt
+	text := chat.PrependMarker(prompt)
 	if s.sysMessage != "" {
-		text = s.sysMessage + "\n\n" + prompt
+		text = s.sysMessage + "\n\n" + text
 	}
 
 	// Send the message.

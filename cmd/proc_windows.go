@@ -1,0 +1,40 @@
+//go:build windows
+
+package cmd
+
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+	"syscall"
+)
+
+// detachedProcessAttr returns SysProcAttr that detaches the child from the
+// parent's console. DETACHED_PROCESS prevents the child from inheriting the
+// console; CREATE_NEW_PROCESS_GROUP gives it its own group (enables Ctrl+C
+// independence).
+func detachedProcessAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // DETACHED_PROCESS
+	}
+}
+
+// killDaemon uses taskkill to terminate the daemon and its entire process tree.
+// /T kills child processes (exec.CommandContext on Windows only kills the direct
+// child). /F forces termination since console apps don't receive WM_CLOSE.
+// Returns nil if the process is already gone (taskkill exit code 128).
+func killDaemon(pid int) error {
+	out, err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T", "/F").CombinedOutput()
+	if err != nil {
+		// taskkill exit code 128 = "process not found". Treat as success since
+		// the process is already gone — a race between IsProcessAlive and here.
+		if strings.Contains(string(out), "not found") {
+			return nil
+		}
+		if len(out) > 0 {
+			return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+		}
+		return err
+	}
+	return nil
+}

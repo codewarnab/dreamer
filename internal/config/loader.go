@@ -310,7 +310,7 @@ func applyAnalyzerExecutionDefaults(exec *ExecutionConfig) {
 }
 
 // applyAnalyzerChunkingDefaults fills MaxChunkBytes and ProviderBoundaryHeadroom.
-// CLI --max-chunk-bytes=0 is the disable-chunking escape hatch. For headroom
+// CLI --chunk-size=0 is the disable-chunking escape hatch. For headroom
 // the pointer's nil-ness distinguishes "unset" from explicit `0`.
 func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
 	if chunk.MaxChunkBytes == 0 {

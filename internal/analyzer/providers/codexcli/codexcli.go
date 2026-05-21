@@ -16,6 +16,7 @@ import (
 
 	analyzer "dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -147,15 +148,17 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	go func() {
 		defer stdin.Close()
-		body := prompt
+		body := chat.PrependMarker(prompt)
 		if s.systemMsg != "" {
-			body = s.systemMsg + "\n\n" + prompt
+			body = s.systemMsg + "\n\n" + body
 		}
 		body = transport.CapInputBytes(body, codexMaxInputBytes, "\n\n[transcript truncated to fit codex input cap]\n")
 		if dump := os.Getenv("DREAMER_DUMP_CODEX_PROMPT"); dump != "" {
 			_ = os.WriteFile(dump, []byte(body), 0o644)
 		}
-		_, _ = io.WriteString(stdin, body)
+		if _, writeErr := io.WriteString(stdin, body); writeErr != nil {
+			stderrBuf.WriteString(fmt.Sprintf("[stdin write failed: %v]", writeErr))
+		}
 	}()
 
 	final, parseErr := readStreamJSON(stdout)

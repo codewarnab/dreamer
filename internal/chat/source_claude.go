@@ -29,7 +29,7 @@ func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectP
 	root := filepath.Join(claudeRoot, "projects")
 	candidates, err := walkChatFiles(root, SourceTypeClaudeCodeSession, map[string]struct{}{
 		".jsonl": {},
-	})
+	}, skipDreamerMarkedFiles)
 	if err != nil {
 		return nil, err
 	}

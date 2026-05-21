@@ -30,6 +30,7 @@ const (
 const DefaultRuleTimeoutSeconds = 45
 
 // AllRuleCategories returns the canonical list of v1 categories in fixed order.
+// Keep in sync with the RuleCategory constants above when adding new categories.
 func AllRuleCategories() []RuleCategory {
 	return []RuleCategory{
 		RuleCategoryLintRule,

@@ -13,7 +13,6 @@ import (
 
 func newStatusCommand() *cobra.Command {
 	var (
-		configPath string
 		jsonOutput bool
 		all        bool
 		project    string
@@ -55,10 +54,9 @@ func newStatusCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to config file")
-	command.Flags().BoolVar(&jsonOutput, "json", false, "Machine-readable JSON output")
-	command.Flags().BoolVar(&all, "all", false, "Show all history (not just last 24h)")
-	command.Flags().StringVar(&project, "project", "", "Filter to one project")
+	command.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Machine-readable JSON output")
+	command.Flags().BoolVarP(&all, "all", "a", false, "Show all history (not just last 24h)")
+	command.Flags().StringVarP(&project, "project", "P", "", "Filter to one project")
 
 	return command
 }

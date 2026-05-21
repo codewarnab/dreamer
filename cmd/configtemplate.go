@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/config"
 )
 
 // configTemplate is the commented config.yaml emitted by `dreamer setup`.
@@ -75,7 +76,7 @@ redaction:
 providers:
   copilot-sdk:
     # GitHub Copilot SDK (native Go SDK). See spec §18.
-    model: {{provModel "copilot-sdk" "auto" .UserProvider .UserModel}}   # "auto" = SDK auto-select. Override: gpt-5.3-codex | gpt-4.1 | gpt-5
+    model: {{provModel "copilot-sdk" .UserProvider .UserModel}}   # "auto" = SDK auto-select. Override: gpt-5.3-codex | gpt-4.1 | gpt-5
     use_logged_in_user: true    # options: true | false. Use keychain auth. Mutually exclusive with cli_url.
     auto_start: false           # options: true | false. Spawn CLI eagerly vs. on first session.
     # copilot_home: ""          # override $COPILOT_HOME. Optional.
@@ -83,42 +84,42 @@ providers:
 
   copilot-acp:
     # Copilot via Agent Client Protocol stdio transport (spec §4.4).
-    model: {{provModel "copilot-acp" "auto" .UserProvider .UserModel}}   # "auto" = agent auto-select (default)
+    model: {{provModel "copilot-acp" .UserProvider .UserModel}}   # "auto" = agent auto-select (default)
     command: ["copilot", "--acp"]
     # env: {}                   # extra environment variables for the subprocess
 
   claude-cli:
     # Claude CLI via stream-json. Flags validated upstream; do not strip --output-format.
-    model: {{provModel "claude-cli" "claude-haiku-4-5-20251001" .UserProvider .UserModel}}  # default. Override: claude-sonnet-4-5-20250929 | claude-opus-4-7-20250917
+    model: {{provModel "claude-cli" .UserProvider .UserModel}}  # default. Override: claude-sonnet-4-5-20250929 | claude-opus-4-7-20250917
     command: ["claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
     # env: {}
 
   claude-acp:
-    model: {{provModel "claude-acp" "claude-haiku-4-5-20251001" .UserProvider .UserModel}}  # default
+    model: {{provModel "claude-acp" .UserProvider .UserModel}}  # default
     command: ["npx", "-y", "@zed-industries/claude-code-acp"]
     # env: {}
 
   gemini-cli:
     # Gemini CLI via stream-json in headless mode.
-    model: {{provModel "gemini-cli" "gemini-3-flash-preview" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
+    model: {{provModel "gemini-cli" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
     command: ["gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"]
     # env: {}
 
   gemini-acp:
-    model: {{provModel "gemini-acp" "gemini-3-flash-preview" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
+    model: {{provModel "gemini-acp" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
     command: ["gemini", "--acp"]
     # env: {}
 
   kiro-acp:
     # Kiro CLI via ACP.
-    model: {{provModel "kiro-acp" "claude-sonnet-4-5-20250929" .UserProvider .UserModel}}  # default
+    model: {{provModel "kiro-acp" .UserProvider .UserModel}}  # default
     command: ["kiro-cli", "acp"]
     # env: {}
 
   codex-cli:
     # OpenAI Codex CLI via 'codex exec --json --sandbox read-only' (spec v1.1).
     # Override command to add flags like --model, --image, or to point at a wrapper.
-    model: {{provModel "codex-cli" "gpt-5.4-mini" .UserProvider .UserModel}}              # default. Override: gpt-5.4-mini-2026-03-17 | gpt-5
+    model: {{provModel "codex-cli" .UserProvider .UserModel}}              # default. Override: gpt-5.4-mini-2026-03-17 | gpt-5
     command: ["codex", "exec", "--json", "--sandbox", "read-only"]
     # env: {}                   # extra environment for the subprocess
 
@@ -127,7 +128,7 @@ providers:
     # OpenAI's 'codex' binary does not ship a native ACP server yet, so the
     # 'command' field must point at a third-party bridge that speaks
     # JSON-RPC 2.0 over stdio.
-    model: {{provModel "codex-acp" "gpt-5.4-mini" .UserProvider .UserModel}}              # default
+    model: {{provModel "codex-acp" .UserProvider .UserModel}}              # default
     command: ["codex-acp"]
     # env: {}
 
@@ -139,7 +140,7 @@ providers:
     # placeholder value the gateway ignores. OPENAI_BASE_URL + OPENAI_MODEL
     # mirror ~/.openclaude/.openclaude-profile.json so the subprocess does
     # not have to inherit them from an interactive shell.
-    model: {{provModel "openclaude-cli" "mimo-v2.5-pro" .UserProvider .UserModel}}
+    model: {{provModel "openclaude-cli" .UserProvider .UserModel}}
     command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
     env:
       OPENAI_BASE_URL: "https://opengateway.gitlawb.com/v1"
@@ -227,11 +228,14 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		// matches userProvider, and the documented default for every other
 		// block. Keeps non-selected provider blocks at their canonical
 		// defaults so the rendered file documents every option.
-		"provModel": func(blockID, defaultModel, userProvider, userModel string) string {
+		"provModel": func(blockID, userProvider, userModel string) string {
 			if blockID == userProvider && strings.TrimSpace(userModel) != "" {
 				return userModel
 			}
-			return defaultModel
+			if m, ok := config.DefaultModelByProvider[config.ProviderID(blockID)]; ok {
+				return m
+			}
+			return ""
 		},
 		// providerOptionsComment renders the "# Options:" block from the
 		// analyzer registry so the documented provider list cannot drift

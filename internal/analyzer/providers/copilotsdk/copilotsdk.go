@@ -10,6 +10,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 )
 
@@ -149,7 +150,7 @@ func (s *copilotSession) Run(ctx context.Context, prompt string, timeout time.Du
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	event, err := s.session.SendAndWait(ctx, copilot.MessageOptions{Prompt: prompt})
+	event, err := s.session.SendAndWait(ctx, copilot.MessageOptions{Prompt: chat.PrependMarker(prompt)})
 	if err != nil {
 		return "", fmt.Errorf("run copilot-sdk prompt: Copilot request failed; verify authentication and connectivity: %w", err)
 	}

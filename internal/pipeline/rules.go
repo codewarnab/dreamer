@@ -61,7 +61,7 @@ func buildRedactor(cfg *config.Config, project *config.ProjectFileConfig) (*anal
 func buildProviderConfig(providerID string, block config.ProviderBlock) analyzer.ProviderConfig {
 	out := analyzer.ProviderConfig{
 		Model:          block.Model,
-		DefaultModel:   config.DefaultModelByProvider[providerID],
+		DefaultModel:   config.DefaultModelByProvider[config.ProviderID(providerID)],
 		CopilotHome:    block.CopilotHome,
 		CLIURL:         block.CLIURL,
 		Command:        append([]string(nil), block.Command...),

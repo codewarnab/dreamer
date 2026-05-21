@@ -35,7 +35,7 @@ func discoverGeminiCLISessions(homeDir string, geminiHomeDir string, projectPath
 	candidates, err := walkChatFiles(root, SourceTypeGeminiCLISession, map[string]struct{}{
 		".jsonl": {},
 		".json":  {},
-	})
+	}, skipDreamerMarkedFiles)
 	if err != nil {
 		return nil, err
 	}

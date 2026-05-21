@@ -56,7 +56,7 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 				".pb":    {},
 				".pbtxt": {},
 				".jsonl": {},
-			})
+			}, skipDreamerMarkedFiles)
 			if err != nil {
 				return nil, err
 			}

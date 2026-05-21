@@ -15,17 +15,14 @@ import (
 
 func newAnalyzeCommand() *cobra.Command {
 	var (
-		configPath     string
-		projectPath    string
-		providerID     string
-		force          bool
-		dryRun         bool
-		permissive     bool
-		outputDir      string
-		since          string
-		parallel       bool
-		maxConcurrency int
-		maxChunkBytes  int
+		projectPath string
+		providerID  string
+		force       bool
+		dryRun      bool
+		permissive  bool
+		outputDir   string
+		since       string
+		afv         analyzerFlagVars
 	)
 
 	command := &cobra.Command{
@@ -83,11 +80,11 @@ func newAnalyzeCommand() *cobra.Command {
 				Permissive:             permissive,
 				OutputDir:              outputDir,
 				Since:                  since,
-				ParallelOverride:       parallel,
-				MaxConcurrencyOverride: maxConcurrency,
+				ParallelOverride:       afv.parallel,
+				MaxConcurrencyOverride: afv.jobs,
 			}
-			if cmd.Flags().Changed("max-chunk-bytes") {
-				opts.MaxChunkBytesOverride = maxChunkBytes
+			if cmd.Flags().Changed(flagChunkSize) {
+				opts.MaxChunkBytesOverride = afv.chunkSize
 				opts.MaxChunkBytesOverrideSet = true
 			}
 			result, err := pipeline.Run(commandContext(cmd), opts, logger)
@@ -127,17 +124,14 @@ func newAnalyzeCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&configPath, "config", "", "Path to global config file (default: <UserConfigDir>/dreamer/config.yaml)")
 	command.Flags().StringVar(&projectPath, "path", "", "Absolute project directory to analyze (required)")
-	command.Flags().StringVar(&providerID, "provider", "", "Override the configured provider id")
-	command.Flags().BoolVar(&force, "force", false, "Skip the incremental cache and re-analyze every discovered chat")
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "Run phase 1 only (mistake extraction); do not synthesize guardrails or write todos.md")
+	command.Flags().StringVarP(&providerID, "provider", "P", "", "Override the configured provider id")
+	command.Flags().BoolVarP(&force, "force", "f", false, "Skip the incremental cache and re-analyze every discovered chat")
+	command.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Run phase 1 only (mistake extraction); do not synthesize guardrails or write todos.md")
 	command.Flags().BoolVar(&permissive, "permissive", false, "Disable strict lint-rule allow-list; emit unrecognised rule ids tagged [unverified]")
-	command.Flags().StringVar(&outputDir, "output-dir", "", "Override the per-project output directory")
-	command.Flags().StringVar(&since, "since", config.DefaultSince, "Lookback window (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime). 'lifetime' disables filtering.")
-	command.Flags().BoolVar(&parallel, "parallel", false, "Force analyzer.execution.mode=parallel for this run (provider must implement ParallelCapable; otherwise falls back to sequential with a warning)")
-	command.Flags().IntVar(&maxConcurrency, "max-concurrency", 0, "Cap parallel session count. 0 = len(chunks). Ignored when sequential.")
-	command.Flags().IntVar(&maxChunkBytes, "max-chunk-bytes", 0, "Override analyzer.chunking.max_chunk_bytes for this run. 0 disables chunking (single chunk regardless of size).")
+	command.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Override the per-project output directory")
+	command.Flags().StringVarP(&since, "since", "s", config.DefaultSince, "Lookback window for chat history (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime)")
+	registerAnalyzerFlags(command.Flags(), &afv)
 	_ = command.MarkFlagRequired("path")
 
 	return command

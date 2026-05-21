@@ -28,7 +28,9 @@ var claudeCWDEvidenceKeys = map[string]struct{}{
 
 // walkChatFiles enumerates files under root whose extension is in extensions
 // and returns one ChatSource per match. Missing roots yield no sources.
-func walkChatFiles(root string, sourceType SourceType, extensions map[string]struct{}) ([]ChatSource, error) {
+// The optional skip filter is called for each matched file; when it returns
+// true the file is excluded. Pass nil to accept all files.
+func walkChatFiles(root string, sourceType SourceType, extensions map[string]struct{}, skip func(path string) bool) ([]ChatSource, error) {
 	trimmedRoot := strings.TrimSpace(root)
 	if trimmedRoot == "" {
 		return nil, nil
@@ -56,6 +58,10 @@ func walkChatFiles(root string, sourceType SourceType, extensions map[string]str
 
 		extension := strings.ToLower(filepath.Ext(entry.Name()))
 		if _, ok := extensions[extension]; !ok {
+			return nil
+		}
+
+		if skip != nil && skip(path) {
 			return nil
 		}
 
@@ -183,6 +189,48 @@ func extractPathValue(value any, depth int) string {
 	}
 
 	return ""
+}
+
+// isJSONLExtension returns true if the file path has a .jsonl extension.
+func isJSONLExtension(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".jsonl")
+}
+
+// skipDreamerMarkedFiles is a walkChatFiles filter that skips JSONL files
+// containing the DreamerMarker. Used by all JSONL-based discovery providers
+// to exclude dreamer-created sessions from discovery results.
+func skipDreamerMarkedFiles(path string) bool {
+	return isJSONLExtension(path) && containsDreamerMarker(path)
+}
+
+// containsDreamerMarker scans the first markerScanLines of a JSONL file for the
+// DreamerMarker string. Dreamer embeds this marker in every prompt so its
+// analysis sessions can be filtered during discovery, breaking the feedback loop.
+// Returns true if the marker is found. Read errors and non-UTF8 content are
+// treated as non-matches (the file is simply included in discovery results).
+func containsDreamerMarker(path string) bool {
+	const markerScanLines = 10
+
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, probeInitialBufferSize), probeMaxBufferSize)
+
+	linesRead := 0
+	for scanner.Scan() {
+		linesRead++
+		if linesRead > markerScanLines {
+			break
+		}
+		if strings.Contains(scanner.Text(), DreamerMarker) {
+			return true
+		}
+	}
+	return false
 }
 
 // splitDiscoveryField parses a `key: value` line, trimming whitespace and

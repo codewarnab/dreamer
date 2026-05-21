@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -124,6 +125,8 @@ type setupModel struct {
 	projectPathErr   string
 	quit             bool
 	confirmed        bool
+	width            int
+	height           int
 }
 
 // prefillFromConfig pulls defaults out of an existing config so re-running
@@ -188,7 +191,9 @@ func providerItems() []list.Item {
 
 func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel {
 	providers := providerItems()
-	pl := list.New(providers, compactDelegate{}, 60, listHeight(len(providers)))
+	// Use a sensible initial width; WindowSizeMsg will update it.
+	initialW := 80
+	pl := list.New(providers, compactDelegate{}, initialW-20, listHeight(len(providers)))
 	pl.Title = "1/5 - Provider"
 	pl.SetShowHelp(false)
 	pl.SetShowStatusBar(false)
@@ -201,8 +206,9 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		freq.SetValue("60")
 	}
 
+	defaultRoot, _ := config.UserConfigRoot()
 	out := textinput.New()
-	out.Placeholder = "(empty = default: <UserConfigDir>/dreamer)"
+	out.Placeholder = defaultRoot
 	if initial.outputRoot != "" {
 		out.SetValue(initial.outputRoot)
 	}
@@ -214,7 +220,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerItem{"info", ""},
 		providerItem{"debug", ""},
 	}
-	ll := list.New(levels, compactDelegate{}, 60, listHeight(len(levels)))
+	ll := list.New(levels, compactDelegate{}, initialW-20, listHeight(len(levels)))
 	ll.Title = "6/10 - Log level"
 	ll.SetShowHelp(false)
 	ll.SetShowStatusBar(false)
@@ -295,17 +301,16 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch t := msg.(type) {
 	case tea.KeyMsg:
 		key := t.String()
-		switch key {
-		case "ctrl+c", "esc":
-			m.quit = true
-			return m, tea.Quit
-		case "enter":
-			return m.advance()
-		}
 		// Step-specific key handling for yes/no prompts.
 		switch m.step {
 		case stepStartupYN:
-			switch strings.ToLower(key) {
+			switch key {
+			case "enter":
+				m.answers.startupInstall = true
+				return m.advance()
+			case "esc":
+				m.answers.startupInstall = false
+				return m.advance()
 			case "y":
 				m.answers.startupInstall = true
 				return m.advance()
@@ -332,13 +337,31 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.advance()
 			}
 		}
+		// Global keys for all other steps.
+		switch key {
+		case "ctrl+c":
+			m.quit = true
+			return m, tea.Quit
+		case "left":
+			return m.goBack()
+		case "esc":
+			// In yes/no steps, esc already means "skip/no"; for all
+			// other steps it navigates back.
+			return m.goBack()
+		case "enter":
+			return m.advance()
+		}
 	case tea.WindowSizeMsg:
-		// Keep list height tied to item count (compactDelegate is 1 line/item)
-		// so very tall terminals do not pad empty rows after the last item.
-		// Only the width tracks the terminal so long descriptions wrap nicely.
-		w := t.Width - 4
-		if w < 30 {
-			w = 30
+		m.width = t.Width
+		m.height = t.Height
+		// Box inner width: terminal minus box border (2) + padding (4) minus some margin (6).
+		// Clamp to a usable range so tiny and huge terminals both look fine.
+		w := t.Width - 12
+		if w < 40 {
+			w = 40
+		}
+		if w > 90 {
+			w = 90
 		}
 		m.providerList.SetWidth(w)
 		if m.step == stepModel {
@@ -376,6 +399,71 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// goBack returns to the previous wizard step.  The reverse path mirrors
+// advance() but must account for skipped branches (startup, advanced,
+// parallel, first-project).
+func (m setupModel) goBack() (tea.Model, tea.Cmd) {
+	switch m.step {
+	case stepProvider:
+		// First step — nowhere to go.
+	case stepModel:
+		m.step = stepProvider
+	case stepFrequency:
+		m.step = stepModel
+	case stepOutputRoot:
+		m.freqInput.Focus()
+		m.step = stepFrequency
+	case stepStartupYN:
+		m.outputInput.Focus()
+		m.step = stepOutputRoot
+	case stepLogLevel:
+		if m.skipStartup {
+			m.outputInput.Focus()
+			m.step = stepOutputRoot
+		} else {
+			m.step = stepStartupYN
+		}
+	case stepRuleTimeout:
+		m.step = stepLogLevel
+	case stepParallelYN:
+		m.ruleTimeoutInput.Focus()
+		m.step = stepRuleTimeout
+	case stepMaxConcurrency:
+		m.step = stepParallelYN
+	case stepMaxChunkBytes:
+		if m.answers.parallel {
+			m.maxConcInput.Focus()
+			m.step = stepMaxConcurrency
+		} else {
+			m.step = stepParallelYN
+		}
+	case stepFirstProjectYN:
+		m.maxChunkInput.Focus()
+		m.step = stepMaxChunkBytes
+	case stepProjectPath:
+		m.step = stepFirstProjectYN
+	case stepProjectName:
+		m.projectPathInput.Focus()
+		m.step = stepProjectPath
+	case stepProjectSince:
+		m.projectNameInput.Focus()
+		m.step = stepProjectName
+	case stepSummary:
+		if m.answers.firstProject {
+			m.step = stepProjectSince
+		} else if m.advanced {
+			m.maxChunkInput.Focus()
+			m.step = stepMaxChunkBytes
+		} else if !m.skipStartup {
+			m.step = stepStartupYN
+		} else {
+			m.outputInput.Focus()
+			m.step = stepOutputRoot
+		}
+	}
+	return m, nil
+}
+
 func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
@@ -387,7 +475,7 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		for i, mm := range models {
 			items[i] = providerItem{mm, ""}
 		}
-		ml := list.New(items, compactDelegate{}, 60, listHeight(len(items)))
+		ml := list.New(items, compactDelegate{}, m.providerList.Width(), listHeight(len(items)))
 		ml.Title = "2/5 - Model for " + m.answers.provider
 		ml.SetShowHelp(false)
 		ml.SetShowStatusBar(false)
@@ -524,7 +612,22 @@ func (m setupModel) View() string {
 		return ""
 	}
 	bannerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0"))
-	style := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).Padding(1, 2)
+
+	// Compute box width from terminal size.  The inner content width is what
+	// lists and text inputs use; the box adds border (2) + padding (4).
+	boxInner := m.width - 12 // margin for border+padding+outer breathing room
+	if boxInner < 40 {
+		boxInner = 40
+	}
+	if boxInner > 90 {
+		boxInner = 90
+	}
+	boxOuter := boxInner + 6 // border(2) + padding(4)
+	style := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		Padding(1, 2).
+		Width(boxInner)
+
 	var body string
 	switch m.step {
 	case stepProvider:
@@ -534,9 +637,15 @@ func (m setupModel) View() string {
 	case stepFrequency:
 		body = fmt.Sprintf("3/5 - Daemon frequency (minutes):\n\n%s\n\n(Press Enter to accept)", m.freqInput.View())
 	case stepOutputRoot:
-		body = fmt.Sprintf("4/5 - Output root (absolute path; empty = default):\n\n%s\n\n(Press Enter to accept)", m.outputInput.View())
+		body = fmt.Sprintf("4/5 - Where should dreamer save results?\n(analysis reports, logs, and project state)\n\n%s\n\nPress Enter to use the default, or type a custom folder path.", m.outputInput.View())
 	case stepStartupYN:
-		body = "5/5 - Install startup hook? Press 'y' to install, 'n' or Enter to skip."
+		var hookDesc string
+		if runtime.GOOS == "windows" {
+			hookDesc = "Registers a Windows Task Scheduler entry so the daemon\nstarts automatically when you log in."
+		} else {
+			hookDesc = "Installs a systemd user service so the daemon\nstarts automatically when you log in."
+		}
+		body = fmt.Sprintf("5/5 - Start dreamer automatically?\n\n%s\n\nEnter = yes, Esc = skip", hookDesc)
 	case stepLogLevel:
 		body = m.logLevelList.View()
 	case stepRuleTimeout:
@@ -562,7 +671,11 @@ func (m setupModel) View() string {
 	case stepSummary:
 		out := m.answers.outputRoot
 		if out == "" {
-			out = "(default)"
+			if root, err := config.UserConfigRoot(); err == nil {
+				out = root + " (default)"
+			} else {
+				out = "(default)"
+			}
 		}
 		body = fmt.Sprintf(
 			"Ready to write config:\n\n  provider:          %s\n  model:             %s\n  frequency_seconds: %d\n  output_root:       %s\n  startup_install:   %v\n",
@@ -582,25 +695,59 @@ func (m setupModel) View() string {
 		}
 		body += "\nPress Enter to confirm or Ctrl+C to cancel.\n\nNote: re-running setup rewrites the file and drops YAML comments.\nKeep ui-overrides.yaml-bound edits in the web UI to preserve config.yaml comments."
 	}
-	return bannerStyle.Render(dreamerBanner) + "\n" + style.Render(body)
+	banner := bannerStyle.Render(dreamerBanner)
+	box := style.Render(body)
+
+	// Center the banner and content box horizontally.
+	centerWidth := m.width
+	if centerWidth <= 0 {
+		centerWidth = 80 // safe default when no TTY or before first WindowSizeMsg
+	}
+	// Use the larger of boxOuter and banner width as the centering target.
+	// Banner is ~68 chars wide; skip centering if terminal is narrower.
+	targetW := boxOuter
+	if targetW < 68 {
+		targetW = 68
+	}
+	// Navigation hint (dim, below the box).
+	navHint := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#666666")).
+		Render("  ← / esc: back    enter: next    ctrl+c: quit")
+	if centerWidth >= targetW {
+		banner = lipgloss.PlaceHorizontal(centerWidth, lipgloss.Center, banner)
+		box = lipgloss.PlaceHorizontal(centerWidth, lipgloss.Center, box)
+		navHint = lipgloss.PlaceHorizontal(centerWidth, lipgloss.Center, navHint)
+	}
+	layout := banner + "\n" + box + "\n" + navHint
+
+	// Vertically center the whole layout in the terminal.
+	centerHeight := m.height
+	if centerHeight <= 0 {
+		centerHeight = 40
+	}
+	if centerHeight > 0 {
+		layout = lipgloss.PlaceVertical(centerHeight, lipgloss.Center, layout)
+	}
+	return layout
 }
 
 // defaultModelsFor returns the known-good models for a provider. Reuses
 // config.DefaultModelByProvider; falls back to config.DefaultModel when the
 // provider id is not in the map.
 func defaultModelsFor(provider string) []string {
-	if m, ok := config.DefaultModelByProvider[provider]; ok && m != "" {
+	if m, ok := config.DefaultModelByProvider[config.ProviderID(provider)]; ok && m != "" {
 		return []string{m}
 	}
 	return []string{config.DefaultModel}
 }
 
 // dreamerBanner is the ASCII art splashed at the top of `dreamer setup`.
-// Half-block (3 lines, ~49 chars wide) so it fits an 80-col terminal with
-// room to spare and does not dominate the wizard's vertical real estate.
-const dreamerBanner = ` ░█▀▄░█▀▄░█▀▀░█▀█░█▄█░█▀▀░█▀▄
- ░█░█░█▀▄░█▀▀░█▀█░█░█░█▀▀░█▀▄
- ░▀▀░░▀░▀░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀`
+// 5-line block letters (~68 chars wide) for readability at 80+ col terminals.
+const dreamerBanner = ` ██████╗ ██████╗ ███████╗ █████╗ ███╗   ███╗███████╗██████╗
+ ██╔══██╗██╔══██╗██╔════╝██╔══██╗████╗ ████║██╔════╝██╔══██╗
+ ██║  ██║██████╔╝█████╗  ███████║██╔████╔██║█████╗  ██████╔╝
+ ██║  ██║██╔══██╗██╔══╝  ██╔══██║██║╚██╔╝██║██╔══╝  ██╔══██╗
+ ██████╔╝██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗██║  ██║`
 
 // buildConfigYAML renders the wizard's answers into the full commented
 // config template. Comments document every configurable knob the daemon

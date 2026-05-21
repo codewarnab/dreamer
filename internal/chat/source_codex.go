@@ -35,7 +35,7 @@ func discoverCodexSessions(homeDir string, projectPath string) ([]ChatSource, er
 	} {
 		sources, err := walkChatFiles(root, SourceTypeCodexSessionJSONL, map[string]struct{}{
 			".jsonl": {},
-		})
+		}, skipDreamerMarkedFiles)
 		if err != nil {
 			return nil, err
 		}
