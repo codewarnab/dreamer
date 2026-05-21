@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/template"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/config"
 )
 
@@ -21,11 +22,8 @@ const configTemplate = `# dreamer global config (v1.5). See doc/spec.md, doc/spe
 # settings page (writes to ui-overrides.yaml) to preserve comments here.
 
 # Provider used when --provider is not passed and no per-project config sets one.
-# Options: openclaude-cli | copilot-sdk | copilot-acp |
-#          claude-cli     | claude-acp  | gemini-cli  | gemini-acp  |
-#          kiro-acp       | codex-cli   | codex-acp   |
-#          opencode-acp   | opencode-server | codebuff-sdk
-default_provider: {{.DefaultProvider}}
+# Options:
+{{providerOptionsComment}}default_provider: {{.DefaultProvider}}
 
 # Projects iterated by the daemon. Each entry: {name, path, since}.
 #   name:  output subdir under <output_root>
@@ -238,6 +236,29 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 				return m
 			}
 			return ""
+		},
+		// providerOptionsComment renders the "# Options:" block from the
+		// analyzer registry so the documented provider list cannot drift
+		// from the registered set. Three IDs per row, indented to align
+		// under "# Options:".
+		"providerOptionsComment": func() string {
+			meta := analyzer.RegisteredProviderMeta()
+			var b strings.Builder
+			const perRow = 3
+			for i, m := range meta {
+				if i%perRow == 0 {
+					b.WriteString("#   ")
+				}
+				b.WriteString(string(m.ID))
+				if i == len(meta)-1 {
+					b.WriteString("\n")
+				} else if (i+1)%perRow == 0 {
+					b.WriteString("\n")
+				} else {
+					b.WriteString(" | ")
+				}
+			}
+			return b.String()
 		},
 	})
 	tmpl, err := tmpl.Parse(configTemplate)
