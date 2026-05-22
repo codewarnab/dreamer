@@ -49,7 +49,7 @@ func settingsGet(deps Deps, w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(clone)
 }
 
-// sanitizeProviderEnv redacts env values whose keys hint at secrets.
+// sanitizeProviderEnv redacts env values whose keys hint at secrets and top-level passwords.
 func sanitizeProviderEnv(m map[string]any) {
 	providers, ok := m["providers"].(map[string]any)
 	if !ok {
@@ -59,6 +59,9 @@ func sanitizeProviderEnv(m map[string]any) {
 		block, ok := p.(map[string]any)
 		if !ok {
 			continue
+		}
+		if pwd, ok := block["password"].(string); ok && pwd != "" {
+			block["password"] = "***redacted***"
 		}
 		env, ok := block["env"].(map[string]any)
 		if !ok {
@@ -88,6 +91,19 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if providers, ok := body["providers"].(map[string]any); ok {
+		for id, p := range providers {
+			block, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, exists := block["command"]; exists {
+				http.Error(w, fmt.Sprintf("modifying command for provider %q is not allowed", id), http.StatusBadRequest)
+				return
+			}
+		}
 	}
 
 	existing := map[string]any{}
