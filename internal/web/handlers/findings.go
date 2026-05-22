@@ -169,6 +169,44 @@ func parseProjectNameFromFindings(urlPath string) string {
 //
 // Dismissed findings are hidden by default; they appear only when the
 // caller explicitly asks for status=dismissed.
+// buildFindingView reconciles a todosEntry against the loaded state and constructs a FindingView.
+func buildFindingView(entry todosEntry, st *state.State, latestRunHashes map[string]bool) FindingView {
+	status := "open"
+	var fs state.FindingState
+	var lifecycle bool
+	if st != nil {
+		fs, lifecycle = st.Findings[entry.Hash]
+		if lifecycle && fs.Status != "" {
+			status = fs.Status
+		}
+	}
+
+	view := FindingView{
+		Hash:        entry.Hash,
+		Category:    entry.Category,
+		Summary:     entry.Summary,
+		Status:      status,
+		LastSeenUTC: entry.RunTimestamp,
+	}
+
+	if lifecycle {
+		if !fs.AppliedAt.IsZero() {
+			view.AppliedAt = fs.AppliedAt.UTC().Format(time.RFC3339)
+		}
+		if !fs.DismissedAt.IsZero() {
+			view.DismissedAt = fs.DismissedAt.UTC().Format(time.RFC3339)
+		}
+		if !fs.ResolvedAt.IsZero() {
+			view.ResolvedAt = fs.ResolvedAt.UTC().Format(time.RFC3339)
+		}
+		if (status == state.FindingStatusApplied || status == state.FindingStatusResolved) &&
+			latestRunHashes[entry.Hash] {
+			view.Recurred = true
+		}
+	}
+	return view
+}
+
 func ProjectFindings(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -211,57 +249,26 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 		dedupe := map[string]int{}
 		out := make([]FindingView, 0, len(allEntries))
 		for _, entry := range allEntries {
-			status := "open"
-			var fs state.FindingState
-			var lifecycle bool
-			if st != nil {
-				fs, lifecycle = st.Findings[entry.Hash]
-				if lifecycle && fs.Status != "" {
-					status = fs.Status
-				}
-			}
+			view := buildFindingView(entry, st, latestRunHashes)
 
 			// Hide dismissed unless the caller explicitly asks for them.
-			if status == state.FindingStatusDismissed && filterStatus != state.FindingStatusDismissed {
+			if view.Status == state.FindingStatusDismissed && filterStatus != state.FindingStatusDismissed {
 				continue
 			}
-			if filterStatus != "" && filterStatus != status {
+			if filterStatus != "" && filterStatus != view.Status {
 				continue
 			}
-			if filterCategory != "" && strings.ToLower(entry.Category) != filterCategory {
+			if filterCategory != "" && strings.ToLower(view.Category) != filterCategory {
 				continue
-			}
-
-			view := FindingView{
-				Hash:        entry.Hash,
-				Category:    entry.Category,
-				Summary:     entry.Summary,
-				Status:      status,
-				LastSeenUTC: entry.RunTimestamp,
-			}
-			if lifecycle {
-				if !fs.AppliedAt.IsZero() {
-					view.AppliedAt = fs.AppliedAt.UTC().Format(time.RFC3339)
-				}
-				if !fs.DismissedAt.IsZero() {
-					view.DismissedAt = fs.DismissedAt.UTC().Format(time.RFC3339)
-				}
-				if !fs.ResolvedAt.IsZero() {
-					view.ResolvedAt = fs.ResolvedAt.UTC().Format(time.RFC3339)
-				}
-				if (status == state.FindingStatusApplied || status == state.FindingStatusResolved) &&
-					latestRunHashes[entry.Hash] {
-					view.Recurred = true
-				}
 			}
 
 			// Dedupe by hash; overwrite earlier (older) occurrences so
 			// LastSeenUTC reflects the most recent run mentioning it.
-			if i, seen := dedupe[entry.Hash]; seen {
+			if i, seen := dedupe[view.Hash]; seen {
 				out[i] = view
 				continue
 			}
-			dedupe[entry.Hash] = len(out)
+			dedupe[view.Hash] = len(out)
 			out = append(out, view)
 		}
 
@@ -355,33 +362,7 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		view := FindingView{
-			Hash:        found.Hash,
-			Category:    found.Category,
-			Summary:     found.Summary,
-			Status:      "open",
-			LastSeenUTC: found.RunTimestamp,
-		}
-		if st != nil {
-			if fs, ok := st.Findings[hashLower]; ok {
-				if fs.Status != "" {
-					view.Status = fs.Status
-				}
-				if !fs.AppliedAt.IsZero() {
-					view.AppliedAt = fs.AppliedAt.UTC().Format(time.RFC3339)
-				}
-				if !fs.DismissedAt.IsZero() {
-					view.DismissedAt = fs.DismissedAt.UTC().Format(time.RFC3339)
-				}
-				if !fs.ResolvedAt.IsZero() {
-					view.ResolvedAt = fs.ResolvedAt.UTC().Format(time.RFC3339)
-				}
-				if (view.Status == state.FindingStatusApplied || view.Status == state.FindingStatusResolved) &&
-					latestRunHashes[hashLower] {
-					view.Recurred = true
-				}
-			}
-		}
+		view := buildFindingView(*found, st, latestRunHashes)
 
 		// Diff preview is opt-in via query params.
 		var diff string
