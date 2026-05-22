@@ -292,31 +292,31 @@ func permissionApproved() copilot.PermissionRequestResult {
 }
 
 func permissionRejected(reason string) copilot.PermissionRequestResult {
-	result := copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindRejected}
+	denial := copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindRejected}
 	if trimmed := strings.TrimSpace(reason); trimmed != "" {
-		result.Rules = []any{
+		denial.Rules = []any{
 			map[string]any{"decision": "deny", "reason": trimmed},
 		}
 	}
-	return result
+	return denial
 }
 
 func upsertEnvVar(env []string, key string, value string) []string {
 	prefix := key + "="
 	replaced := false
-	result := make([]string, 0, len(env)+1)
+	merged := make([]string, 0, len(env)+1)
 	for _, entry := range env {
 		if strings.HasPrefix(entry, prefix) {
 			if !replaced {
-				result = append(result, prefix+value)
+				merged = append(merged, prefix+value)
 				replaced = true
 			}
 			continue
 		}
-		result = append(result, entry)
+		merged = append(merged, entry)
 	}
 	if !replaced {
-		result = append(result, prefix+value)
+		merged = append(merged, prefix+value)
 	}
-	return result
+	return merged
 }

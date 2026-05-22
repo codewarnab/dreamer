@@ -220,12 +220,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", fmt.Errorf("codebuff-sdk: HTTP %d: %s", resp.StatusCode, responseBody)
 	}
 
-	var result chatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var completionResponse chatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&completionResponse); err != nil {
 		return "", fmt.Errorf("codebuff-sdk: decode response: %w", err)
 	}
 
-	return extractResponseText(result)
+	return extractResponseText(completionResponse)
 }
 
 func (s *session) Close() error { return nil }

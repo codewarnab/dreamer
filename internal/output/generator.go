@@ -55,10 +55,10 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 		return GenerateResult{}, err
 	}
 
-	merged, result := MergeTodos(projectName, existingContent, findings, opts)
-	result.Path = todosPath
+	merged, mergeResult := MergeTodos(projectName, existingContent, findings, opts)
+	mergeResult.Path = todosPath
 	if merged == "" {
-		return result, nil
+		return mergeResult, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(todosPath), fsutil.DirPerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("create todos directory %q: %w", filepath.Dir(todosPath), err)
@@ -66,7 +66,7 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 	if err := fsutil.WriteFileAtomic(todosPath, []byte(merged), fsutil.FilePerms); err != nil {
 		return GenerateResult{}, fmt.Errorf("write todos file %q: %w", todosPath, err)
 	}
-	return result, nil
+	return mergeResult, nil
 }
 
 // MergeTodos returns the updated todos.md content for a run.
@@ -75,7 +75,7 @@ func GenerateTodos(projectName string, findings []analyzer.Finding, opts Generat
 // the filesystem. If there are no new findings and no warnings to render, the
 // returned mergedContent is empty and result still reports the existing hashes
 // observed in existingContent.
-func MergeTodos(projectName, existingContent string, findings []analyzer.Finding, opts GenerateOptions) (mergedContent string, result GenerateResult) {
+func MergeTodos(projectName, existingContent string, findings []analyzer.Finding, opts GenerateOptions) (mergedContent string, mergeResult GenerateResult) {
 	existingHashes := extractExistingFindingHashes(existingContent)
 	newFindings := filterNewFindings(findings, existingHashes)
 
@@ -93,15 +93,15 @@ func MergeTodos(projectName, existingContent string, findings []analyzer.Finding
 		sections = append(sections, renderWarningsSection(opts.Warnings, runAt))
 	}
 
-	result = GenerateResult{
+	mergeResult = GenerateResult{
 		AddedFindings:  len(newFindings),
 		WroteWarnings:  len(opts.Warnings) > 0,
 		ExistingHashes: existingHashes,
 	}
 	if len(sections) == 0 {
-		return "", result
+		return "", mergeResult
 	}
-	return mergeContent(existingContent, projectTitle(projectName, opts.ProjectTitle), sections), result
+	return mergeContent(existingContent, projectTitle(projectName, opts.ProjectTitle), sections), mergeResult
 }
 
 func todosPathForProject(projectName string, outputRoot string) (string, error) {
@@ -171,33 +171,33 @@ func renderRunSection(findings []analyzer.Finding, runAt time.Time) string {
 	grouped := groupByCategory(findings)
 	categories := sortedCategoryHeadings(grouped)
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "## Run %s\n\n", runAt.Format(time.RFC3339))
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "## Run %s\n\n", runAt.Format(time.RFC3339))
 	for i, heading := range categories {
 		if i > 0 {
-			b.WriteByte('\n')
+			builder.WriteByte('\n')
 		}
-		fmt.Fprintf(&b, "### %s\n", heading)
+		fmt.Fprintf(&builder, "### %s\n", heading)
 		for _, finding := range grouped[heading] {
-			b.WriteString(renderFinding(finding))
+			builder.WriteString(renderFinding(finding))
 		}
 	}
-	return b.String()
+	return builder.String()
 }
 
 func renderWarningsSection(warnings []string, runAt time.Time) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "## Warnings (Run %s)\n\n", runAt.Format(time.RFC3339))
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "## Warnings (Run %s)\n\n", runAt.Format(time.RFC3339))
 	for _, warning := range warnings {
 		text := strings.TrimSpace(warning)
 		if text == "" {
 			continue
 		}
-		b.WriteString("- ")
-		b.WriteString(text)
-		b.WriteByte('\n')
+		builder.WriteString("- ")
+		builder.WriteString(text)
+		builder.WriteByte('\n')
 	}
-	return b.String()
+	return builder.String()
 }
 
 func groupByCategory(findings []analyzer.Finding) map[string][]analyzer.Finding {
@@ -219,30 +219,30 @@ func sortedCategoryHeadings(grouped map[string][]analyzer.Finding) []string {
 }
 
 func renderFinding(finding analyzer.Finding) string {
-	var b strings.Builder
+	var builder strings.Builder
 	prefix := "- [ ] "
 	if finding.Unverified {
 		prefix = "- [ ] [unverified] "
 	}
-	b.WriteString(prefix)
-	b.WriteString(renderMistakeLine(finding))
-	b.WriteByte('\n')
+	builder.WriteString(prefix)
+	builder.WriteString(renderMistakeLine(finding))
+	builder.WriteByte('\n')
 	if snippet := strings.TrimSpace(finding.Guardrail.ConfigSnippet); snippet != "" {
-		b.WriteString(renderSnippet(snippet, finding.Guardrail.Tool))
+		builder.WriteString(renderSnippet(snippet, finding.Guardrail.Tool))
 	}
 	if len(finding.Evidence) > 0 {
-		b.WriteString("    Evidence:\n")
+		builder.WriteString("    Evidence:\n")
 		for _, ev := range finding.Evidence {
-			b.WriteString("    - ")
-			b.WriteString(renderEvidenceLine(ev))
-			b.WriteByte('\n')
+			builder.WriteString("    - ")
+			builder.WriteString(renderEvidenceLine(ev))
+			builder.WriteByte('\n')
 		}
 	}
-	fmt.Fprintf(&b, "    <!-- dreamer:finding:%s -->\n", finding.Hash)
+	fmt.Fprintf(&builder, "    <!-- dreamer:finding:%s -->\n", finding.Hash)
 	if finding.Unverified {
-		b.WriteString("    <!-- dreamer:lintrule:unverified -->\n")
+		builder.WriteString("    <!-- dreamer:lintrule:unverified -->\n")
 	}
-	return b.String()
+	return builder.String()
 }
 
 func renderMistakeLine(finding analyzer.Finding) string {
@@ -250,46 +250,46 @@ func renderMistakeLine(finding analyzer.Finding) string {
 	if finding.Guardrail.Tool == "" && finding.Guardrail.Rule == "" {
 		return mistake
 	}
-	var b strings.Builder
-	b.WriteString(mistake)
+	var builder strings.Builder
+	builder.WriteString(mistake)
 	if finding.Guardrail.Rule != "" || finding.Guardrail.Tool != "" {
-		b.WriteString(" — guardrail: ")
+		builder.WriteString(" — guardrail: ")
 		if finding.Guardrail.Tool != "" {
-			b.WriteString(finding.Guardrail.Tool)
+			builder.WriteString(finding.Guardrail.Tool)
 		}
 		if finding.Guardrail.Rule != "" {
 			if finding.Guardrail.Tool != "" {
-				b.WriteByte('/')
+				builder.WriteByte('/')
 			}
-			b.WriteString(finding.Guardrail.Rule)
+			builder.WriteString(finding.Guardrail.Rule)
 		}
-		b.WriteString(".")
+		builder.WriteString(".")
 	}
-	return b.String()
+	return builder.String()
 }
 
 func renderSnippet(snippet string, tool string) string {
 	language := snippetLanguage(tool)
-	var b strings.Builder
-	b.WriteString("    ```")
+	var builder strings.Builder
+	builder.WriteString("    ```")
 	if language != "" {
-		b.WriteString(language)
+		builder.WriteString(language)
 	}
-	b.WriteByte('\n')
+	builder.WriteByte('\n')
 	for _, line := range strings.Split(snippet, "\n") {
 		if line != "" {
-			b.WriteString("    ")
+			builder.WriteString("    ")
 		}
-		b.WriteString(line)
-		b.WriteByte('\n')
+		builder.WriteString(line)
+		builder.WriteByte('\n')
 	}
-	b.WriteString("    ```\n")
-	return b.String()
+	builder.WriteString("    ```\n")
+	return builder.String()
 }
 
 func snippetLanguage(tool string) string {
-	t := strings.ToLower(strings.TrimSpace(tool))
-	switch t {
+	normalizedTool := strings.ToLower(strings.TrimSpace(tool))
+	switch normalizedTool {
 	case "golangci-lint", "golangci":
 		return "yaml"
 	case "eslint", "biome":
@@ -299,59 +299,59 @@ func snippetLanguage(tool string) string {
 	case "github-actions", "gitlab-ci", "buildkite":
 		return "yaml"
 	}
-	if strings.HasSuffix(t, ".yaml") || strings.HasSuffix(t, ".yml") {
+	if strings.HasSuffix(normalizedTool, ".yaml") || strings.HasSuffix(normalizedTool, ".yml") {
 		return "yaml"
 	}
-	if strings.HasSuffix(t, ".json") {
+	if strings.HasSuffix(normalizedTool, ".json") {
 		return "json"
 	}
-	if strings.HasSuffix(t, ".toml") {
+	if strings.HasSuffix(normalizedTool, ".toml") {
 		return "toml"
 	}
 	return ""
 }
 
 func renderEvidenceLine(ev analyzer.CodebaseEvidence) string {
-	var b strings.Builder
-	b.WriteByte('`')
-	b.WriteString(ev.Path)
+	var builder strings.Builder
+	builder.WriteByte('`')
+	builder.WriteString(ev.Path)
 	if strings.TrimSpace(ev.Lines) != "" {
-		b.WriteByte(':')
-		b.WriteString(ev.Lines)
+		builder.WriteByte(':')
+		builder.WriteString(ev.Lines)
 	}
-	b.WriteByte('`')
+	builder.WriteByte('`')
 	if strings.TrimSpace(ev.Symbol) != "" {
-		b.WriteString(" (`")
-		b.WriteString(ev.Symbol)
-		b.WriteString("`)")
+		builder.WriteString(" (`")
+		builder.WriteString(ev.Symbol)
+		builder.WriteString("`)")
 	}
-	return b.String()
+	return builder.String()
 }
 
 func mergeContent(existing string, header string, sections []string) string {
-	var b strings.Builder
+	var builder strings.Builder
 	if strings.TrimSpace(existing) == "" {
-		b.WriteString(header)
-		b.WriteString("\n\n")
-		b.WriteString(versionMarker)
-		b.WriteString("\n\n")
+		builder.WriteString(header)
+		builder.WriteString("\n\n")
+		builder.WriteString(versionMarker)
+		builder.WriteString("\n\n")
 	} else {
-		b.WriteString(existing)
+		builder.WriteString(existing)
 		if !strings.HasSuffix(existing, "\n") {
-			b.WriteByte('\n')
+			builder.WriteByte('\n')
 		}
-		b.WriteByte('\n')
+		builder.WriteByte('\n')
 	}
 	for i, section := range sections {
 		if i > 0 {
-			b.WriteByte('\n')
+			builder.WriteByte('\n')
 		}
-		b.WriteString(section)
+		builder.WriteString(section)
 		if !strings.HasSuffix(section, "\n") {
-			b.WriteByte('\n')
+			builder.WriteByte('\n')
 		}
 	}
-	return b.String()
+	return builder.String()
 }
 
 func projectTitle(projectName string, override string) string {

@@ -182,9 +182,9 @@ func FormatTemplate(template string, vars map[string]string) string {
 	if template == "" {
 		return template
 	}
-	result := template
+	resolvedTemplate := template
 	for k, v := range vars {
-		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
+		resolvedTemplate = strings.ReplaceAll(resolvedTemplate, "{{"+k+"}}", v)
 	}
-	return result
+	return resolvedTemplate
 }

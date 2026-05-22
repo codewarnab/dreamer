@@ -80,11 +80,11 @@ func TestMergeWithProcessEnv(t *testing.T) {
 			}
 
 			// Run merge
-			result := MergeWithProcessEnv(tt.extra)
+			mergedEnv := MergeWithProcessEnv(tt.extra)
 
 			// Convert result to map for easier checking
 			resultMap := make(map[string]string)
-			for _, kv := range result {
+			for _, kv := range mergedEnv {
 				parts := strings.SplitN(kv, "=", 2)
 				if len(parts) == 2 {
 					resultMap[parts[0]] = parts[1]
@@ -119,13 +119,13 @@ func TestMergeWithProcessEnv_EmptyValueSemantics(t *testing.T) {
 	os.Setenv("KEEP_ME", "value")
 
 	// Empty value should delete CLAUDECODE
-	result := MergeWithProcessEnv(map[string]string{
+	mergedEnv := MergeWithProcessEnv(map[string]string{
 		"CLAUDECODE": "",
 		"NEW_VAR":    "new",
 	})
 
 	resultMap := make(map[string]string)
-	for _, kv := range result {
+	for _, kv := range mergedEnv {
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) == 2 {
 			resultMap[parts[0]] = parts[1]

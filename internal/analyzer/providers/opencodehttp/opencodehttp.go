@@ -360,16 +360,16 @@ func (s *session) createSession(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("create session: status %d: %s", resp.StatusCode, string(b))
 	}
 
-	var result struct {
+	var responseBody struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
 		return "", fmt.Errorf("decode session response: %w", err)
 	}
-	if result.ID == "" {
+	if responseBody.ID == "" {
 		return "", errors.New("server returned empty session id")
 	}
-	return result.ID, nil
+	return responseBody.ID, nil
 }
 
 // sendMessage sends a prompt and waits for the full response.

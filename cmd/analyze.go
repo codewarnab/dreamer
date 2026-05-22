@@ -87,39 +87,39 @@ func newAnalyzeCommand() *cobra.Command {
 				opts.MaxChunkBytesOverride = afv.chunkSize
 				opts.MaxChunkBytesOverrideSet = true
 			}
-			result, err := pipeline.Run(commandContext(cmd), opts, logger)
+			runResult, err := pipeline.Run(commandContext(cmd), opts, logger)
 			if err != nil {
 				logger.Error("analyze command failed", logging.Any("err", err))
 				return err
 			}
 
-			if result.CacheHit {
-				cmd.Printf("no changes (cache hit) provider=%s todos=%s\n", result.ProviderID, result.TodosPath)
-				logger.Info("analyze cache hit", logging.Any("provider", result.ProviderID))
+			if runResult.CacheHit {
+				cmd.Printf("no changes (cache hit) provider=%s todos=%s\n", runResult.ProviderID, runResult.TodosPath)
+				logger.Info("analyze cache hit", logging.Any("provider", runResult.ProviderID))
 				return nil
 			}
 
-			if result.NoMistakes {
-				cmd.Printf("no recurring mistakes found provider=%s todos=%s\n", result.ProviderID, result.TodosPath)
-				logger.Info("analyze no mistakes", logging.Any("provider", result.ProviderID))
+			if runResult.NoMistakes {
+				cmd.Printf("no recurring mistakes found provider=%s todos=%s\n", runResult.ProviderID, runResult.TodosPath)
+				logger.Info("analyze no mistakes", logging.Any("provider", runResult.ProviderID))
 				return nil
 			}
 			if dryRun {
-				cmd.Printf("dry-run complete provider=%s mistakes=%d\n", result.ProviderID, result.Mistakes)
+				cmd.Printf("dry-run complete provider=%s mistakes=%d\n", runResult.ProviderID, runResult.Mistakes)
 				return nil
 			}
 
 			cmd.Printf(
 				"analyze complete provider=%s sources=%d messages=%d mistakes=%d findings_added=%d warnings=%d todos=%s\n",
-				result.ProviderID,
-				result.SourcesAnalyzed,
-				result.MessagesRead,
-				result.Mistakes,
-				result.Findings,
-				result.Warnings,
-				result.TodosPath,
+				runResult.ProviderID,
+				runResult.SourcesAnalyzed,
+				runResult.MessagesRead,
+				runResult.Mistakes,
+				runResult.Findings,
+				runResult.Warnings,
+				runResult.TodosPath,
 			)
-			logger.Info("analyze complete", logging.Any("provider", result.ProviderID), logging.Any("mistakes", result.Mistakes), logging.Any("findings", result.Findings), logging.Any("todos", result.TodosPath))
+			logger.Info("analyze complete", logging.Any("provider", runResult.ProviderID), logging.Any("mistakes", runResult.Mistakes), logging.Any("findings", runResult.Findings), logging.Any("todos", runResult.TodosPath))
 			return nil
 		},
 	}

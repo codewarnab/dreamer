@@ -451,19 +451,19 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 		RuleTimeoutSecs: dr.appConfig.Analyzer.RuleTimeoutSeconds,
 	}
 	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(tr.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
-	result, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
+	pipelineResult, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
 	if err != nil {
 		_ = provider.Close()
 		recordProviderFailure(currentState, dr.providerID, err)
 		rctx.persistFailureState(err, logger)
 		return ar, fmt.Errorf("run analyzer: %w", err)
 	}
-	logger.Info("orchestrator done", logging.Any("mistakes", len(result.Mistakes)), logging.Any("findings", len(result.Findings)), logging.Any("warnings", len(result.Warnings)))
-	for _, w := range result.Warnings {
+	logger.Info("orchestrator done", logging.Any("mistakes", len(pipelineResult.Mistakes)), logging.Any("findings", len(pipelineResult.Findings)), logging.Any("warnings", len(pipelineResult.Warnings)))
+	for _, w := range pipelineResult.Warnings {
 		logger.Warn("orchestrator warning", logging.Any("warning", w))
 	}
 
-	return analysisResult{result: result, provider: provider, mode: mode}, nil
+	return analysisResult{result: pipelineResult, provider: provider, mode: mode}, nil
 }
 
 // runOutputAndPersist generates todos, updates state, saves, updates the
@@ -473,7 +473,7 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	warnings := tr.warnings
 	warnings = append(warnings, ar.result.Warnings...)
 
-	result := Result{
+	pipelineResult := Result{
 		ProviderID:      dr.providerID,
 		Findings:        len(ar.result.Findings),
 		Mistakes:        len(ar.result.Mistakes),
@@ -483,14 +483,14 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	}
 
 	if opts.DryRun {
-		result.TodosPath = todosOutputPath(dr.outputRoot, dr.projectName)
-		publishRunDone(opts.Events, dr.projectName, result.Findings, result.SourcesAnalyzed, result.MessagesRead)
-		return result, nil
+		pipelineResult.TodosPath = todosOutputPath(dr.outputRoot, dr.projectName)
+		publishRunDone(opts.Events, dr.projectName, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
+		return pipelineResult, nil
 	}
 
 	if len(ar.result.Mistakes) == 0 {
 		warnings = append(warnings, "no recurring mistakes found")
-		result.NoMistakes = true
+		pipelineResult.NoMistakes = true
 	}
 
 	generateResult, err := output.GenerateTodos(dr.projectName, ar.result.Findings, output.GenerateOptions{
@@ -501,8 +501,8 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	if err != nil {
 		return Result{}, fmt.Errorf("generate todos: %w", err)
 	}
-	result.TodosPath = generateResult.Path
-	result.Findings = generateResult.AddedFindings
+	pipelineResult.TodosPath = generateResult.Path
+	pipelineResult.Findings = generateResult.AddedFindings
 
 	now := time.Now().UTC()
 	currentState.LastRunUTC = now
@@ -542,7 +542,7 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	today := time.Now().UTC().Format("2006-01-02")
 	if err := state.UpdateHistoryToday(dr.outputRoot, dr.projectName, today, state.DaySummaryDelta{
 		Runs:          1,
-		FindingsNew:   result.Findings,
+		FindingsNew:   pipelineResult.Findings,
 		FindingsTotal: len(currentState.FindingHashes),
 		Tokens:        0,
 		RunMillis:     time.Since(runStart).Milliseconds(),
@@ -551,8 +551,8 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 		logger.Warn("history update failed", logging.Any("err", err))
 	}
 
-	publishRunDone(opts.Events, dr.projectName, result.Findings, result.SourcesAnalyzed, result.MessagesRead)
-	return result, nil
+	publishRunDone(opts.Events, dr.projectName, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
+	return pipelineResult, nil
 }
 
 // Run executes the end-to-end analyze pipeline against a single project path,
