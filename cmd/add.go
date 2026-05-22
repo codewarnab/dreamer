@@ -48,11 +48,11 @@ func newAddCommand() *cobra.Command {
 			} else if err != nil {
 				return fmt.Errorf("stat config %q: %w", cfgPath, err)
 			}
-			data, err := os.ReadFile(cfgPath)
+			configBytes, err := os.ReadFile(cfgPath)
 			if err != nil {
 				return fmt.Errorf("read config %q: %w", cfgPath, err)
 			}
-			updated, err := appendProjectToYAML(data, name, absPath, since)
+			updated, err := appendProjectToYAML(configBytes, name, absPath, since)
 			if err != nil {
 				return err
 			}
@@ -95,9 +95,9 @@ func resolveAddPath(p string) (string, error) {
 // appendProjectToYAML rewrites the projects: list to include the new
 // entry while preserving every comment and unrelated key. Returns the
 // rendered bytes.
-func appendProjectToYAML(data []byte, name, path, since string) ([]byte, error) {
+func appendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, error) {
 	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	if err := yaml.Unmarshal(configBytes, &root); err != nil {
 		return nil, fmt.Errorf("parse config yaml: %w", err)
 	}
 	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {

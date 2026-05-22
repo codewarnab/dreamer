@@ -236,12 +236,12 @@ func LoadConfig(path string) (*Config, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("config path is required")
 	}
-	data, err := os.ReadFile(path)
+	configFileBytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config file %q: %w", path, err)
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal(configFileBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config file %q: %w", path, err)
 	}
 	if err := applyDefaults(&cfg); err != nil {
@@ -257,7 +257,7 @@ func LoadConfig(path string) (*Config, error) {
 // not an error; returns an empty ProjectFileConfig in that case.
 func LoadProjectFileConfig(projectPath string) (*ProjectFileConfig, error) {
 	path := ProjectConfigPath(projectPath)
-	data, err := os.ReadFile(path)
+	configFileBytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &ProjectFileConfig{}, nil
@@ -265,7 +265,7 @@ func LoadProjectFileConfig(projectPath string) (*ProjectFileConfig, error) {
 		return nil, fmt.Errorf("read project config %q: %w", path, err)
 	}
 	var pfc ProjectFileConfig
-	if err := yaml.Unmarshal(data, &pfc); err != nil {
+	if err := yaml.Unmarshal(configFileBytes, &pfc); err != nil {
 		return nil, fmt.Errorf("unmarshal project config %q: %w", path, err)
 	}
 	return &pfc, nil

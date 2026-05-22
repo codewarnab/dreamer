@@ -32,18 +32,18 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(overlayPath)
+	overlayBytes, err := os.ReadFile(overlayPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return baseConfig, nil
 		}
 		return nil, fmt.Errorf("read overlay %q: %w", overlayPath, err)
 	}
-	if len(data) == 0 {
+	if len(overlayBytes) == 0 {
 		return baseConfig, nil
 	}
 	var overlay Config
-	if err := yaml.Unmarshal(data, &overlay); err != nil {
+	if err := yaml.Unmarshal(overlayBytes, &overlay); err != nil {
 		baseConfig.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
 		return baseConfig, nil
 	}

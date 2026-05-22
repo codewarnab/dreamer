@@ -25,11 +25,11 @@ func TestLoggerWritesProgressAndIssuesToLoggingFolder(t *testing.T) {
 		t.Fatalf("Path = %q, want %q", logger.Path(), expectedPath)
 	}
 
-	data, err := os.ReadFile(expectedPath)
+	logFileBytes, err := os.ReadFile(expectedPath)
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	content := string(data)
+	content := string(logFileBytes)
 	if !strings.Contains(content, `level=info msg="analysis started" project=example`) {
 		t.Fatalf("log missing info progress entry: %s", content)
 	}
@@ -51,11 +51,11 @@ func TestLoggerLevelFiltersDebugEntries(t *testing.T) {
 		t.Fatalf("Close returned error: %v", err)
 	}
 
-	data, err := os.ReadFile(logger.Path())
+	logFileBytes, err := os.ReadFile(logger.Path())
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	content := string(data)
+	content := string(logFileBytes)
 	if strings.Contains(content, "hidden details") {
 		t.Fatalf("debug entry should be filtered at info level: %s", content)
 	}

@@ -171,8 +171,8 @@ func (logger *Logger) rotateIfNeededLocked() bool {
 	if logger.maxSizeMB <= 0 || logger.file == nil {
 		return false
 	}
-	info, err := logger.file.Stat()
-	if err != nil || info.Size() < int64(logger.maxSizeMB)*bytesPerMB {
+	fileInfo, err := logger.file.Stat()
+	if err != nil || fileInfo.Size() < int64(logger.maxSizeMB)*bytesPerMB {
 		return false
 	}
 

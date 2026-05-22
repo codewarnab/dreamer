@@ -115,7 +115,7 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	data, err := os.ReadFile(path)
+	stateBytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return LoadResult{State: defaultState(), CurrentVersion: StateVersion}, nil
@@ -124,7 +124,7 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	}
 
 	var peek map[string]json.RawMessage
-	if err := json.Unmarshal(data, &peek); err != nil {
+	if err := json.Unmarshal(stateBytes, &peek); err != nil {
 		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
 	}
 	versionRaw, hasVersion := peek["version"]
@@ -144,7 +144,7 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	}
 
 	var current State
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := json.Unmarshal(stateBytes, &current); err != nil {
 		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
 	}
 	migrated := false
@@ -208,12 +208,12 @@ func Save(outputRoot, projectName string, state *State) error {
 		dup.Version = StateVersion
 	}
 	normalizeState(&dup)
-	data, err := json.MarshalIndent(&dup, "", "  ")
+	stateBytes, err := json.MarshalIndent(&dup, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
 
-	if err := fsutil.WriteFileAtomic(path, data, fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(path, stateBytes, fsutil.FilePerms); err != nil {
 		return fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
 	return nil

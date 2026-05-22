@@ -13,18 +13,18 @@ const (
 	FilePerms = 0o644
 )
 
-// WriteFileAtomic writes data to path via a sibling temp file + rename, with
+// WriteFileAtomic writes contentBytes to path via a sibling temp file + rename, with
 // fsync on both the temp file body and the parent directory so the new entry
 // is durable across power loss (B7). A crash mid-write leaves the previous
 // target (if any) intact rather than a half-written file. The parent
 // directory must already exist.
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+func WriteFileAtomic(path string, contentBytes []byte, perm os.FileMode) error {
 	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
 		return fmt.Errorf("open atomic temp %q: %w", tmp, err)
 	}
-	if _, err := f.Write(data); err != nil {
+	if _, err := f.Write(contentBytes); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
 		return fmt.Errorf("write atomic temp %q: %w", tmp, err)

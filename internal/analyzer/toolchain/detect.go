@@ -214,17 +214,17 @@ func (t Toolchain) Summary() string {
 
 func has(root string, name string) bool {
 	path := filepath.Join(root, name)
-	info, err := os.Stat(path)
+	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
-	return !info.IsDir()
+	return !fileInfo.IsDir()
 }
 
 func findFirst(root string, names ...string) string {
 	for _, n := range names {
 		path := filepath.Join(root, n)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		if fileInfo, err := os.Stat(path); err == nil && !fileInfo.IsDir() {
 			return path
 		}
 	}
@@ -245,11 +245,11 @@ func appendUnique(slice []string, value string) []string {
 }
 
 func deriveJSTestFramework(root string) string {
-	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	packageJSONBytes, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
 		return "npm test"
 	}
-	content := string(data)
+	content := string(packageJSONBytes)
 	switch {
 	case strings.Contains(content, "vitest"):
 		return "vitest"

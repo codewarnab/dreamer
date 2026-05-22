@@ -157,16 +157,16 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 
 func loadEmbeddedRulePack(category RuleCategory) (RulePack, error) {
 	name := path.Join("rules", string(category)+".yaml")
-	data, err := embeddedRulesFS.ReadFile(name)
+	ruleFileBytes, err := embeddedRulesFS.ReadFile(name)
 	if err != nil {
 		return RulePack{}, fmt.Errorf("read embedded rule pack %q: %w", name, err)
 	}
-	return parseRulePack(data, string(category))
+	return parseRulePack(ruleFileBytes, string(category))
 }
 
-func parseRulePack(data []byte, label string) (RulePack, error) {
+func parseRulePack(ruleFileBytes []byte, label string) (RulePack, error) {
 	var pack RulePack
-	if err := yaml.Unmarshal(data, &pack); err != nil {
+	if err := yaml.Unmarshal(ruleFileBytes, &pack); err != nil {
 		return RulePack{}, fmt.Errorf("parse rule pack %q: %w", label, err)
 	}
 	pack.Category = RuleCategory(strings.TrimSpace(string(pack.Category)))

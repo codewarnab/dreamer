@@ -28,11 +28,11 @@ func TestAcquireLockCreatesLockFile(t *testing.T) {
 		t.Fatalf("AcquireLock: %v", err)
 	}
 
-	data, readErr := os.ReadFile(lockPath)
+	lockBytes, readErr := os.ReadFile(lockPath)
 	if readErr != nil {
 		t.Fatalf("read lock file: %v", readErr)
 	}
-	if len(data) == 0 {
+	if len(lockBytes) == 0 {
 		t.Fatal("lock file is empty")
 	}
 

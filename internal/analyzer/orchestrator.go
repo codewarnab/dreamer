@@ -138,15 +138,15 @@ func materializeFindings(raws []rawFinding, defaultCategory RuleCategory) []Find
 			}
 		}
 		evidence := make([]CodebaseEvidence, 0, len(raw.CodebaseEvidence))
-		for _, item := range raw.CodebaseEvidence {
-			path := strings.TrimSpace(item.Path)
+		for _, evidenceItem := range raw.CodebaseEvidence {
+			path := strings.TrimSpace(evidenceItem.Path)
 			if path == "" {
 				continue
 			}
 			evidence = append(evidence, CodebaseEvidence{
 				Path:   path,
-				Lines:  strings.TrimSpace(item.Lines),
-				Symbol: strings.TrimSpace(item.Symbol),
+				Lines:  strings.TrimSpace(evidenceItem.Lines),
+				Symbol: strings.TrimSpace(evidenceItem.Symbol),
 			})
 		}
 		finding := Finding{

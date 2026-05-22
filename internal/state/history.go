@@ -59,7 +59,7 @@ func LoadHistory(outputRoot, projectName string) (*History, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	historyBytes, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &History{Version: historyVersion}, nil
@@ -67,7 +67,7 @@ func LoadHistory(outputRoot, projectName string) (*History, error) {
 		return nil, fmt.Errorf("read history %q: %w", path, err)
 	}
 	var h History
-	if err := json.Unmarshal(data, &h); err != nil {
+	if err := json.Unmarshal(historyBytes, &h); err != nil {
 		return nil, fmt.Errorf("unmarshal history %q: %w", path, err)
 	}
 	if h.Version == 0 {
@@ -85,11 +85,11 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 	if err := os.MkdirAll(filepath.Dir(path), fsutil.DirPerms); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(h, "", "  ")
+	historyBytes, err := json.MarshalIndent(h, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, data, fsutil.FilePerms)
+	return fsutil.WriteFileAtomic(path, historyBytes, fsutil.FilePerms)
 }
 
 // UpdateHistoryToday merges delta into the bucket whose Date == today (a

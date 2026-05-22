@@ -112,11 +112,11 @@ func tryAcquire(path string, logger *logging.Logger) error {
 // "<pid>\n<unix-ts>\n"; in that case execPath is "" and the caller falls back
 // to a PID-only liveness check.
 func readLockMetadata(path string) (pid int, execPath string, err error) {
-	data, err := os.ReadFile(path)
+	metadataBytes, err := os.ReadFile(path)
 	if err != nil {
 		return 0, "", fmt.Errorf("read lock file %q: %w", path, err)
 	}
-	lines := bytes.Split(data, []byte("\n"))
+	lines := bytes.Split(metadataBytes, []byte("\n"))
 	if len(lines) == 0 || len(lines[0]) == 0 {
 		return 0, "", fmt.Errorf("lock file %q has no PID", path)
 	}
