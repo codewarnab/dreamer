@@ -22,7 +22,7 @@ func newAnalyzeCommand() *cobra.Command {
 		permissive  bool
 		outputDir   string
 		since       string
-		afv         analyzerFlagVars
+		analyzerFlags analyzerFlagVars
 	)
 
 	command := &cobra.Command{
@@ -80,11 +80,11 @@ func newAnalyzeCommand() *cobra.Command {
 				Permissive:             permissive,
 				OutputDir:              outputDir,
 				Since:                  since,
-				ParallelOverride:       afv.parallel,
-				MaxConcurrencyOverride: afv.jobs,
+				ParallelOverride:       analyzerFlags.parallel,
+				MaxConcurrencyOverride: analyzerFlags.jobs,
 			}
 			if cmd.Flags().Changed(flagChunkSize) {
-				opts.MaxChunkBytesOverride = afv.chunkSize
+				opts.MaxChunkBytesOverride = analyzerFlags.chunkSize
 				opts.MaxChunkBytesOverrideSet = true
 			}
 			runResult, err := pipeline.Run(commandContext(cmd), opts, logger)
@@ -131,7 +131,7 @@ func newAnalyzeCommand() *cobra.Command {
 	command.Flags().BoolVar(&permissive, "permissive", false, "Disable strict lint-rule allow-list; emit unrecognised rule ids tagged [unverified]")
 	command.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Override the per-project output directory")
 	command.Flags().StringVarP(&since, "since", "s", config.DefaultSince, "Lookback window for chat history (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime)")
-	registerAnalyzerFlags(command.Flags(), &afv)
+	registerAnalyzerFlags(command.Flags(), &analyzerFlags)
 	_ = command.MarkFlagRequired("path")
 
 	return command
