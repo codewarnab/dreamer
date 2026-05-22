@@ -120,45 +120,45 @@ func Detect(projectRoot string) Toolchain {
 	if root == "" {
 		return Toolchain{}
 	}
-	var t Toolchain
+	var detected Toolchain
 	for _, rule := range detectionRules {
 		if !anyPresent(root, rule.sentinels) {
 			continue
 		}
 		for _, lang := range rule.languages {
-			t.Languages = appendUnique(t.Languages, lang)
+			detected.Languages = appendUnique(detected.Languages, lang)
 		}
 		for _, fw := range rule.testFrameworks {
-			t.TestFrameworks = appendUnique(t.TestFrameworks, fw)
+			detected.TestFrameworks = appendUnique(detected.TestFrameworks, fw)
 		}
 		if rule.detectTestFW != nil {
-			t.TestFrameworks = appendUnique(t.TestFrameworks, rule.detectTestFW(root))
+			detected.TestFrameworks = appendUnique(detected.TestFrameworks, rule.detectTestFW(root))
 		}
-		for _, l := range rule.linters {
-			if len(l.configFiles) == 0 {
-				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool})
-			} else if configFile := findFirst(root, l.configFiles...); configFile != "" {
-				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool, ConfigPath: configFile})
-				t.ConfigFiles = append(t.ConfigFiles, configFile)
+		for _, candidate := range rule.linters {
+			if len(candidate.configFiles) == 0 {
+				detected.Linters = append(detected.Linters, LinterConfig{Tool: candidate.tool})
+			} else if configFile := findFirst(root, candidate.configFiles...); configFile != "" {
+				detected.Linters = append(detected.Linters, LinterConfig{Tool: candidate.tool, ConfigPath: configFile})
+				detected.ConfigFiles = append(detected.ConfigFiles, configFile)
 			} else {
-				for _, fb := range l.fallbacks {
-					t.Linters = append(t.Linters, LinterConfig{Tool: fb})
+				for _, fb := range candidate.fallbacks {
+					detected.Linters = append(detected.Linters, LinterConfig{Tool: fb})
 				}
 			}
 		}
 		for _, cf := range rule.configFiles {
-			t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, cf))
+			detected.ConfigFiles = append(detected.ConfigFiles, filepath.Join(root, cf))
 		}
 	}
 	// JS conditional: typescript language when tsconfig.json present.
 	if has(root, "package.json") && has(root, "tsconfig.json") {
-		t.Languages = appendUnique(t.Languages, "typescript")
-		t.ConfigFiles = append(t.ConfigFiles, filepath.Join(root, "tsconfig.json"))
+		detected.Languages = appendUnique(detected.Languages, "typescript")
+		detected.ConfigFiles = append(detected.ConfigFiles, filepath.Join(root, "tsconfig.json"))
 	}
-	sort.Strings(t.Languages)
-	sort.Strings(t.TestFrameworks)
-	sort.Strings(t.ConfigFiles)
-	return t
+	sort.Strings(detected.Languages)
+	sort.Strings(detected.TestFrameworks)
+	sort.Strings(detected.ConfigFiles)
+	return detected
 }
 
 func anyPresent(root string, names []string) bool {

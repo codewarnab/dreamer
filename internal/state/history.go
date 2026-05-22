@@ -66,14 +66,14 @@ func LoadHistory(outputRoot, projectName string) (*History, error) {
 		}
 		return nil, fmt.Errorf("read history %q: %w", path, err)
 	}
-	var h History
-	if err := json.Unmarshal(historyBytes, &h); err != nil {
+	var history History
+	if err := json.Unmarshal(historyBytes, &history); err != nil {
 		return nil, fmt.Errorf("unmarshal history %q: %w", path, err)
 	}
-	if h.Version == 0 {
-		h.Version = historyVersion
+	if history.Version == 0 {
+		history.Version = historyVersion
 	}
-	return &h, nil
+	return &history, nil
 }
 
 // SaveHistory writes the history atomically.
@@ -96,12 +96,12 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 // caller-provided ISO date string in UTC). It creates the bucket if
 // absent, prunes entries beyond maxHistoryDays, and persists atomically.
 func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryDelta) error {
-	h, err := LoadHistory(outputRoot, projectName)
+	history, err := LoadHistory(outputRoot, projectName)
 	if err != nil {
 		return err
 	}
 	idx := -1
-	for i, d := range h.Days {
+	for i, d := range history.Days {
 		if d.Date == today {
 			idx = i
 			break
@@ -109,7 +109,7 @@ func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryD
 	}
 	var bucket DaySummary
 	if idx >= 0 {
-		bucket = h.Days[idx]
+		bucket = history.Days[idx]
 	} else {
 		bucket = DaySummary{Date: today, PerCategory: map[string]int{}}
 	}
@@ -130,14 +130,14 @@ func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryD
 	}
 
 	if idx >= 0 {
-		h.Days[idx] = bucket
+		history.Days[idx] = bucket
 	} else {
-		h.Days = append(h.Days, bucket)
+		history.Days = append(history.Days, bucket)
 	}
-	sort.SliceStable(h.Days, func(i, j int) bool { return h.Days[i].Date < h.Days[j].Date })
-	if len(h.Days) > maxHistoryDays {
-		h.Days = h.Days[len(h.Days)-maxHistoryDays:]
+	sort.SliceStable(history.Days, func(i, j int) bool { return history.Days[i].Date < history.Days[j].Date })
+	if len(history.Days) > maxHistoryDays {
+		history.Days = history.Days[len(history.Days)-maxHistoryDays:]
 	}
-	h.Version = historyVersion
-	return SaveHistory(outputRoot, projectName, h)
+	history.Version = historyVersion
+	return SaveHistory(outputRoot, projectName, history)
 }

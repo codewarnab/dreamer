@@ -164,20 +164,20 @@ func materializeFindings(raws []rawFinding, defaultCategory RuleCategory) []Find
 
 func normalizeMistakes(mistakes []Mistake, defaultCategory RuleCategory) []Mistake {
 	out := make([]Mistake, 0, len(mistakes))
-	for _, m := range mistakes {
-		summary := strings.TrimSpace(m.Summary)
+	for _, mistake := range mistakes {
+		summary := strings.TrimSpace(mistake.Summary)
 		if summary == "" {
 			continue
 		}
-		category := RuleCategory(strings.TrimSpace(string(m.Category)))
+		category := RuleCategory(strings.TrimSpace(string(mistake.Category)))
 		if category == "" {
 			category = defaultCategory
 		}
 		out = append(out, Mistake{
 			Category:        category,
 			Summary:         summary,
-			EvidenceExcerpt: strings.TrimSpace(m.EvidenceExcerpt),
-			Confidence:      m.Confidence,
+			EvidenceExcerpt: strings.TrimSpace(mistake.EvidenceExcerpt),
+			Confidence:      mistake.Confidence,
 		})
 	}
 	return out
@@ -188,14 +188,14 @@ func filterMistakesByThreshold(mistakes []Mistake, threshold float64) []Mistake 
 		return mistakes
 	}
 	filtered := make([]Mistake, 0, len(mistakes))
-	for _, m := range mistakes {
+	for _, mistake := range mistakes {
 		// B14: drop NaN and missing-or-zero confidence; admit only items
 		// at or above the threshold. The previous `> 0 && < threshold`
 		// guard let `0` and `NaN` slip through.
-		if math.IsNaN(m.Confidence) || m.Confidence < threshold {
+		if math.IsNaN(mistake.Confidence) || mistake.Confidence < threshold {
 			continue
 		}
-		filtered = append(filtered, m)
+		filtered = append(filtered, mistake)
 	}
 	return filtered
 }

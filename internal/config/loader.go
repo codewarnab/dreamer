@@ -264,11 +264,11 @@ func LoadProjectFileConfig(projectPath string) (*ProjectFileConfig, error) {
 		}
 		return nil, fmt.Errorf("read project config %q: %w", path, err)
 	}
-	var pfc ProjectFileConfig
-	if err := yaml.Unmarshal(configFileBytes, &pfc); err != nil {
+	var projectFileConfig ProjectFileConfig
+	if err := yaml.Unmarshal(configFileBytes, &projectFileConfig); err != nil {
 		return nil, fmt.Errorf("unmarshal project config %q: %w", path, err)
 	}
-	return &pfc, nil
+	return &projectFileConfig, nil
 }
 
 func applyDefaults(appConfig *Config) error {
@@ -298,8 +298,8 @@ func applyDefaults(appConfig *Config) error {
 	applyAnalyzerChunkingDefaults(&appConfig.Analyzer.Chunking)
 	applyProjectSinceDefaults(appConfig)
 	if appConfig.Web.Enabled == nil {
-		t := true
-		appConfig.Web.Enabled = &t
+		webEnabledDefault := true
+		appConfig.Web.Enabled = &webEnabledDefault
 	}
 	if appConfig.Web.Port == 0 {
 		appConfig.Web.Port = DefaultWebPort

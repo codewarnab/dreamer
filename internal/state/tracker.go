@@ -130,17 +130,17 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	versionRaw, hasVersion := peek["version"]
 	priorVersion := 0
 	if hasVersion {
-		var v int
-		if err := json.Unmarshal(versionRaw, &v); err != nil {
+		var fileVersion int
+		if err := json.Unmarshal(versionRaw, &fileVersion); err != nil {
 			return LoadResult{}, fmt.Errorf("unmarshal version in state file %q: %w", path, err)
 		}
-		if v == 0 {
+		if fileVersion == 0 {
 			return LoadResult{}, fmt.Errorf("state file %q has explicit version=0; refusing to load (suspect truncation)", path)
 		}
-		if v > StateVersion {
-			return LoadResult{}, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, v, StateVersion)
+		if fileVersion > StateVersion {
+			return LoadResult{}, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, fileVersion, StateVersion)
 		}
-		priorVersion = v
+		priorVersion = fileVersion
 	}
 
 	var current State
@@ -318,15 +318,15 @@ func ChatCacheKey(path, fileHash, repoHeadSHA string) string {
 // repository state is a cache hint, not a hard requirement for analysis. When a
 // logger is provided, failures are recorded at debug level for troubleshooting.
 func RepoHeadSHA(workingDirectory string, loggers ...*logging.Logger) string {
-	wd := strings.TrimSpace(workingDirectory)
-	if wd == "" {
+	workingDirectoryPath := strings.TrimSpace(workingDirectory)
+	if workingDirectoryPath == "" {
 		return ""
 	}
-	cmd := exec.Command("git", "-C", wd, "rev-parse", "HEAD")
+	cmd := exec.Command("git", "-C", workingDirectoryPath, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		if len(loggers) > 0 && loggers[0] != nil {
-			loggers[0].Debug("repo head SHA failed", logging.Any("wd", wd), logging.Any("err", err))
+			loggers[0].Debug("repo head SHA failed", logging.Any("wd", workingDirectoryPath), logging.Any("err", err))
 		}
 		return ""
 	}

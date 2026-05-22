@@ -94,20 +94,20 @@ func FormatSymbolList(symbols []Symbol, cap int) string {
 	if cap > 0 && len(symbols) > cap {
 		symbols = symbols[:cap]
 	}
-	var b strings.Builder
-	for i, s := range symbols {
+	var builder strings.Builder
+	for i, symbol := range symbols {
 		if i > 0 {
-			b.WriteByte('\n')
+			builder.WriteByte('\n')
 		}
-		b.WriteString(s.Path)
-		b.WriteByte(':')
-		b.WriteString(itoa(s.Line))
-		b.WriteString("  ")
-		b.WriteString(s.Kind)
-		b.WriteByte(' ')
-		b.WriteString(s.Name)
+		builder.WriteString(symbol.Path)
+		builder.WriteByte(':')
+		builder.WriteString(itoa(symbol.Line))
+		builder.WriteString("  ")
+		builder.WriteString(symbol.Kind)
+		builder.WriteByte(' ')
+		builder.WriteString(symbol.Name)
 	}
-	return b.String()
+	return builder.String()
 }
 
 func itoa(value int) string {
