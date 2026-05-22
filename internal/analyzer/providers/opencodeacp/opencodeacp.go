@@ -8,16 +8,16 @@ import (
 const ID = "opencode-acp"
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderOpenCodeACP, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
-		command := cfg.Command
+	analyzer.RegisterProvider(analyzer.ProviderOpenCodeACP, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
+		command := providerConfig.Command
 		if len(command) == 0 {
 			command = []string{"opencode", "acp"}
 		}
 		return acpcore.New(acpcore.Options{
 			ID:           ID,
 			Command:      command,
-			Env:          cfg.Env,
-			DefaultModel: cfg.DefaultModel,
+			Env:          providerConfig.Env,
+			DefaultModel: providerConfig.DefaultModel,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

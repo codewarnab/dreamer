@@ -24,17 +24,17 @@ import (
 const ID = "opencode-server"
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderOpenCodeServer, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
-		model := cfg.Model
+	analyzer.RegisterProvider(analyzer.ProviderOpenCodeServer, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
+		model := providerConfig.Model
 		if strings.TrimSpace(model) == "" {
-			model = cfg.DefaultModel
+			model = providerConfig.DefaultModel
 		}
 		return New(Options{
-			BaseURL:  cfg.BaseURL,
-			Command:  cfg.Command,
-			Env:      cfg.Env,
+			BaseURL:  providerConfig.BaseURL,
+			Command:  providerConfig.Command,
+			Env:      providerConfig.Env,
 			Model:    model,
-			Password: cfg.Password,
+			Password: providerConfig.Password,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
@@ -156,7 +156,7 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
 	p.mu.Lock()
 	started := p.started
 	p.mu.Unlock()
@@ -164,16 +164,16 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		return nil, errors.New("opencode-server: provider not started")
 	}
 
-	model := strings.TrimSpace(cfg.Model)
+	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
 		model = p.model
 	}
 
 	return &session{
 		provider:   p,
-		workingDir: cfg.WorkingDirectory,
+		workingDir: sessionConfig.WorkingDirectory,
 		model:      model,
-		sysMessage: cfg.SystemMessage,
+		sysMessage: sessionConfig.SystemMessage,
 	}, nil
 }
 

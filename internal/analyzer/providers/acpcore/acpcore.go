@@ -121,7 +121,7 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
 	p.mu.Lock()
 	t := p.transport
 	started := p.started
@@ -130,16 +130,16 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		return nil, errors.New("acpcore: provider not started")
 	}
 
-	systemMessage := cfg.SystemMessage
+	systemMessage := sessionConfig.SystemMessage
 	if strings.TrimSpace(systemMessage) == "" {
-		systemMessage = analyzer.BuildReadOnlySystemMessage(cfg.WorkingDirectory)
+		systemMessage = analyzer.BuildReadOnlySystemMessage(sessionConfig.WorkingDirectory)
 	}
-	preferredModel := strings.TrimSpace(cfg.Model)
+	preferredModel := strings.TrimSpace(sessionConfig.Model)
 	if preferredModel == "" {
 		preferredModel = p.defaultModel
 	}
 
-	normalizedRoot, _ := analyzer.NormalizeRootPath(cfg.WorkingDirectory)
+	normalizedRoot, _ := analyzer.NormalizeRootPath(sessionConfig.WorkingDirectory)
 	handler := func(req map[string]any) map[string]any {
 		permReq := translatePermissionRequest(req)
 		decision := analyzer.DecidePermission(permReq, normalizedRoot)
@@ -156,7 +156,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		transport:      t,
 		handler:        handler,
 		providerID:     p.id,
-		workingDir:     cfg.WorkingDirectory,
+		workingDir:     sessionConfig.WorkingDirectory,
 		permTarget:     normalizedRoot,
 		systemMessage:  systemMessage,
 		model:          preferredModel,

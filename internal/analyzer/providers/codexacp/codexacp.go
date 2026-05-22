@@ -14,16 +14,16 @@ import (
 const ID = "codex-acp"
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderCodexACP, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
-		command := cfg.Command
+	analyzer.RegisterProvider(analyzer.ProviderCodexACP, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
+		command := providerConfig.Command
 		if len(command) == 0 {
 			command = []string{"codex-acp"}
 		}
 		return acpcore.New(acpcore.Options{
 			ID:           ID,
 			Command:      command,
-			Env:          cfg.Env,
-			DefaultModel: cfg.DefaultModel,
+			Env:          providerConfig.Env,
+			DefaultModel: providerConfig.DefaultModel,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

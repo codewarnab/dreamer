@@ -98,7 +98,7 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
 	if ctx == nil {
 		return nil, analyzer.ErrNilContext
 	}
@@ -106,20 +106,20 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		return nil, err
 	}
 
-	requestedModel := strings.TrimSpace(cfg.Model)
+	requestedModel := strings.TrimSpace(sessionConfig.Model)
 	if requestedModel == "" {
 		requestedModel = strings.TrimSpace(p.options.Model)
 	}
-	sessionConfig := buildSessionConfig(requestedModel, cfg)
+	sdkSessionConfig := buildSessionConfig(requestedModel, sessionConfig)
 
-	session, err := p.client.CreateSession(ctx, sessionConfig)
+	session, err := p.client.CreateSession(ctx, sdkSessionConfig)
 	if err != nil {
 		if requestedModel == "" {
 			return nil, errs.ProviderUnavailable(ID, "session.new",
 				fmt.Errorf("unable to create Copilot session; check auth and model availability: %w", err),
 			)
 		}
-		fallback, fallbackErr := p.client.CreateSession(ctx, buildSessionConfig("", cfg))
+		fallback, fallbackErr := p.client.CreateSession(ctx, buildSessionConfig("", sessionConfig))
 		if fallbackErr != nil {
 			return nil, errs.ProviderUnavailable(ID, "session.new",
 				fmt.Errorf("unable to create Copilot session with requested model %q (%v) and SDK auto-model fallback (%w)", requestedModel, err, fallbackErr),
@@ -219,9 +219,9 @@ func buildSDKClientOptions(options Options) (*copilot.ClientOptions, error) {
 	return sdkOptions, nil
 }
 
-func buildSessionConfig(model string, cfg analyzer.SessionConfig) *copilot.SessionConfig {
-	wd := strings.TrimSpace(cfg.WorkingDirectory)
-	systemMessage := cfg.SystemMessage
+func buildSessionConfig(model string, sessionConfig analyzer.SessionConfig) *copilot.SessionConfig {
+	wd := strings.TrimSpace(sessionConfig.WorkingDirectory)
+	systemMessage := sessionConfig.SystemMessage
 	if strings.TrimSpace(systemMessage) == "" {
 		systemMessage = analyzer.BuildReadOnlySystemMessage(wd)
 	}

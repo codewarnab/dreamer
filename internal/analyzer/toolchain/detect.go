@@ -137,9 +137,9 @@ func Detect(projectRoot string) Toolchain {
 		for _, l := range rule.linters {
 			if len(l.configFiles) == 0 {
 				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool})
-			} else if cfg := findFirst(root, l.configFiles...); cfg != "" {
-				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool, ConfigPath: cfg})
-				t.ConfigFiles = append(t.ConfigFiles, cfg)
+			} else if configFile := findFirst(root, l.configFiles...); configFile != "" {
+				t.Linters = append(t.Linters, LinterConfig{Tool: l.tool, ConfigPath: configFile})
+				t.ConfigFiles = append(t.ConfigFiles, configFile)
 			} else {
 				for _, fb := range l.fallbacks {
 					t.Linters = append(t.Linters, LinterConfig{Tool: fb})

@@ -29,15 +29,15 @@ const (
 )
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderCodebuffSDK, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
-		model := cfg.Model
+	analyzer.RegisterProvider(analyzer.ProviderCodebuffSDK, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
+		model := providerConfig.Model
 		if strings.TrimSpace(model) == "" {
-			model = cfg.DefaultModel
+			model = providerConfig.DefaultModel
 		}
 		return New(Options{
-			BaseURL: cfg.BaseURL,
+			BaseURL: providerConfig.BaseURL,
 			Model:   model,
-			APIKey:  resolveAPIKey(cfg),
+			APIKey:  resolveAPIKey(providerConfig),
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
@@ -61,13 +61,13 @@ type Options struct {
 
 // resolveAPIKey extracts the API key from ProviderConfig.
 // It checks the APIKeyEnv environment variable first, then Password.
-func resolveAPIKey(cfg analyzer.ProviderConfig) string {
-	if envName := strings.TrimSpace(cfg.APIKeyEnv); envName != "" {
+func resolveAPIKey(providerConfig analyzer.ProviderConfig) string {
+	if envName := strings.TrimSpace(providerConfig.APIKeyEnv); envName != "" {
 		if key := strings.TrimSpace(os.Getenv(envName)); key != "" {
 			return key
 		}
 	}
-	if key := strings.TrimSpace(cfg.Password); key != "" {
+	if key := strings.TrimSpace(providerConfig.Password); key != "" {
 		return key
 	}
 	return ""
@@ -124,7 +124,7 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) NewSession(_ context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+func (p *provider) NewSession(_ context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
 	p.mu.Lock()
 	started := p.started
 	p.mu.Unlock()
@@ -132,16 +132,16 @@ func (p *provider) NewSession(_ context.Context, cfg analyzer.SessionConfig) (an
 		return nil, errors.New("codebuff-sdk: provider not started")
 	}
 
-	model := strings.TrimSpace(cfg.Model)
+	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
 		model = p.model
 	}
 
 	return &session{
 		provider:   p,
-		workingDir: cfg.WorkingDirectory,
+		workingDir: sessionConfig.WorkingDirectory,
 		model:      model,
-		sysMessage: cfg.SystemMessage,
+		sysMessage: sessionConfig.SystemMessage,
 	}, nil
 }
 

@@ -16,7 +16,7 @@ var ErrNilContext = errors.New("nil context")
 type Provider interface {
 	ID() string
 	Start(ctx context.Context) error
-	NewSession(ctx context.Context, cfg SessionConfig) (Session, error)
+	NewSession(ctx context.Context, sessionConfig SessionConfig) (Session, error)
 	Close() error
 }
 

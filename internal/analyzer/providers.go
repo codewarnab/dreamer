@@ -74,7 +74,7 @@ type ProviderConfig struct {
 }
 
 // ProviderFactory builds a Provider instance.
-type ProviderFactory func(cfg ProviderConfig) (Provider, error)
+type ProviderFactory func(providerConfig ProviderConfig) (Provider, error)
 
 var (
 	providerRegistryMutex sync.RWMutex
@@ -110,12 +110,12 @@ func RegisteredProviders() []ProviderID {
 }
 
 // NewProvider builds a Provider for the given id using the registered factory.
-func NewProvider(id ProviderID, cfg ProviderConfig) (Provider, error) {
+func NewProvider(id ProviderID, providerConfig ProviderConfig) (Provider, error) {
 	factory, ok := LookupProvider(id)
 	if !ok {
 		return nil, fmt.Errorf("provider %q is not registered (known: %s)", id, joinProviderIDs(RegisteredProviders(), ", "))
 	}
-	return factory(cfg)
+	return factory(providerConfig)
 }
 
 // ProviderMeta carries display metadata for a registered provider.
