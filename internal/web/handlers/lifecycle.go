@@ -84,17 +84,17 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.NotFound(w, r)
 		return
 	}
-	cfg := deps.Config()
-	if cfg == nil {
+	appConfig := deps.Config()
+	if appConfig == nil {
 		writeJSONError(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
-	p, found := findProject(cfg, n)
+	p, found := findProject(appConfig, n)
 	if !found {
 		http.NotFound(w, r)
 		return
 	}
-	s, err := state.Load(cfg.Daemon.OutputRoot, n)
+	s, err := state.Load(appConfig.Daemon.OutputRoot, n)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -118,7 +118,7 @@ func Apply(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		cfg := deps.Config()
+		appConfig := deps.Config()
 		// Trusted apply plan lives in state; body fields are ignored
 		// so a loopback caller cannot redirect the write to any path.
 		prior, hasPrior := st.Findings[hash]
@@ -165,7 +165,7 @@ func Apply(deps Deps) http.HandlerFunc {
 		fs.AppliedReversal = rev
 		fs.ProjectName = name
 		st.Findings[hash] = fs
-		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -188,7 +188,7 @@ func Undo(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		cfg := deps.Config()
+		appConfig := deps.Config()
 		fs, exists := st.Findings[hash]
 		if !exists || fs.Status != state.FindingStatusApplied || fs.AppliedReversal == nil {
 			writeJSONError(w, http.StatusNotFound, "no applied reversal for hash")
@@ -206,7 +206,7 @@ func Undo(deps Deps) http.HandlerFunc {
 			return
 		}
 		delete(st.Findings, hash)
-		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -225,7 +225,7 @@ func Dismiss(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		cfg := deps.Config()
+		appConfig := deps.Config()
 		// Preserve prior fields (AppliedAt + AppliedReversal in particular)
 		// so a later undismiss can fall back to the applied state and a
 		// captured reversal remains valid.
@@ -234,7 +234,7 @@ func Dismiss(deps Deps) http.HandlerFunc {
 		fs.DismissedAt = time.Now().UTC()
 		fs.ProjectName = name
 		st.Findings[hash] = fs
-		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -253,7 +253,7 @@ func Resolve(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		cfg := deps.Config()
+		appConfig := deps.Config()
 		// Preserve prior AppliedAt + AppliedReversal so a later unresolve
 		// returns the finding to its applied state with the reversal intact.
 		fs := st.Findings[hash]
@@ -261,7 +261,7 @@ func Resolve(deps Deps) http.HandlerFunc {
 		fs.ResolvedAt = time.Now().UTC()
 		fs.ProjectName = name
 		st.Findings[hash] = fs
-		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -282,7 +282,7 @@ func Undismiss(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		cfg := deps.Config()
+		appConfig := deps.Config()
 		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusDismissed {
 			// If a prior Apply captured a reversal that we preserved
 			// through dismiss, fall back to the applied state instead of
@@ -297,7 +297,7 @@ func Undismiss(deps Deps) http.HandlerFunc {
 				delete(st.Findings, hash)
 			}
 		}
-		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -313,7 +313,7 @@ func Unresolve(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		cfg := deps.Config()
+		appConfig := deps.Config()
 		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusResolved {
 			// Same fallback as Undismiss: keep an applied reversal reachable.
 			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
@@ -324,7 +324,7 @@ func Unresolve(deps Deps) http.HandlerFunc {
 				delete(st.Findings, hash)
 			}
 		}
-		if err := state.Save(cfg.Daemon.OutputRoot, name, st); err != nil {
+		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
