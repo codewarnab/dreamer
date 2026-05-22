@@ -23,8 +23,8 @@ var providerRemediation = map[ProviderID]string{
 // RemediationMessage returns the operator-facing remediation hint for a
 // provider id (spec §13.2). Unknown ids get a generic ACP-style message.
 func RemediationMessage(providerID string) string {
-	if msg, ok := providerRemediation[ProviderID(providerID)]; ok {
-		return msg
+	if remediationHint, ok := providerRemediation[ProviderID(providerID)]; ok {
+		return remediationHint
 	}
 	return fmt.Sprintf("Ensure the %q provider is installed and authenticated.", providerID)
 }

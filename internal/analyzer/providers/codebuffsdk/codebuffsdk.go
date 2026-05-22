@@ -213,11 +213,11 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		msg := string(b)
-		if transport.IsRateLimitMessage(msg) {
-			return "", errs.RateLimit(id, "session/prompt", 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg))
+		responseBody := string(b)
+		if transport.IsRateLimitMessage(responseBody) {
+			return "", errs.RateLimit(id, "session/prompt", 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, responseBody))
 		}
-		return "", fmt.Errorf("codebuff-sdk: HTTP %d: %s", resp.StatusCode, msg)
+		return "", fmt.Errorf("codebuff-sdk: HTTP %d: %s", resp.StatusCode, responseBody)
 	}
 
 	var result chatCompletionResponse

@@ -129,8 +129,8 @@ func processClaudeRecord(record map[string]any, pending map[string]pendingToolCa
 // extractMessagePayload finds the message object within a Claude JSONL record.
 func extractMessagePayload(record map[string]any) map[string]any {
 	// Direct "message" key (standard Claude format).
-	if msg, ok := record["message"].(map[string]any); ok {
-		return msg
+	if messagePayload, ok := record["message"].(map[string]any); ok {
+		return messagePayload
 	}
 	// Record itself might be the message.
 	if _, ok := record["role"].(string); ok {

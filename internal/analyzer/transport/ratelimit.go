@@ -3,14 +3,14 @@ package transport
 
 import "strings"
 
-// IsRateLimitMessage returns true if msg contains well-known quota/rate-limit
+// IsRateLimitMessage returns true if messageText contains well-known quota/rate-limit
 // phrases from various LLM providers (Anthropic, OpenAI, etc.). This is the
 // union of patterns from codexcli and acpcore.
-func IsRateLimitMessage(msg string) bool {
-	if msg == "" {
+func IsRateLimitMessage(messageText string) bool {
+	if messageText == "" {
 		return false
 	}
-	lower := strings.ToLower(msg)
+	lower := strings.ToLower(messageText)
 	patterns := []string{
 		"usage_limit_exceeded",
 		"usage limit",

@@ -10,12 +10,12 @@ import (
 // filesystem access; empty means no scoping.
 func BuildReadOnlySystemMessage(workingDirectory string) string {
 	workingDirectory = strings.TrimSpace(workingDirectory)
-	msg := baseReadOnlyMessage()
+	systemMessage := baseReadOnlyMessage()
 	if workingDirectory != "" {
-		msg += fmt.Sprintf("Scope boundary: inspect only files under the project directory %q unless the request is an explicit web fetch.\n", workingDirectory)
-		msg += fmt.Sprintf("Never read files outside the project directory %q.\n", workingDirectory)
+		systemMessage += fmt.Sprintf("Scope boundary: inspect only files under the project directory %q unless the request is an explicit web fetch.\n", workingDirectory)
+		systemMessage += fmt.Sprintf("Never read files outside the project directory %q.\n", workingDirectory)
 	}
-	return msg
+	return systemMessage
 }
 
 // baseReadOnlyMessage returns the shared read-only system message lines.
