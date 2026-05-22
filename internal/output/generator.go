@@ -112,11 +112,11 @@ func todosPathForProject(projectName string, outputRoot string) (string, error) 
 	name := strings.TrimSpace(projectName)
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
-		cfgRoot, err := config.UserConfigRoot()
+		configRoot, err := config.UserConfigRoot()
 		if err != nil {
 			return "", fmt.Errorf("resolve user config dir for output root: %w", err)
 		}
-		root = cfgRoot
+		root = configRoot
 	}
 	return filepath.Join(root, name, todosFileName), nil
 }
