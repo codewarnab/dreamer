@@ -129,6 +129,8 @@ type ProviderBlock struct {
 
 // AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
 type AnalyzerConfig struct {
+	// RuleTimeoutSeconds is the per-rule timeout for phase-1 analysis.
+	// Phase-2 (tool-use verification) uses 3x this value.
 	RuleTimeoutSeconds int `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
 	// IncludeSubagentTranscripts controls whether subagent/child chat
 	// transcripts are included in analysis. When false (default), sources
