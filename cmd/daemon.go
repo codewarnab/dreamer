@@ -85,7 +85,7 @@ func newDaemonCommand() *cobra.Command {
 
 			var live atomic.Pointer[config.Config]
 			live.Store(cfg)
-			startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop)
+			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
@@ -102,6 +102,7 @@ func newDaemonCommand() *cobra.Command {
 
 			retDur, _ := time.ParseDuration(cfg.Daemon.JobHistoryRetention)
 			runDaemonLoop(ctx, cmd, queue, cfg, frequency, retDur, logger, workers)
+			<-webDone
 			return nil
 		},
 	}
@@ -174,9 +175,11 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 }
 
 // startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
-func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc) {
+func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc) <-chan struct{} {
+	done := make(chan struct{})
 	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
-		return
+		close(done)
+		return done
 	}
 
 	activity := web.NewActivityRing(activityRingSize)
@@ -224,18 +227,22 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 	})
 	if srvErr != nil {
 		logger.Error("web server construct failed", logging.Any("err", srvErr))
-		return
+		close(done)
+		return done
 	}
 	if startErr := srv.Start(); startErr != nil {
 		logger.Error("web server start failed", logging.Any("err", startErr))
-		return
+		close(done)
+		return done
 	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
+		close(done)
 	}()
+	return done
 }
 
 // runDaemonLoop runs the main daemon scheduling loop until ctx is cancelled.
