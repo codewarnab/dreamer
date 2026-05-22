@@ -137,7 +137,21 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 		}
 		sp, wt, wrm, wra, pc := buildSparklines(h.Days, cutoff30d, cutoff7d)
 		for date, day := range sp {
-			sparkline[date] = day
+			if cur, ok := sparkline[date]; ok {
+				cur.Runs += day.Runs
+				cur.FindingsNew += day.FindingsNew
+				cur.FindingsTotal += day.FindingsTotal
+				cur.Tokens += day.Tokens
+				if cur.Runs > 0 {
+					cur.AvgRunMillis = (cur.AvgRunMillis*int64(cur.Runs-day.Runs) + day.AvgRunMillis*int64(day.Runs)) / int64(cur.Runs)
+				}
+				for cat, n := range day.PerCategory {
+					cur.PerCategory[cat] += n
+				}
+				sparkline[date] = cur
+			} else {
+				sparkline[date] = day
+			}
 		}
 		out.Stats.TokensWeek += wt
 		totalRunMillisWeighted += wrm
