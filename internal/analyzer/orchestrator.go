@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 )
@@ -231,13 +232,15 @@ func validateFindings(findings []Finding, pack RulePack, req PhaseRequest) ([]Fi
 // ComputeFindingHash returns the stable identifier for a finding (spec §11.2).
 func ComputeFindingHash(f Finding) string {
 	hasher := sha256.New()
-	hasher.Write([]byte(strings.ToLower(strings.TrimSpace(string(f.Category)))))
+	// io.WriteString avoids the []byte(str) allocation on every call;
+	// sha256.Hash implements io.StringWriter internally.
+	io.WriteString(hasher, strings.ToLower(strings.TrimSpace(string(f.Category)))) //nolint:errcheck
 	hasher.Write([]byte{'|'})
-	hasher.Write([]byte(strings.ToLower(normalizeWhitespace(f.Mistake))))
+	io.WriteString(hasher, strings.ToLower(normalizeWhitespace(f.Mistake))) //nolint:errcheck
 	hasher.Write([]byte{'|'})
-	hasher.Write([]byte(strings.ToLower(strings.TrimSpace(f.Guardrail.Tool))))
+	io.WriteString(hasher, strings.ToLower(strings.TrimSpace(f.Guardrail.Tool))) //nolint:errcheck
 	hasher.Write([]byte{'|'})
-	hasher.Write([]byte(strings.ToLower(strings.TrimSpace(f.Guardrail.Rule))))
+	io.WriteString(hasher, strings.ToLower(strings.TrimSpace(f.Guardrail.Rule))) //nolint:errcheck
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 

@@ -229,9 +229,11 @@ func mergeMistakes(dst, src map[RuleCategory][]Mistake) {
 
 // packForCategory returns the matching pack from packs (zero value if absent).
 func packForCategory(packs []RulePack, c RuleCategory) RulePack {
-	for _, p := range packs {
-		if p.Category == c {
-			return p
+	// Range by index to avoid copying the RulePack struct (≈150 bytes) on
+	// every iteration.
+	for i := range packs {
+		if packs[i].Category == c {
+			return packs[i]
 		}
 	}
 	return RulePack{Category: c, Enabled: true}

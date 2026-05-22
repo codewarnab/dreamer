@@ -38,7 +38,8 @@ func sanitizeMessages(
 		capacity = maxMessages
 	}
 	sanitized := make([]ChatMessage, 0, capacity)
-	previousKey := ""
+	previousRole := ""
+	previousContent := ""
 
 	for _, message := range messages {
 		normalizedContent := normalize(message.Content)
@@ -54,14 +55,16 @@ func sanitizeMessages(
 			}
 		}
 
-		dedupeKey := message.Role + "\x00" + normalizedContent
-		if dedupeKey == previousKey {
+		// Deduplicate consecutive identical messages without building a
+		// composite key string on every iteration.
+		if message.Role == previousRole && normalizedContent == previousContent {
 			continue
 		}
 
 		message.Content = normalizedContent
 		sanitized = append(sanitized, message)
-		previousKey = dedupeKey
+		previousRole = message.Role
+		previousContent = normalizedContent
 
 		if maxMessages > 0 && len(sanitized) >= maxMessages {
 			break

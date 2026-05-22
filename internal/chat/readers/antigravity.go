@@ -177,9 +177,15 @@ func normalizeAntigravityContent(content string) string {
 		return ""
 	}
 
-	runes := []rune(normalized)
-	if len(runes) > antigravityMaxCharsPerMessage {
-		normalized = strings.TrimSpace(string(runes[:antigravityMaxCharsPerMessage]))
+	// Truncate to antigravityMaxCharsPerMessage runes without allocating a
+	// []rune slice. Ranging over a string yields rune boundaries at zero cost.
+	runeCount := 0
+	for i := range normalized {
+		if runeCount == antigravityMaxCharsPerMessage {
+			normalized = strings.TrimSpace(normalized[:i])
+			break
+		}
+		runeCount++
 	}
 
 	return normalized

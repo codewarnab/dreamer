@@ -2,6 +2,7 @@ package readers
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -42,12 +43,15 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 
 	messages := make([]ChatMessage, 0)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+		// Use Bytes() to avoid a string allocation per line; TrimSpace on
+		// []byte is allocation-free. The slice is only valid until the next
+		// Scan call, but json.Unmarshal copies what it needs.
+		raw := bytes.TrimSpace(scanner.Bytes())
+		if len(raw) == 0 {
 			continue
 		}
 
-		message, ok := parseJSONLRecord(line)
+		message, ok := parseJSONLRecordBytes(raw)
 		if !ok {
 			continue
 		}
@@ -65,8 +69,12 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 }
 
 func parseJSONLRecord(line string) (ChatMessage, bool) {
+	return parseJSONLRecordBytes([]byte(line))
+}
+
+func parseJSONLRecordBytes(raw []byte) (ChatMessage, bool) {
 	var record map[string]any
-	if err := json.Unmarshal([]byte(line), &record); err != nil {
+	if err := json.Unmarshal(raw, &record); err != nil {
 		return ChatMessage{}, false
 	}
 
@@ -234,13 +242,18 @@ func textFromValue(value any, depth int) string {
 	case json.RawMessage:
 		return strings.TrimSpace(string(typed))
 	case []any:
-		parts := make([]string, 0, len(typed))
+		var sb strings.Builder
 		for _, item := range typed {
-			if text := textFromValue(item, depth+1); text != "" {
-				parts = append(parts, text)
+			text := textFromValue(item, depth+1)
+			if text == "" {
+				continue
 			}
+			if sb.Len() > 0 {
+				sb.WriteByte('\n')
+			}
+			sb.WriteString(text)
 		}
-		return strings.TrimSpace(strings.Join(parts, "\n"))
+		return strings.TrimSpace(sb.String())
 	case map[string]any:
 		for _, key := range []string{"text", "value", "content", "body", "message"} {
 			if text := textFromValue(typed[key], depth+1); text != "" {

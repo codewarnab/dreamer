@@ -54,9 +54,15 @@ func normalizeClaudeContent(content string) string {
 		return ""
 	}
 
-	runes := []rune(normalized)
-	if len(runes) > claudeMaxCharsPerMessage {
-		normalized = strings.TrimSpace(string(runes[:claudeMaxCharsPerMessage]))
+	// Truncate to claudeMaxCharsPerMessage runes without allocating a []rune
+	// slice. Ranging over a string yields rune boundaries at zero cost.
+	runeCount := 0
+	for i := range normalized {
+		if runeCount == claudeMaxCharsPerMessage {
+			normalized = strings.TrimSpace(normalized[:i])
+			break
+		}
+		runeCount++
 	}
 
 	return normalized

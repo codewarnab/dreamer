@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"dreamer/internal/analyzer/transport"
@@ -69,10 +70,12 @@ func scanGoFile(absPath string, relPath string) []Symbol {
 	var symbols []Symbol
 	for scanner.Scan() {
 		lineNum++
-		line := scanner.Text()
-		if !goSymbolRe.MatchString(line) {
+		// Avoid allocating a string for every line: match on the raw bytes
+		// first and only call Text() when there is an actual symbol match.
+		if !goSymbolRe.Match(scanner.Bytes()) {
 			continue
 		}
+		line := scanner.Text()
 		kindMatch := goDeclKind.FindStringSubmatch(line)
 		nameMatch := goDeclName.FindStringSubmatch(line)
 		if len(kindMatch) < 2 || len(nameMatch) < 2 {
@@ -101,7 +104,7 @@ func FormatSymbolList(symbols []Symbol, cap int) string {
 		}
 		builder.WriteString(symbol.Path)
 		builder.WriteByte(':')
-		builder.WriteString(itoa(symbol.Line))
+		builder.WriteString(strconv.Itoa(symbol.Line))
 		builder.WriteString("  ")
 		builder.WriteString(symbol.Kind)
 		builder.WriteByte(' ')
@@ -110,17 +113,4 @@ func FormatSymbolList(symbols []Symbol, cap int) string {
 	return builder.String()
 }
 
-func itoa(value int) string {
-	if value == 0 {
-		return "0"
-	}
-	digits := make([]byte, 0, 8)
-	for value > 0 {
-		digits = append(digits, byte('0'+(value%10)))
-		value /= 10
-	}
-	for i, j := 0, len(digits)-1; i < j; i, j = i+1, j-1 {
-		digits[i], digits[j] = digits[j], digits[i]
-	}
-	return string(digits)
-}
+
