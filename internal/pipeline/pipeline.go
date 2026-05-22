@@ -528,6 +528,13 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	currentState.UsageStats["redaction_hits"] += int64(tr.redactionTotal)
 
 	if err := rctx.savePrunedState(); err != nil {
+		if logger != nil {
+			logger.Warn("state save failed after todos were written — next run may re-analyze",
+				logging.Any("err", err),
+				logging.Any("project", dr.projectName),
+				logging.Any("todos_path", generateResult.Path),
+			)
+		}
 		return Result{}, fmt.Errorf("save state: %w", err)
 	}
 
