@@ -12,7 +12,8 @@ import (
 // Returns a slice of "KEY=VALUE" strings suitable for exec.Cmd.Env.
 func MergeWithProcessEnv(extra map[string]string) []string {
 	// Build set of keys to delete (empty value means delete).
-	deletes := make(map[string]struct{})
+	// Pre-size to len(extra) to avoid map rehash growth.
+	deletes := make(map[string]struct{}, len(extra))
 	for k, v := range extra {
 		if v == "" {
 			deletes[k] = struct{}{}

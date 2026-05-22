@@ -32,7 +32,7 @@ func daemonSignals() []os.Signal {
 }
 
 func newDaemonCommand() *cobra.Command {
-	var afv analyzerFlagVars
+	var analyzerFlags analyzerFlagVars
 
 	command := &cobra.Command{
 		Use:   "daemon",
@@ -60,12 +60,12 @@ func newDaemonCommand() *cobra.Command {
 			defer func() { _ = logger.Close() }()
 
 			overrides := daemonOverrides{
-				parallel:       afv.parallel,
-				maxConcurrency: afv.jobs,
+				parallel:       analyzerFlags.parallel,
+				maxConcurrency: analyzerFlags.jobs,
 			}
 			if cmd.Flags().Changed(flagChunkSize) {
 				overrides.maxChunkBytesSet = true
-				overrides.maxChunkBytes = afv.chunkSize
+				overrides.maxChunkBytes = analyzerFlags.chunkSize
 			}
 			if len(cfg.Projects) == 0 {
 				logger.Error("daemon configuration has no projects", logging.Any("config", resolvedConfigPath))
@@ -107,7 +107,7 @@ func newDaemonCommand() *cobra.Command {
 		},
 	}
 
-	registerAnalyzerFlags(command.Flags(), &afv)
+	registerAnalyzerFlags(command.Flags(), &analyzerFlags)
 
 	return command
 }

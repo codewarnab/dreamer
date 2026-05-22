@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -353,12 +355,18 @@ func formatToolCall(name, input, output string) string {
 	return sb.String()
 }
 
-// truncateToolOutput caps output at maxToolOutputChars.
+// truncateToolOutput caps output at maxToolOutputChars runes.
+// Slices at a rune boundary to avoid cutting multi-byte UTF-8 characters,
+// and uses strconv.Itoa to avoid fmt.Sprintf's reflection overhead.
 func truncateToolOutput(output string) string {
 	output = strings.TrimSpace(output)
-	if len(output) <= maxToolOutputChars {
-		return output
+	runeCount := 0
+	for i := range output {
+		if runeCount == maxToolOutputChars {
+			truncated := utf8.RuneCountInString(output[i:])
+			return output[:i] + "… (" + strconv.Itoa(truncated) + " chars truncated)"
+		}
+		runeCount++
 	}
-	truncated := len(output) - maxToolOutputChars
-	return output[:maxToolOutputChars] + fmt.Sprintf("… (%d chars truncated)", truncated)
+	return output
 }

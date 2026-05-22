@@ -220,43 +220,43 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerItem{"info", ""},
 		providerItem{"debug", ""},
 	}
-	ll := list.New(levels, compactDelegate{}, initialW-20, listHeight(len(levels)))
-	ll.Title = "6/10 - Log level"
-	ll.SetShowHelp(false)
-	ll.SetShowStatusBar(false)
+	logLevelList := list.New(levels, compactDelegate{}, initialW-20, listHeight(len(levels)))
+	logLevelList.Title = "6/10 - Log level"
+	logLevelList.SetShowHelp(false)
+	logLevelList.SetShowStatusBar(false)
 
-	rt := textinput.New()
-	rt.Placeholder = "120"
+	ruleTimeoutInput := textinput.New()
+	ruleTimeoutInput.Placeholder = "120"
 	if initial.ruleTimeout > 0 {
-		rt.SetValue(strconv.Itoa(initial.ruleTimeout))
+		ruleTimeoutInput.SetValue(strconv.Itoa(initial.ruleTimeout))
 	} else {
-		rt.SetValue("120")
+		ruleTimeoutInput.SetValue("120")
 	}
 
-	mc := textinput.New()
-	mc.Placeholder = "0 (= len(chunks))"
+	maxConcInput := textinput.New()
+	maxConcInput.Placeholder = "0 (= len(chunks))"
 	if initial.maxConcurrency > 0 {
-		mc.SetValue(strconv.Itoa(initial.maxConcurrency))
+		maxConcInput.SetValue(strconv.Itoa(initial.maxConcurrency))
 	}
 
-	mcb := textinput.New()
-	mcb.Placeholder = "480000"
+	maxChunkInput := textinput.New()
+	maxChunkInput.Placeholder = "480000"
 	if initial.maxChunkBytes > 0 {
-		mcb.SetValue(strconv.Itoa(initial.maxChunkBytes))
+		maxChunkInput.SetValue(strconv.Itoa(initial.maxChunkBytes))
 	} else {
-		mcb.SetValue("480000")
+		maxChunkInput.SetValue("480000")
 	}
 
-	pp := textinput.New()
-	pp.Placeholder = "/absolute/path/to/project"
+	projectPathInput := textinput.New()
+	projectPathInput.Placeholder = "/absolute/path/to/project"
 	if initial.projectPath != "" {
-		pp.SetValue(initial.projectPath)
+		projectPathInput.SetValue(initial.projectPath)
 	}
 
-	pn := textinput.New()
-	pn.Placeholder = "(default: basename of path)"
+	projectNameInput := textinput.New()
+	projectNameInput.Placeholder = "(default: basename of path)"
 	if initial.projectName != "" {
-		pn.SetValue(initial.projectName)
+		projectNameInput.SetValue(initial.projectName)
 	}
 
 	sinces := []list.Item{
@@ -265,10 +265,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerItem{"30d", ""},
 		providerItem{"lifetime", ""},
 	}
-	sl := list.New(sinces, compactDelegate{}, 60, listHeight(len(sinces)))
-	sl.Title = "10/10 - Project lookback (since)"
-	sl.SetShowHelp(false)
-	sl.SetShowStatusBar(false)
+	sinceList := list.New(sinces, compactDelegate{}, 60, listHeight(len(sinces)))
+	sinceList.Title = "10/10 - Project lookback (since)"
+	sinceList.SetShowHelp(false)
+	sinceList.SetShowStatusBar(false)
 
 	m := setupModel{
 		step:             stepProvider,
@@ -277,13 +277,13 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		providerList:     pl,
 		freqInput:        freq,
 		outputInput:      out,
-		logLevelList:     ll,
-		ruleTimeoutInput: rt,
-		maxConcInput:     mc,
-		maxChunkInput:    mcb,
-		projectPathInput: pp,
-		projectNameInput: pn,
-		projectSinceList: sl,
+		logLevelList:     logLevelList,
+		ruleTimeoutInput: ruleTimeoutInput,
+		maxConcInput:     maxConcInput,
+		maxChunkInput:    maxChunkInput,
+		projectPathInput: projectPathInput,
+		projectNameInput: projectNameInput,
+		projectSinceList: sinceList,
 		answers:          initial,
 	}
 	if m.answers.provider == "" {

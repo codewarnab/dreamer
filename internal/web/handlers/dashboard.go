@@ -96,14 +96,14 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 	var totalRunMillisWeighted int64
 	var totalRunsForAvg int64
 	var totalRunsAllTime int64
-	var totalFailures int64
+	var totalFailuresAllTime int64
 
 	healthy := map[string]bool{}
 	seen := map[string]bool{}
 
 	cutoff7d := time.Now().UTC().AddDate(0, 0, -7)
 	cutoff30d := time.Now().UTC().AddDate(0, 0, -30)
-	sparkline := map[string]state.DaySummary{}
+	aggregatedSparkline := map[string]state.DaySummary{}
 
 	for _, p := range cfg.Projects {
 		st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
@@ -115,15 +115,15 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 			lastRun = st.LastRunUTC
 		}
 
-		ph, ps, pf, pt := buildProviderHealth(st.ProviderUsage)
-		for id := range ph {
+		healthyProviders, seenProviders, providerFailures, providerRuns := buildProviderHealth(st.ProviderUsage)
+		for id := range healthyProviders {
 			healthy[id] = true
 		}
-		for id := range ps {
+		for id := range seenProviders {
 			seen[id] = true
 		}
-		totalFailures += pf
-		totalRunsAllTime += pt
+		totalFailuresAllTime += providerFailures
+		totalRunsAllTime += providerRuns
 
 		applied, dismissed, resolved, open := buildLifecycleCounts(st.Findings, st.FindingHashes)
 		out.Stats.FindingsApplied += applied
@@ -135,9 +135,9 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 		if err != nil || h == nil {
 			continue
 		}
-		sp, wt, wrm, wra, pc := buildSparklines(h.Days, cutoff30d, cutoff7d)
-		for date, day := range sp {
-			if cur, ok := sparkline[date]; ok {
+		sparkline, weekTokens, weightedRunMillis, runsForAvg, perCategory := buildSparklines(h.Days, cutoff30d, cutoff7d)
+		for date, day := range sparkline {
+			if cur, ok := aggregatedSparkline[date]; ok {
 				cur.Runs += day.Runs
 				cur.FindingsNew += day.FindingsNew
 				cur.FindingsTotal += day.FindingsTotal
@@ -148,15 +148,15 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 				for cat, n := range day.PerCategory {
 					cur.PerCategory[cat] += n
 				}
-				sparkline[date] = cur
+				aggregatedSparkline[date] = cur
 			} else {
-				sparkline[date] = day
+				aggregatedSparkline[date] = day
 			}
 		}
-		out.Stats.TokensWeek += wt
-		totalRunMillisWeighted += wrm
-		totalRunsForAvg += wra
-		for cat, n := range pc {
+		out.Stats.TokensWeek += weekTokens
+		totalRunMillisWeighted += weightedRunMillis
+		totalRunsForAvg += runsForAvg
+		for cat, n := range perCategory {
 			out.PerCategory[cat] += n
 		}
 	}
@@ -168,15 +168,15 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 		}
 	}
 	if totalRunsAllTime > 0 {
-		out.Stats.FailureRatePct = int((totalFailures * 100) / totalRunsAllTime)
+		out.Stats.FailureRatePct = int((totalFailuresAllTime * 100) / totalRunsAllTime)
 	}
 	if totalRunsForAvg > 0 {
 		out.Stats.AvgRunSeconds = int(totalRunMillisWeighted / totalRunsForAvg / 1000)
 	}
 	out.Stats.ProvidersHealthy = fmt.Sprintf("%d/%d", len(healthy), len(seen))
 
-	keys := make([]string, 0, len(sparkline))
-	for k := range sparkline {
+	keys := make([]string, 0, len(aggregatedSparkline))
+	for k := range aggregatedSparkline {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -185,7 +185,7 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 	}
 	out.Sparkline30d = make([]state.DaySummary, 0, len(keys))
 	for _, k := range keys {
-		out.Sparkline30d = append(out.Sparkline30d, sparkline[k])
+		out.Sparkline30d = append(out.Sparkline30d, aggregatedSparkline[k])
 	}
 	return out
 }
