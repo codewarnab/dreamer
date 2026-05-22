@@ -28,28 +28,28 @@ func GlobalOverlayPath() (string, error) {
 // config is returned unmodified so the daemon keeps running on malformed
 // overlay.
 func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
-	cfg, err := LoadConfig(basePath)
+	baseConfig, err := LoadConfig(basePath)
 	if err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(overlayPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return baseConfig, nil
 		}
 		return nil, fmt.Errorf("read overlay %q: %w", overlayPath, err)
 	}
 	if len(data) == 0 {
-		return cfg, nil
+		return baseConfig, nil
 	}
 	var overlay Config
 	if err := yaml.Unmarshal(data, &overlay); err != nil {
-		cfg.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
-		return cfg, nil
+		baseConfig.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
+		return baseConfig, nil
 	}
-	mergeOverlay(cfg, &overlay)
-	cfg.Notices.OverlayApplied = true
-	if err := applyDefaults(cfg); err != nil {
+	mergeOverlay(baseConfig, &overlay)
+	baseConfig.Notices.OverlayApplied = true
+	if err := applyDefaults(baseConfig); err != nil {
 		// Post-merge defaults failed: roll back by re-loading base.
 		base, loadErr := LoadConfig(basePath)
 		if loadErr != nil {
@@ -58,7 +58,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 		base.Notices.OverlayParseError = fmt.Sprintf("overlay %q failed defaults: %v", overlayPath, err)
 		return base, nil
 	}
-	if err := validateConfig(cfg); err != nil {
+	if err := validateConfig(baseConfig); err != nil {
 		base, loadErr := LoadConfig(basePath)
 		if loadErr != nil {
 			return nil, loadErr
@@ -66,7 +66,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 		base.Notices.OverlayParseError = fmt.Sprintf("overlay %q failed validation: %v", overlayPath, err)
 		return base, nil
 	}
-	return cfg, nil
+	return baseConfig, nil
 }
 
 // mergeOverlay applies overlay onto base per spec.v1.5 §3.3:

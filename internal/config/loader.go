@@ -271,46 +271,46 @@ func LoadProjectFileConfig(projectPath string) (*ProjectFileConfig, error) {
 	return &pfc, nil
 }
 
-func applyDefaults(cfg *Config) error {
-	if strings.TrimSpace(cfg.DefaultProvider) == "" {
-		cfg.DefaultProvider = DefaultProviderID
+func applyDefaults(appConfig *Config) error {
+	if strings.TrimSpace(appConfig.DefaultProvider) == "" {
+		appConfig.DefaultProvider = DefaultProviderID
 	}
-	if cfg.Daemon.FrequencySeconds <= 0 {
-		cfg.Daemon.FrequencySeconds = DefaultFrequencySeconds
+	if appConfig.Daemon.FrequencySeconds <= 0 {
+		appConfig.Daemon.FrequencySeconds = DefaultFrequencySeconds
 	}
-	if strings.TrimSpace(cfg.Logging.Level) == "" {
-		cfg.Logging.Level = DefaultLogLevel
+	if strings.TrimSpace(appConfig.Logging.Level) == "" {
+		appConfig.Logging.Level = DefaultLogLevel
 	}
-	if strings.TrimSpace(cfg.Daemon.OutputRoot) == "" {
+	if strings.TrimSpace(appConfig.Daemon.OutputRoot) == "" {
 		root, err := UserConfigRoot()
 		if err != nil {
 			return fmt.Errorf("resolve default output root: %w", err)
 		}
-		cfg.Daemon.OutputRoot = root
+		appConfig.Daemon.OutputRoot = root
 	}
-	if cfg.Providers == nil {
-		cfg.Providers = map[string]ProviderBlock{}
+	if appConfig.Providers == nil {
+		appConfig.Providers = map[string]ProviderBlock{}
 	}
-	if cfg.Analyzer.Rules == nil {
-		cfg.Analyzer.Rules = map[string]RuleConfig{}
+	if appConfig.Analyzer.Rules == nil {
+		appConfig.Analyzer.Rules = map[string]RuleConfig{}
 	}
-	applyAnalyzerExecutionDefaults(&cfg.Analyzer.Execution)
-	applyAnalyzerChunkingDefaults(&cfg.Analyzer.Chunking)
-	applyProjectSinceDefaults(cfg)
-	if cfg.Web.Enabled == nil {
+	applyAnalyzerExecutionDefaults(&appConfig.Analyzer.Execution)
+	applyAnalyzerChunkingDefaults(&appConfig.Analyzer.Chunking)
+	applyProjectSinceDefaults(appConfig)
+	if appConfig.Web.Enabled == nil {
 		t := true
-		cfg.Web.Enabled = &t
+		appConfig.Web.Enabled = &t
 	}
-	if cfg.Web.Port == 0 {
-		cfg.Web.Port = DefaultWebPort
+	if appConfig.Web.Port == 0 {
+		appConfig.Web.Port = DefaultWebPort
 	}
-	if cfg.Web.Host == "" {
-		cfg.Web.Host = DefaultWebHost
+	if appConfig.Web.Host == "" {
+		appConfig.Web.Host = DefaultWebHost
 	}
-	if cfg.Web.LogTailKB == 0 {
-		cfg.Web.LogTailKB = DefaultLogTailKB
+	if appConfig.Web.LogTailKB == 0 {
+		appConfig.Web.LogTailKB = DefaultLogTailKB
 	}
-	applyDaemonJobQueueDefaults(cfg)
+	applyDaemonJobQueueDefaults(appConfig)
 	return nil
 }
 
@@ -338,22 +338,22 @@ func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
 }
 
 // applyDaemonJobQueueDefaults fills job-queue fields with sane defaults.
-func applyDaemonJobQueueDefaults(cfg *Config) {
-	if cfg.Daemon.MaxConcurrentJobs <= 0 {
-		cfg.Daemon.MaxConcurrentJobs = DefaultMaxConcurrentJobs
+func applyDaemonJobQueueDefaults(appConfig *Config) {
+	if appConfig.Daemon.MaxConcurrentJobs <= 0 {
+		appConfig.Daemon.MaxConcurrentJobs = DefaultMaxConcurrentJobs
 	}
-	if strings.TrimSpace(cfg.Daemon.MaxAnalysisDuration) == "" {
-		cfg.Daemon.MaxAnalysisDuration = DefaultMaxAnalysisDuration
+	if strings.TrimSpace(appConfig.Daemon.MaxAnalysisDuration) == "" {
+		appConfig.Daemon.MaxAnalysisDuration = DefaultMaxAnalysisDuration
 	}
-	if strings.TrimSpace(cfg.Daemon.JobHistoryRetention) == "" {
-		cfg.Daemon.JobHistoryRetention = DefaultJobHistoryRetention
+	if strings.TrimSpace(appConfig.Daemon.JobHistoryRetention) == "" {
+		appConfig.Daemon.JobHistoryRetention = DefaultJobHistoryRetention
 	}
 }
 
 // applyProjectSinceDefaults fills blank `since` with DefaultSince and records the notice.
-func applyProjectSinceDefaults(cfg *Config) {
-	for i := range cfg.Projects {
-		project := &cfg.Projects[i]
+func applyProjectSinceDefaults(appConfig *Config) {
+	for i := range appConfig.Projects {
+		project := &appConfig.Projects[i]
 		if strings.TrimSpace(project.Since) != "" {
 			continue
 		}
@@ -362,7 +362,7 @@ func applyProjectSinceDefaults(cfg *Config) {
 		if name == "" {
 			name = project.Path
 		}
-		cfg.Notices.DefaultedSince = append(cfg.Notices.DefaultedSince, name)
+		appConfig.Notices.DefaultedSince = append(appConfig.Notices.DefaultedSince, name)
 	}
 }
 
