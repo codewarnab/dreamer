@@ -3,12 +3,12 @@ package openclaudecli
 import "dreamer/internal/analyzer"
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderOpenClaudeCLI, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+	analyzer.RegisterProvider(analyzer.ProviderOpenClaudeCLI, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
 		return New(Options{
-			Command:      cfg.Command,
-			Env:          cfg.Env,
-			Model:        cfg.Model,
-			DefaultModel: cfg.DefaultModel,
+			Command:      providerConfig.Command,
+			Env:          providerConfig.Env,
+			Model:        providerConfig.Model,
+			DefaultModel: providerConfig.DefaultModel,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

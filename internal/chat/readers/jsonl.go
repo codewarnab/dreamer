@@ -23,9 +23,7 @@ type ChatMessage struct {
 }
 
 type JSONLReadOptions struct {
-	SanitizeClaude         bool
-	SanitizeCodex          bool
-	SanitizeCopilotSession bool
+	Sanitizer func([]ChatMessage) []ChatMessage
 }
 
 func ReadJSONL(filePath string) ([]ChatMessage, error) {
@@ -59,14 +57,8 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 		return nil, fmt.Errorf("scan jsonl file %q: %w", filePath, err)
 	}
 
-	if options.SanitizeClaude {
-		messages = SanitizeClaudeMessages(messages)
-	}
-	if options.SanitizeCodex {
-		messages = SanitizeCodexMessages(messages)
-	}
-	if options.SanitizeCopilotSession {
-		messages = SanitizeCopilotSessionMessages(messages)
+	if options.Sanitizer != nil {
+		messages = options.Sanitizer(messages)
 	}
 
 	return messages, nil

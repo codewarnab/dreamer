@@ -65,10 +65,6 @@ func SplitSQLiteSourcePath(path string) (string, string) {
 	return path[:index], path[index+1:]
 }
 
-// defaultSQLiteDriverName mirrors the value from readers.SQLiteReader so the
-// availability check stays in one place. Kept private to the package.
-const defaultSQLiteDriverName = "sqlite"
-
 // sqliteReaderAvailable reports whether the discovery layer should attempt to
 // open a SQLite-backed chat source. When the caller provided a custom Open
 // hook or a non-default driver name, discovery trusts them. Otherwise it
@@ -78,11 +74,11 @@ func sqliteReaderAvailable(driverName string, openHook func(string, string) (*sq
 	if openHook != nil {
 		return true
 	}
-	if trimmed := strings.TrimSpace(driverName); trimmed != "" && trimmed != defaultSQLiteDriverName {
+	if trimmed := strings.TrimSpace(driverName); trimmed != "" && trimmed != readers.DefaultSQLiteDriverName {
 		return true
 	}
 	for _, name := range sql.Drivers() {
-		if name == defaultSQLiteDriverName {
+		if name == readers.DefaultSQLiteDriverName {
 			return true
 		}
 	}

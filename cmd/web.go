@@ -39,7 +39,7 @@ func newWebCommand() *cobra.Command {
 				return err
 			}
 			url := fmt.Sprintf("http://127.0.0.1:%d", port)
-			if err := probeHealth(url+"/api/health", 250*time.Millisecond); err != nil {
+			if err := probeHealth(url+"/api/health", healthProbeTimeout); err != nil {
 				line1 := fmt.Sprintf("daemon UI not running on %s", url)
 				line2 := "start with:"
 				line3 := "dreamer daemon"

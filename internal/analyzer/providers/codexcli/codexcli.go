@@ -31,12 +31,12 @@ type Options struct {
 }
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderCodexCLI, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+	analyzer.RegisterProvider(analyzer.ProviderCodexCLI, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
 		return New(Options{
-			Command:      cfg.Command,
-			Env:          cfg.Env,
-			Model:        cfg.Model,
-			DefaultModel: cfg.DefaultModel,
+			Command:      providerConfig.Command,
+			Env:          providerConfig.Env,
+			Model:        providerConfig.Model,
+			DefaultModel: providerConfig.DefaultModel,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
@@ -77,14 +77,14 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
-	wd := strings.TrimSpace(cfg.WorkingDirectory)
+func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
+	wd := strings.TrimSpace(sessionConfig.WorkingDirectory)
 	if wd == "" {
 		return nil, errors.New("codex-cli: SessionConfig.WorkingDirectory is required")
 	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--cd", wd)
-	model := strings.TrimSpace(cfg.Model)
+	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
 		model = strings.TrimSpace(p.options.Model)
 	}
@@ -98,7 +98,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		command:    command,
 		env:        p.options.Env,
 		workingDir: wd,
-		systemMsg:  strings.TrimSpace(cfg.SystemMessage),
+		systemMsg:  strings.TrimSpace(sessionConfig.SystemMessage),
 	}, nil
 }
 

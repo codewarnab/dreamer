@@ -52,23 +52,23 @@ func NewRedactor(extraPatterns []string) (*Redactor, error) {
 
 // Redact returns the redacted text plus a per-pattern hit count.
 func (r *Redactor) Redact(text string) (string, RedactionResult) {
-	result := RedactionResult{HitsByName: map[string]int{}}
+	redactionResult := RedactionResult{HitsByName: map[string]int{}}
 	if r == nil || len(r.patterns) == 0 || text == "" {
-		return text, result
+		return text, redactionResult
 	}
 	current := text
-	for _, p := range r.patterns {
-		marker := "[REDACTED:" + p.Name + "]"
+	for _, pattern := range r.patterns {
+		marker := "[REDACTED:" + pattern.Name + "]"
 		hits := 0
-		current = p.Pattern.ReplaceAllStringFunc(current, func(string) string {
+		current = pattern.Pattern.ReplaceAllStringFunc(current, func(string) string {
 			hits++
 			return marker
 		})
 		if hits > 0 {
-			result.HitsByName[p.Name] += hits
+			redactionResult.HitsByName[pattern.Name] += hits
 		}
 	}
-	return current, result
+	return current, redactionResult
 }
 
 func defaultRedactionPatterns() []RedactionPattern {

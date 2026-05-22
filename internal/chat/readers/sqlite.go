@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const defaultSQLiteDriverName = "sqlite"
+// DefaultSQLiteDriverName is the driver name used by SQLiteReader when no
+// custom driver is configured. Also referenced by the chat package for
+// discovery-time availability checks.
+const DefaultSQLiteDriverName = "sqlite"
 
 type SessionMetadata struct {
 	SessionID    string
@@ -29,24 +32,9 @@ func ReadSessionsModifiedSince(dbPath string, since time.Time) ([]SessionMetadat
 }
 
 func (reader SQLiteReader) QuerySessionsModifiedSince(dbPath string, since time.Time) ([]SessionMetadata, error) {
-	path := strings.TrimSpace(dbPath)
-	if path == "" {
-		return nil, fmt.Errorf("session-store sqlite path is required")
-	}
-
-	driverName := strings.TrimSpace(reader.DriverName)
-	if driverName == "" {
-		driverName = defaultSQLiteDriverName
-	}
-
-	openDB := reader.Open
-	if openDB == nil {
-		openDB = sql.Open
-	}
-
-	database, err := openDB(driverName, path)
+	database, err := openSQLDatabase(reader.DriverName, reader.Open, dbPath, "sqlite")
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite database %q with driver %q: %w", path, driverName, err)
+		return nil, err
 	}
 	defer database.Close()
 

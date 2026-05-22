@@ -28,28 +28,28 @@ func GlobalOverlayPath() (string, error) {
 // config is returned unmodified so the daemon keeps running on malformed
 // overlay.
 func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
-	cfg, err := LoadConfig(basePath)
+	baseConfig, err := LoadConfig(basePath)
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(overlayPath)
+	overlayBytes, err := os.ReadFile(overlayPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return baseConfig, nil
 		}
 		return nil, fmt.Errorf("read overlay %q: %w", overlayPath, err)
 	}
-	if len(data) == 0 {
-		return cfg, nil
+	if len(overlayBytes) == 0 {
+		return baseConfig, nil
 	}
 	var overlay Config
-	if err := yaml.Unmarshal(data, &overlay); err != nil {
-		cfg.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
-		return cfg, nil
+	if err := yaml.Unmarshal(overlayBytes, &overlay); err != nil {
+		baseConfig.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
+		return baseConfig, nil
 	}
-	mergeOverlay(cfg, &overlay)
-	cfg.Notices.OverlayApplied = true
-	if err := applyDefaults(cfg); err != nil {
+	mergeOverlay(baseConfig, &overlay)
+	baseConfig.Notices.OverlayApplied = true
+	if err := applyDefaults(baseConfig); err != nil {
 		// Post-merge defaults failed: roll back by re-loading base.
 		base, loadErr := LoadConfig(basePath)
 		if loadErr != nil {
@@ -58,7 +58,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 		base.Notices.OverlayParseError = fmt.Sprintf("overlay %q failed defaults: %v", overlayPath, err)
 		return base, nil
 	}
-	if err := validateConfig(cfg); err != nil {
+	if err := validateConfig(baseConfig); err != nil {
 		base, loadErr := LoadConfig(basePath)
 		if loadErr != nil {
 			return nil, loadErr
@@ -66,7 +66,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 		base.Notices.OverlayParseError = fmt.Sprintf("overlay %q failed validation: %v", overlayPath, err)
 		return base, nil
 	}
-	return cfg, nil
+	return baseConfig, nil
 }
 
 // mergeOverlay applies overlay onto base per spec.v1.5 §3.3:
@@ -104,7 +104,9 @@ func mergeOverlay(base, overlay *Config) {
 			base.Providers = map[string]ProviderBlock{}
 		}
 		for k, v := range overlay.Providers {
-			base.Providers[k] = v
+			existing := base.Providers[k]
+			mergeProviderBlock(&existing, &v)
+			base.Providers[k] = existing
 		}
 	}
 	mergeAnalyzer(&base.Analyzer, &overlay.Analyzer)
@@ -132,7 +134,9 @@ func mergeAnalyzer(base, overlay *AnalyzerConfig) {
 			base.Rules = map[string]RuleConfig{}
 		}
 		for k, v := range overlay.Rules {
-			base.Rules[k] = v
+			existing := base.Rules[k]
+			mergeRuleConfig(&existing, &v)
+			base.Rules[k] = existing
 		}
 	}
 }
@@ -149,5 +153,76 @@ func mergeWeb(base, overlay *WebConfig) {
 	}
 	if overlay.LogTailKB != 0 {
 		base.LogTailKB = overlay.LogTailKB
+	}
+}
+
+func mergeRuleConfig(base, overlay *RuleConfig) {
+	if overlay.Enabled != nil {
+		base.Enabled = overlay.Enabled
+	}
+	if overlay.Severity != "" {
+		base.Severity = overlay.Severity
+	}
+	if overlay.MistakePromptTemplate != "" {
+		base.MistakePromptTemplate = overlay.MistakePromptTemplate
+	}
+	if overlay.GuardrailPromptTemplate != "" {
+		base.GuardrailPromptTemplate = overlay.GuardrailPromptTemplate
+	}
+	if overlay.Phase1Preamble != "" {
+		base.Phase1Preamble = overlay.Phase1Preamble
+	}
+	if overlay.Phase1CategoryDescription != "" {
+		base.Phase1CategoryDescription = overlay.Phase1CategoryDescription
+	}
+	if overlay.Phase1ResponseSchema != "" {
+		base.Phase1ResponseSchema = overlay.Phase1ResponseSchema
+	}
+	if overlay.Phase2Preamble != "" {
+		base.Phase2Preamble = overlay.Phase2Preamble
+	}
+	if overlay.Phase2ResponseSchema != "" {
+		base.Phase2ResponseSchema = overlay.Phase2ResponseSchema
+	}
+}
+
+func mergeProviderBlock(base, overlay *ProviderBlock) {
+	if overlay.Model != "" {
+		base.Model = overlay.Model
+	}
+	if overlay.UseLoggedInUser != nil {
+		base.UseLoggedInUser = overlay.UseLoggedInUser
+	}
+	if overlay.AutoStart != nil {
+		base.AutoStart = overlay.AutoStart
+	}
+	if overlay.CopilotHome != "" {
+		base.CopilotHome = overlay.CopilotHome
+	}
+	if overlay.CLIURL != "" {
+		base.CLIURL = overlay.CLIURL
+	}
+	if len(overlay.Command) > 0 {
+		base.Command = overlay.Command
+	}
+	if len(overlay.Env) > 0 {
+		if base.Env == nil {
+			base.Env = map[string]string{}
+		}
+		for k, v := range overlay.Env {
+			base.Env[k] = v
+		}
+	}
+	if overlay.APIKeyEnv != "" {
+		base.APIKeyEnv = overlay.APIKeyEnv
+	}
+	if overlay.BaseURL != "" {
+		base.BaseURL = overlay.BaseURL
+	}
+	if overlay.Password != "" {
+		base.Password = overlay.Password
+	}
+	if overlay.MaxInputTokens != 0 {
+		base.MaxInputTokens = overlay.MaxInputTokens
 	}
 }

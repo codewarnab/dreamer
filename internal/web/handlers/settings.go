@@ -13,6 +13,10 @@ import (
 	"dreamer/internal/fsutil"
 )
 
+// maxSettingsBodyBytes caps the PUT /api/settings request body to prevent
+// OOM from oversized payloads. 256 KiB is well above any real overlay config.
+const maxSettingsBodyBytes = 256 * 1024
+
 // Settings handles both GET (merged effective config) and PUT (overlay write).
 func Settings(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -30,9 +34,16 @@ func Settings(deps Deps) http.HandlerFunc {
 func settingsGet(deps Deps, w http.ResponseWriter, r *http.Request) {
 	cfg := deps.Config()
 	// JSON round-trip clone so sanitization doesn't mutate the live config.
-	raw, _ := json.Marshal(cfg)
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		http.Error(w, "failed to marshal config", http.StatusInternalServerError)
+		return
+	}
 	var clone map[string]any
-	_ = json.Unmarshal(raw, &clone)
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		http.Error(w, "failed to clone config", http.StatusInternalServerError)
+		return
+	}
 	sanitizeProviderEnv(clone)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(clone)
@@ -72,7 +83,7 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 	// Cap request body so a loopback caller can't OOM the daemon by
 	// streaming a multi-GB payload into json+yaml decoders. 256 KiB is
 	// well over any plausible overlay (max real config is ~few KiB).
-	r.Body = http.MaxBytesReader(w, r.Body, 256*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBodyBytes)
 	body, err := readJSONObject(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

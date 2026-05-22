@@ -287,7 +287,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		answers:          initial,
 	}
 	if m.answers.provider == "" {
-		m.answers.provider = "openclaude-cli"
+		m.answers.provider = config.DefaultProviderID
 	}
 	if m.answers.frequency == 0 {
 		m.answers.frequency = 3600

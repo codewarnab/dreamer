@@ -43,7 +43,7 @@ func newStatusCommand() *cobra.Command {
 				status = filterStatus(status, project)
 			}
 			if !all {
-				status = filterRecent(status, 24*time.Hour)
+				status = filterRecent(status, recentFilterWindow)
 			}
 
 			if jsonOutput {

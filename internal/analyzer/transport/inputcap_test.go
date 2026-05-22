@@ -67,16 +67,16 @@ func TestCapInputBytes_CustomTruncNote(t *testing.T) {
 	maxBytes := 100
 	truncNote := "\n\n[custom truncation message]\n"
 
-	result := CapInputBytes(body, maxBytes, truncNote)
+	cappedBody := CapInputBytes(body, maxBytes, truncNote)
 
-	if len(result) > maxBytes {
-		t.Errorf("result length %d exceeds maxBytes %d", len(result), maxBytes)
+	if len(cappedBody) > maxBytes {
+		t.Errorf("cappedBody length %d exceeds maxBytes %d", len(cappedBody), maxBytes)
 	}
-	if result[:len("Header\n\nChat transcript follows:\n")] != "Header\n\nChat transcript follows:\n" {
+	if cappedBody[:len("Header\n\nChat transcript follows:\n")] != "Header\n\nChat transcript follows:\n" {
 		t.Error("header not preserved")
 	}
 	// Should contain the custom truncation note
-	if result[len("Header\n\nChat transcript follows:\n"):len("Header\n\nChat transcript follows:\n")+len(truncNote)] != truncNote {
+	if cappedBody[len("Header\n\nChat transcript follows:\n"):len("Header\n\nChat transcript follows:\n")+len(truncNote)] != truncNote {
 		t.Error("custom truncNote not present")
 	}
 }

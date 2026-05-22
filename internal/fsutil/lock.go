@@ -42,20 +42,20 @@ const maxLockRetries = 3
 func tryAcquire(path string, logger *logging.Logger) error {
 	ownExec, _ := os.Executable()
 	for attempt := 0; attempt < maxLockRetries; attempt++ {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, FilePerms)
+		lockFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, FilePerms)
 		if err == nil {
 			payload := fmt.Sprintf("%d\n%d\n%s\n", os.Getpid(), time.Now().Unix(), ownExec)
-			if _, writeErr := f.WriteString(payload); writeErr != nil {
-				_ = f.Close()
+			if _, writeErr := lockFile.WriteString(payload); writeErr != nil {
+				_ = lockFile.Close()
 				_ = os.Remove(path)
 				return fmt.Errorf("write lock file %q: %w", path, writeErr)
 			}
-			if syncErr := f.Sync(); syncErr != nil {
-				_ = f.Close()
+			if syncErr := lockFile.Sync(); syncErr != nil {
+				_ = lockFile.Close()
 				_ = os.Remove(path)
 				return fmt.Errorf("sync lock file %q: %w", path, syncErr)
 			}
-			_ = f.Close()
+			_ = lockFile.Close()
 			logger.Info("daemon lock acquired", logging.Any("pid", os.Getpid()), logging.Any("path", path))
 			return nil
 		}
@@ -112,11 +112,11 @@ func tryAcquire(path string, logger *logging.Logger) error {
 // "<pid>\n<unix-ts>\n"; in that case execPath is "" and the caller falls back
 // to a PID-only liveness check.
 func readLockMetadata(path string) (pid int, execPath string, err error) {
-	data, err := os.ReadFile(path)
+	metadataBytes, err := os.ReadFile(path)
 	if err != nil {
 		return 0, "", fmt.Errorf("read lock file %q: %w", path, err)
 	}
-	lines := bytes.Split(data, []byte("\n"))
+	lines := bytes.Split(metadataBytes, []byte("\n"))
 	if len(lines) == 0 || len(lines[0]) == 0 {
 		return 0, "", fmt.Errorf("lock file %q has no PID", path)
 	}
@@ -133,15 +133,15 @@ func readLockMetadata(path string) (pid int, execPath string, err error) {
 	return pid, execPath, nil
 }
 
-func execPathsMatch(a, b string) bool {
+func execPathsMatch(pathA, pathB string) bool {
 	// Resolve symlinks so an in-place upgrade still matches the recorded path.
 	// Fall back to plain string compare when EvalSymlinks fails (e.g. the
 	// recorded binary has since been deleted).
-	if ra, err := filepath.EvalSymlinks(a); err == nil {
-		a = ra
+	if resolvedA, err := filepath.EvalSymlinks(pathA); err == nil {
+		pathA = resolvedA
 	}
-	if rb, err := filepath.EvalSymlinks(b); err == nil {
-		b = rb
+	if resolvedB, err := filepath.EvalSymlinks(pathB); err == nil {
+		pathB = resolvedB
 	}
-	return a == b
+	return pathA == pathB
 }

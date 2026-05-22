@@ -66,17 +66,11 @@ type State struct {
 // PathForProject returns the per-project state.json path under outputRoot.
 // If outputRoot is empty, falls back to <UserConfigDir>/dreamer.
 func PathForProject(outputRoot string, projectName string) (string, error) {
-	name := strings.TrimSpace(projectName)
-	if name == "" {
-		return "", fmt.Errorf("project name is required")
-	}
-	if strings.ContainsAny(name, `\/`) {
-		return "", fmt.Errorf("project name contains invalid path separator: %q", projectName)
-	}
-	if name == "." || name == ".." {
-		return "", fmt.Errorf("project name is invalid: %q", projectName)
+	if err := config.ValidateProjectName(projectName); err != nil {
+		return "", err
 	}
 
+	name := strings.TrimSpace(projectName)
 	root := strings.TrimSpace(outputRoot)
 	if root == "" {
 		cfgRoot, err := config.UserConfigRoot()
@@ -121,7 +115,7 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	data, err := os.ReadFile(path)
+	stateBytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return LoadResult{State: defaultState(), CurrentVersion: StateVersion}, nil
@@ -130,27 +124,27 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	}
 
 	var peek map[string]json.RawMessage
-	if err := json.Unmarshal(data, &peek); err != nil {
+	if err := json.Unmarshal(stateBytes, &peek); err != nil {
 		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
 	}
 	versionRaw, hasVersion := peek["version"]
 	priorVersion := 0
 	if hasVersion {
-		var v int
-		if err := json.Unmarshal(versionRaw, &v); err != nil {
+		var fileVersion int
+		if err := json.Unmarshal(versionRaw, &fileVersion); err != nil {
 			return LoadResult{}, fmt.Errorf("unmarshal version in state file %q: %w", path, err)
 		}
-		if v == 0 {
+		if fileVersion == 0 {
 			return LoadResult{}, fmt.Errorf("state file %q has explicit version=0; refusing to load (suspect truncation)", path)
 		}
-		if v > StateVersion {
-			return LoadResult{}, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, v, StateVersion)
+		if fileVersion > StateVersion {
+			return LoadResult{}, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, fileVersion, StateVersion)
 		}
-		priorVersion = v
+		priorVersion = fileVersion
 	}
 
 	var current State
-	if err := json.Unmarshal(data, &current); err != nil {
+	if err := json.Unmarshal(stateBytes, &current); err != nil {
 		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
 	}
 	migrated := false
@@ -214,12 +208,12 @@ func Save(outputRoot, projectName string, state *State) error {
 		dup.Version = StateVersion
 	}
 	normalizeState(&dup)
-	data, err := json.MarshalIndent(&dup, "", "  ")
+	stateBytes, err := json.MarshalIndent(&dup, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
 
-	if err := fsutil.WriteFileAtomic(path, data, fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(path, stateBytes, fsutil.FilePerms); err != nil {
 		return fmt.Errorf("save state for project %q: %w", projectName, err)
 	}
 	return nil
@@ -324,15 +318,15 @@ func ChatCacheKey(path, fileHash, repoHeadSHA string) string {
 // repository state is a cache hint, not a hard requirement for analysis. When a
 // logger is provided, failures are recorded at debug level for troubleshooting.
 func RepoHeadSHA(workingDirectory string, loggers ...*logging.Logger) string {
-	wd := strings.TrimSpace(workingDirectory)
-	if wd == "" {
+	workingDirectoryPath := strings.TrimSpace(workingDirectory)
+	if workingDirectoryPath == "" {
 		return ""
 	}
-	cmd := exec.Command("git", "-C", wd, "rev-parse", "HEAD")
+	cmd := exec.Command("git", "-C", workingDirectoryPath, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		if len(loggers) > 0 && loggers[0] != nil {
-			loggers[0].Debug("repo head SHA failed", logging.Any("wd", wd), logging.Any("err", err))
+			loggers[0].Debug("repo head SHA failed", logging.Any("wd", workingDirectoryPath), logging.Any("err", err))
 		}
 		return ""
 	}

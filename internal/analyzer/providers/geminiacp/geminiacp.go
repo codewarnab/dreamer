@@ -9,16 +9,16 @@ import (
 const ID = "gemini-acp"
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderGeminiACP, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
-		command := cfg.Command
+	analyzer.RegisterProvider(analyzer.ProviderGeminiACP, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
+		command := providerConfig.Command
 		if len(command) == 0 {
 			command = []string{"gemini", "--acp"}
 		}
 		return acpcore.New(acpcore.Options{
 			ID:             ID,
 			Command:        command,
-			Env:            cfg.Env,
-			DefaultModel:   cfg.DefaultModel,
+			Env:            providerConfig.Env,
+			DefaultModel:   providerConfig.DefaultModel,
 			ModelFallbacks: config.DefaultModelFallbacks[config.ProviderGeminiACP],
 		})
 	})

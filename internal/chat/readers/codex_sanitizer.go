@@ -1,7 +1,6 @@
 package readers
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -10,10 +9,6 @@ const (
 	codexMaxMessagesPerSource = 250
 )
 
-var (
-	codexANSIEscapePattern    = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
-	codexWhitespaceBurstRegex = regexp.MustCompile(`[\t\r\n ]+`)
-)
 
 type codexDropRule struct {
 	name               string
@@ -40,44 +35,14 @@ var codexDropRules = []codexDropRule{
 // working, but they become repetitive noise when dreamer asks the analyzer to
 // infer actionable project todos from prior chats.
 func SanitizeCodexMessages(messages []ChatMessage) []ChatMessage {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	sanitizedMessages := make([]ChatMessage, 0, min(len(messages), codexMaxMessagesPerSource))
-	previousKey := ""
-
-	for _, message := range messages {
-		normalizedContent := normalizeCodexContent(message.Content)
-		if normalizedContent == "" {
-			continue
-		}
-
-		normalizedLower := strings.ToLower(normalizedContent)
-		if shouldDropCodexMessage(normalizedLower) {
-			continue
-		}
-
-		dedupeKey := message.Role + "\x00" + normalizedContent
-		if dedupeKey == previousKey {
-			continue
-		}
-
-		message.Content = normalizedContent
-		sanitizedMessages = append(sanitizedMessages, message)
-		previousKey = dedupeKey
-
-		if codexMaxMessagesPerSource > 0 && len(sanitizedMessages) >= codexMaxMessagesPerSource {
-			break
-		}
-	}
-
-	return sanitizedMessages
+	return sanitizeMessages(messages, normalizeCodexContent, func(_, normalizedLower string) bool {
+		return shouldDropCodexMessage(normalizedLower)
+	}, codexMaxMessagesPerSource)
 }
 
 func normalizeCodexContent(content string) string {
-	normalized := codexANSIEscapePattern.ReplaceAllString(content, "")
-	normalized = codexWhitespaceBurstRegex.ReplaceAllString(normalized, " ")
+	normalized := ANSIEscapePattern.ReplaceAllString(content, "")
+	normalized = WhitespaceBurstRegex.ReplaceAllString(normalized, " ")
 	normalized = strings.TrimSpace(normalized)
 	if normalized == "" {
 		return ""

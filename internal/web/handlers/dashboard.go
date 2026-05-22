@@ -85,7 +85,6 @@ type providerCount struct {
 }
 
 // buildDashboard aggregates state.json + history.json across every project.
-// Exposed (unexported) for testability via the same package.
 func buildDashboard(cfg *config.Config) dashboardResponse {
 	out := dashboardResponse{
 		PerCategory:         map[string]int{},
@@ -98,14 +97,13 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 	var totalRunsForAvg int64
 	var totalRunsAllTime int64
 	var totalFailures int64
-	var weekTokens int64
 
-	sparkline := map[string]state.DaySummary{}
 	healthy := map[string]bool{}
 	seen := map[string]bool{}
 
 	cutoff7d := time.Now().UTC().AddDate(0, 0, -7)
 	cutoff30d := time.Now().UTC().AddDate(0, 0, -30)
+	sparkline := map[string]state.DaySummary{}
 
 	for _, p := range cfg.Projects {
 		st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
@@ -116,72 +114,50 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 		if !st.LastRunUTC.IsZero() && st.LastRunUTC.After(lastRun) {
 			lastRun = st.LastRunUTC
 		}
-		for id, pu := range st.ProviderUsage {
+
+		ph, ps, pf, pt := buildProviderHealth(st.ProviderUsage)
+		for id := range ph {
+			healthy[id] = true
+		}
+		for id := range ps {
 			seen[id] = true
-			if pu.LastError == "" && pu.Runs > 0 {
-				healthy[id] = true
-			}
-			totalFailures += pu.Failures
-			totalRunsAllTime += pu.Runs
 		}
-		// Lifecycle counts from per-finding state.
-		lifecycleTouched := 0
-		for _, fs := range st.Findings {
-			switch fs.Status {
-			case state.FindingStatusApplied:
-				out.Stats.FindingsApplied++
-				lifecycleTouched++
-			case state.FindingStatusDismissed:
-				out.Stats.FindingsDismissed++
-				lifecycleTouched++
-			case state.FindingStatusResolved:
-				out.Stats.FindingsResolved++
-				lifecycleTouched++
-			}
-		}
-		open := len(st.FindingHashes) - lifecycleTouched
-		if open < 0 {
-			open = 0
-		}
+		totalFailures += pf
+		totalRunsAllTime += pt
+
+		applied, dismissed, resolved, open := buildLifecycleCounts(st.Findings, st.FindingHashes)
+		out.Stats.FindingsApplied += applied
+		out.Stats.FindingsDismissed += dismissed
+		out.Stats.FindingsResolved += resolved
 		out.Stats.FindingsOpen += open
 
-		// History accumulation.
 		h, err := state.LoadHistory(cfg.Daemon.OutputRoot, p.Name)
 		if err != nil || h == nil {
 			continue
 		}
-		for _, d := range h.Days {
-			t, perr := time.Parse("2006-01-02", d.Date)
-			if perr != nil {
-				continue
-			}
-			if !t.Before(cutoff30d.Truncate(24 * time.Hour)) {
-				cur, ok := sparkline[d.Date]
-				if !ok {
-					cur = state.DaySummary{Date: d.Date, PerCategory: map[string]int{}}
-				}
-				cur.Runs += d.Runs
-				cur.FindingsNew += d.FindingsNew
-				cur.FindingsTotal += d.FindingsTotal
-				cur.Tokens += d.Tokens
-				// Weighted mean across days when summing buckets across projects.
+		sp, wt, wrm, wra, pc := buildSparklines(h.Days, cutoff30d, cutoff7d)
+		for date, day := range sp {
+			if cur, ok := sparkline[date]; ok {
+				cur.Runs += day.Runs
+				cur.FindingsNew += day.FindingsNew
+				cur.FindingsTotal += day.FindingsTotal
+				cur.Tokens += day.Tokens
 				if cur.Runs > 0 {
-					cur.AvgRunMillis = (cur.AvgRunMillis*int64(cur.Runs-d.Runs) + d.AvgRunMillis*int64(d.Runs)) / int64(cur.Runs)
+					cur.AvgRunMillis = (cur.AvgRunMillis*int64(cur.Runs-day.Runs) + day.AvgRunMillis*int64(day.Runs)) / int64(cur.Runs)
 				}
-				if cur.PerCategory == nil {
-					cur.PerCategory = map[string]int{}
-				}
-				for cat, n := range d.PerCategory {
+				for cat, n := range day.PerCategory {
 					cur.PerCategory[cat] += n
-					out.PerCategory[cat] += n
 				}
-				sparkline[d.Date] = cur
+				sparkline[date] = cur
+			} else {
+				sparkline[date] = day
 			}
-			if !t.Before(cutoff7d.Truncate(24 * time.Hour)) {
-				weekTokens += d.Tokens
-				totalRunMillisWeighted += d.AvgRunMillis * int64(d.Runs)
-				totalRunsForAvg += int64(d.Runs)
-			}
+		}
+		out.Stats.TokensWeek += wt
+		totalRunMillisWeighted += wrm
+		totalRunsForAvg += wra
+		for cat, n := range pc {
+			out.PerCategory[cat] += n
 		}
 	}
 
@@ -191,7 +167,6 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 			out.Stats.NextRunUTC = lastRun.UTC().Add(time.Duration(cfg.Daemon.FrequencySeconds) * time.Second).Format(time.RFC3339)
 		}
 	}
-	out.Stats.TokensWeek = weekTokens
 	if totalRunsAllTime > 0 {
 		out.Stats.FailureRatePct = int((totalFailures * 100) / totalRunsAllTime)
 	}
@@ -200,7 +175,6 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 	}
 	out.Stats.ProvidersHealthy = fmt.Sprintf("%d/%d", len(healthy), len(seen))
 
-	// Sort sparkline ascending by date and cap to 30 most recent.
 	keys := make([]string, 0, len(sparkline))
 	for k := range sparkline {
 		keys = append(keys, k)
@@ -214,4 +188,83 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 		out.Sparkline30d = append(out.Sparkline30d, sparkline[k])
 	}
 	return out
+}
+
+// buildProviderHealth aggregates provider health across a project's state.
+// Returns healthy providers, seen providers, total failures, and total runs.
+func buildProviderHealth(usage map[string]state.ProviderUsage) (healthy map[string]bool, seen map[string]bool, totalFailures, totalRuns int64) {
+	healthy = map[string]bool{}
+	seen = map[string]bool{}
+	for id, pu := range usage {
+		seen[id] = true
+		if pu.LastError == "" && pu.Runs > 0 {
+			healthy[id] = true
+		}
+		totalFailures += pu.Failures
+		totalRuns += pu.Runs
+	}
+	return
+}
+
+// buildLifecycleCounts computes finding lifecycle counts from per-finding state.
+func buildLifecycleCounts(findings map[string]state.FindingState, findingHashes []string) (applied, dismissed, resolved, open int) {
+	lifecycleTouched := 0
+	for _, fs := range findings {
+		switch fs.Status {
+		case state.FindingStatusApplied:
+			applied++
+			lifecycleTouched++
+		case state.FindingStatusDismissed:
+			dismissed++
+			lifecycleTouched++
+		case state.FindingStatusResolved:
+			resolved++
+			lifecycleTouched++
+		}
+	}
+	open = len(findingHashes) - lifecycleTouched
+	if open < 0 {
+		open = 0
+	}
+	return
+}
+
+// buildSparklines aggregates history days into a 30-day sparkline map and
+// 7-day token/run totals.
+func buildSparklines(days []state.DaySummary, cutoff30d, cutoff7d time.Time) (sparkline map[string]state.DaySummary, weekTokens, weightedRunMillis, runsForAvg int64, perCategory map[string]int) {
+	sparkline = map[string]state.DaySummary{}
+	perCategory = map[string]int{}
+	for _, d := range days {
+		t, perr := time.Parse("2006-01-02", d.Date)
+		if perr != nil {
+			continue
+		}
+		if !t.Before(cutoff30d.Truncate(24 * time.Hour)) {
+			cur, ok := sparkline[d.Date]
+			if !ok {
+				cur = state.DaySummary{Date: d.Date, PerCategory: map[string]int{}}
+			}
+			cur.Runs += d.Runs
+			cur.FindingsNew += d.FindingsNew
+			cur.FindingsTotal += d.FindingsTotal
+			cur.Tokens += d.Tokens
+			if cur.Runs > 0 {
+				cur.AvgRunMillis = (cur.AvgRunMillis*int64(cur.Runs-d.Runs) + d.AvgRunMillis*int64(d.Runs)) / int64(cur.Runs)
+			}
+			if cur.PerCategory == nil {
+				cur.PerCategory = map[string]int{}
+			}
+			for cat, n := range d.PerCategory {
+				cur.PerCategory[cat] += n
+				perCategory[cat] += n
+			}
+			sparkline[d.Date] = cur
+		}
+		if !t.Before(cutoff7d.Truncate(24 * time.Hour)) {
+			weekTokens += d.Tokens
+			weightedRunMillis += d.AvgRunMillis * int64(d.Runs)
+			runsForAvg += int64(d.Runs)
+		}
+	}
+	return
 }

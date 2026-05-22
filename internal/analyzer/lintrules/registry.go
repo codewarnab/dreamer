@@ -19,26 +19,26 @@ func NewValidator() *Validator { return &Validator{} }
 // upstream (the orchestrator keeps the finding without the `[unverified]`
 // flag).
 func (v *Validator) IsAllowed(tool, rule string) (allowed, known bool) {
-	t := strings.ToLower(strings.TrimSpace(tool))
-	r := strings.TrimSpace(rule)
-	if t == "" || r == "" {
+	normalizedTool := strings.ToLower(strings.TrimSpace(tool))
+	trimmedRule := strings.TrimSpace(rule)
+	if normalizedTool == "" || trimmedRule == "" {
 		return false, false
 	}
-	switch t {
+	switch normalizedTool {
 	case "golangci-lint", "golangci":
-		return contains(GolangCILintRules, r), true
+		return contains(GolangCILintRules, trimmedRule), true
 	case "eslint", "@eslint/eslint":
-		if contains(ESLintRules, r) {
+		if contains(ESLintRules, trimmedRule) {
 			return true, true
 		}
 		for _, prefix := range ESLintPluginPrefixes {
-			if strings.HasPrefix(r, prefix) {
+			if strings.HasPrefix(trimmedRule, prefix) {
 				return true, true
 			}
 		}
 		return false, true
 	case "ruff":
-		return ruffMatches(r), true
+		return ruffMatches(trimmedRule), true
 	}
 	return false, false
 }

@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"dreamer/internal/config"
@@ -68,7 +67,7 @@ func newStartCommand() *cobra.Command {
 			}
 
 			// Poll lockfile to confirm the daemon started successfully.
-			daemonPID := waitForLockfile(lockPath, 2*time.Second)
+			daemonPID := waitForLockfile(lockPath, lockfileWaitTimeoutShort)
 			if daemonPID == 0 {
 				return fmt.Errorf("daemon process started (PID %d) but did not write lockfile; check %s", child.Process.Pid, logPath)
 			}
@@ -89,7 +88,7 @@ func waitForLockfile(lockPath string, timeout time.Duration) int {
 		if pid, err := fsutil.ReadLockPID(lockPath); err == nil && pid > 0 {
 			return pid
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(lockfilePollIntervalFast)
 	}
 	return 0
 }
@@ -126,20 +125,3 @@ func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.Co
 	printBox(cmd, lines)
 }
 
-// printBox renders a Unicode box around the given lines. Matches the style
-// used by the web command's error output.
-func printBox(cmd *cobra.Command, lines []string) {
-	maxLen := 0
-	for _, l := range lines {
-		if len(l) > maxLen {
-			maxLen = len(l)
-		}
-	}
-	w := maxLen + 4 // padding inside the box
-
-	cmd.Printf("╔%s╗\n", strings.Repeat("═", w))
-	for _, l := range lines {
-		cmd.Printf("║  %-*s  ║\n", maxLen, l)
-	}
-	cmd.Printf("╚%s╝\n", strings.Repeat("═", w))
-}

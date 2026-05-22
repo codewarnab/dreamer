@@ -102,11 +102,11 @@ func TestGenerateTodosWritesMergedContentToDisk(t *testing.T) {
 		t.Fatalf("GenerateTodos returned error: %v", err)
 	}
 
-	data, err := os.ReadFile(result.Path)
+	todoBytes, err := os.ReadFile(result.Path)
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	assertContains(t, string(data), "Nil pointer when processing empty chat payload")
+	assertContains(t, string(todoBytes), "Nil pointer when processing empty chat payload")
 }
 
 // B3: GenerateTodos must write atomically so a crash mid-write cannot leave a

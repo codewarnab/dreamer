@@ -129,8 +129,8 @@ func processClaudeRecord(record map[string]any, pending map[string]pendingToolCa
 // extractMessagePayload finds the message object within a Claude JSONL record.
 func extractMessagePayload(record map[string]any) map[string]any {
 	// Direct "message" key (standard Claude format).
-	if msg, ok := record["message"].(map[string]any); ok {
-		return msg
+	if messagePayload, ok := record["message"].(map[string]any); ok {
+		return messagePayload
 	}
 	// Record itself might be the message.
 	if _, ok := record["role"].(string); ok {
@@ -144,6 +144,48 @@ type contentBlock struct {
 	text      string           // for type="text"
 	toolUse   *toolUseBlock    // for type="tool_use"
 	toolRes   *toolResultBlock // for type="tool_result"
+}
+
+func parseTextBlock(m map[string]any) (contentBlock, bool) {
+	text, _ := m["text"].(string)
+	if strings.TrimSpace(text) != "" {
+		return contentBlock{blockType: "text", text: strings.TrimSpace(text)}, true
+	}
+	return contentBlock{}, false
+}
+
+func parseToolUseBlock(m map[string]any) (contentBlock, bool) {
+	id, _ := m["id"].(string)
+	name, _ := m["name"].(string)
+	input, _ := m["input"].(map[string]any)
+	if id != "" && name != "" {
+		return contentBlock{
+			blockType: "tool_use",
+			toolUse:   &toolUseBlock{id: id, name: name, input: input},
+		}, true
+	}
+	return contentBlock{}, false
+}
+
+func parseToolResultBlock(m map[string]any) (contentBlock, bool) {
+	toolUseID, _ := m["tool_use_id"].(string)
+	isError, _ := m["is_error"].(bool)
+	content := textFromValue(m["content"], 0)
+	if toolUseID != "" {
+		return contentBlock{
+			blockType: "tool_result",
+			toolRes:   &toolResultBlock{toolUseID: toolUseID, content: content, isError: isError},
+		}, true
+	}
+	return contentBlock{}, false
+}
+
+func parseUnknownBlock(m map[string]any) (contentBlock, bool) {
+	text := textFromValue(m, 0)
+	if text != "" {
+		return contentBlock{blockType: "text", text: text}, true
+	}
+	return contentBlock{}, false
 }
 
 // parseContentArray attempts to parse a content value as a structured array
@@ -171,37 +213,22 @@ func parseContentArray(content any) []contentBlock {
 		bt, _ := m["type"].(string)
 		switch bt {
 		case "text":
-			text, _ := m["text"].(string)
-			if strings.TrimSpace(text) != "" {
-				blocks = append(blocks, contentBlock{blockType: "text", text: strings.TrimSpace(text)})
+			if b, ok := parseTextBlock(m); ok {
+				blocks = append(blocks, b)
 			}
 		case "tool_use":
 			hasStructured = true
-			id, _ := m["id"].(string)
-			name, _ := m["name"].(string)
-			input, _ := m["input"].(map[string]any)
-			if id != "" && name != "" {
-				blocks = append(blocks, contentBlock{
-					blockType: "tool_use",
-					toolUse:   &toolUseBlock{id: id, name: name, input: input},
-				})
+			if b, ok := parseToolUseBlock(m); ok {
+				blocks = append(blocks, b)
 			}
 		case "tool_result":
 			hasStructured = true
-			toolUseID, _ := m["tool_use_id"].(string)
-			isError, _ := m["is_error"].(bool)
-			content := textFromValue(m["content"], 0)
-			if toolUseID != "" {
-				blocks = append(blocks, contentBlock{
-					blockType: "tool_result",
-					toolRes:   &toolResultBlock{toolUseID: toolUseID, content: content, isError: isError},
-				})
+			if b, ok := parseToolResultBlock(m); ok {
+				blocks = append(blocks, b)
 			}
 		default:
-			// Unknown block type — extract as text if possible.
-			text := textFromValue(m, 0)
-			if text != "" {
-				blocks = append(blocks, contentBlock{blockType: "text", text: text})
+			if b, ok := parseUnknownBlock(m); ok {
+				blocks = append(blocks, b)
 			}
 		}
 	}

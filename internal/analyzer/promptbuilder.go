@@ -173,6 +173,16 @@ func orderMistakesByCategory(in map[RuleCategory][]Mistake, order []RuleCategory
 	return out
 }
 
+// categoryLookup builds a map from category ID string to RulePack for fast
+// lookup during response parsing.
+func categoryLookup(packs []RulePack) map[string]RulePack {
+	out := make(map[string]RulePack, len(packs))
+	for _, p := range packs {
+		out[string(p.Category)] = p
+	}
+	return out
+}
+
 // parsePhase1Response parses {"summary": "...", "mistakes": {cat: [...]}}.
 // Returns mistakes-by-category, the summary string, and a list of per-pack warnings.
 func parsePhase1Response(raw string, packs []RulePack) (map[RuleCategory][]Mistake, string, []string, error) {
@@ -188,10 +198,7 @@ func parsePhase1Response(raw string, packs []RulePack) (map[RuleCategory][]Mista
 		return nil, "", nil, fmt.Errorf("invalid phase-1 JSON: %w", err)
 	}
 
-	categoryByID := map[string]RulePack{}
-	for _, p := range packs {
-		categoryByID[string(p.Category)] = p
-	}
+	categoryByID := categoryLookup(packs)
 	out := map[RuleCategory][]Mistake{}
 	warnings := []string{}
 	for catID, rawList := range parsed.Mistakes {
@@ -255,10 +262,7 @@ func parsePhase2Response(raw string, packs []RulePack) (map[RuleCategory][]Findi
 		return nil, nil, fmt.Errorf("invalid phase-2 JSON: %w", err)
 	}
 
-	categoryByID := map[string]RulePack{}
-	for _, p := range packs {
-		categoryByID[string(p.Category)] = p
-	}
+	categoryByID := categoryLookup(packs)
 	out := map[RuleCategory][]Finding{}
 	warnings := []string{}
 	for catID, rawList := range parsed.Findings {

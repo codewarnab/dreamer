@@ -20,6 +20,17 @@ import (
 	"dreamer/internal/web/handlers"
 )
 
+// SSE and HTTP server tuning.
+const (
+	// sseSubscribeBuffer is the channel buffer size for SSE event
+	// subscribers. Small buffer to avoid lag; slow consumers drop.
+	sseSubscribeBuffer = 16
+
+	// readHeaderTimeout is the http.Server ReadHeaderTimeout. Prevents
+	// slowloris-style attacks on the loopback server.
+	readHeaderTimeout = 5 * time.Second
+)
+
 // Options bundles the dependencies a Server needs.
 type Options struct {
 	Config *config.Config
@@ -104,7 +115,7 @@ func (s *Server) Start() error {
 		// or empty port file mid-write.
 		_ = fsutil.WriteFileAtomic(portPath, portBytes, fsutil.FilePerms)
 	}
-	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second}
+	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: readHeaderTimeout}
 	go func() {
 		s.opts.Logger.Info("web start", logging.Any("host", host), logging.Any("port", port), logging.Any("bind_addr", s.addr))
 		if err := s.httpSrv.Serve(l); err != nil && err != http.ErrServerClosed {
@@ -125,7 +136,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	staticSub, _ := fs.Sub(assets, "static")
+	staticSub, err := fs.Sub(assets, "static")
+	if err != nil {
+		panic("embed: static subtree missing: " + err.Error())
+	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	mux.HandleFunc("/", s.handleIndex)
 	s.attachAPI(mux)

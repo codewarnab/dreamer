@@ -27,12 +27,12 @@ type Options struct {
 }
 
 func init() {
-	analyzer.RegisterProvider(analyzer.ProviderGeminiCLI, func(cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+	analyzer.RegisterProvider(analyzer.ProviderGeminiCLI, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
 		return New(Options{
-			Command:      cfg.Command,
-			Env:          cfg.Env,
-			Model:        cfg.Model,
-			DefaultModel: cfg.DefaultModel,
+			Command:      providerConfig.Command,
+			Env:          providerConfig.Env,
+			Model:        providerConfig.Model,
+			DefaultModel: providerConfig.DefaultModel,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
@@ -75,13 +75,13 @@ func (p *provider) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
-	wd := strings.TrimSpace(cfg.WorkingDirectory)
+func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
+	wd := strings.TrimSpace(sessionConfig.WorkingDirectory)
 	if wd == "" {
 		return nil, errors.New("gemini-cli: SessionConfig.WorkingDirectory is required")
 	}
 	command := append([]string(nil), p.command...)
-	model := strings.TrimSpace(cfg.Model)
+	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
 		model = strings.TrimSpace(p.options.Model)
 	}
@@ -95,7 +95,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		command:    command,
 		env:        p.options.Env,
 		workingDir: wd,
-		systemMsg:  strings.TrimSpace(cfg.SystemMessage),
+		systemMsg:  strings.TrimSpace(sessionConfig.SystemMessage),
 	}, nil
 }
 
@@ -200,11 +200,11 @@ func readStreamJSON(r io.Reader) (string, error) {
 		case "result":
 			resultText = event.Response
 		case "error":
-			msg := event.Message
-			if msg == "" {
-				msg = "unknown error"
+			eventMessage := event.Message
+			if eventMessage == "" {
+				eventMessage = "unknown error"
 			}
-			resultErr = msg
+			resultErr = eventMessage
 		}
 	}
 	if err := scanner.Err(); err != nil {

@@ -102,7 +102,7 @@ func (p *provider) Start(ctx context.Context) error {
 
 	// ACP spec §initialize: protocolVersion is a required integer; clientCapabilities
 	// advertises filesystem reach. We're a read-only analyzer client.
-	result, err := t.call(ctx, "initialize", map[string]any{
+	initResponse, err := t.call(ctx, "initialize", map[string]any{
 		"protocolVersion": 1,
 		"clientCapabilities": map[string]any{
 			"fs": map[string]any{
@@ -116,12 +116,12 @@ func (p *provider) Start(ctx context.Context) error {
 		_ = t.close()
 		return fmt.Errorf("acpcore: initialize: %w", err)
 	}
-	p.initResult = result
+	p.initResult = initResponse
 	p.started = true
 	return nil
 }
 
-func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
 	p.mu.Lock()
 	t := p.transport
 	started := p.started
@@ -130,16 +130,16 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		return nil, errors.New("acpcore: provider not started")
 	}
 
-	systemMessage := cfg.SystemMessage
+	systemMessage := sessionConfig.SystemMessage
 	if strings.TrimSpace(systemMessage) == "" {
-		systemMessage = analyzer.BuildReadOnlySystemMessage(cfg.WorkingDirectory)
+		systemMessage = analyzer.BuildReadOnlySystemMessage(sessionConfig.WorkingDirectory)
 	}
-	preferredModel := strings.TrimSpace(cfg.Model)
+	preferredModel := strings.TrimSpace(sessionConfig.Model)
 	if preferredModel == "" {
 		preferredModel = p.defaultModel
 	}
 
-	normalizedRoot, _ := analyzer.NormalizeRootPath(cfg.WorkingDirectory)
+	normalizedRoot, _ := analyzer.NormalizeRootPath(sessionConfig.WorkingDirectory)
 	handler := func(req map[string]any) map[string]any {
 		permReq := translatePermissionRequest(req)
 		decision := analyzer.DecidePermission(permReq, normalizedRoot)
@@ -156,7 +156,7 @@ func (p *provider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (
 		transport:      t,
 		handler:        handler,
 		providerID:     p.id,
-		workingDir:     cfg.WorkingDirectory,
+		workingDir:     sessionConfig.WorkingDirectory,
 		permTarget:     normalizedRoot,
 		systemMessage:  systemMessage,
 		model:          preferredModel,
@@ -260,7 +260,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 			map[string]any{"type": "text", "text": body},
 		},
 	}
-	result, err := s.transport.call(ctx, "session/prompt", params, s.handler)
+	promptResponse, err := s.transport.call(ctx, "session/prompt", params, s.handler)
 	if err != nil {
 		wrapped := fmt.Errorf("acpcore: session/prompt: %w", err)
 		if transportutil.IsRateLimitMessage(err.Error()) {
@@ -268,7 +268,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		}
 		return "", wrapped
 	}
-	stop := extractStopReason(result)
+	stop := extractStopReason(promptResponse)
 	text := stream.text()
 	if text == "" && stop != "" && stop != "end_turn" {
 		return "", fmt.Errorf("acpcore: session/prompt stopReason=%q with no agent_message_chunk content", stop)
@@ -742,12 +742,12 @@ func translatePermissionRequest(req map[string]any) analyzer.PermissionRequest {
 	return out
 }
 
-func extractSessionID(result json.RawMessage) string {
-	if len(result) == 0 {
+func extractSessionID(rawResponse json.RawMessage) string {
+	if len(rawResponse) == 0 {
 		return ""
 	}
 	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(rawResponse, &parsed); err != nil {
 		return ""
 	}
 	if sid, ok := parsed["sessionId"].(string); ok {
@@ -763,7 +763,7 @@ func extractSessionID(result json.RawMessage) string {
 // result.models.availableModels[] that matches `preferred`. If `preferred`
 // isn't present, tries each fallback in order. Returns ok=false when no
 // match is found so the caller skips set_model.
-func pickAvailableModelID(result json.RawMessage, preferred string, fallbacks []string) (string, bool) {
+func pickAvailableModelID(rawResponse json.RawMessage, preferred string, fallbacks []string) (string, bool) {
 	if preferred == "" {
 		return "", false
 	}
@@ -774,7 +774,7 @@ func pickAvailableModelID(result json.RawMessage, preferred string, fallbacks []
 			} `json:"availableModels"`
 		} `json:"models"`
 	}
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(rawResponse, &parsed); err != nil {
 		return "", false
 	}
 	// Build candidate list: preferred first, then fallbacks.
@@ -794,7 +794,7 @@ func pickAvailableModelID(result json.RawMessage, preferred string, fallbacks []
 // pickReadOnlyModeID picks a modeId that minimizes side effects. Recognizes
 // "plan" (claude-code-acp), "read-only" (codex-acp). Returns ok=false when
 // the agent doesn't advertise modes or none of the recognized ids appear.
-func pickReadOnlyModeID(result json.RawMessage) (string, bool) {
+func pickReadOnlyModeID(rawResponse json.RawMessage) (string, bool) {
 	var parsed struct {
 		Modes struct {
 			AvailableModes []struct {
@@ -802,7 +802,7 @@ func pickReadOnlyModeID(result json.RawMessage) (string, bool) {
 			} `json:"availableModes"`
 		} `json:"modes"`
 	}
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(rawResponse, &parsed); err != nil {
 		return "", false
 	}
 	preferred := []string{"plan", "read-only", "readonly"}
@@ -816,14 +816,14 @@ func pickReadOnlyModeID(result json.RawMessage) (string, bool) {
 	return "", false
 }
 
-func extractStopReason(result json.RawMessage) string {
-	if len(result) == 0 {
+func extractStopReason(rawResponse json.RawMessage) string {
+	if len(rawResponse) == 0 {
 		return ""
 	}
 	var parsed struct {
 		StopReason string `json:"stopReason"`
 	}
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(rawResponse, &parsed); err != nil {
 		return ""
 	}
 	return parsed.StopReason

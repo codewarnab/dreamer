@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"dreamer/internal/config"
 )
 
 // LogsTail returns an http.HandlerFunc for GET /api/logs/tail.
@@ -27,7 +29,7 @@ func LogsTail(deps Deps) http.HandlerFunc {
 		}
 		kb := cfg.Web.LogTailKB
 		if kb <= 0 {
-			kb = 256
+			kb = config.DefaultLogTailKB
 		}
 		maxBytes := int64(kb) * 1024
 		path := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.log")

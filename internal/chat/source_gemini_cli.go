@@ -104,5 +104,5 @@ func extractGeminiCLICWD(record map[string]any) string {
 			}
 		}
 	}
-	return recursiveExtract(record, claudeCWDEvidenceKeys, 8)
+	return recursiveExtract(record, claudeCWDEvidenceKeys, probeMaxDepth)
 }

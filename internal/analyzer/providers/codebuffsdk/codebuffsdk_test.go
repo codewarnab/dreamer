@@ -131,12 +131,12 @@ func TestSessionRunEndToEnd(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 
-	result, err := sess.Run(context.Background(), "analyze this", 30*time.Second)
+	completionText, err := sess.Run(context.Background(), "analyze this", 30*time.Second)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if result != "analysis result" {
-		t.Errorf("result = %q, want %q", result, "analysis result")
+	if completionText != "analysis result" {
+		t.Errorf("completionText = %q, want %q", completionText, "analysis result")
 	}
 }
 

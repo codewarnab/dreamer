@@ -85,6 +85,6 @@ func (claudeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, er
 
 func probeClaudeSessionCWD(sessionPath string) (string, bool) {
 	return probeJSONLForCWD(sessionPath, probeLineLimit, func(record map[string]any) string {
-		return recursiveExtract(record, claudeCWDEvidenceKeys, 8)
+		return recursiveExtract(record, claudeCWDEvidenceKeys, probeMaxDepth)
 	})
 }

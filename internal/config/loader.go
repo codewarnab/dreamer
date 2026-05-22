@@ -36,6 +36,11 @@ const (
 
 	// DefaultWebPort is the loopback port for the embedded web server.
 	DefaultWebPort = 7777
+	// DefaultWebHost is the loopback address the web server binds to.
+	DefaultWebHost = "127.0.0.1"
+	// DefaultLogTailKB is the default number of kilobytes to read from
+	// the tail of dreamer.log for the /api/logs/tail endpoint.
+	DefaultLogTailKB = 256
 
 	// DefaultMaxConcurrentJobs: one analysis at a time by default.
 	DefaultMaxConcurrentJobs = 1
@@ -124,6 +129,8 @@ type ProviderBlock struct {
 
 // AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
 type AnalyzerConfig struct {
+	// RuleTimeoutSeconds is the per-rule timeout for phase-1 analysis.
+	// Phase-2 (tool-use verification) uses 3x this value.
 	RuleTimeoutSeconds int `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
 	// IncludeSubagentTranscripts controls whether subagent/child chat
 	// transcripts are included in analysis. When false (default), sources
@@ -231,12 +238,12 @@ func LoadConfig(path string) (*Config, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("config path is required")
 	}
-	data, err := os.ReadFile(path)
+	configFileBytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config file %q: %w", path, err)
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal(configFileBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config file %q: %w", path, err)
 	}
 	if err := applyDefaults(&cfg); err != nil {
@@ -252,60 +259,60 @@ func LoadConfig(path string) (*Config, error) {
 // not an error; returns an empty ProjectFileConfig in that case.
 func LoadProjectFileConfig(projectPath string) (*ProjectFileConfig, error) {
 	path := ProjectConfigPath(projectPath)
-	data, err := os.ReadFile(path)
+	configFileBytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &ProjectFileConfig{}, nil
 		}
 		return nil, fmt.Errorf("read project config %q: %w", path, err)
 	}
-	var pfc ProjectFileConfig
-	if err := yaml.Unmarshal(data, &pfc); err != nil {
+	var projectFileConfig ProjectFileConfig
+	if err := yaml.Unmarshal(configFileBytes, &projectFileConfig); err != nil {
 		return nil, fmt.Errorf("unmarshal project config %q: %w", path, err)
 	}
-	return &pfc, nil
+	return &projectFileConfig, nil
 }
 
-func applyDefaults(cfg *Config) error {
-	if strings.TrimSpace(cfg.DefaultProvider) == "" {
-		cfg.DefaultProvider = DefaultProviderID
+func applyDefaults(appConfig *Config) error {
+	if strings.TrimSpace(appConfig.DefaultProvider) == "" {
+		appConfig.DefaultProvider = DefaultProviderID
 	}
-	if cfg.Daemon.FrequencySeconds <= 0 {
-		cfg.Daemon.FrequencySeconds = DefaultFrequencySeconds
+	if appConfig.Daemon.FrequencySeconds <= 0 {
+		appConfig.Daemon.FrequencySeconds = DefaultFrequencySeconds
 	}
-	if strings.TrimSpace(cfg.Logging.Level) == "" {
-		cfg.Logging.Level = DefaultLogLevel
+	if strings.TrimSpace(appConfig.Logging.Level) == "" {
+		appConfig.Logging.Level = DefaultLogLevel
 	}
-	if strings.TrimSpace(cfg.Daemon.OutputRoot) == "" {
+	if strings.TrimSpace(appConfig.Daemon.OutputRoot) == "" {
 		root, err := UserConfigRoot()
 		if err != nil {
 			return fmt.Errorf("resolve default output root: %w", err)
 		}
-		cfg.Daemon.OutputRoot = root
+		appConfig.Daemon.OutputRoot = root
 	}
-	if cfg.Providers == nil {
-		cfg.Providers = map[string]ProviderBlock{}
+	if appConfig.Providers == nil {
+		appConfig.Providers = map[string]ProviderBlock{}
 	}
-	if cfg.Analyzer.Rules == nil {
-		cfg.Analyzer.Rules = map[string]RuleConfig{}
+	if appConfig.Analyzer.Rules == nil {
+		appConfig.Analyzer.Rules = map[string]RuleConfig{}
 	}
-	applyAnalyzerExecutionDefaults(&cfg.Analyzer.Execution)
-	applyAnalyzerChunkingDefaults(&cfg.Analyzer.Chunking)
-	applyProjectSinceDefaults(cfg)
-	if cfg.Web.Enabled == nil {
-		t := true
-		cfg.Web.Enabled = &t
+	applyAnalyzerExecutionDefaults(&appConfig.Analyzer.Execution)
+	applyAnalyzerChunkingDefaults(&appConfig.Analyzer.Chunking)
+	applyProjectSinceDefaults(appConfig)
+	if appConfig.Web.Enabled == nil {
+		webEnabledDefault := true
+		appConfig.Web.Enabled = &webEnabledDefault
 	}
-	if cfg.Web.Port == 0 {
-		cfg.Web.Port = DefaultWebPort
+	if appConfig.Web.Port == 0 {
+		appConfig.Web.Port = DefaultWebPort
 	}
-	if cfg.Web.Host == "" {
-		cfg.Web.Host = "127.0.0.1"
+	if appConfig.Web.Host == "" {
+		appConfig.Web.Host = DefaultWebHost
 	}
-	if cfg.Web.LogTailKB == 0 {
-		cfg.Web.LogTailKB = 256
+	if appConfig.Web.LogTailKB == 0 {
+		appConfig.Web.LogTailKB = DefaultLogTailKB
 	}
-	applyDaemonJobQueueDefaults(cfg)
+	applyDaemonJobQueueDefaults(appConfig)
 	return nil
 }
 
@@ -333,22 +340,22 @@ func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
 }
 
 // applyDaemonJobQueueDefaults fills job-queue fields with sane defaults.
-func applyDaemonJobQueueDefaults(cfg *Config) {
-	if cfg.Daemon.MaxConcurrentJobs <= 0 {
-		cfg.Daemon.MaxConcurrentJobs = DefaultMaxConcurrentJobs
+func applyDaemonJobQueueDefaults(appConfig *Config) {
+	if appConfig.Daemon.MaxConcurrentJobs <= 0 {
+		appConfig.Daemon.MaxConcurrentJobs = DefaultMaxConcurrentJobs
 	}
-	if strings.TrimSpace(cfg.Daemon.MaxAnalysisDuration) == "" {
-		cfg.Daemon.MaxAnalysisDuration = DefaultMaxAnalysisDuration
+	if strings.TrimSpace(appConfig.Daemon.MaxAnalysisDuration) == "" {
+		appConfig.Daemon.MaxAnalysisDuration = DefaultMaxAnalysisDuration
 	}
-	if strings.TrimSpace(cfg.Daemon.JobHistoryRetention) == "" {
-		cfg.Daemon.JobHistoryRetention = DefaultJobHistoryRetention
+	if strings.TrimSpace(appConfig.Daemon.JobHistoryRetention) == "" {
+		appConfig.Daemon.JobHistoryRetention = DefaultJobHistoryRetention
 	}
 }
 
 // applyProjectSinceDefaults fills blank `since` with DefaultSince and records the notice.
-func applyProjectSinceDefaults(cfg *Config) {
-	for i := range cfg.Projects {
-		project := &cfg.Projects[i]
+func applyProjectSinceDefaults(appConfig *Config) {
+	for i := range appConfig.Projects {
+		project := &appConfig.Projects[i]
 		if strings.TrimSpace(project.Since) != "" {
 			continue
 		}
@@ -357,7 +364,7 @@ func applyProjectSinceDefaults(cfg *Config) {
 		if name == "" {
 			name = project.Path
 		}
-		cfg.Notices.DefaultedSince = append(cfg.Notices.DefaultedSince, name)
+		appConfig.Notices.DefaultedSince = append(appConfig.Notices.DefaultedSince, name)
 	}
 }
 
@@ -535,4 +542,21 @@ func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
 		out.MaxInputTokens = override.MaxInputTokens
 	}
 	return out
+}
+
+// ValidateProjectName checks that a project name is safe to use as a
+// directory name under the output root. Shared by state.PathForProject
+// and output.todosPathForProject.
+func ValidateProjectName(projectName string) error {
+	name := strings.TrimSpace(projectName)
+	if name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	if strings.ContainsAny(name, `\/`) {
+		return fmt.Errorf("project name contains invalid path separator: %q", projectName)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("project name is invalid: %q", projectName)
+	}
+	return nil
 }

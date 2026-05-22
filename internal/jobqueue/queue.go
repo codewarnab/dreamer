@@ -209,8 +209,10 @@ func (q *Queue) Cancel(job *Job) {
 	q.persistLocked()
 }
 
-// Status returns a snapshot of all jobs grouped by status. Job pointers are
-// deep-copied so callers can read fields without racing with worker writes.
+// Status returns a snapshot of all jobs grouped by status. Jobs are
+// shallow-copied (value fields are independent; pointer fields like
+// StartedAt/FinishedAt share targets, but workers reassign rather than
+// mutate them, so this is safe for concurrent reads).
 func (q *Queue) Status() QueueStatus {
 	q.mu.Lock()
 	defer q.mu.Unlock()

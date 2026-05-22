@@ -13,36 +13,36 @@ const (
 	FilePerms = 0o644
 )
 
-// WriteFileAtomic writes data to path via a sibling temp file + rename, with
+// WriteFileAtomic writes contentBytes to path via a sibling temp file + rename, with
 // fsync on both the temp file body and the parent directory so the new entry
 // is durable across power loss (B7). A crash mid-write leaves the previous
 // target (if any) intact rather than a half-written file. The parent
 // directory must already exist.
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+func WriteFileAtomic(path string, contentBytes []byte, perm os.FileMode) error {
+	tempPath := path + ".tmp"
+	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
-		return fmt.Errorf("open atomic temp %q: %w", tmp, err)
+		return fmt.Errorf("open atomic temp %q: %w", tempPath, err)
 	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write atomic temp %q: %w", tmp, err)
+	if _, err := file.Write(contentBytes); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("write atomic temp %q: %w", tempPath, err)
 	}
 	// Fsync the file body before rename so the rename doesn't make an
 	// empty-content file visible after a crash.
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("fsync atomic temp %q: %w", tmp, err)
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("fsync atomic temp %q: %w", tempPath, err)
 	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close atomic temp %q: %w", tmp, err)
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close atomic temp %q: %w", tempPath, err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename atomic temp %q -> %q: %w", tmp, path, err)
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("rename atomic temp %q -> %q: %w", tempPath, path, err)
 	}
 	// Fsync parent dir to persist the rename itself. Best-effort: some
 	// filesystems (e.g. tmpfs, NFS) reject this; we don't fail the write.

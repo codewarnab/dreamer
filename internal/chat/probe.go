@@ -10,6 +10,15 @@ import (
 	"strings"
 )
 
+// probeMaxDepth is the default recursion limit for recursiveExtract when
+// scanning nested JSON/JSONL records for evidence keys. Most providers need
+// to dig 6-8 levels deep (root → session_meta → payload → cwd etc.).
+const probeMaxDepth = 8
+
+// vscodeProbeMaxDepth is the shallower limit for VS Code workspace probing.
+// VS Code workspace.json is flatter than other formats, so fewer levels suffice.
+const vscodeProbeMaxDepth = 6
+
 // claudeCWDEvidenceKeys is the canonical "where did this session run?" key set
 // used by Claude Code, the Antigravity JSON evidence probe, and Gemini CLI's
 // secondary scan.

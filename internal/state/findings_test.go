@@ -8,7 +8,7 @@ import (
 
 func TestState_Findings_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	st := &State{
+	testState := &State{
 		Version: StateVersion,
 		Findings: map[string]FindingState{
 			"abc123": {Status: "applied", AppliedAt: time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC), AppliedReversal: &FindingReversal{
@@ -21,7 +21,7 @@ func TestState_Findings_RoundTrip(t *testing.T) {
 			"def456": {Status: "dismissed", DismissedAt: time.Date(2026, 5, 20, 12, 5, 0, 0, time.UTC)},
 		},
 	}
-	if err := Save(dir, "proj", st); err != nil {
+	if err := Save(dir, "proj", testState); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	loaded, err := Load(dir, "proj")

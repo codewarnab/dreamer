@@ -76,21 +76,21 @@ func TestSessionRunFailsFastAfterTransportClose(t *testing.T) {
 	// `true` exits 0 immediately so its stdout closes within
 	// milliseconds. dialStdio spawns + starts the readLoop goroutine
 	// which will observe EOF and call markClosed().
-	tr, err := dialStdio(context.Background(), []string{"/usr/bin/true"}, nil)
+	transport, err := dialStdio(context.Background(), []string{"/usr/bin/true"}, nil)
 	if err != nil {
 		t.Fatalf("dialStdio: %v", err)
 	}
-	defer tr.close()
+	defer transport.close()
 
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && !tr.isClosed() {
+	for time.Now().Before(deadline) && !transport.isClosed() {
 		time.Sleep(2 * time.Millisecond)
 	}
-	if !tr.isClosed() {
+	if !transport.isClosed() {
 		t.Fatalf("transport should observe EOF and flip closed flag within 1s")
 	}
 
-	sess := &session{transport: tr, workingDir: repo, model: "sonnet"}
+	sess := &session{transport: transport, workingDir: repo, model: "sonnet"}
 	start := time.Now()
 	_, err = sess.Run(context.Background(), "hello", 5*time.Second)
 	elapsed := time.Since(start)
@@ -109,13 +109,13 @@ func TestSessionRunFailsFastAfterTransportClose(t *testing.T) {
 }
 
 func TestTransportMarkClosedIsIdempotent(t *testing.T) {
-	tr := &transport{}
-	tr.markClosed()
-	if !tr.isClosed() {
+	transport := &transport{}
+	transport.markClosed()
+	if !transport.isClosed() {
 		t.Fatalf("first markClosed should flip flag")
 	}
-	tr.markClosed() // must not panic on already-closed transport
-	if !tr.isClosed() {
+	transport.markClosed() // must not panic on already-closed transport
+	if !transport.isClosed() {
 		t.Fatalf("second markClosed should remain closed")
 	}
 }

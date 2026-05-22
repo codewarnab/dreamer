@@ -93,13 +93,8 @@ func New(outputRoot string, level string, maxSizeMB int) (*Logger, error) {
 
 	minLevel := parseLevel(level)
 	handler := slog.NewTextHandler(io.MultiWriter(file, os.Stderr), &slog.HandlerOptions{
-		Level: minLevel,
-		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
-			if attr.Key == slog.LevelKey {
-				return slog.String(slog.LevelKey, strings.ToLower(attr.Value.String()))
-			}
-			return attr
-		},
+		Level:       minLevel,
+		ReplaceAttr: replaceAttrLowerLevel,
 	})
 	return &Logger{file: file, logger: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
 }
@@ -176,8 +171,8 @@ func (logger *Logger) rotateIfNeededLocked() bool {
 	if logger.maxSizeMB <= 0 || logger.file == nil {
 		return false
 	}
-	info, err := logger.file.Stat()
-	if err != nil || info.Size() < int64(logger.maxSizeMB)*bytesPerMB {
+	fileInfo, err := logger.file.Stat()
+	if err != nil || fileInfo.Size() < int64(logger.maxSizeMB)*bytesPerMB {
 		return false
 	}
 
@@ -204,15 +199,19 @@ func (logger *Logger) rebuildHandlerLocked() {
 		writer = io.MultiWriter(logger.file, os.Stderr)
 	}
 	handler := slog.NewTextHandler(writer, &slog.HandlerOptions{
-		Level: logger.level,
-		ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
-			if attr.Key == slog.LevelKey {
-				return slog.String(slog.LevelKey, strings.ToLower(attr.Value.String()))
-			}
-			return attr
-		},
+		Level:       logger.level,
+		ReplaceAttr: replaceAttrLowerLevel,
 	})
 	logger.logger = slog.New(handler)
+}
+
+// replaceAttrLowerLevel normalizes the level attribute to lowercase.
+// Shared by New and rebuildHandlerLocked.
+func replaceAttrLowerLevel(_ []string, attr slog.Attr) slog.Attr {
+	if attr.Key == slog.LevelKey {
+		return slog.String(slog.LevelKey, strings.ToLower(attr.Value.String()))
+	}
+	return attr
 }
 
 func parseLevel(value string) slog.Level {

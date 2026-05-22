@@ -101,13 +101,13 @@ func TestSessionRunEndToEnd(t *testing.T) {
 		t.Fatalf("NewSession: %v", err)
 	}
 
-	result, err := sess.Run(context.Background(), "analyze this", 30*time.Second)
+	responseText, err := sess.Run(context.Background(), "analyze this", 30*time.Second)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if result != "analysis result here" {
-		t.Fatalf("result = %q, want %q", result, "analysis result here")
+	if responseText != "analysis result here" {
+		t.Fatalf("responseText = %q, want %q", responseText, "analysis result here")
 	}
 	if !sessionCreated {
 		t.Fatal("session was not created on server")

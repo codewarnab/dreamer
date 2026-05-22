@@ -44,36 +44,36 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 	defer pool.Close()
 
 	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, pool, builder, in, req)
-	result := AnalysisResult{Warnings: p1Warnings}
+	analysisResult := AnalysisResult{Warnings: p1Warnings}
 	if err != nil {
-		return result, err
+		return analysisResult, err
 	}
-	result.Mistakes = orderedByCategory(mistakesByCategory, enabled)
+	analysisResult.Mistakes = orderedByCategory(mistakesByCategory, enabled)
 
-	if req.DryRun || len(result.Mistakes) == 0 {
+	if req.DryRun || len(analysisResult.Mistakes) == 0 {
 		if completedChunks == len(in.Chunks) {
-			result.CompletedCategories = stringsFromCategories(enabled)
+			analysisResult.CompletedCategories = stringsFromCategories(enabled)
 		}
-		return result, nil
+		return analysisResult, nil
 	}
 
 	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, pool, builder, mistakesByCategory, in.RuleTimeoutSecs, req)
-	result.Warnings = append(result.Warnings, p2Warnings...)
+	analysisResult.Warnings = append(analysisResult.Warnings, p2Warnings...)
 	if err != nil {
-		return result, err
+		return analysisResult, err
 	}
 
 	for _, c := range enabled {
 		validated, validationWarnings := validateFindings(findingsByCategory[c], packForCategory(o.Packs, c), req)
-		result.Warnings = append(result.Warnings, validationWarnings...)
+		analysisResult.Warnings = append(analysisResult.Warnings, validationWarnings...)
 		findingsByCategory[c] = validated
 	}
-	result.Findings = orderedByCategory(findingsByCategory, enabled)
+	analysisResult.Findings = orderedByCategory(findingsByCategory, enabled)
 
 	if completedChunks == len(in.Chunks) {
-		result.CompletedCategories = stringsFromCategories(enabled)
+		analysisResult.CompletedCategories = stringsFromCategories(enabled)
 	}
-	return result, nil
+	return analysisResult, nil
 }
 
 type chunkResult struct {
@@ -160,16 +160,16 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 	mistakes := map[RuleCategory][]Mistake{}
 	warnings := []string{}
 	completed := 0
-	for _, r := range results {
-		warnings = append(warnings, r.warnings...)
-		if r.err != nil {
-			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d failed (%v)", r.index, r.err))
+	for _, chunkRes := range results {
+		warnings = append(warnings, chunkRes.warnings...)
+		if chunkRes.err != nil {
+			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d failed (%v)", chunkRes.index, chunkRes.err))
 			continue
 		}
-		if r.parseErr != nil {
+		if chunkRes.parseErr != nil {
 			continue
 		}
-		mergeMistakes(mistakes, r.mistakesByCat)
+		mergeMistakes(mistakes, chunkRes.mistakesByCat)
 		completed++
 	}
 	if gErr != nil && errs.Is(gErr, errs.KindRateLimit) {

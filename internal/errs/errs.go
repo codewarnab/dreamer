@@ -1,6 +1,6 @@
 // Package errs defines structured, tagged error types for dreamer.
 // Every error carries a Kind (machine-readable class), optional provider
-// context, a human-readable Msg, an operator Hint, and a Cause that is
+// context, a human-readable Message, an operator Hint, and a Cause that is
 // always preserved through the Unwrap chain.
 package errs
 
@@ -30,7 +30,7 @@ type Error struct {
 	Kind     Kind
 	Provider string         // provider id: "copilot", "claude", "codex", etc. (empty for non-provider errors)
 	Op       string         // short operation tag: "start", "session.new", "session/prompt", etc.
-	Msg      string         // human-readable summary
+	Message  string         // human-readable summary
 	Hint     string         // operator-facing remediation
 	Details  map[string]any // kind-specific structured context, never nil for tagged errors
 	Cause    error          // wrapped underlying error; nil only for informational errors like CacheMiss
@@ -43,7 +43,7 @@ func (e *Error) Error() string {
 	} else if e.Op != "" {
 		fmt.Fprintf(&sb, "[%s] ", e.Op)
 	}
-	fmt.Fprintf(&sb, "%s: %s", e.Kind, e.Msg)
+	fmt.Fprintf(&sb, "%s: %s", e.Kind, e.Message)
 	if e.Cause != nil {
 		fmt.Fprintf(&sb, ": %v", e.Cause)
 	}
@@ -55,7 +55,7 @@ func (e *Error) Unwrap() error { return e.Cause }
 // newErr is the shared internal constructor. If cause is directly a *Error
 // (double-wrap case), the inner Kind is preserved and Details are merged
 // (outer wins on key collision) rather than re-tagging.
-func newErr(kind Kind, provider, op, msg, hint string, details map[string]any, cause error) *Error {
+func newErr(kind Kind, provider, op, message, hint string, details map[string]any, cause error) *Error {
 	if details == nil {
 		details = map[string]any{}
 	}
@@ -71,7 +71,7 @@ func newErr(kind Kind, provider, op, msg, hint string, details map[string]any, c
 			Kind:     inner.Kind,
 			Provider: provider,
 			Op:       op,
-			Msg:      msg,
+			Message:  message,
 			Hint:     hint,
 			Details:  merged,
 			Cause:    cause,
@@ -81,7 +81,7 @@ func newErr(kind Kind, provider, op, msg, hint string, details map[string]any, c
 		Kind:     kind,
 		Provider: provider,
 		Op:       op,
-		Msg:      msg,
+		Message:  message,
 		Hint:     hint,
 		Details:  details,
 		Cause:    cause,
@@ -149,7 +149,7 @@ func CacheMiss(reason string) *Error {
 	return &Error{
 		Kind:    KindCacheMiss,
 		Op:      "cache.check",
-		Msg:     "cache miss",
+		Message: "cache miss",
 		Details: map[string]any{"reason": reason},
 	}
 }

@@ -238,9 +238,9 @@ func TestAcceptance_V15(t *testing.T) {
 
 	// 54 — SSE delivery.
 	t.Run("AC54_SSE_DeliversEvent", func(t *testing.T) {
-		// Covered by: web.TestSSE_StreamsEvent (closest equivalent of the
-		// brief's "StreamSSE within 1s" check).
-		t.Logf("see internal/web/sse_test.go TestSSE_StreamsEvent")
+		// Covered by: handlers.TestEventsHandler_Streams (closest equivalent of the
+		// brief's "SSE within 1s" check).
+		t.Logf("see internal/web/handlers/events_test.go TestEventsHandler_Streams")
 	})
 
 	// 55 — `dreamer web --open` health probe + URL printing.
