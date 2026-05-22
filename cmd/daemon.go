@@ -142,6 +142,12 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 	queue *jobqueue.Queue, discoveryCache *pipeline.DiscoveryCache,
 	events *pipeline.EventBus, releaseLock func(), err error,
 ) {
+	maxDur, perr := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
+	if perr != nil {
+		err = fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, perr)
+		return
+	}
+
 	lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
 	stalePID, _ := fsutil.ReadLockPID(lockPath)
 	releaseLock, err = fsutil.AcquireLock(lockPath, logger)
@@ -150,12 +156,6 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 	}
 
 	ctx, stop = signal.NotifyContext(baseCtx, daemonSignals()...)
-
-	maxDur, perr := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
-	if perr != nil {
-		err = fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, perr)
-		return
-	}
 
 	queue = jobqueue.New(jobqueue.Options{
 		StorePath:     filepath.Join(cfg.Daemon.OutputRoot, "jobs.json"),
