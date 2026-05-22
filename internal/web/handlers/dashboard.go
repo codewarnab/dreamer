@@ -115,15 +115,15 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 			lastRun = st.LastRunUTC
 		}
 
-		healthyProviders, seenProviders, totalFailures, totalRuns := buildProviderHealth(st.ProviderUsage)
+		healthyProviders, seenProviders, providerFailures, providerRuns := buildProviderHealth(st.ProviderUsage)
 		for id := range healthyProviders {
 			healthy[id] = true
 		}
 		for id := range seenProviders {
 			seen[id] = true
 		}
-		totalFailuresAllTime += totalFailures
-		totalRunsAllTime += totalRuns
+		totalFailuresAllTime += providerFailures
+		totalRunsAllTime += providerRuns
 
 		applied, dismissed, resolved, open := buildLifecycleCounts(st.Findings, st.FindingHashes)
 		out.Stats.FindingsApplied += applied

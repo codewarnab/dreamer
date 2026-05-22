@@ -128,27 +128,40 @@ func TestSettings_PUTCreatesMissingOverlay(t *testing.T) {
 	}
 }
 
-func TestSettings_PUTRejectsCommand(t *testing.T) {
-	dir := t.TempDir()
-	overlayPath := filepath.Join(dir, "ui-overrides.yaml")
-	deps := Deps{
-		Config:      func() *config.Config { return &config.Config{} },
-		OverlayPath: func() string { return overlayPath },
-	}
-	body := strings.NewReader(`{"providers":{"openclaude-cli":{"command":["rm","-rf","/"]}}}`)
-	r := httptest.NewRequest("PUT", "/api/settings", body)
-	w := httptest.NewRecorder()
-	Settings(deps)(w, r)
-	if w.Code != 400 {
-		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body)
-	}
-	if !strings.Contains(w.Body.String(), "modifying command for provider") {
-		t.Fatalf("expected error message about provider command, got=%s", w.Body)
-	}
-	if _, err := os.Stat(overlayPath); err == nil {
-		data, _ := os.ReadFile(overlayPath)
-		if strings.Contains(string(data), "command") {
-			t.Fatalf("command was persisted to overlay file: %s", string(data))
-		}
+func TestSettings_PUTRejectsRestrictedFields(t *testing.T) {
+	for _, field := range []string{"command", "env", "base_url", "cli_url"} {
+		t.Run(field, func(t *testing.T) {
+			dir := t.TempDir()
+			overlayPath := filepath.Join(dir, "ui-overrides.yaml")
+			deps := Deps{
+				Config:      func() *config.Config { return &config.Config{} },
+				OverlayPath: func() string { return overlayPath },
+			}
+			var payload string
+			if field == "command" {
+				payload = `{"providers":{"openclaude-cli":{"command":["rm","-rf","/"]}}}`
+			} else if field == "env" {
+				payload = `{"providers":{"openclaude-cli":{"env":{"PATH":"/bin"}}}}`
+			} else {
+				payload = `{"providers":{"openclaude-cli":{"` + field + `":"http://evil.com"}}}`
+			}
+			body := strings.NewReader(payload)
+			r := httptest.NewRequest("PUT", "/api/settings", body)
+			w := httptest.NewRecorder()
+			Settings(deps)(w, r)
+			if w.Code != 400 {
+				t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body)
+			}
+			expectedErr := "modifying " + field + " for provider"
+			if !strings.Contains(w.Body.String(), expectedErr) {
+				t.Fatalf("expected error message about provider %s, got=%s", field, w.Body)
+			}
+			if _, err := os.Stat(overlayPath); err == nil {
+				data, _ := os.ReadFile(overlayPath)
+				if strings.Contains(string(data), field) {
+					t.Fatalf("%s was persisted to overlay file: %s", field, string(data))
+				}
+			}
+		})
 	}
 }

@@ -44,13 +44,13 @@ func settingsGet(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to clone config", http.StatusInternalServerError)
 		return
 	}
-	sanitizeProviderEnv(clone)
+	sanitizeProviderSecrets(clone)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(clone)
 }
 
-// sanitizeProviderEnv redacts env values whose keys hint at secrets and top-level passwords.
-func sanitizeProviderEnv(m map[string]any) {
+// sanitizeProviderSecrets redacts env values whose keys hint at secrets and top-level passwords.
+func sanitizeProviderSecrets(m map[string]any) {
 	providers, ok := m["providers"].(map[string]any)
 	if !ok {
 		return
@@ -99,9 +99,11 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				continue
 			}
-			if _, exists := block["command"]; exists {
-				http.Error(w, fmt.Sprintf("modifying command for provider %q is not allowed", id), http.StatusBadRequest)
-				return
+			for _, key := range []string{"command", "env", "base_url", "cli_url"} {
+				if _, exists := block[key]; exists {
+					http.Error(w, fmt.Sprintf("modifying %s for provider %q is not allowed", key, id), http.StatusBadRequest)
+					return
+				}
 			}
 		}
 	}

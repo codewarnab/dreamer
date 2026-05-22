@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -362,7 +363,7 @@ func truncateToolOutput(output string) string {
 	runeCount := 0
 	for i := range output {
 		if runeCount == maxToolOutputChars {
-			truncated := len(output) - i
+			truncated := utf8.RuneCountInString(output[i:])
 			return output[:i] + "… (" + strconv.Itoa(truncated) + " chars truncated)"
 		}
 		runeCount++
