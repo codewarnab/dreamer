@@ -72,9 +72,9 @@ var errProviderNotRegistered = errors.New("provider not registered")
 
 // resolveExecutionMode picks Sequential vs Parallel from CLI override > config.
 // Logs a fallback warning when parallel was requested but the provider lacks support.
-func resolveExecutionMode(cfg *config.Config, opts Options, provider analyzer.Provider, logger *logging.Logger) analyzer.ExecutionMode {
+func resolveExecutionMode(appConfig *config.Config, opts Options, provider analyzer.Provider, logger *logging.Logger) analyzer.ExecutionMode {
 	requested := analyzer.ModeSequential
-	if opts.ParallelOverride || strings.EqualFold(cfg.Analyzer.Execution.Mode, config.ExecutionModeParallel) {
+	if opts.ParallelOverride || strings.EqualFold(appConfig.Analyzer.Execution.Mode, config.ExecutionModeParallel) {
 		requested = analyzer.ModeParallel
 	}
 	if requested == analyzer.ModeParallel && !analyzer.ProviderSupportsParallel(provider) {
@@ -88,11 +88,11 @@ func resolveExecutionMode(cfg *config.Config, opts Options, provider analyzer.Pr
 }
 
 // resolveMaxConcurrency: CLI override > config; 0 = let pool pick len(chunks).
-func resolveMaxConcurrency(cfg *config.Config, opts Options) int {
+func resolveMaxConcurrency(appConfig *config.Config, opts Options) int {
 	if opts.MaxConcurrencyOverride > 0 {
 		return opts.MaxConcurrencyOverride
 	}
-	return cfg.Analyzer.Execution.MaxConcurrency
+	return appConfig.Analyzer.Execution.MaxConcurrency
 }
 
 // recordProviderSuccess: Runs++, LastSuccessUTC = now, clear LastError.
@@ -175,15 +175,15 @@ type discoveryResult struct {
 	providerID   string
 	providerBlock config.ProviderBlock
 	projectFile  *config.ProjectFileConfig
-	cfg          *config.Config
+	appConfig    *config.Config
 	sources      []chat.ChatSource
 }
 
 // runDiscovery resolves paths, loads project config, discovers chat sources,
 // and applies lookback filtering.
-func runDiscovery(opts Options, cfg *config.Config, logger *logging.Logger) (discoveryResult, error) {
+func runDiscovery(opts Options, appConfig *config.Config, logger *logging.Logger) (discoveryResult, error) {
 	var dr discoveryResult
-	dr.cfg = cfg
+	dr.appConfig = appConfig
 
 	projectPath, err := resolveAbsoluteProjectPath(opts.ProjectPath)
 	if err != nil {
@@ -203,12 +203,12 @@ func runDiscovery(opts Options, cfg *config.Config, logger *logging.Logger) (dis
 	}
 	dr.projectFile = projectFile
 
-	dr.providerID, dr.providerBlock = cfg.ResolveProviderConfig(projectFile, opts.ProviderID)
+	dr.providerID, dr.providerBlock = appConfig.ResolveProviderConfig(projectFile, opts.ProviderID)
 	logger.Info("provider resolved", logging.Any("id", dr.providerID))
 
 	dr.outputRoot = strings.TrimSpace(opts.OutputDir)
 	if dr.outputRoot == "" {
-		dr.outputRoot = cfg.Daemon.OutputRoot
+		dr.outputRoot = appConfig.Daemon.OutputRoot
 	}
 
 	discoverEnv, err := chat.DefaultDiscoveryEnvironment()
@@ -294,17 +294,17 @@ type transcriptResult struct {
 func runTranscriptPrep(opts Options, dr discoveryResult, sources []chat.ChatSource, logger *logging.Logger) (transcriptResult, bool, error) {
 	var tr transcriptResult
 
-	rulePacks := mergeRulePacks(dr.cfg, dr.projectFile)
+	rulePacks := mergeRulePacks(dr.appConfig, dr.projectFile)
 	if !anyEnabled(rulePacks) {
 		return tr, false, fmt.Errorf("all rule packs disabled; nothing to analyze")
 	}
 
-	redactor, err := buildRedactor(dr.cfg, dr.projectFile)
+	redactor, err := buildRedactor(dr.appConfig, dr.projectFile)
 	if err != nil {
 		return tr, false, err
 	}
 
-	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger, dr.cfg.Analyzer.IncludeSubagentTranscripts)
+	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger, dr.appConfig.Analyzer.IncludeSubagentTranscripts)
 	if err != nil {
 		return tr, false, err
 	}
@@ -328,7 +328,7 @@ func runTranscriptPrep(opts Options, dr discoveryResult, sources []chat.ChatSour
 		}, true, nil
 	}
 
-	chunkCfg := dr.cfg.Analyzer.Chunking
+	chunkCfg := dr.appConfig.Analyzer.Chunking
 	if opts.MaxChunkBytesOverrideSet {
 		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
 	}
@@ -392,7 +392,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	startCancel()
 	logger.Info("provider ready", logging.Any("id", dr.providerID))
 
-	mode := resolveExecutionMode(dr.cfg, opts, provider, logger)
+	mode := resolveExecutionMode(dr.appConfig, opts, provider, logger)
 
 	tc := toolchain.Detect(dr.projectPath)
 	logger.Info("toolchain detected", logging.Any("summary", tc.String()))
@@ -444,11 +444,11 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	rc := analyzer.RunConfig{
 		SessionFactory: sessionFactory,
 		Mode:           mode,
-		MaxConcurrency: resolveMaxConcurrency(dr.cfg, opts),
+		MaxConcurrency: resolveMaxConcurrency(dr.appConfig, opts),
 	}
 	in := analyzer.ChunkInputs{
 		Chunks:          tr.chunks,
-		RuleTimeoutSecs: dr.cfg.Analyzer.RuleTimeoutSeconds,
+		RuleTimeoutSecs: dr.appConfig.Analyzer.RuleTimeoutSeconds,
 	}
 	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(tr.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
 	result, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
@@ -566,8 +566,8 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			opts.Config = snap
 		}
 	}
-	cfg := opts.Config
-	if cfg == nil {
+	appConfig := opts.Config
+	if appConfig == nil {
 		return Result{}, fmt.Errorf("pipeline.Run: config is required")
 	}
 
@@ -577,7 +577,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	// Stage 1: Discovery — paths, project config, chat sources.
-	dr, err := runDiscovery(opts, cfg, logger)
+	dr, err := runDiscovery(opts, appConfig, logger)
 	if err != nil {
 		return Result{}, err
 	}

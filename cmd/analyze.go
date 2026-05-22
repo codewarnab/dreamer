@@ -45,34 +45,34 @@ func newAnalyzeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg, err := config.LoadConfig(resolvedConfigPath)
+			appConfig, err := config.LoadConfig(resolvedConfigPath)
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
 
 			logRoot := outputDir
 			if strings.TrimSpace(logRoot) == "" {
-				logRoot = cfg.Daemon.OutputRoot
+				logRoot = appConfig.Daemon.OutputRoot
 			}
-			logger, err := logging.New(logRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
+			logger, err := logging.New(logRoot, appConfig.Logging.Level, appConfig.Logging.MaxSizeMB)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = logger.Close() }()
 
 			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
-			logDefaultedSinceNotices(logger, cfg)
+			logDefaultedSinceNotices(logger, appConfig)
 
 			// --force bypasses the conflict guard so an operator can re-run
 			// even while a daemon-scheduled job is in flight.
 			if !force {
-				if conflict := checkJobConflict(cfg, projectPath); conflict != "" {
+				if conflict := checkJobConflict(appConfig, projectPath); conflict != "" {
 					return fmt.Errorf("%s", conflict)
 				}
 			}
 
 			opts := pipeline.Options{
-				Config:                 cfg,
+				Config:                 appConfig,
 				ProjectPath:            projectPath,
 				ProviderID:             providerID,
 				Force:                  force,
@@ -147,8 +147,8 @@ func commandContext(cmd *cobra.Command) context.Context {
 // checkJobConflict loads the job queue and checks whether a running or
 // pending job exists for the given project path. Returns an empty string
 // if no conflict; otherwise a human-readable error message.
-func checkJobConflict(cfg *config.Config, projectPath string) string {
-	storePath := filepath.Join(cfg.Daemon.OutputRoot, "jobs.json")
+func checkJobConflict(appConfig *config.Config, projectPath string) string {
+	storePath := filepath.Join(appConfig.Daemon.OutputRoot, "jobs.json")
 	queue := jobqueue.New(jobqueue.Options{StorePath: storePath})
 	if err := queue.Recover(); err != nil {
 		return "" // best-effort; don't block analyze on a corrupt queue
@@ -172,7 +172,7 @@ func checkJobConflict(cfg *config.Config, projectPath string) string {
 	// may dequeue or enqueue between this check and pipeline.Run, so the
 	// guard is best-effort dedup, not a hard lock. A per-project lockfile
 	// would close the window if it ever becomes a problem in practice.
-	for _, p := range cfg.Projects {
+	for _, p := range appConfig.Projects {
 		if filepath.Clean(p.Path) == absPath {
 			status := queue.Status()
 			for _, j := range status.Jobs {
