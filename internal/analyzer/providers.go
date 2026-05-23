@@ -124,6 +124,9 @@ type ProviderMeta struct {
 	ID          ProviderID
 	DisplayName string // e.g. "OpenClaude CLI (recommended)"
 	Order       int    // sort order in UI (lower = higher)
+	// Phase2Mode declares the tool-based Phase 2 strategy for this provider.
+	// "" = JSON parsing fallback, "mcp" = MCP tool, "cli" = CLI tool via Bash.
+	Phase2Mode string
 }
 
 var providerMetaRegistry []ProviderMeta
@@ -141,6 +144,17 @@ func RegisteredProviderMeta() []ProviderMeta {
 	copy(out, providerMetaRegistry)
 	sort.Slice(out, func(i, j int) bool { return out[i].Order < out[j].Order })
 	return out
+}
+
+// LookupPhase2Mode returns the Phase2Mode for the given provider id.
+// Returns "" if the provider is not registered or has no tool-based Phase 2 mode.
+func LookupPhase2Mode(id ProviderID) string {
+	for _, meta := range providerMetaRegistry {
+		if meta.ID == id {
+			return meta.Phase2Mode
+		}
+	}
+	return ""
 }
 
 func joinProviderIDs(ids []ProviderID, sep string) string {

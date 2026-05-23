@@ -131,10 +131,10 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.WriteString("\n\n")
 
 	vars := map[string]string{
-		"project_root":     req.ProjectRoot,
+		"project_root":      req.ProjectRoot,
 		"toolchain_summary": req.ToolchainSummary,
-		"primary_linter":   req.PrimaryLinter,
-		"test_framework":   req.TestFramework,
+		"primary_linter":    req.PrimaryLinter,
+		"test_framework":    req.TestFramework,
 	}
 	for _, p := range b.Packs {
 		if !p.Enabled {
@@ -157,9 +157,19 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.WriteString("\n\n")
 
 	if lead != nil {
-		if instr := lead.EffectivePhase2RecordingInstructions(); instr != "" {
-			sb.WriteString(instr)
-		} else {
+		// When Phase2Mode is set (mcp/cli), use recording instructions for
+		// tool-based finding output. Otherwise, fall back to JSON format.
+		switch req.Phase2Mode {
+		case "mcp":
+			if instr := lead.EffectivePhase2RecordingInstructions(); instr != "" {
+				sb.WriteString(instr)
+			} else {
+				sb.WriteString("Return JSON only with this exact shape:\n")
+				sb.WriteString(lead.EffectivePhase2ResponseSchema())
+			}
+		case "cli":
+			sb.WriteString(cliRecordingInstructions(req.FindingsOutputPath))
+		default:
 			sb.WriteString("Return JSON only with this exact shape:\n")
 			sb.WriteString(lead.EffectivePhase2ResponseSchema())
 		}
@@ -167,6 +177,31 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.WriteString("\n")
 
 	return sb.String(), nil
+}
+
+// cliRecordingInstructions returns the Phase 2 recording instructions for
+// gemini-cli's Bash tool-based approach (from docs/phase2-cli-tool-approach.md).
+func cliRecordingInstructions(outputPath string) string {
+	return fmt.Sprintf(`Use the Bash tool to record each verified finding.
+
+For each finding, run:
+echo '<finding-json>' | dreamer record-finding --output %s
+
+The finding JSON format:
+{
+  "category": "<category-id>",
+  "mistake": "<one sentence describing the mistake>",
+  "guardrail": {"kind": "<category>", "tool": "<tool-name>", "rule": "<rule-name>"},
+  "codebase_evidence": [{"path": "<relative-path>", "lines": "<range>", "symbol": "<name>"}],
+  "confidence": <0.0-1.0>
+}
+
+Example:
+echo '{"category":"test","mistake":"missing edge case","guardrail":{"kind":"test","tool":"go test","rule":"TestEdge"},"confidence":0.9}' | dreamer record-finding --output %s
+
+Do NOT return findings as JSON text. Use the command for each finding individually.
+If the command returns {"ok":false}, fix the input and retry.
+After recording all findings, confirm completion with the count.`, outputPath, outputPath)
 }
 
 // orderMistakesByCategory returns an ordered map keyed by enabled category.

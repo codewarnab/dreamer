@@ -85,6 +85,10 @@ func newRootCommand() *cobra.Command {
 	webCmd.GroupID = groupInspect
 	root.AddCommand(webCmd)
 
+	// Internal commands (hidden — spawned by the analyzer pipeline).
+	root.AddCommand(newMCPServerCommand())
+	root.AddCommand(newRecordFindingCommand())
+
 	// Styled help output via lipgloss.
 	root.SetHelpFunc(styledHelp)
 

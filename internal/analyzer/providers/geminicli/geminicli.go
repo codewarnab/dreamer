@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/flagutil"
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
@@ -39,6 +40,7 @@ func init() {
 		ID:          analyzer.ProviderGeminiCLI,
 		DisplayName: "Google Gemini CLI",
 		Order:       60,
+		Phase2Mode:  "cli",
 	})
 }
 
@@ -91,6 +93,15 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if model != "" {
 		command = append(command, "--model", model)
 	}
+
+	// CLI tool mode: drop --approval-mode=plan and add Bash tool so the model
+	// can call: echo '<json>' | dreamer record-finding --output <path>
+	if sessionConfig.Phase2Mode == "cli" && sessionConfig.CLIToolPath != "" {
+		command = flagutil.RemoveFlag(command, "--approval-mode")
+		command = append(command, "--approval-mode", "default")
+		command = append(command, "--tools", "Read,Grep,Glob,Bash")
+	}
+
 	return &session{
 		command:    command,
 		env:        p.options.Env,

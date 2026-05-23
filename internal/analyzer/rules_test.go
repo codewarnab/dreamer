@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"dreamer/internal/mcpserver"
 )
 
 // TestApplyDefaultsCopiesAllFields is a compile-time sync guard.
@@ -36,8 +38,8 @@ func TestApplyDefaultsCopiesAllFields(t *testing.T) {
 
 	// Also verify per-category YAML values are not clobbered by defaults.
 	withValue := RulePack{
-		Category:         RuleCategoryTest,
-		Phase1Preamble:   "custom p1p",
+		Category:            RuleCategoryTest,
+		Phase1Preamble:      "custom p1p",
 		ToolUseInstructions: "custom tui",
 	}
 	applyDefaults(&withValue, d)
@@ -108,10 +110,10 @@ func TestLoadDefaultRulePacksAppliesDefaults(t *testing.T) {
 func TestBuildPhase2UsesToolUseInstructionsFromPack(t *testing.T) {
 	packs := []RulePack{
 		{
-			Category:            RuleCategoryTest,
-			Enabled:             true,
-			ToolUseInstructions: "custom tool instructions",
-			Phase2Preamble:      "custom p2 preamble",
+			Category:                RuleCategoryTest,
+			Enabled:                 true,
+			ToolUseInstructions:     "custom tool instructions",
+			Phase2Preamble:          "custom p2 preamble",
 			GuardrailPromptTemplate: "guardrail template with {{test_framework}}",
 		},
 	}
@@ -150,12 +152,44 @@ func TestBuildPhase2RecordingInstructions(t *testing.T) {
 	mistakes := map[RuleCategory][]Mistake{
 		RuleCategoryTest: {{Summary: "m1", Confidence: 0.9}},
 	}
-	prompt, _ := builder.BuildPhase2(mistakes, PhaseRequest{})
+	prompt, _ := builder.BuildPhase2(mistakes, PhaseRequest{Phase2Mode: "mcp"})
 
 	if !strings.Contains(prompt, "use MCP tools to record findings") {
 		t.Fatalf("BuildPhase2 missing recording instructions:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "should not appear") {
 		t.Fatalf("BuildPhase2 used Phase2ResponseSchema when recording instructions present:\n%s", prompt)
+	}
+
+	// Without Phase2Mode, should use JSON format even when recording instructions exist.
+	promptJSON, _ := builder.BuildPhase2(mistakes, PhaseRequest{})
+	if strings.Contains(promptJSON, "use MCP tools to record findings") {
+		t.Fatalf("BuildPhase2 should use JSON format when Phase2Mode is empty:\n%s", promptJSON)
+	}
+	if !strings.Contains(promptJSON, "should not appear") {
+		t.Fatalf("BuildPhase2 should use Phase2ResponseSchema when Phase2Mode is empty:\n%s", promptJSON)
+	}
+}
+
+// TestValidCategoriesInSync verifies that mcpserver.ValidCategories matches
+// the canonical AllRuleCategories list. This catches drift when adding new categories.
+func TestValidCategoriesInSync(t *testing.T) {
+	canonical := AllRuleCategories()
+	for _, cat := range canonical {
+		if !mcpserver.ValidCategories[string(cat)] {
+			t.Errorf("category %q in AllRuleCategories but missing from mcpserver.ValidCategories", cat)
+		}
+	}
+	for cat := range mcpserver.ValidCategories {
+		found := false
+		for _, c := range canonical {
+			if string(c) == cat {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("category %q in mcpserver.ValidCategories but missing from AllRuleCategories", cat)
+		}
 	}
 }

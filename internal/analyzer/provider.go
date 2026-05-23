@@ -25,6 +25,29 @@ type SessionConfig struct {
 	Model            string
 	ReadOnly         bool
 	SystemMessage    string
+
+	// Phase2Mode configures how Phase 2 findings are recorded.
+	// Empty = JSON parsing fallback (default).
+	// "mcp" = MCP tool-based recording (openclaude/claude).
+	// "cli" = CLI tool via Bash (gemini).
+	Phase2Mode string
+
+	// MCPConfig is the inline JSON for --mcp-config (openclaude/claude only).
+	MCPConfig string
+
+	// MCPTools is the comma-separated list of MCP tool names to add to --tools.
+	MCPTools string
+
+	// MCPAllowedTools is the comma-separated list of MCP tool names to add to --allowed-tools.
+	MCPAllowedTools string
+
+	// CLIToolPath is the absolute path to the dreamer binary for Bash-based
+	// Phase 2 (gemini only). The model calls: echo '<json>' | <CLIToolPath> record-finding --output <path>
+	CLIToolPath string
+
+	// FindingsOutputPath is the temp file where tool-based Phase 2 writes findings.
+	// Passed through so the prompt can reference the actual output path.
+	FindingsOutputPath string
 }
 
 type Session interface {

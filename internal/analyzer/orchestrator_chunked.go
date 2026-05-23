@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"dreamer/internal/errs"
+	"dreamer/internal/mcpserver"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -193,12 +195,71 @@ func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder
 		}
 		return nil, append(fileWarnings, fmt.Sprintf("phase-2 failed (%v)", err)), err
 	}
+
+	// Try reading findings from the tool-based output file first.
+	if req.Phase2Mode != "" && req.FindingsOutputPath != "" {
+		fileFindings, readErr := mcpserver.ReadFindingsJSONL(req.FindingsOutputPath)
+		if readErr != nil {
+			fileWarnings = append(fileWarnings, fmt.Sprintf("tool-findings read failed (%v), falling back to JSON", readErr))
+		} else if len(fileFindings) > 0 {
+			findingsByCategory, convErr := materializeMCPFindings(fileFindings, o.Packs)
+			if convErr != nil {
+				fileWarnings = append(fileWarnings, fmt.Sprintf("tool-findings convert failed (%v), falling back to JSON", convErr))
+			} else {
+				return findingsByCategory, fileWarnings, nil
+			}
+		} else {
+			fileWarnings = append(fileWarnings, "tool-findings file empty, falling back to JSON parsing")
+		}
+	}
+
 	parsed, parseWarns, parseErr := parsePhase2Response(raw, o.Packs)
 	warns := append(fileWarnings, parseWarns...)
 	if parseErr != nil {
 		return nil, append(warns, fmt.Sprintf("phase-2 parse failed (%v)", parseErr)), parseErr
 	}
 	return parsed, warns, nil
+}
+
+// materializeMCPFindings converts validated MCP/CLI findings into the orchestrator's
+// Finding type. Each finding carries its own category (unlike JSON parsing which
+// applies a default category).
+func materializeMCPFindings(raw []mcpserver.FindingInput, packs []RulePack) (map[RuleCategory][]Finding, error) {
+	findingsByCategory := map[RuleCategory][]Finding{}
+	for _, f := range raw {
+		cat := RuleCategory(f.Category)
+		mistake := strings.TrimSpace(f.Mistake)
+		if mistake == "" {
+			continue
+		}
+		// Convert mcpserver types to analyzer types for the shared builder.
+		guardrail := Guardrail{
+			Kind:          f.Guardrail.Kind,
+			Tool:          f.Guardrail.Tool,
+			Rule:          f.Guardrail.Rule,
+			ConfigSnippet: f.Guardrail.ConfigSnippet,
+		}
+		if f.Guardrail.Apply != nil {
+			guardrail.Apply = &ApplySpec{
+				TargetFile: f.Guardrail.Apply.TargetFile,
+				Strategy:   f.Guardrail.Apply.Strategy,
+				Anchor:     f.Guardrail.Apply.Anchor,
+				Snippet:    f.Guardrail.Apply.Snippet,
+			}
+		}
+		evidence := make([]CodebaseEvidence, 0, len(f.CodebaseEvidence))
+		for _, e := range f.CodebaseEvidence {
+			evidence = append(evidence, CodebaseEvidence{
+				Path:   e.Path,
+				Lines:  e.Lines,
+				Symbol: e.Symbol,
+			})
+		}
+
+		finding := buildFinding(cat, mistake, f.Confidence, guardrail, evidence)
+		findingsByCategory[cat] = append(findingsByCategory[cat], finding)
+	}
+	return findingsByCategory, nil
 }
 
 // runWithPool acquires a session, runs the prompt once, releases.

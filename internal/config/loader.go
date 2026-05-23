@@ -177,14 +177,14 @@ type RuleConfig struct {
 
 	// Template overrides (optional). When set, these replace the
 	// corresponding fields from the embedded YAML rule pack.
-	MistakePromptTemplate     string `yaml:"mistake_prompt_template,omitempty" json:"mistake_prompt_template,omitempty"`
-	GuardrailPromptTemplate   string `yaml:"guardrail_prompt_template,omitempty" json:"guardrail_prompt_template,omitempty"`
-	Phase1Preamble            string `yaml:"phase1_preamble,omitempty" json:"phase1_preamble,omitempty"`
-	Phase1CategoryDescription string `yaml:"phase1_category_description,omitempty" json:"phase1_category_description,omitempty"`
-	Phase1ResponseSchema      string `yaml:"phase1_response_schema,omitempty" json:"phase1_response_schema,omitempty"`
-	Phase2Preamble            string `yaml:"phase2_preamble,omitempty" json:"phase2_preamble,omitempty"`
-	Phase2ResponseSchema      string `yaml:"phase2_response_schema,omitempty" json:"phase2_response_schema,omitempty"`
-	ToolUseInstructions       string `yaml:"tool_use_instructions,omitempty" json:"tool_use_instructions,omitempty"`
+	MistakePromptTemplate       string `yaml:"mistake_prompt_template,omitempty" json:"mistake_prompt_template,omitempty"`
+	GuardrailPromptTemplate     string `yaml:"guardrail_prompt_template,omitempty" json:"guardrail_prompt_template,omitempty"`
+	Phase1Preamble              string `yaml:"phase1_preamble,omitempty" json:"phase1_preamble,omitempty"`
+	Phase1CategoryDescription   string `yaml:"phase1_category_description,omitempty" json:"phase1_category_description,omitempty"`
+	Phase1ResponseSchema        string `yaml:"phase1_response_schema,omitempty" json:"phase1_response_schema,omitempty"`
+	Phase2Preamble              string `yaml:"phase2_preamble,omitempty" json:"phase2_preamble,omitempty"`
+	Phase2ResponseSchema        string `yaml:"phase2_response_schema,omitempty" json:"phase2_response_schema,omitempty"`
+	ToolUseInstructions         string `yaml:"tool_use_instructions,omitempty" json:"tool_use_instructions,omitempty"`
 	Phase2RecordingInstructions string `yaml:"phase2_recording_instructions,omitempty" json:"phase2_recording_instructions,omitempty"`
 }
 

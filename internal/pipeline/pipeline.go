@@ -2,8 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -403,12 +405,60 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	}
 	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
 
+	// Resolve Phase 2 mode: "mcp" for openclaude/claude, "cli" for gemini, "" for fallback.
+	phase2Mode := resolvePhase2Mode(dr.providerID)
+	if opts.DryRun {
+		phase2Mode = "" // JSON parsing for dry runs
+	}
+
+	// Create temp file for tool-based findings.
+	var findingsOutputPath string
+	if phase2Mode != "" {
+		tmpFile, tmpErr := os.CreateTemp("", "dreamer-findings-*.jsonl")
+		if tmpErr != nil {
+			logger.Warn("findings temp file failed, falling back to JSON", logging.Any("err", tmpErr))
+			phase2Mode = ""
+		} else {
+			findingsOutputPath = tmpFile.Name()
+			tmpFile.Close()
+		}
+	}
+	defer func() {
+		if findingsOutputPath != "" {
+			os.Remove(findingsOutputPath)
+		}
+	}()
+
+	// Build MCP/CLI config for the provider.
+	dreamerBin := findDreamerBinary()
+	var mcpConfig, mcpTools, mcpAllowedTools, cliToolPath string
+	switch phase2Mode {
+	case "mcp":
+		mcpConfig = buildMCPConfig(findingsOutputPath, dreamerBin)
+		mcpTools = "mcp__dreamer__record_finding"
+		mcpAllowedTools = "mcp__dreamer__record_finding"
+	case "cli":
+		cliToolPath = dreamerBin
+	}
+	if phase2Mode != "" {
+		logger.Info("phase2 tool mode",
+			logging.Any("mode", phase2Mode),
+			logging.Any("output", findingsOutputPath),
+		)
+	}
+
 	sessionFactory := func() (analyzer.Session, error) {
 		raw, ferr := provider.NewSession(ctx, analyzer.SessionConfig{
-			WorkingDirectory: dr.projectPath,
-			Model:            dr.providerBlock.Model,
-			ReadOnly:         true,
-			SystemMessage:    analyzer.BuildReadOnlySystemMessage(dr.projectPath),
+			WorkingDirectory:   dr.projectPath,
+			Model:              dr.providerBlock.Model,
+			ReadOnly:           true,
+			SystemMessage:      analyzer.BuildReadOnlySystemMessage(dr.projectPath),
+			Phase2Mode:         phase2Mode,
+			MCPConfig:          mcpConfig,
+			MCPTools:           mcpTools,
+			MCPAllowedTools:    mcpAllowedTools,
+			CLIToolPath:        cliToolPath,
+			FindingsOutputPath: findingsOutputPath,
 		})
 		if ferr != nil {
 			return nil, ferr
@@ -428,15 +478,17 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 		}
 	}
 	phaseReq := analyzer.PhaseRequest{
-		ProjectRoot:       dr.projectPath,
-		ToolchainSummary:  tc.Summary(),
-		PrimaryLinter:     tc.PrimaryLinter(),
-		TestFramework:     tc.PrimaryTestFramework(),
-		CodebaseContext:   codebaseContext,
-		DryRun:            opts.DryRun,
-		StrictLintRules:   !opts.Permissive,
-		LintRuleValidator: lintrules.NewValidator(),
-		ExistingHashes:    existingFindingHashes,
+		ProjectRoot:        dr.projectPath,
+		ToolchainSummary:   tc.Summary(),
+		PrimaryLinter:      tc.PrimaryLinter(),
+		TestFramework:      tc.PrimaryTestFramework(),
+		CodebaseContext:    codebaseContext,
+		DryRun:             opts.DryRun,
+		StrictLintRules:    !opts.Permissive,
+		LintRuleValidator:  lintrules.NewValidator(),
+		ExistingHashes:     existingFindingHashes,
+		Phase2Mode:         phase2Mode,
+		FindingsOutputPath: findingsOutputPath,
 	}
 
 	logEnabledRulePacks(logger, rctx.packs)
@@ -689,4 +741,46 @@ func PublishRunError(bus *EventBus, project string, err error) {
 // (SDK or ACP) that writes session files to the Copilot home directory.
 func isCopilotProvider(id config.ProviderID) bool {
 	return id == config.ProviderCopilotSDK || id == config.ProviderCopilotACP
+}
+
+// resolvePhase2Mode returns the tool-based Phase 2 mode for the given provider.
+// Each provider self-declares its mode via RegisterProviderMeta; this function
+// reads from the registry so no hardcoded switch is needed.
+func resolvePhase2Mode(providerID string) string {
+	return analyzer.LookupPhase2Mode(analyzer.ProviderID(providerID))
+}
+
+// buildMCPConfig builds the inline JSON for --mcp-config that injects the
+// dreamer MCP server as a tool provider.
+func buildMCPConfig(outputPath, dreamerBin string) string {
+	// Use json.Marshal for proper escaping of paths (handles backslashes, quotes, unicode).
+	type mcpCommand struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}
+	type mcpServers struct {
+		Dreamer mcpCommand `json:"dreamer"`
+	}
+	type mcpConfig struct {
+		Servers mcpServers `json:"mcpServers"`
+	}
+	cfg := mcpConfig{Servers: mcpServers{Dreamer: mcpCommand{
+		Command: dreamerBin,
+		Args:    []string{"mcp-server", "--output", outputPath},
+	}}}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		// Should never happen — both strings are valid UTF-8.
+		return "{}"
+	}
+	return string(b)
+}
+
+// findDreamerBinary locates the running dreamer binary.
+func findDreamerBinary() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "dreamer" // fallback to PATH
+	}
+	return exe
 }

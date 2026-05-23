@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/flagutil"
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
@@ -80,6 +81,19 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if model != "" {
 		command = append(command, "--model", model)
 	}
+
+	// MCP mode: inject --mcp-config, --allowed-tools, and relax permission-mode.
+	if sessionConfig.Phase2Mode == "mcp" && sessionConfig.MCPConfig != "" {
+		command = flagutil.ReplaceFlag(command, "--permission-mode", "plan", "default")
+		if sessionConfig.MCPTools != "" {
+			command = flagutil.AppendToFlag(command, "--tools", sessionConfig.MCPTools)
+		}
+		if sessionConfig.MCPAllowedTools != "" {
+			command = append(command, "--allowed-tools", sessionConfig.MCPAllowedTools)
+		}
+		command = append(command, "--mcp-config", sessionConfig.MCPConfig)
+	}
+
 	return &session{
 		command:    command,
 		env:        p.options.Env,

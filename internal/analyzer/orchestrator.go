@@ -75,6 +75,12 @@ type PhaseRequest struct {
 	StrictLintRules   bool
 	LintRuleValidator LintRuleValidator
 	ExistingHashes    map[string]struct{}
+
+	// Phase2Mode configures tool-based Phase 2 recording.
+	// Empty = JSON parsing, "mcp" = MCP tool, "cli" = CLI tool via Bash.
+	Phase2Mode string
+	// FindingsOutputPath is the temp file where tool-based findings are written.
+	FindingsOutputPath string
 }
 
 // LintRuleValidator returns true when tool/rule are in the allow-list for the
@@ -118,49 +124,59 @@ func materializeFindings(raws []rawFinding, defaultCategory RuleCategory) []Find
 		if mistake == "" {
 			continue
 		}
-		guardrail := Guardrail{
-			Kind:          strings.TrimSpace(raw.Guardrail.Kind),
-			Tool:          strings.TrimSpace(raw.Guardrail.Tool),
-			Rule:          strings.TrimSpace(raw.Guardrail.Rule),
-			ConfigSnippet: strings.TrimSpace(raw.Guardrail.ConfigSnippet),
-		}
-		if guardrail.Kind == "" {
-			guardrail.Kind = string(defaultCategory)
-		}
-		if raw.Guardrail.Apply != nil {
-			guardrail.Apply = &ApplySpec{
-				TargetFile: strings.TrimSpace(raw.Guardrail.Apply.TargetFile),
-				Strategy:   strings.TrimSpace(raw.Guardrail.Apply.Strategy),
-				Anchor:     strings.TrimSpace(raw.Guardrail.Apply.Anchor),
-				Snippet:    raw.Guardrail.Apply.Snippet,
-			}
-			if guardrail.Apply.TargetFile == "" || guardrail.Apply.Snippet == "" {
-				guardrail.Apply = nil
-			}
-		}
-		evidence := make([]CodebaseEvidence, 0, len(raw.CodebaseEvidence))
-		for _, evidenceItem := range raw.CodebaseEvidence {
-			path := strings.TrimSpace(evidenceItem.Path)
-			if path == "" {
-				continue
-			}
-			evidence = append(evidence, CodebaseEvidence{
-				Path:   path,
-				Lines:  strings.TrimSpace(evidenceItem.Lines),
-				Symbol: strings.TrimSpace(evidenceItem.Symbol),
-			})
-		}
-		finding := Finding{
-			Category:   defaultCategory,
-			Mistake:    mistake,
-			Guardrail:  guardrail,
-			Evidence:   evidence,
-			Confidence: raw.Confidence,
-		}
-		finding.Hash = ComputeFindingHash(finding)
-		findings = append(findings, finding)
+		findings = append(findings, buildFinding(defaultCategory, mistake, raw.Confidence,
+			raw.Guardrail, raw.CodebaseEvidence))
 	}
 	return findings
+}
+
+// buildFinding assembles a Finding from its component parts, applying the same
+// normalization (trim, default kind, nil-guard Apply) used by both JSON-parsed
+// and tool-based Phase 2 paths.
+func buildFinding(category RuleCategory, mistake string, confidence float64,
+	rawGuardrail Guardrail, rawEvidence []CodebaseEvidence) Finding {
+
+	guardrail := Guardrail{
+		Kind:          strings.TrimSpace(rawGuardrail.Kind),
+		Tool:          strings.TrimSpace(rawGuardrail.Tool),
+		Rule:          strings.TrimSpace(rawGuardrail.Rule),
+		ConfigSnippet: strings.TrimSpace(rawGuardrail.ConfigSnippet),
+	}
+	if guardrail.Kind == "" {
+		guardrail.Kind = string(category)
+	}
+	if rawGuardrail.Apply != nil {
+		guardrail.Apply = &ApplySpec{
+			TargetFile: strings.TrimSpace(rawGuardrail.Apply.TargetFile),
+			Strategy:   strings.TrimSpace(rawGuardrail.Apply.Strategy),
+			Anchor:     strings.TrimSpace(rawGuardrail.Apply.Anchor),
+			Snippet:    rawGuardrail.Apply.Snippet,
+		}
+		if guardrail.Apply.TargetFile == "" || guardrail.Apply.Snippet == "" {
+			guardrail.Apply = nil
+		}
+	}
+	evidence := make([]CodebaseEvidence, 0, len(rawEvidence))
+	for _, e := range rawEvidence {
+		path := strings.TrimSpace(e.Path)
+		if path == "" {
+			continue
+		}
+		evidence = append(evidence, CodebaseEvidence{
+			Path:   path,
+			Lines:  strings.TrimSpace(e.Lines),
+			Symbol: strings.TrimSpace(e.Symbol),
+		})
+	}
+	finding := Finding{
+		Category:   category,
+		Mistake:    mistake,
+		Guardrail:  guardrail,
+		Evidence:   evidence,
+		Confidence: confidence,
+	}
+	finding.Hash = ComputeFindingHash(finding)
+	return finding
 }
 
 func normalizeMistakes(mistakes []Mistake, defaultCategory RuleCategory) []Mistake {
