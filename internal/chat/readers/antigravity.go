@@ -12,7 +12,6 @@ const (
 	antigravityMaxMessagesPerSource = 250
 )
 
-
 type antigravityDropRule struct {
 	name               string
 	normalizedTokens   []string

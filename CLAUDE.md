@@ -12,6 +12,11 @@ make test                     # full test suite
 make test-race                # tests with race detector
 make vet                      # go vet
 make fmt                      # gofmt -w .
+make lint                     # golangci-lint (auto-installs if missing)
+make cover                    # test coverage summary
+make cover-html               # test coverage HTML report
+make vulncheck                # dependency vulnerability check
+make install-hooks            # activate pre-commit hook (.githooks/)
 ```
 
 Or directly:

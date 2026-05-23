@@ -169,14 +169,14 @@ func (rc *runCtx) savePrunedState() error {
 
 // discoveryResult holds the output of the discovery stage.
 type discoveryResult struct {
-	projectPath  string
-	projectName  string
-	outputRoot   string
-	providerID   string
+	projectPath   string
+	projectName   string
+	outputRoot    string
+	providerID    string
 	providerBlock config.ProviderBlock
-	projectFile  *config.ProjectFileConfig
-	appConfig    *config.Config
-	sources      []chat.ChatSource
+	projectFile   *config.ProjectFileConfig
+	appConfig     *config.Config
+	sources       []chat.ChatSource
 }
 
 // runDiscovery resolves paths, loads project config, discovers chat sources,

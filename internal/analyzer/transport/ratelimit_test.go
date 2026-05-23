@@ -9,59 +9,59 @@ func TestIsRateLimitMessage(t *testing.T) {
 		want        bool
 	}{
 		{
-			name: "usage_limit_exceeded",
+			name:        "usage_limit_exceeded",
 			messageText: "error: usage_limit_exceeded - you have exceeded your quota",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "usage limit with spaces",
+			name:        "usage limit with spaces",
 			messageText: "You have hit your usage limit for this month",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "hit your usage limit",
+			name:        "hit your usage limit",
 			messageText: "Sorry, you've hit your usage limit. Please upgrade.",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "rate limit",
+			name:        "rate limit",
 			messageText: "Rate limit exceeded. Please try again later.",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "rate_limit underscore",
+			name:        "rate_limit underscore",
 			messageText: "error_code: rate_limit",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "quota exceeded",
+			name:        "quota exceeded",
 			messageText: "Your quota exceeded the allowed limit",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "too many requests",
+			name:        "too many requests",
 			messageText: "HTTP 429: Too many requests",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "overloaded (Anthropic)",
+			name:        "overloaded (Anthropic)",
 			messageText: "The service is currently overloaded. Please retry.",
-			want: true,
+			want:        true,
 		},
 		{
-			name: "negative - unrelated error",
+			name:        "negative - unrelated error",
 			messageText: "Connection timeout",
-			want: false,
+			want:        false,
 		},
 		{
-			name: "empty string",
+			name:        "empty string",
 			messageText: "",
-			want: false,
+			want:        false,
 		},
 		{
-			name: "case insensitive",
+			name:        "case insensitive",
 			messageText: "RATE LIMIT EXCEEDED",
-			want: true,
+			want:        true,
 		},
 	}
 

@@ -124,4 +124,3 @@ func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.Co
 	}
 	printBox(cmd, lines)
 }
-

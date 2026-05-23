@@ -112,5 +112,3 @@ func FormatSymbolList(symbols []Symbol, cap int) string {
 	}
 	return builder.String()
 }
-
-

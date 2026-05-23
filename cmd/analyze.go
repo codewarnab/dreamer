@@ -15,13 +15,13 @@ import (
 
 func newAnalyzeCommand() *cobra.Command {
 	var (
-		projectPath string
-		providerID  string
-		force       bool
-		dryRun      bool
-		permissive  bool
-		outputDir   string
-		since       string
+		projectPath   string
+		providerID    string
+		force         bool
+		dryRun        bool
+		permissive    bool
+		outputDir     string
+		since         string
 		analyzerFlags analyzerFlagVars
 	)
 
