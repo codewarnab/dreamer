@@ -53,9 +53,16 @@ func parseProjectHashTransition(urlPath string) (name, hash, tx string) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		http.Error(w, "internal encoding error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	_, _ = w.Write(encoded)
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {

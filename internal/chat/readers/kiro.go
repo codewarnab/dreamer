@@ -107,6 +107,121 @@ func (reader KiroReader) openDatabase(dbPath string) (*sql.DB, error) {
 	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "kiro")
 }
 
+// ConversationSizes returns sizes for many conversations in one DB-open.
+// Missing rows are omitted from the result.
+func (reader KiroReader) ConversationSizes(dbPath string, conversationIDs []string) (map[string]int64, error) {
+	result := make(map[string]int64, len(conversationIDs))
+	if len(conversationIDs) == 0 {
+		return result, nil
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer database.Close()
+
+	wanted := make(map[string]struct{}, len(conversationIDs))
+	deduped := make([]string, 0, len(conversationIDs))
+	for _, id := range conversationIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := wanted[id]; ok {
+			continue
+		}
+		wanted[id] = struct{}{}
+		deduped = append(deduped, id)
+	}
+	if len(deduped) == 0 {
+		return result, nil
+	}
+
+	// SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; chunk to leave headroom.
+	const chunkSize = 500
+	for start := 0; start < len(deduped); start += chunkSize {
+		end := start + chunkSize
+		if end > len(deduped) {
+			end = len(deduped)
+		}
+		chunk := deduped[start:end]
+		placeholders := make([]string, len(chunk))
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		query := "SELECT conversation_id, length(value) FROM conversations_v2 WHERE conversation_id IN (" + strings.Join(placeholders, ",") + ")"
+		rows, err := database.Query(query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("query kiro conversation sizes: %w", err)
+		}
+		if err := scanKiroSizes(rows, result); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func scanKiroSizes(rows *sql.Rows, accumulator map[string]int64) error {
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var size sql.NullInt64
+		if err := rows.Scan(&id, &size); err != nil {
+			return fmt.Errorf("scan kiro conversation size row: %w", err)
+		}
+		accumulator[id] = size.Int64
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate kiro conversation size rows: %w", err)
+	}
+	return nil
+}
+
+// ConversationSize returns length(value) for one conversation row.
+func (reader KiroReader) ConversationSize(dbPath string, conversationID string) (int64, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return 0, fmt.Errorf("kiro conversation id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return 0, err
+	}
+	defer database.Close()
+	var size sql.NullInt64
+	if err := database.QueryRow("SELECT length(value) FROM conversations_v2 WHERE conversation_id = ?", conversationID).Scan(&size); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("query kiro conversation size: %w", err)
+	}
+	return size.Int64, nil
+}
+
+// DeleteKiroConversation removes one row from `conversations_v2`. No error
+// when the row is absent.
+func DeleteKiroConversation(dbPath string, conversationID string) error {
+	return KiroReader{}.DeleteConversation(dbPath, conversationID)
+}
+
+func (reader KiroReader) DeleteConversation(dbPath string, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return fmt.Errorf("kiro conversation id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	if _, err := database.Exec("DELETE FROM conversations_v2 WHERE conversation_id = ?", conversationID); err != nil {
+		return fmt.Errorf("delete kiro conversation: %w", err)
+	}
+	return nil
+}
+
 func parseKiroConversationValue(value string) []ChatMessage {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

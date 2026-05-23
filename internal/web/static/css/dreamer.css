@@ -385,3 +385,61 @@ label {
   border-bottom: var(--hairline-mint);
   padding: var(--space-2) var(--space-4);
 }
+
+/* ===== Modal (used by chats delete-confirm and similar) ============== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-card {
+  max-width: 520px;
+  padding: var(--space-5);
+}
+.modal-card__title {
+  margin-top: 0;
+}
+.modal-card__pre {
+  background: var(--surface-2, #1a1a1a);
+  padding: var(--space-2);
+  overflow-x: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+.modal-card__hint {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+.modal-card__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.modal-card__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* Chats-tab toolbar (filter pills + bulk delete button) */
+.chats-toolbar {
+  margin-bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.chats-toolbar__spacer { flex: 1; }
+.chats-toolbar__count {
+  color: var(--text-secondary);
+  font-size: 0.9em;
+}
+.chats-error {
+  margin-bottom: var(--space-3);
+  color: var(--text-danger, #c33);
+}

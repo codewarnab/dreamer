@@ -64,6 +64,55 @@ func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]Ch
 	return discovered, nil
 }
 
+func (kiroProvider) DeleteSource(source ChatSource) error {
+	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+	if err := readers.DeleteKiroConversation(dbPath, conversationID); err != nil {
+		return fmt.Errorf("delete kiro chat source %q: %w", source.Path, err)
+	}
+	return nil
+}
+
+func (kiroProvider) SizeBytes(source ChatSource) (int64, error) {
+	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+	return readers.KiroReader{}.ConversationSize(dbPath, conversationID)
+}
+
+func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
+	type conversationKey struct {
+		dbPath string
+		id     string
+	}
+	result := make(map[string]int64, len(sources))
+	if len(sources) == 0 {
+		return result
+	}
+	byDB := make(map[string][]string, 1)
+	pathByKey := make(map[conversationKey]string, len(sources))
+	for _, source := range sources {
+		if source.Tool != SourceTypeKiroCLISession {
+			continue
+		}
+		dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+		if dbPath == "" || conversationID == "" {
+			continue
+		}
+		byDB[dbPath] = append(byDB[dbPath], conversationID)
+		pathByKey[conversationKey{dbPath, conversationID}] = source.Path
+	}
+	for dbPath, ids := range byDB {
+		sizes, err := readers.KiroReader{}.ConversationSizes(dbPath, ids)
+		if err != nil {
+			continue
+		}
+		for conversationID, size := range sizes {
+			if fullPath, ok := pathByKey[conversationKey{dbPath, conversationID}]; ok {
+				result[fullPath] = size
+			}
+		}
+	}
+	return result
+}
+
 func (kiroProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadKiroConversation(dbPath, conversationID)

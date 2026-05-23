@@ -75,6 +75,14 @@ func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSo
 	return discovered, nil
 }
 
+func (vscodeProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}
+
+func (vscodeProvider) SizeBytes(source ChatSource) (int64, error) {
+	return statSourceSize(source.Path)
+}
+
 func (vscodeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".json", ".jsonl":

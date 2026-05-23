@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/state"
 )
 
 func TestParseSinceWindow(t *testing.T) {
@@ -178,5 +180,252 @@ func TestProjectChats_UnknownProject(t *testing.T) {
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/chats", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+// TestDeleteProjectChat_PathInjection asserts the handler's security
+// boundary: any path the user supplies must appear in the live DiscoverChats
+// output for the project, otherwise the request is rejected with 404 before
+// any provider DeleteSource call. The project path is a fresh t.TempDir so
+// discovery for non-home-rooted providers finds nothing, and the supplied
+// paths point outside the project — they must all be rejected.
+func TestDeleteProjectChat_PathInjection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: projectDir}},
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "absolute path outside project", body: `{"path": "/etc/passwd"}`},
+		{name: "windows system path", body: `{"path": "C:\\Windows\\System32\\drivers\\etc\\hosts"}`},
+		{name: "relative traversal", body: `{"path": "../../secret.txt"}`},
+		{name: "random temp path", body: `{"path": "/tmp/nothing-here.jsonl"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			handler(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("status = %d (want 404); body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestDeleteProjectChat_EmptyPathReturns400(t *testing.T) {
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(`{"path": ""}`))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d (want 400); body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteProjectChat_InvalidJSONReturns400(t *testing.T) {
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(`not-json`))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d (want 400); body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteProjectChat_UnknownProjectReturns404(t *testing.T) {
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "other", Path: t.TempDir()}},
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/missing/chats", strings.NewReader(`{"path":"/tmp/x"}`))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d (want 404); body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestBulkDeleteProjectChats_PathInjection verifies the bulk endpoint applies
+// the same per-path validation: every reported failure carries "not found"
+// when the supplied path is not in DiscoverChats output.
+func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }})
+	body := `{"paths": ["/etc/passwd", "C:/Windows/System32/cmd.exe"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (want 200 with per-path failures); body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"failed":2`) {
+		t.Errorf("expected failed=2 in summary, got body=%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"deleted":0`) {
+		t.Errorf("expected deleted=0 in summary, got body=%s", rec.Body.String())
+	}
+}
+
+// TestDeleteUpdatesChatHashes proves the architectural invariant: a
+// user-driven delete removes the entry from state.ChatHashes so
+// len(st.ChatHashes) stays authoritative for the overview-tab badge
+// without a re-analyze.
+func TestDeleteUpdatesChatHashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based copilot fixture is POSIX-flavored")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chatPath := filepath.Join(sessionDir, "to-delete.jsonl")
+	if err := os.WriteFile(chatPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outputRoot := t.TempDir()
+	seeded := &state.State{
+		Version: state.StateVersion,
+		ChatHashes: map[string]string{
+			chatPath:        "stub-key",
+			"/other/keep.jsonl": "keep-key",
+		},
+	}
+	if err := state.Save(outputRoot, "proj", seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
+		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
+	}
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+
+	body := `{"path":"` + chatPath + `"}`
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(chatPath); !os.IsNotExist(err) {
+		t.Errorf("file should be gone, stat err=%v", err)
+	}
+
+	reloaded, err := state.Load(outputRoot, "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stillThere := reloaded.ChatHashes[chatPath]; stillThere {
+		t.Errorf("ChatHashes still contains deleted path; map=%v", reloaded.ChatHashes)
+	}
+	if _, kept := reloaded.ChatHashes["/other/keep.jsonl"]; !kept {
+		t.Errorf("unrelated ChatHashes entry was lost; map=%v", reloaded.ChatHashes)
+	}
+}
+
+// TestBulkDeleteUpdatesChatHashes mirrors the single-delete invariant for
+// the :bulk-delete endpoint: all successful paths drop from state in one
+// save.
+func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based copilot fixture is POSIX-flavored")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pathA := filepath.Join(sessionDir, "a.jsonl")
+	pathB := filepath.Join(sessionDir, "b.jsonl")
+	for _, p := range []string{pathA, pathB} {
+		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	outputRoot := t.TempDir()
+	seeded := &state.State{
+		Version: state.StateVersion,
+		ChatHashes: map[string]string{
+			pathA:               "k-a",
+			pathB:               "k-b",
+			"/other/keep.jsonl": "k-keep",
+		},
+	}
+	if err := state.Save(outputRoot, "proj", seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
+		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
+	}
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }})
+
+	body := `{"paths":["` + pathA + `","` + pathB + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	reloaded, err := state.Load(outputRoot, "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.ChatHashes[pathA]; ok {
+		t.Errorf("pathA still in ChatHashes; map=%v", reloaded.ChatHashes)
+	}
+	if _, ok := reloaded.ChatHashes[pathB]; ok {
+		t.Errorf("pathB still in ChatHashes; map=%v", reloaded.ChatHashes)
+	}
+	if _, ok := reloaded.ChatHashes["/other/keep.jsonl"]; !ok {
+		t.Errorf("unrelated entry lost; map=%v", reloaded.ChatHashes)
+	}
+}
+
+func TestBulkDeleteProjectName(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/api/projects/foo/chats:bulk-delete", "foo"},
+		{"/api/projects/with-dashes/chats:bulk-delete", "with-dashes"},
+		{"/api/projects/foo/chats", ""},
+		{"/api/projects//chats:bulk-delete", ""},
+		{"/api/projects/foo/bar/chats:bulk-delete", ""},
+		{"/api/projects", ""},
+	}
+	for _, tc := range cases {
+		if got := bulkDeleteProjectName(tc.path); got != tc.want {
+			t.Errorf("bulkDeleteProjectName(%q) = %q, want %q", tc.path, got, tc.want)
+		}
 	}
 }

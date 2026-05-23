@@ -264,6 +264,7 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	deps := handlers.Deps{
 		Config: s.currentConfig,
 		Events: s.opts.Events,
+		Logger: s.opts.Logger,
 		OverlayPath: func() string {
 			return s.opts.OverlayPath
 		},
@@ -326,6 +327,8 @@ func (s *Server) routeProject(deps handlers.Deps) http.HandlerFunc {
 			handlers.Run(deps)(w, r)
 		case len(parts) == 2 && parts[1] == "chats":
 			handlers.ProjectChats(deps)(w, r)
+		case len(parts) == 2 && parts[1] == "chats:bulk-delete":
+			handlers.ProjectChatsBulkDelete(deps)(w, r)
 		case len(parts) == 2 && parts[1] == "history":
 			handlers.ProjectHistory(deps)(w, r)
 		case len(parts) == 3 && parts[1] == "findings":
