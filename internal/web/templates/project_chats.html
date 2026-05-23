@@ -34,7 +34,7 @@
             <td x-text="c.modified_utc ? new Date(c.modified_utc).toLocaleString() : ''"></td>
             <td x-text="c.included ? 'yes' : 'no'"></td>
             <td>
-              <button class="pill" @click="askDelete(c)" :disabled="deleting === c.path" x-text="deleting === c.path ? 'deleting…' : 'delete'"></button>
+              <button class="pill" @click="askDelete(c)" :disabled="bulkRunning || deleting === c.path" x-text="bulkRunning || deleting === c.path ? 'deleting…' : 'delete'"></button>
             </td>
           </tr>
         </template>
