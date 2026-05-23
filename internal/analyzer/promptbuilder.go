@@ -122,6 +122,7 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 		sb.WriteString(lead.EffectivePhase2Preamble())
 		sb.WriteString("\n")
 	}
+	writeGroundingPreamble(&sb, req)
 	sb.WriteString("\n")
 
 	if lead != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -153,17 +154,27 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 	return packs, nil
 }
 
+// cachedDefaults holds the parsed defaults.yaml so it is only unmarshalled once.
+var cachedDefaults struct {
+	once     sync.Once
+	value    PromptDefaults
+	loadErr  error
+}
+
 // loadDefaultsYAML reads the embedded defaults.yaml into a PromptDefaults struct.
+// Results are cached after the first call.
 func loadDefaultsYAML() (PromptDefaults, error) {
-	data, err := embeddedRulesFS.ReadFile("rules/defaults.yaml")
-	if err != nil {
-		panic(fmt.Sprintf("dreamer: embedded defaults.yaml missing: %v", err))
-	}
-	var d PromptDefaults
-	if err := yaml.Unmarshal(data, &d); err != nil {
-		return PromptDefaults{}, fmt.Errorf("parse defaults.yaml: %w", err)
-	}
-	return d, nil
+	cachedDefaults.once.Do(func() {
+		data, err := embeddedRulesFS.ReadFile("rules/defaults.yaml")
+		if err != nil {
+			cachedDefaults.loadErr = fmt.Errorf("read embedded defaults.yaml: %w", err)
+			return
+		}
+		if err := yaml.Unmarshal(data, &cachedDefaults.value); err != nil {
+			cachedDefaults.loadErr = fmt.Errorf("parse defaults.yaml: %w", err)
+		}
+	})
+	return cachedDefaults.value, cachedDefaults.loadErr
 }
 
 // applyDefaults fills empty RulePack fields from PromptDefaults.
