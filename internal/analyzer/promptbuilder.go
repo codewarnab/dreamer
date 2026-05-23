@@ -101,7 +101,7 @@ func (b *PromptBuilder) BuildPhase1(chunk Chunk, req PhaseRequest, priorSummary 
 	if lead != nil {
 		sb.WriteString(lead.EffectivePhase1ResponseSchema())
 	} else {
-		sb.WriteString(defaultPhase1ResponseSchema)
+		sb.WriteString("No enabled rule packs; return empty JSON.\n")
 	}
 	sb.WriteString("\n\n")
 	sb.WriteString("Only emit mistakes you can quote evidence for. Omit a category if no mistakes apply.\n")
@@ -125,16 +125,24 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	writeGroundingPreamble(&sb, req)
 	sb.WriteString("\n")
 
-	sb.WriteString(defaultToolUseInstructions)
+	if lead != nil {
+		sb.WriteString(lead.EffectiveToolUseInstructions())
+	}
 	sb.WriteString("\n\n")
 
+	vars := map[string]string{
+		"project_root":     req.ProjectRoot,
+		"toolchain_summary": req.ToolchainSummary,
+		"primary_linter":   req.PrimaryLinter,
+		"test_framework":   req.TestFramework,
+	}
 	for _, p := range b.Packs {
 		if !p.Enabled {
 			continue
 		}
 		if tmpl := strings.TrimSpace(p.GuardrailPromptTemplate); tmpl != "" {
 			fmt.Fprintf(&sb, "<%s_guardrail>\n", p.Category)
-			sb.WriteString(tmpl)
+			sb.WriteString(FormatTemplate(tmpl, vars))
 			fmt.Fprintf(&sb, "\n</%s_guardrail>\n\n", p.Category)
 		}
 	}
@@ -148,11 +156,13 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.Write(rendered)
 	sb.WriteString("\n\n")
 
-	sb.WriteString("Return JSON only with this exact shape:\n")
 	if lead != nil {
-		sb.WriteString(lead.EffectivePhase2ResponseSchema())
-	} else {
-		sb.WriteString(defaultPhase2ResponseSchema)
+		if instr := lead.EffectivePhase2RecordingInstructions(); instr != "" {
+			sb.WriteString(instr)
+		} else {
+			sb.WriteString("Return JSON only with this exact shape:\n")
+			sb.WriteString(lead.EffectivePhase2ResponseSchema())
+		}
 	}
 	sb.WriteString("\n")
 

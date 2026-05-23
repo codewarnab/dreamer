@@ -184,6 +184,8 @@ type RuleConfig struct {
 	Phase1ResponseSchema      string `yaml:"phase1_response_schema,omitempty" json:"phase1_response_schema,omitempty"`
 	Phase2Preamble            string `yaml:"phase2_preamble,omitempty" json:"phase2_preamble,omitempty"`
 	Phase2ResponseSchema      string `yaml:"phase2_response_schema,omitempty" json:"phase2_response_schema,omitempty"`
+	ToolUseInstructions       string `yaml:"tool_use_instructions,omitempty" json:"tool_use_instructions,omitempty"`
+	Phase2RecordingInstructions string `yaml:"phase2_recording_instructions,omitempty" json:"phase2_recording_instructions,omitempty"`
 }
 
 // ProjectFileConfig is the per-project `<project>/.dreamer/config.yaml`.
