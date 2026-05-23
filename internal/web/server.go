@@ -264,6 +264,7 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	deps := handlers.Deps{
 		Config: s.currentConfig,
 		Events: s.opts.Events,
+		Logger: s.opts.Logger,
 		OverlayPath: func() string {
 			return s.opts.OverlayPath
 		},

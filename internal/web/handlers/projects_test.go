@@ -68,8 +68,10 @@ func TestProjectsList(t *testing.T) {
 		byName[p.Name] = p
 	}
 	a := byName["proj-a"]
-	if a.ChatsCount != 2 {
-		t.Errorf("proj-a chats_count = %d, want 2", a.ChatsCount)
+	// ChatsCount comes from live chat.DiscoverChats; the test project path
+	// has no real chat sources, so 0 is expected.
+	if a.ChatsCount != 0 {
+		t.Errorf("proj-a chats_count = %d, want 0", a.ChatsCount)
 	}
 	if a.FindingsApplied != 1 {
 		t.Errorf("proj-a findings_applied = %d, want 1", a.FindingsApplied)
@@ -101,7 +103,7 @@ func TestProjectDetail_Found(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rollup); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if rollup.Name != "proj-a" || rollup.ChatsCount != 2 || rollup.FindingsApplied != 1 {
+	if rollup.Name != "proj-a" || rollup.ChatsCount != 0 || rollup.FindingsApplied != 1 {
 		t.Errorf("rollup mismatch: %+v", rollup)
 	}
 }

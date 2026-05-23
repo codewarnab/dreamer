@@ -10,6 +10,10 @@ type ChatSourceProvider interface {
 	Type() SourceType
 	Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error)
 	ReadMessages(source ChatSource) ([]readers.ChatMessage, error)
+	// DeleteSource removes the chat source from local storage. For
+	// file-per-chat tools this unlinks the file; for SQLite-backed tools it
+	// deletes only the matching session/conversation row.
+	DeleteSource(source ChatSource) error
 }
 
 var registeredProviders []ChatSourceProvider

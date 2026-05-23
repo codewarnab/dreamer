@@ -76,6 +76,10 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 	return discovered, nil
 }
 
+func (antigravityProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}
+
 func (antigravityProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".pb", ".pbtxt":

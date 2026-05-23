@@ -210,6 +210,70 @@ func (reader OpenCodeReader) openDatabase(dbPath string) (*sql.DB, error) {
 	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "opencode")
 }
 
+// SessionSize returns the approximate on-disk footprint (bytes) of a single
+// opencode session: sum of message.data + part.data lengths. Cheap proxy for
+// "how big is this chat" without summing arbitrary blob overhead.
+func (reader OpenCodeReader) SessionSize(dbPath string, sessionID string) (int64, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return 0, fmt.Errorf("opencode session id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return 0, err
+	}
+	defer database.Close()
+	var msgBytes, partBytes sql.NullInt64
+	if err := database.QueryRow("SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?", sessionID).Scan(&msgBytes); err != nil {
+		return 0, fmt.Errorf("sum opencode message bytes: %w", err)
+	}
+	if err := database.QueryRow("SELECT COALESCE(SUM(length(p.data)), 0) FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id = ?", sessionID).Scan(&partBytes); err != nil {
+		return 0, fmt.Errorf("sum opencode part bytes: %w", err)
+	}
+	return msgBytes.Int64 + partBytes.Int64, nil
+}
+
+// DeleteOpenCodeSession removes a single session and its messages/parts from
+// the opencode database. Returns nil even when the session does not exist.
+func DeleteOpenCodeSession(dbPath string, sessionID string) error {
+	return OpenCodeReader{}.DeleteSession(dbPath, sessionID)
+}
+
+// DeleteSession removes a session row plus its `message` and `part` children
+// from the opencode database. Wrapped in a transaction so a partial failure
+// leaves the DB unchanged.
+func (reader OpenCodeReader) DeleteSession(dbPath string, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("opencode session id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	tx, err := database.Begin()
+	if err != nil {
+		return fmt.Errorf("begin opencode delete tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)", sessionID); err != nil {
+		return fmt.Errorf("delete opencode parts: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM message WHERE session_id = ?", sessionID); err != nil {
+		return fmt.Errorf("delete opencode messages: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM session WHERE id = ?", sessionID); err != nil {
+		return fmt.Errorf("delete opencode session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit opencode delete tx: %w", err)
+	}
+	return nil
+}
+
 func openCodeRoleFromMessageData(data string) string {
 	trimmed := strings.TrimSpace(data)
 	if trimmed == "" {

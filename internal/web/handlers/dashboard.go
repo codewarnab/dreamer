@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
 	"dreamer/internal/state"
 )
@@ -21,6 +22,7 @@ import (
 type Deps struct {
 	Config         func() *config.Config
 	Events         *pipeline.EventBus
+	Logger         *logging.Logger
 	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
 	OverlayPath    func() string
 	RecentActivity func() []pipeline.Event

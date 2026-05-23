@@ -15,6 +15,7 @@ const (
 	EventFindingDismiss = "finding.dismissed"
 	EventFindingResolve = "finding.resolved"
 	EventConfigReload   = "config.reloaded"
+	EventChatDeleted    = "chat.deleted"
 )
 
 // Event is one SSE-shaped notification. Payload is a JSON-serializable map.

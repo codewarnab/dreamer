@@ -75,6 +75,10 @@ func extractClaudeParentID(path string) string {
 	return ""
 }
 
+func (claudeProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}
+
 func (claudeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadClaudeJSONLWithToolFolding(source.Path)
 	if err != nil {

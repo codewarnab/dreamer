@@ -64,6 +64,14 @@ func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]Ch
 	return discovered, nil
 }
 
+func (kiroProvider) DeleteSource(source ChatSource) error {
+	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+	if err := readers.DeleteKiroConversation(dbPath, conversationID); err != nil {
+		return fmt.Errorf("delete kiro chat source %q: %w", source.Path, err)
+	}
+	return nil
+}
+
 func (kiroProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadKiroConversation(dbPath, conversationID)

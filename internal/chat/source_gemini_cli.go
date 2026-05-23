@@ -84,6 +84,10 @@ func extractGeminiCLIParentID(path string) string {
 	return ""
 }
 
+func (geminiCLIProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}
+
 func (geminiCLIProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadGeminiCLI(source.Path)
 	if err != nil {

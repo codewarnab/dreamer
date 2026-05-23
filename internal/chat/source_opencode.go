@@ -65,6 +65,14 @@ func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]C
 	return discovered, nil
 }
 
+func (openCodeProvider) DeleteSource(source ChatSource) error {
+	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
+	if err := readers.DeleteOpenCodeSession(dbPath, sessionID); err != nil {
+		return fmt.Errorf("delete opencode chat source %q: %w", source.Path, err)
+	}
+	return nil
+}
+
 func (openCodeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadOpenCodeMessages(dbPath, sessionID)

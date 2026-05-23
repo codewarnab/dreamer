@@ -92,6 +92,10 @@ func codebuffProjectMatches(dirName string, projectBase string) bool {
 	return strings.EqualFold(strings.TrimSpace(dirName), strings.TrimSpace(projectBase))
 }
 
+func (codebuffProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}
+
 func (codebuffProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadCodebuffMessages(source.Path)
 	if err != nil {

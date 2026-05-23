@@ -40,3 +40,7 @@ func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, e
 	}
 	return messages, nil
 }
+
+func (copilotProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}

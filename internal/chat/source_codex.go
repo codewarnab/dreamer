@@ -61,6 +61,10 @@ func discoverCodexSessions(homeDir string, projectPath string) ([]ChatSource, er
 	return discovered, nil
 }
 
+func (codexProvider) DeleteSource(source ChatSource) error {
+	return deleteSourceFile(source.Path)
+}
+
 func (codexProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
 		Sanitizer: readers.SanitizeCodexMessages,

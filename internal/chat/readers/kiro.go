@@ -107,6 +107,49 @@ func (reader KiroReader) openDatabase(dbPath string) (*sql.DB, error) {
 	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "kiro")
 }
 
+// ConversationSize returns length(value) for one conversation row.
+func (reader KiroReader) ConversationSize(dbPath string, conversationID string) (int64, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return 0, fmt.Errorf("kiro conversation id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return 0, err
+	}
+	defer database.Close()
+	var size sql.NullInt64
+	if err := database.QueryRow("SELECT length(value) FROM conversations_v2 WHERE conversation_id = ?", conversationID).Scan(&size); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("query kiro conversation size: %w", err)
+	}
+	return size.Int64, nil
+}
+
+// DeleteKiroConversation removes one row from `conversations_v2`. No error
+// when the row is absent.
+func DeleteKiroConversation(dbPath string, conversationID string) error {
+	return KiroReader{}.DeleteConversation(dbPath, conversationID)
+}
+
+func (reader KiroReader) DeleteConversation(dbPath string, conversationID string) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return fmt.Errorf("kiro conversation id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	if _, err := database.Exec("DELETE FROM conversations_v2 WHERE conversation_id = ?", conversationID); err != nil {
+		return fmt.Errorf("delete kiro conversation: %w", err)
+	}
+	return nil
+}
+
 func parseKiroConversationValue(value string) []ChatMessage {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

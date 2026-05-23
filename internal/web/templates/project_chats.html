@@ -11,28 +11,68 @@
     </nav>
   </header>
 
-  <div style="margin-bottom: var(--space-4);">
+  <div style="margin-bottom: var(--space-4); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
     <button class="pill" :class="toolFilter==='all' && 'pill--healthy'" @click="toolFilter='all'">all</button>
     <template x-for="t in tools()" :key="t">
       <button class="pill" :class="toolFilter===t && 'pill--healthy'" @click="toolFilter=t" x-text="t"></button>
     </template>
+    <span style="flex: 1;"></span>
+    <span style="color: var(--text-secondary); font-size: 0.9em;" x-text="filtered().length + ' chats · ' + totalMBText()"></span>
+    <button class="pill pill--danger" @click="askBulkDelete()" :disabled="filtered().length === 0 || bulkRunning" x-text="bulkRunning ? 'deleting…' : 'delete ' + (toolFilter==='all' ? 'all' : toolFilter) + ' (' + filtered().length + ')'"></button>
   </div>
+
+  <div x-show="error" style="margin-bottom: var(--space-3); color: var(--text-danger, #c33);" x-text="error"></div>
 
   <div class="card">
     <table class="table">
-      <thead><tr><th>tool</th><th>path</th><th>modified</th><th>included</th></tr></thead>
+      <thead><tr><th>size</th><th>path</th><th>modified</th><th>included</th><th></th></tr></thead>
       <tbody>
         <template x-for="c in filtered()" :key="c.path">
           <tr>
-            <td x-text="c.tool"></td>
+            <td x-text="sizeText(c.size_bytes)" style="white-space: nowrap;"></td>
             <td x-text="c.path" style="word-break: break-all;"></td>
             <td x-text="c.modified_utc ? new Date(c.modified_utc).toLocaleString() : ''"></td>
             <td x-text="c.included ? 'yes' : 'no'"></td>
+            <td>
+              <button class="pill" @click="askDelete(c)" :disabled="deleting === c.path" x-text="deleting === c.path ? 'deleting…' : 'delete'"></button>
+            </td>
           </tr>
         </template>
       </tbody>
     </table>
     <div x-show="chats.length === 0" style="color: var(--text-secondary);">no chat sources discovered.</div>
+  </div>
+
+  <div x-show="pending" x-cloak style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100;">
+    <div class="card" style="max-width: 520px; padding: var(--space-5);" @click.stop>
+      <h2 class="headline-md" style="margin-top: 0;" x-text="pending && pending.bulk ? 'Delete ' + pending.items.length + ' chats?' : 'Delete chat from local storage?'"></h2>
+      <template x-if="pending && !pending.bulk">
+        <div>
+          <p style="margin: var(--space-3) 0;">Permanently removes:</p>
+          <pre style="background: var(--surface-2, #1a1a1a); padding: var(--space-2); overflow-x: auto; word-break: break-all; white-space: pre-wrap;" x-text="pending.items[0].path"></pre>
+        </div>
+      </template>
+      <template x-if="pending && pending.bulk">
+        <div>
+          <p style="margin: var(--space-3) 0;">
+            Permanently removes <strong x-text="pending.items.length"></strong> chats
+            (<span x-text="totalMBOf(pending.items)"></span>)
+            matching filter: <code x-text="toolFilter"></code>.
+          </p>
+        </div>
+      </template>
+      <p style="color: var(--text-secondary); font-size: 0.9em;">
+        SQLite-backed sources (opencode, kiro) delete just the session row. Other tools unlink the file. Cannot be undone.
+      </p>
+      <label x-show="pending && !pending.bulk" style="display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0;">
+        <input type="checkbox" x-model="dontAskAgain">
+        <span>Don't ask again this session</span>
+      </label>
+      <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+        <button class="pill" @click="cancelDelete()">Cancel</button>
+        <button class="pill pill--danger" @click="confirmDelete()">Delete</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -42,12 +82,19 @@ window.projectChatsPage = function () {
     name: "",
     chats: [],
     toolFilter: "all",
+    pending: null,
+    deleting: "",
+    bulkRunning: false,
+    dontAskAgain: false,
+    skipConfirm: false,
+    error: "",
     load: async function () {
       const el = document.querySelector("[data-project]");
       this.name = el ? el.dataset.project : "";
       if (!this.name) return;
+      this.skipConfirm = localStorage.getItem("dreamer.chats.skipDeleteConfirm." + this.name) === "1";
       const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats");
-      if (!r.ok) return;
+      if (!r.ok) { this.error = "failed to load chats (" + r.status + ")"; return; }
       const data = await r.json();
       this.chats = data.sources || [];
     },
@@ -57,6 +104,80 @@ window.projectChatsPage = function () {
     filtered: function () {
       if (this.toolFilter === "all") return this.chats;
       return this.chats.filter(c => c.tool === this.toolFilter);
+    },
+    sizeText: function (bytes) {
+      if (!bytes || bytes < 0) return "—";
+      return (bytes / 1024 / 1024).toFixed(2) + " MB";
+    },
+    totalMBOf: function (items) {
+      const total = items.reduce((s, c) => s + (c.size_bytes || 0), 0);
+      return (total / 1024 / 1024).toFixed(2) + " MB";
+    },
+    totalMBText: function () { return this.totalMBOf(this.filtered()); },
+    askDelete: function (chat) {
+      this.error = "";
+      if (this.skipConfirm) { this.runDelete(chat); return; }
+      this.dontAskAgain = false;
+      this.pending = { bulk: false, items: [chat] };
+    },
+    askBulkDelete: function () {
+      this.error = "";
+      const items = this.filtered();
+      if (items.length === 0) return;
+      // Bulk always confirms; "don't ask again" only suppresses single-row.
+      this.dontAskAgain = false;
+      this.pending = { bulk: true, items: items.slice() };
+    },
+    cancelDelete: function () { this.pending = null; },
+    confirmDelete: function () {
+      const p = this.pending;
+      if (this.dontAskAgain) {
+        this.skipConfirm = true;
+        localStorage.setItem("dreamer.chats.skipDeleteConfirm." + this.name, "1");
+      }
+      this.pending = null;
+      if (!p) return;
+      if (p.bulk) this.runBulk(p.items);
+      else this.runDelete(p.items[0]);
+    },
+    runDelete: async function (chat) {
+      if (!chat) return;
+      this.deleting = chat.path;
+      const ok = await this._delete(chat.path);
+      this.deleting = "";
+      if (ok) this.chats = this.chats.filter(c => c.path !== chat.path);
+    },
+    runBulk: async function (items) {
+      this.bulkRunning = true;
+      let failed = 0;
+      const removed = new Set();
+      for (const c of items) {
+        const ok = await this._delete(c.path);
+        if (ok) removed.add(c.path);
+        else failed++;
+      }
+      this.chats = this.chats.filter(c => !removed.has(c.path));
+      this.bulkRunning = false;
+      if (failed > 0) this.error = failed + " of " + items.length + " deletes failed";
+    },
+    _delete: async function (path) {
+      const tok = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      try {
+        const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": tok },
+          body: JSON.stringify({ path }),
+        });
+        if (!r.ok) {
+          const text = await r.text();
+          this.error = "delete failed: " + (text || r.status);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        this.error = "delete failed: " + e.message;
+        return false;
+      }
     },
   };
 };
