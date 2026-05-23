@@ -121,8 +121,7 @@ func (reader KiroReader) ConversationSizes(dbPath string, conversationIDs []stri
 	defer database.Close()
 
 	wanted := make(map[string]struct{}, len(conversationIDs))
-	placeholders := make([]string, 0, len(conversationIDs))
-	args := make([]any, 0, len(conversationIDs))
+	deduped := make([]string, 0, len(conversationIDs))
 	for _, id := range conversationIDs {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -132,30 +131,52 @@ func (reader KiroReader) ConversationSizes(dbPath string, conversationIDs []stri
 			continue
 		}
 		wanted[id] = struct{}{}
-		placeholders = append(placeholders, "?")
-		args = append(args, id)
+		deduped = append(deduped, id)
 	}
-	if len(args) == 0 {
+	if len(deduped) == 0 {
 		return result, nil
 	}
-	query := "SELECT conversation_id, length(value) FROM conversations_v2 WHERE conversation_id IN (" + strings.Join(placeholders, ",") + ")"
-	rows, err := database.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query kiro conversation sizes: %w", err)
+
+	// SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; chunk to leave headroom.
+	const chunkSize = 500
+	for start := 0; start < len(deduped); start += chunkSize {
+		end := start + chunkSize
+		if end > len(deduped) {
+			end = len(deduped)
+		}
+		chunk := deduped[start:end]
+		placeholders := make([]string, len(chunk))
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		query := "SELECT conversation_id, length(value) FROM conversations_v2 WHERE conversation_id IN (" + strings.Join(placeholders, ",") + ")"
+		rows, err := database.Query(query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("query kiro conversation sizes: %w", err)
+		}
+		if err := scanKiroSizes(rows, result); err != nil {
+			return nil, err
+		}
 	}
+	return result, nil
+}
+
+func scanKiroSizes(rows *sql.Rows, accumulator map[string]int64) error {
 	defer rows.Close()
 	for rows.Next() {
 		var id string
 		var size sql.NullInt64
 		if err := rows.Scan(&id, &size); err != nil {
-			return nil, fmt.Errorf("scan kiro conversation size row: %w", err)
+			return fmt.Errorf("scan kiro conversation size row: %w", err)
 		}
-		result[id] = size.Int64
+		accumulator[id] = size.Int64
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate kiro conversation size rows: %w", err)
+		return fmt.Errorf("iterate kiro conversation size rows: %w", err)
 	}
-	return result, nil
+	return nil
 }
 
 // ConversationSize returns length(value) for one conversation row.

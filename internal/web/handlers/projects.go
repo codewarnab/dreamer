@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"dreamer/internal/chat"
 	"dreamer/internal/config"
 	"dreamer/internal/state"
 )
@@ -93,17 +92,11 @@ func ProjectDetail(deps Deps) http.HandlerFunc {
 
 func projectRollup(cfg *config.Config, p config.ProjectConfig) ProjectRollup {
 	rollup := ProjectRollup{Name: p.Name, Path: p.Path, Since: p.Since}
-	// Live-count discoverable chat sources so user-triggered deletions
-	// reflect immediately, instead of waiting for the next analyze run to
-	// rewrite ChatHashes. Uses a short TTL cache so the dashboard render
-	// path does not walk the FS once per project on every refresh.
-	if sources, err := chat.DiscoverChatsCached(p.Path); err == nil {
-		rollup.ChatsCount = len(sources)
-	}
 	st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
 	if err != nil || st == nil {
 		return rollup
 	}
+	rollup.ChatsCount = len(st.ChatHashes)
 	lifecycleTouched := 0
 	for _, fs := range st.Findings {
 		switch fs.Status {

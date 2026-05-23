@@ -78,12 +78,16 @@ func (kiroProvider) SizeBytes(source ChatSource) (int64, error) {
 }
 
 func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
+	type conversationKey struct {
+		dbPath string
+		id     string
+	}
 	result := make(map[string]int64, len(sources))
 	if len(sources) == 0 {
 		return result
 	}
 	byDB := make(map[string][]string, 1)
-	pathByKey := make(map[string]string, len(sources))
+	pathByKey := make(map[conversationKey]string, len(sources))
 	for _, source := range sources {
 		if source.Tool != SourceTypeKiroCLISession {
 			continue
@@ -93,7 +97,7 @@ func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
 			continue
 		}
 		byDB[dbPath] = append(byDB[dbPath], conversationID)
-		pathByKey[dbPath+"|"+conversationID] = source.Path
+		pathByKey[conversationKey{dbPath, conversationID}] = source.Path
 	}
 	for dbPath, ids := range byDB {
 		sizes, err := readers.KiroReader{}.ConversationSizes(dbPath, ids)
@@ -101,7 +105,7 @@ func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
 			continue
 		}
 		for conversationID, size := range sizes {
-			if fullPath, ok := pathByKey[dbPath+"|"+conversationID]; ok {
+			if fullPath, ok := pathByKey[conversationKey{dbPath, conversationID}]; ok {
 				result[fullPath] = size
 			}
 		}

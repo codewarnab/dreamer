@@ -49,11 +49,6 @@ func buildProjectsCfg(t *testing.T) *config.Config {
 }
 
 func TestProjectsList(t *testing.T) {
-	// Isolate HOME so chat.DiscoverChats does not pick up the developer's
-	// real Copilot/Claude sessions.
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
-	t.Setenv("APPDATA", t.TempDir())
 	cfg := buildProjectsCfg(t)
 	h := ProjectsList(Deps{Config: func() *config.Config { return cfg }})
 	rec := httptest.NewRecorder()
@@ -73,10 +68,8 @@ func TestProjectsList(t *testing.T) {
 		byName[p.Name] = p
 	}
 	a := byName["proj-a"]
-	// ChatsCount comes from live chat.DiscoverChats; the test project path
-	// has no real chat sources, so 0 is expected.
-	if a.ChatsCount != 0 {
-		t.Errorf("proj-a chats_count = %d, want 0", a.ChatsCount)
+	if a.ChatsCount != 2 {
+		t.Errorf("proj-a chats_count = %d, want 2", a.ChatsCount)
 	}
 	if a.FindingsApplied != 1 {
 		t.Errorf("proj-a findings_applied = %d, want 1", a.FindingsApplied)
@@ -97,9 +90,6 @@ func TestProjectsList(t *testing.T) {
 }
 
 func TestProjectDetail_Found(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
-	t.Setenv("APPDATA", t.TempDir())
 	cfg := buildProjectsCfg(t)
 	h := ProjectDetail(Deps{Config: func() *config.Config { return cfg }})
 	rec := httptest.NewRecorder()
@@ -111,7 +101,7 @@ func TestProjectDetail_Found(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rollup); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if rollup.Name != "proj-a" || rollup.ChatsCount != 0 || rollup.FindingsApplied != 1 {
+	if rollup.Name != "proj-a" || rollup.ChatsCount != 2 || rollup.FindingsApplied != 1 {
 		t.Errorf("rollup mismatch: %+v", rollup)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dreamer/internal/config"
+	"dreamer/internal/state"
 )
 
 func TestParseSinceWindow(t *testing.T) {
@@ -282,6 +283,131 @@ func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"deleted":0`) {
 		t.Errorf("expected deleted=0 in summary, got body=%s", rec.Body.String())
+	}
+}
+
+// TestDeleteUpdatesChatHashes proves the architectural invariant: a
+// user-driven delete removes the entry from state.ChatHashes so
+// len(st.ChatHashes) stays authoritative for the overview-tab badge
+// without a re-analyze.
+func TestDeleteUpdatesChatHashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based copilot fixture is POSIX-flavored")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chatPath := filepath.Join(sessionDir, "to-delete.jsonl")
+	if err := os.WriteFile(chatPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outputRoot := t.TempDir()
+	seeded := &state.State{
+		Version: state.StateVersion,
+		ChatHashes: map[string]string{
+			chatPath:        "stub-key",
+			"/other/keep.jsonl": "keep-key",
+		},
+	}
+	if err := state.Save(outputRoot, "proj", seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
+		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
+	}
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+
+	body := `{"path":"` + chatPath + `"}`
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(chatPath); !os.IsNotExist(err) {
+		t.Errorf("file should be gone, stat err=%v", err)
+	}
+
+	reloaded, err := state.Load(outputRoot, "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stillThere := reloaded.ChatHashes[chatPath]; stillThere {
+		t.Errorf("ChatHashes still contains deleted path; map=%v", reloaded.ChatHashes)
+	}
+	if _, kept := reloaded.ChatHashes["/other/keep.jsonl"]; !kept {
+		t.Errorf("unrelated ChatHashes entry was lost; map=%v", reloaded.ChatHashes)
+	}
+}
+
+// TestBulkDeleteUpdatesChatHashes mirrors the single-delete invariant for
+// the :bulk-delete endpoint: all successful paths drop from state in one
+// save.
+func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("HOME-based copilot fixture is POSIX-flavored")
+	}
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pathA := filepath.Join(sessionDir, "a.jsonl")
+	pathB := filepath.Join(sessionDir, "b.jsonl")
+	for _, p := range []string{pathA, pathB} {
+		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	outputRoot := t.TempDir()
+	seeded := &state.State{
+		Version: state.StateVersion,
+		ChatHashes: map[string]string{
+			pathA:               "k-a",
+			pathB:               "k-b",
+			"/other/keep.jsonl": "k-keep",
+		},
+	}
+	if err := state.Save(outputRoot, "proj", seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
+		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
+	}
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }})
+
+	body := `{"paths":["` + pathA + `","` + pathB + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bulk status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	reloaded, err := state.Load(outputRoot, "proj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.ChatHashes[pathA]; ok {
+		t.Errorf("pathA still in ChatHashes; map=%v", reloaded.ChatHashes)
+	}
+	if _, ok := reloaded.ChatHashes[pathB]; ok {
+		t.Errorf("pathB still in ChatHashes; map=%v", reloaded.ChatHashes)
+	}
+	if _, ok := reloaded.ChatHashes["/other/keep.jsonl"]; !ok {
+		t.Errorf("unrelated entry lost; map=%v", reloaded.ChatHashes)
 	}
 }
 

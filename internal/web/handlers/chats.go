@@ -12,6 +12,7 @@ import (
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
 )
 
 // ChatSourceDTO is the JSON payload entry for one discovered chat source.
@@ -207,7 +208,7 @@ func deleteProjectChat(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("delete chat source: %v", err), http.StatusInternalServerError)
 		return
 	}
-	chat.InvalidateDiscoveryCache(project.Path)
+	dropChatHashEntries(deps, name, []string{found.Path})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": found.Path})
 }
 
@@ -263,7 +264,7 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 	for _, raw := range payload.Paths {
 		target := strings.TrimSpace(raw)
 		if target == "" {
-			results = append(results, result{Path: raw, OK: false, Error: "empty path"})
+			results = append(results, result{Path: target, OK: false, Error: "empty path"})
 			continue
 		}
 		source := byPath[target]
@@ -279,7 +280,13 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		successCount++
 	}
 	if successCount > 0 {
-		chat.InvalidateDiscoveryCache(project.Path)
+		deletedPaths := make([]string, 0, successCount)
+		for _, entry := range results {
+			if entry.OK {
+				deletedPaths = append(deletedPaths, entry.Path)
+			}
+		}
+		dropChatHashEntries(deps, name, deletedPaths)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -288,6 +295,50 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		"failed":    len(payload.Paths) - successCount,
 		"results":   results,
 	})
+}
+
+// dropChatHashEntries removes paths from state.ChatHashes and persists,
+// restoring state.json as the single source of truth for "chats this
+// project knows about" after a user-driven delete. Errors are logged but
+// not propagated — the on-disk delete has already happened and we do not
+// want to surface a stale-state error to the user; the next analyze run
+// will reconcile.
+//
+// TODO: load→mutate→save is not serialized against the daemon's pipeline
+// state writes (pipeline.go state.Save sites) or sibling lifecycle handlers
+// (apply/dismiss/resolve). A concurrent daemon run can clobber these updates
+// in its own Save. A package-level per-project mutex in internal/state used
+// by every Load/Save caller would close the window.
+func dropChatHashEntries(deps Deps, projectName string, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	cfg := deps.Config()
+	if cfg == nil {
+		return
+	}
+	st, err := state.Load(cfg.Daemon.OutputRoot, projectName)
+	if err != nil || st == nil {
+		deps.Logger.Warn("load state after chat delete failed",
+			logging.Any("project", projectName),
+			logging.Any("err", err))
+		return
+	}
+	changed := false
+	for _, path := range paths {
+		if _, ok := st.ChatHashes[path]; ok {
+			delete(st.ChatHashes, path)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if err := state.Save(cfg.Daemon.OutputRoot, projectName, st); err != nil {
+		deps.Logger.Warn("save state after chat delete failed",
+			logging.Any("project", projectName),
+			logging.Any("err", err))
+	}
 }
 
 // dispatchDelete looks up the provider for source.Tool, calls DeleteSource,

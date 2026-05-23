@@ -256,8 +256,7 @@ func (reader OpenCodeReader) SessionSizes(dbPath string, sessionIDs []string) (m
 	defer database.Close()
 
 	wanted := make(map[string]struct{}, len(sessionIDs))
-	placeholders := make([]string, 0, len(sessionIDs))
-	args := make([]any, 0, len(sessionIDs))
+	deduped := make([]string, 0, len(sessionIDs))
 	for _, id := range sessionIDs {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -267,21 +266,35 @@ func (reader OpenCodeReader) SessionSizes(dbPath string, sessionIDs []string) (m
 			continue
 		}
 		wanted[id] = struct{}{}
-		placeholders = append(placeholders, "?")
-		args = append(args, id)
+		deduped = append(deduped, id)
 	}
-	if len(args) == 0 {
+	if len(deduped) == 0 {
 		return result, nil
 	}
-	inList := strings.Join(placeholders, ",")
 
-	msgQuery := "SELECT session_id, COALESCE(SUM(length(data)), 0) FROM message WHERE session_id IN (" + inList + ") GROUP BY session_id"
-	if err := scanSessionSizes(database, msgQuery, args, result); err != nil {
-		return nil, fmt.Errorf("sum opencode message bytes batch: %w", err)
-	}
-	partQuery := "SELECT m.session_id, COALESCE(SUM(length(p.data)), 0) FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id IN (" + inList + ") GROUP BY m.session_id"
-	if err := scanSessionSizes(database, partQuery, args, result); err != nil {
-		return nil, fmt.Errorf("sum opencode part bytes batch: %w", err)
+	// SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999; chunk to leave headroom.
+	const chunkSize = 500
+	for start := 0; start < len(deduped); start += chunkSize {
+		end := start + chunkSize
+		if end > len(deduped) {
+			end = len(deduped)
+		}
+		chunk := deduped[start:end]
+		placeholders := make([]string, len(chunk))
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		inList := strings.Join(placeholders, ",")
+		msgQuery := "SELECT session_id, COALESCE(SUM(length(data)), 0) FROM message WHERE session_id IN (" + inList + ") GROUP BY session_id"
+		if err := scanSessionSizes(database, msgQuery, args, result); err != nil {
+			return nil, fmt.Errorf("sum opencode message bytes batch: %w", err)
+		}
+		partQuery := "SELECT m.session_id, COALESCE(SUM(length(p.data)), 0) FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id IN (" + inList + ") GROUP BY m.session_id"
+		if err := scanSessionSizes(database, partQuery, args, result); err != nil {
+			return nil, fmt.Errorf("sum opencode part bytes batch: %w", err)
+		}
 	}
 	return result, nil
 }
