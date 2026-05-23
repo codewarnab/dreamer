@@ -44,3 +44,7 @@ func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, e
 func (copilotProvider) DeleteSource(source ChatSource) error {
 	return deleteSourceFile(source.Path)
 }
+
+func (copilotProvider) SizeBytes(source ChatSource) (int64, error) {
+	return statSourceSize(source.Path)
+}

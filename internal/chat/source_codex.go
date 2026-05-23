@@ -65,6 +65,10 @@ func (codexProvider) DeleteSource(source ChatSource) error {
 	return deleteSourceFile(source.Path)
 }
 
+func (codexProvider) SizeBytes(source ChatSource) (int64, error) {
+	return statSourceSize(source.Path)
+}
+
 func (codexProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
 		Sanitizer: readers.SanitizeCodexMessages,

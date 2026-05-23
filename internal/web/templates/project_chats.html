@@ -11,30 +11,30 @@
     </nav>
   </header>
 
-  <div style="margin-bottom: var(--space-4); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;">
+  <div class="chats-toolbar">
     <button class="pill" :class="toolFilter==='all' && 'pill--healthy'" @click="toolFilter='all'">all</button>
     <template x-for="t in tools()" :key="t">
       <button class="pill" :class="toolFilter===t && 'pill--healthy'" @click="toolFilter=t" x-text="t"></button>
     </template>
-    <span style="flex: 1;"></span>
-    <span style="color: var(--text-secondary); font-size: 0.9em;" x-text="filtered().length + ' chats · ' + totalMBText()"></span>
+    <span class="chats-toolbar__spacer"></span>
+    <span class="chats-toolbar__count" x-text="filtered().length + ' chats · ' + totalMBText()"></span>
     <button class="pill pill--danger" @click="askBulkDelete()" :disabled="filtered().length === 0 || bulkRunning" x-text="bulkRunning ? 'deleting…' : 'delete ' + (toolFilter==='all' ? 'all' : toolFilter) + ' (' + filtered().length + ')'"></button>
   </div>
 
-  <div x-show="error" style="margin-bottom: var(--space-3); color: var(--text-danger, #c33);" x-text="error"></div>
+  <div class="chats-error" x-show="error" x-text="error"></div>
 
   <div class="card">
     <table class="table">
       <thead><tr><th>size</th><th>path</th><th>modified</th><th>included</th><th></th></tr></thead>
       <tbody>
-        <template x-for="c in filtered()" :key="c.path">
+        <template x-for="chat in filtered()" :key="chat.path">
           <tr>
-            <td x-text="sizeText(c.size_bytes)" style="white-space: nowrap;"></td>
-            <td x-text="c.path" style="word-break: break-all;"></td>
-            <td x-text="c.modified_utc ? new Date(c.modified_utc).toLocaleString() : ''"></td>
-            <td x-text="c.included ? 'yes' : 'no'"></td>
+            <td x-text="sizeText(chat.size_bytes)" style="white-space: nowrap;"></td>
+            <td x-text="chat.path" style="word-break: break-all;"></td>
+            <td x-text="chat.modified_utc ? new Date(chat.modified_utc).toLocaleString() : ''"></td>
+            <td x-text="chat.included ? 'yes' : 'no'"></td>
             <td>
-              <button class="pill" @click="askDelete(c)" :disabled="bulkRunning || deleting === c.path" x-text="bulkRunning || deleting === c.path ? 'deleting…' : 'delete'"></button>
+              <button class="pill" @click="askDelete(chat)" :disabled="bulkRunning || deleting === chat.path" x-text="bulkRunning || deleting === chat.path ? 'deleting…' : 'delete'"></button>
             </td>
           </tr>
         </template>
@@ -43,13 +43,13 @@
     <div x-show="chats.length === 0" style="color: var(--text-secondary);">no chat sources discovered.</div>
   </div>
 
-  <div x-show="pending" x-cloak style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100;">
-    <div class="card" style="max-width: 520px; padding: var(--space-5);" @click.stop>
-      <h2 class="headline-md" style="margin-top: 0;" x-text="pending && pending.bulk ? 'Delete ' + pending.items.length + ' chats?' : 'Delete chat from local storage?'"></h2>
+  <div class="modal-backdrop" x-show="pending" x-cloak>
+    <div class="card modal-card" @click.stop>
+      <h2 class="headline-md modal-card__title" x-text="pending && pending.bulk ? 'Delete ' + pending.items.length + ' chats?' : 'Delete chat from local storage?'"></h2>
       <template x-if="pending && !pending.bulk">
         <div>
           <p style="margin: var(--space-3) 0;">Permanently removes:</p>
-          <pre style="background: var(--surface-2, #1a1a1a); padding: var(--space-2); overflow-x: auto; word-break: break-all; white-space: pre-wrap;" x-text="pending.items[0].path"></pre>
+          <pre class="modal-card__pre" x-text="pending.items[0].path"></pre>
         </div>
       </template>
       <template x-if="pending && pending.bulk">
@@ -61,14 +61,14 @@
           </p>
         </div>
       </template>
-      <p style="color: var(--text-secondary); font-size: 0.9em;">
+      <p class="modal-card__hint">
         SQLite-backed sources (opencode, kiro) delete just the session row. Other tools unlink the file. Cannot be undone.
       </p>
-      <label x-show="pending && !pending.bulk" style="display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0;">
+      <label class="modal-card__check" x-show="pending && !pending.bulk">
         <input type="checkbox" x-model="dontAskAgain">
         <span>Don't ask again this session</span>
       </label>
-      <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+      <div class="modal-card__actions">
         <button class="pill" @click="cancelDelete()">Cancel</button>
         <button class="pill pill--danger" @click="confirmDelete()">Delete</button>
       </div>
@@ -77,6 +77,16 @@
 </section>
 
 <script>
+/*
+ * localStorage keys used by the dreamer SPA. Keep this list authoritative;
+ * add new keys here when introducing them so future maintainers do not have
+ * to grep the codebase to find what state we persist client-side.
+ *
+ *   dreamer.chats.skipDeleteConfirm.<projectName>
+ *     "1" when the user has ticked "Don't ask again this session" in the
+ *     chats-tab single-row delete confirm dialog. Only suppresses the
+ *     single-row prompt; bulk delete always confirms.
+ */
 window.projectChatsPage = function () {
   return {
     name: "",
@@ -93,9 +103,9 @@ window.projectChatsPage = function () {
       this.name = el ? el.dataset.project : "";
       if (!this.name) return;
       this.skipConfirm = localStorage.getItem("dreamer.chats.skipDeleteConfirm." + this.name) === "1";
-      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats");
-      if (!r.ok) { this.error = "failed to load chats (" + r.status + ")"; return; }
-      const data = await r.json();
+      const response = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats");
+      if (!response.ok) { this.error = "failed to load chats (" + response.status + ")"; return; }
+      const data = await response.json();
       this.chats = data.sources || [];
     },
     tools: function () {
@@ -110,7 +120,7 @@ window.projectChatsPage = function () {
       return (bytes / 1024 / 1024).toFixed(2) + " MB";
     },
     totalMBOf: function (items) {
-      const total = items.reduce((s, c) => s + (c.size_bytes || 0), 0);
+      const total = items.reduce((sum, c) => sum + (c.size_bytes || 0), 0);
       return (total / 1024 / 1024).toFixed(2) + " MB";
     },
     totalMBText: function () { return this.totalMBOf(this.filtered()); },
@@ -130,47 +140,63 @@ window.projectChatsPage = function () {
     },
     cancelDelete: function () { this.pending = null; },
     confirmDelete: function () {
-      const p = this.pending;
+      const pending = this.pending;
       if (this.dontAskAgain) {
         this.skipConfirm = true;
         localStorage.setItem("dreamer.chats.skipDeleteConfirm." + this.name, "1");
       }
       this.pending = null;
-      if (!p) return;
-      if (p.bulk) this.runBulk(p.items);
-      else this.runDelete(p.items[0]);
+      if (!pending) return;
+      if (pending.bulk) this.runBulk(pending.items);
+      else this.runDelete(pending.items[0]);
     },
     runDelete: async function (chat) {
       if (!chat) return;
       this.deleting = chat.path;
-      const ok = await this._delete(chat.path);
+      const ok = await this.sendDelete(chat.path);
       this.deleting = "";
       if (ok) this.chats = this.chats.filter(c => c.path !== chat.path);
     },
     runBulk: async function (items) {
       this.bulkRunning = true;
-      let failed = 0;
-      const removed = new Set();
-      for (const c of items) {
-        const ok = await this._delete(c.path);
-        if (ok) removed.add(c.path);
-        else failed++;
-      }
-      this.chats = this.chats.filter(c => !removed.has(c.path));
-      this.bulkRunning = false;
-      if (failed > 0) this.error = failed + " of " + items.length + " deletes failed";
-    },
-    _delete: async function (path) {
-      const tok = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
       try {
-        const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats", {
+        const response = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats:bulk-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": csrfToken },
+          body: JSON.stringify({ paths: items.map(c => c.path) }),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          this.error = "bulk delete failed: " + (text || response.status);
+          return;
+        }
+        const summary = await response.json();
+        const removed = new Set(
+          (summary.results || []).filter(r => r.ok).map(r => r.path)
+        );
+        this.chats = this.chats.filter(c => !removed.has(c.path));
+        const failureCount = summary.failed || 0;
+        if (failureCount > 0) {
+          this.error = failureCount + " of " + (summary.requested || items.length) + " deletes failed";
+        }
+      } catch (e) {
+        this.error = "bulk delete failed: " + e.message;
+      } finally {
+        this.bulkRunning = false;
+      }
+    },
+    sendDelete: async function (path) {
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      try {
+        const response = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats", {
           method: "DELETE",
-          headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": tok },
+          headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": csrfToken },
           body: JSON.stringify({ path }),
         });
-        if (!r.ok) {
-          const text = await r.text();
-          this.error = "delete failed: " + (text || r.status);
+        if (!response.ok) {
+          const text = await response.text();
+          this.error = "delete failed: " + (text || response.status);
           return false;
         }
         return true;

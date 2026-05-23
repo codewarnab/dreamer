@@ -73,6 +73,46 @@ func (openCodeProvider) DeleteSource(source ChatSource) error {
 	return nil
 }
 
+func (openCodeProvider) SizeBytes(source ChatSource) (int64, error) {
+	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
+	return readers.OpenCodeReader{}.SessionSize(dbPath, sessionID)
+}
+
+// SizeBytesBatch groups sources by underlying database path and issues one
+// query per DB instead of one per session. Errors per DB are swallowed so a
+// single broken file does not blank out the entire chats list.
+func (openCodeProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
+	result := make(map[string]int64, len(sources))
+	if len(sources) == 0 {
+		return result
+	}
+	byDB := make(map[string][]string, 1)
+	pathByKey := make(map[string]string, len(sources))
+	for _, source := range sources {
+		if source.Tool != SourceTypeOpenCodeSession {
+			continue
+		}
+		dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
+		if dbPath == "" || sessionID == "" {
+			continue
+		}
+		byDB[dbPath] = append(byDB[dbPath], sessionID)
+		pathByKey[dbPath+"|"+sessionID] = source.Path
+	}
+	for dbPath, ids := range byDB {
+		sizes, err := readers.OpenCodeReader{}.SessionSizes(dbPath, ids)
+		if err != nil {
+			continue
+		}
+		for sessionID, size := range sizes {
+			if fullPath, ok := pathByKey[dbPath+"|"+sessionID]; ok {
+				result[fullPath] = size
+			}
+		}
+	}
+	return result
+}
+
 func (openCodeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadOpenCodeMessages(dbPath, sessionID)

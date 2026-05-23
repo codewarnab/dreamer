@@ -96,6 +96,10 @@ func (codebuffProvider) DeleteSource(source ChatSource) error {
 	return deleteSourceFile(source.Path)
 }
 
+func (codebuffProvider) SizeBytes(source ChatSource) (int64, error) {
+	return statSourceSize(source.Path)
+}
+
 func (codebuffProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadCodebuffMessages(source.Path)
 	if err != nil {

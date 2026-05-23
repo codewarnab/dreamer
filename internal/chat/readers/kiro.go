@@ -107,6 +107,57 @@ func (reader KiroReader) openDatabase(dbPath string) (*sql.DB, error) {
 	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "kiro")
 }
 
+// ConversationSizes returns sizes for many conversations in one DB-open.
+// Missing rows are omitted from the result.
+func (reader KiroReader) ConversationSizes(dbPath string, conversationIDs []string) (map[string]int64, error) {
+	result := make(map[string]int64, len(conversationIDs))
+	if len(conversationIDs) == 0 {
+		return result, nil
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer database.Close()
+
+	wanted := make(map[string]struct{}, len(conversationIDs))
+	placeholders := make([]string, 0, len(conversationIDs))
+	args := make([]any, 0, len(conversationIDs))
+	for _, id := range conversationIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := wanted[id]; ok {
+			continue
+		}
+		wanted[id] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	if len(args) == 0 {
+		return result, nil
+	}
+	query := "SELECT conversation_id, length(value) FROM conversations_v2 WHERE conversation_id IN (" + strings.Join(placeholders, ",") + ")"
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query kiro conversation sizes: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var size sql.NullInt64
+		if err := rows.Scan(&id, &size); err != nil {
+			return nil, fmt.Errorf("scan kiro conversation size row: %w", err)
+		}
+		result[id] = size.Int64
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate kiro conversation size rows: %w", err)
+	}
+	return result, nil
+}
+
 // ConversationSize returns length(value) for one conversation row.
 func (reader KiroReader) ConversationSize(dbPath string, conversationID string) (int64, error) {
 	conversationID = strings.TrimSpace(conversationID)

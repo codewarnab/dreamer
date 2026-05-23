@@ -72,6 +72,43 @@ func (kiroProvider) DeleteSource(source ChatSource) error {
 	return nil
 }
 
+func (kiroProvider) SizeBytes(source ChatSource) (int64, error) {
+	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+	return readers.KiroReader{}.ConversationSize(dbPath, conversationID)
+}
+
+func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
+	result := make(map[string]int64, len(sources))
+	if len(sources) == 0 {
+		return result
+	}
+	byDB := make(map[string][]string, 1)
+	pathByKey := make(map[string]string, len(sources))
+	for _, source := range sources {
+		if source.Tool != SourceTypeKiroCLISession {
+			continue
+		}
+		dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+		if dbPath == "" || conversationID == "" {
+			continue
+		}
+		byDB[dbPath] = append(byDB[dbPath], conversationID)
+		pathByKey[dbPath+"|"+conversationID] = source.Path
+	}
+	for dbPath, ids := range byDB {
+		sizes, err := readers.KiroReader{}.ConversationSizes(dbPath, ids)
+		if err != nil {
+			continue
+		}
+		for conversationID, size := range sizes {
+			if fullPath, ok := pathByKey[dbPath+"|"+conversationID]; ok {
+				result[fullPath] = size
+			}
+		}
+	}
+	return result
+}
+
 func (kiroProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadKiroConversation(dbPath, conversationID)

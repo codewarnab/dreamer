@@ -80,6 +80,10 @@ func (antigravityProvider) DeleteSource(source ChatSource) error {
 	return deleteSourceFile(source.Path)
 }
 
+func (antigravityProvider) SizeBytes(source ChatSource) (int64, error) {
+	return statSourceSize(source.Path)
+}
+
 func (antigravityProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".pb", ".pbtxt":

@@ -212,7 +212,8 @@ func (reader OpenCodeReader) openDatabase(dbPath string) (*sql.DB, error) {
 
 // SessionSize returns the approximate on-disk footprint (bytes) of a single
 // opencode session: sum of message.data + part.data lengths. Cheap proxy for
-// "how big is this chat" without summing arbitrary blob overhead.
+// "how big is this chat" without summing arbitrary blob overhead. One round
+// trip via UNION ALL.
 func (reader OpenCodeReader) SessionSize(dbPath string, sessionID string) (int64, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -223,14 +224,83 @@ func (reader OpenCodeReader) SessionSize(dbPath string, sessionID string) (int64
 		return 0, err
 	}
 	defer database.Close()
-	var msgBytes, partBytes sql.NullInt64
-	if err := database.QueryRow("SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?", sessionID).Scan(&msgBytes); err != nil {
-		return 0, fmt.Errorf("sum opencode message bytes: %w", err)
+	const query = `
+		SELECT COALESCE(SUM(length(m.data)), 0)
+		     + COALESCE(
+		         (SELECT SUM(length(p.data))
+		            FROM part p
+		            JOIN message m2 ON p.message_id = m2.id
+		           WHERE m2.session_id = ?), 0)
+		  FROM message m
+		 WHERE m.session_id = ?`
+	var total sql.NullInt64
+	if err := database.QueryRow(query, sessionID, sessionID).Scan(&total); err != nil {
+		return 0, fmt.Errorf("sum opencode session bytes: %w", err)
 	}
-	if err := database.QueryRow("SELECT COALESCE(SUM(length(p.data)), 0) FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id = ?", sessionID).Scan(&partBytes); err != nil {
-		return 0, fmt.Errorf("sum opencode part bytes: %w", err)
+	return total.Int64, nil
+}
+
+// SessionSizes returns sizes for many sessions in a single DB-open. Sessions
+// not present in the DB are simply absent from the returned map; callers
+// should treat that as 0. Empty input returns an empty map without opening
+// the database.
+func (reader OpenCodeReader) SessionSizes(dbPath string, sessionIDs []string) (map[string]int64, error) {
+	result := make(map[string]int64, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return result, nil
 	}
-	return msgBytes.Int64 + partBytes.Int64, nil
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	defer database.Close()
+
+	wanted := make(map[string]struct{}, len(sessionIDs))
+	placeholders := make([]string, 0, len(sessionIDs))
+	args := make([]any, 0, len(sessionIDs))
+	for _, id := range sessionIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := wanted[id]; ok {
+			continue
+		}
+		wanted[id] = struct{}{}
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	if len(args) == 0 {
+		return result, nil
+	}
+	inList := strings.Join(placeholders, ",")
+
+	msgQuery := "SELECT session_id, COALESCE(SUM(length(data)), 0) FROM message WHERE session_id IN (" + inList + ") GROUP BY session_id"
+	if err := scanSessionSizes(database, msgQuery, args, result); err != nil {
+		return nil, fmt.Errorf("sum opencode message bytes batch: %w", err)
+	}
+	partQuery := "SELECT m.session_id, COALESCE(SUM(length(p.data)), 0) FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id IN (" + inList + ") GROUP BY m.session_id"
+	if err := scanSessionSizes(database, partQuery, args, result); err != nil {
+		return nil, fmt.Errorf("sum opencode part bytes batch: %w", err)
+	}
+	return result, nil
+}
+
+func scanSessionSizes(database *sql.DB, query string, args []any, accumulator map[string]int64) error {
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sessionID string
+		var size sql.NullInt64
+		if err := rows.Scan(&sessionID, &size); err != nil {
+			return err
+		}
+		accumulator[sessionID] += size.Int64
+	}
+	return rows.Err()
 }
 
 // DeleteOpenCodeSession removes a single session and its messages/parts from

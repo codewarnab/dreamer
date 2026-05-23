@@ -49,6 +49,11 @@ func buildProjectsCfg(t *testing.T) *config.Config {
 }
 
 func TestProjectsList(t *testing.T) {
+	// Isolate HOME so chat.DiscoverChats does not pick up the developer's
+	// real Copilot/Claude sessions.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
 	cfg := buildProjectsCfg(t)
 	h := ProjectsList(Deps{Config: func() *config.Config { return cfg }})
 	rec := httptest.NewRecorder()
@@ -92,6 +97,9 @@ func TestProjectsList(t *testing.T) {
 }
 
 func TestProjectDetail_Found(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
 	cfg := buildProjectsCfg(t)
 	h := ProjectDetail(Deps{Config: func() *config.Config { return cfg }})
 	rec := httptest.NewRecorder()
