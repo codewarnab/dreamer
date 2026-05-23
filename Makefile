@@ -1,11 +1,17 @@
 .PHONY: build build-dev build-linux test test-race vet fmt clean
 
+# Auto-detect host OS/arch via the active Go toolchain.
+GOOS   ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
+EXE    := $(if $(filter windows,$(GOOS)),.exe,)
+BIN    := dreamer$(EXE)
+
 # Release build: stripped binary (~18MB, no debug symbols)
 # -trimpath removes local filesystem paths from the binary so stack traces
 # and debug symbols don't leak the build machine's directory structure.
 # Also makes builds reproducible (same source → identical binary hash).
 build:
-	go build -trimpath -ldflags="-s -w" -o dreamer.exe .
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags="-s -w" -o $(BIN) .
 
 # Optional: further compress with UPX (~6-8MB). Not default — may trigger
 # antivirus false positives and adds ~50ms startup overhead.
@@ -21,7 +27,7 @@ build:
 # Development build: full debug symbols (for delve/dlv)
 # -trimpath included so dev builds don't leak local paths either.
 build-dev:
-	go build -trimpath -o dreamer.exe .
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -o $(BIN) .
 
 # Cross-compile for Linux
 build-linux:
@@ -44,4 +50,4 @@ fmt:
 
 # Remove built binaries
 clean:
-	rm -f dreamer.exe dreamer dreamer-stripped.exe
+	rm -f dreamer dreamer.exe dreamer-stripped.exe
