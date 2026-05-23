@@ -190,5 +190,3 @@ type strBuilderWriter struct{ b *strings.Builder }
 func (w *strBuilderWriter) Write(p []byte) (int, error) {
 	return w.b.Write(p)
 }
-
-

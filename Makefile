@@ -1,4 +1,4 @@
-.PHONY: build build-dev build-linux test test-race vet fmt clean
+.PHONY: build build-dev build-linux test test-race vet fmt lint cover cover-html vulncheck install-hooks clean
 
 # Auto-detect host OS/arch via the active Go toolchain.
 GOOS   ?= $(shell go env GOOS)
@@ -48,6 +48,42 @@ vet:
 fmt:
 	gofmt -w .
 
+# Lint: run golangci-lint (auto-installs if missing)
+GOLANGCI_LINT_VERSION := v2.1.6
+lint:
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		echo "golangci-lint not found, installing $(GOLANGCI_LINT_VERSION)..."; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+		golangci-lint run ./...; \
+	fi
+
+# Test coverage
+cover:
+	go test -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out | tail -1
+
+cover-html: cover
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "coverage.html written"
+
+# Vulnerability check (auto-installs if missing)
+vulncheck:
+	@if command -v govulncheck >/dev/null 2>&1; then \
+		govulncheck ./...; \
+	else \
+		echo "govulncheck not found, installing..."; \
+		go install golang.org/x/vuln/cmd/govulncheck@latest; \
+		govulncheck ./...; \
+	fi
+
+# Install git hooks
+install-hooks:
+	@cp .githooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed"
+
 # Remove built binaries
 clean:
-	rm -f dreamer dreamer.exe dreamer-stripped.exe
+	rm -f dreamer dreamer.exe dreamer-stripped.exe coverage.out coverage.html

@@ -33,11 +33,11 @@ type linterCandidate struct {
 
 // detectionRule defines one ecosystem to detect in a project root.
 type detectionRule struct {
-	sentinels      []string          // trigger files (OR-combined)
-	languages      []string          // languages to register
-	testFrameworks []string          // literal test frameworks (empty if callback used)
-	linters        []linterCandidate // linters to probe
-	configFiles    []string          // always-recorded config paths (relative to root)
+	sentinels      []string                 // trigger files (OR-combined)
+	languages      []string                 // languages to register
+	testFrameworks []string                 // literal test frameworks (empty if callback used)
+	linters        []linterCandidate        // linters to probe
+	configFiles    []string                 // always-recorded config paths (relative to root)
 	detectTestFW   func(root string) string // override for test framework detection
 }
 

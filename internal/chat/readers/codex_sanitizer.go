@@ -9,7 +9,6 @@ const (
 	codexMaxMessagesPerSource = 250
 )
 
-
 type codexDropRule struct {
 	name               string
 	normalizedTokens   []string

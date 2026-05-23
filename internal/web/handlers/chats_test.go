@@ -310,7 +310,7 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 	seeded := &state.State{
 		Version: state.StateVersion,
 		ChatHashes: map[string]string{
-			chatPath:        "stub-key",
+			chatPath:            "stub-key",
 			"/other/keep.jsonl": "keep-key",
 		},
 	}

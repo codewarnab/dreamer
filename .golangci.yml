@@ -1,0 +1,63 @@
+run:
+  timeout: 5m
+  skip-dirs:
+    - provider-codebase
+    - .claude
+    - docs
+    - PLANS
+
+linters:
+  enable:
+    # Default on — catches real bugs
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+
+    # Value-add
+    - gocritic
+    - misspell
+    - gofmt
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+    exclude-functions:
+      - (io.Closer).Close
+      - (net.Listener).Close
+      - (net/http.ResponseWriter).Write
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+    disabled-checks:
+      - ifElseChain          # often less readable than switch
+      - hugeParam            # false positives with structs
+      - rangeValCopy         # noisy on small structs
+
+  misspell:
+    locale: US
+
+  govet:
+    check-shadowing: false   # too noisy; re-enable later
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5
+
+  exclude-rules:
+    # Test files get more slack
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocritic
+
+    # Allow dot imports in test files (testify, etc.)
+    - path: _test\.go
+      text: "dot-imports"
+      linters:
+        - gocritic

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Pre-commit hook: fast checks before each commit
+# Install: make install-hooks
+
+set -e
+
+echo "running pre-commit checks..."
+
+# 1. gofmt check (fast — no install needed)
+UNFORMATTED=$(gofmt -l cmd/ internal/ main.go)
+if [ -n "$UNFORMATTED" ]; then
+    echo "FAIL: gofmt found unformatted files:"
+    echo "$UNFORMATTED"
+    echo ""
+    echo "Run: make fmt"
+    exit 1
+fi
+
+# 2. go vet (fast — catches real bugs)
+if ! go vet ./... 2>/dev/null; then
+    echo "FAIL: go vet found issues"
+    exit 1
+fi
+
+echo "pre-commit checks passed"

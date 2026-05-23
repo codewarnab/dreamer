@@ -4,7 +4,6 @@ import (
 	"strings"
 )
 
-
 // SanitizeCopilotSessionMessages normalizes Copilot session JSONL messages and
 // removes consecutive duplicates. Copilot event records are filtered at parse
 // time, so this sanitizer intentionally stays small and avoids source-wide
