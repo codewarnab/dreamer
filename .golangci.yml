@@ -1,6 +1,6 @@
 run:
   timeout: 5m
-  skip-dirs:
+  exclude-dirs:
     - provider-codebase
     - .claude
     - docs
@@ -12,7 +12,6 @@ linters:
     - govet
     - errcheck
     - staticcheck
-    - gosimple
     - ineffassign
     - unused
 
@@ -41,9 +40,6 @@ linters-settings:
 
   misspell:
     locale: US
-
-  govet:
-    check-shadowing: false   # too noisy; re-enable later
 
 issues:
   max-issues-per-linter: 50
