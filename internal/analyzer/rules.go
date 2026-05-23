@@ -42,35 +42,21 @@ func AllRuleCategories() []RuleCategory {
 	}
 }
 
-// defaultPhase1Preamble is the fallback when a rule pack omits phase1_preamble.
-const defaultPhase1Preamble = "You are auditing chat transcripts of a developer working with an AI coding assistant."
 
-// defaultPhase1ResponseSchema is the fallback JSON shape for phase-1 responses.
-const defaultPhase1ResponseSchema = `{"summary": "<= 2000 chars summarizing themes, in-progress threads, and the mistakes you flagged>",
- "mistakes": {"<category-id>": [{"category": "<id>", "summary": "<one sentence>",
-  "evidence_excerpt": "<short quote>", "confidence": 0.0-1.0}]}}`
-
-// defaultPhase2Preamble is the fallback when a rule pack omits phase2_preamble.
-const defaultPhase2Preamble = "You are synthesizing guardrails from mistakes found across multiple transcript chunks."
-
-// defaultPhase2ResponseSchema is the fallback JSON shape for phase-2 responses.
-const defaultPhase2ResponseSchema = `{"findings": {"<category-id>": [{"category": "<id>", "mistake": "<one sentence>",
- "guardrail": {"kind": "<category>", "tool": "...", "rule": "...", "config_snippet": "...",
-  "apply": {"target_file": "...", "strategy": "...", "anchor": "...", "snippet": "..."}},
- "codebase_evidence": [{"path": "...", "lines": "1-10", "symbol": "..."}],
- "confidence": 0.0-1.0}]}}`
-
-// defaultToolUseInstructions is the fallback tool-use guidance for phase 2.
-const defaultToolUseInstructions = `You have access to these tools to verify findings against the actual codebase:
-- Grep(pattern, path): search for patterns in files
-- Read(file_path, offset, limit): read specific file contents
-- Glob(pattern): find files by pattern
-
-For each mistake:
-1. Use Grep to find the relevant code patterns in the codebase
-2. Read the specific files to understand the actual implementation
-3. Only propose a guardrail if you can cite real code evidence (path, lines, symbol)
-4. If the mistake doesn't match the actual code, skip it`
+// PromptDefaults holds the global prompt text loaded from defaults.yaml.
+// It is intentionally a separate type from RulePack because defaults.yaml
+// has no category field and parseRulePack validates category presence.
+//
+// When adding a new field here, also update applyDefaults and the sync
+// guard test TestApplyDefaultsCopiesAllFields.
+type PromptDefaults struct {
+	Phase1Preamble              string `yaml:"phase1_preamble"`
+	Phase1ResponseSchema        string `yaml:"phase1_response_schema"`
+	Phase2Preamble              string `yaml:"phase2_preamble"`
+	Phase2ResponseSchema        string `yaml:"phase2_response_schema"`
+	ToolUseInstructions         string `yaml:"tool_use_instructions"`
+	Phase2RecordingInstructions string `yaml:"phase2_recording_instructions"`
+}
 
 // RulePack is the parsed YAML rule pack for one category.
 type RulePack struct {
@@ -82,20 +68,23 @@ type RulePack struct {
 	GuardrailPromptTemplate string         `yaml:"guardrail_prompt_template"`
 	ResponseSchema          map[string]any `yaml:"response_schema"`
 
-	// Prompt assembly pieces (new in tool-enabled phase 2).
+	// Prompt assembly pieces.
 	Phase1Preamble            string `yaml:"phase1_preamble"`
 	Phase1CategoryDescription string `yaml:"phase1_category_description"`
 	Phase1ResponseSchema      string `yaml:"phase1_response_schema"`
 	Phase2Preamble            string `yaml:"phase2_preamble"`
 	Phase2ResponseSchema      string `yaml:"phase2_response_schema"`
+
+	// Tool-use and recording hook (loaded from defaults.yaml, overridable per-category).
+	ToolUseInstructions         string `yaml:"tool_use_instructions"`
+	Phase2RecordingInstructions string `yaml:"phase2_recording_instructions"`
 }
 
-// EffectivePhase1Preamble returns the pack's preamble or the default.
+// EffectivePhase1Preamble returns the pack's preamble or empty string.
+// The defaults.yaml value is applied by applyDefaults in LoadDefaultRulePacks
+// before callers reach this method.
 func (r RulePack) EffectivePhase1Preamble() string {
-	if s := strings.TrimSpace(r.Phase1Preamble); s != "" {
-		return s
-	}
-	return defaultPhase1Preamble
+	return strings.TrimSpace(r.Phase1Preamble)
 }
 
 // EffectivePhase1CategoryDescription returns the pack's category description
@@ -107,28 +96,29 @@ func (r RulePack) EffectivePhase1CategoryDescription() string {
 	return string(r.Category)
 }
 
-// EffectivePhase1ResponseSchema returns the pack's response schema hint or the default.
+// EffectivePhase1ResponseSchema returns the pack's response schema hint or empty.
 func (r RulePack) EffectivePhase1ResponseSchema() string {
-	if s := strings.TrimSpace(r.Phase1ResponseSchema); s != "" {
-		return s
-	}
-	return defaultPhase1ResponseSchema
+	return strings.TrimSpace(r.Phase1ResponseSchema)
 }
 
-// EffectivePhase2Preamble returns the pack's preamble or the default.
+// EffectivePhase2Preamble returns the pack's preamble or empty.
 func (r RulePack) EffectivePhase2Preamble() string {
-	if s := strings.TrimSpace(r.Phase2Preamble); s != "" {
-		return s
-	}
-	return defaultPhase2Preamble
+	return strings.TrimSpace(r.Phase2Preamble)
 }
 
-// EffectivePhase2ResponseSchema returns the pack's response schema hint or the default.
+// EffectivePhase2ResponseSchema returns the pack's response schema hint or empty.
 func (r RulePack) EffectivePhase2ResponseSchema() string {
-	if s := strings.TrimSpace(r.Phase2ResponseSchema); s != "" {
-		return s
-	}
-	return defaultPhase2ResponseSchema
+	return strings.TrimSpace(r.Phase2ResponseSchema)
+}
+
+// EffectiveToolUseInstructions returns the pack's tool-use instructions or empty.
+func (r RulePack) EffectiveToolUseInstructions() string {
+	return strings.TrimSpace(r.ToolUseInstructions)
+}
+
+// EffectivePhase2RecordingInstructions returns the pack's recording instructions or empty.
+func (r RulePack) EffectivePhase2RecordingInstructions() string {
+	return strings.TrimSpace(r.Phase2RecordingInstructions)
 }
 
 // Timeout returns the duration form of TimeoutSeconds, falling back to
@@ -141,8 +131,15 @@ func (r RulePack) Timeout() time.Duration {
 }
 
 // LoadDefaultRulePacks parses the embedded built-in rule pack YAMLs in the
-// fixed category order returned by AllRuleCategories.
+// fixed category order returned by AllRuleCategories. Global prompt defaults
+// from defaults.yaml are applied as the base layer; per-category YAML and
+// config overrides take precedence.
 func LoadDefaultRulePacks() ([]RulePack, error) {
+	defaults, err := loadDefaultsYAML()
+	if err != nil {
+		return nil, err
+	}
+
 	categories := AllRuleCategories()
 	packs := make([]RulePack, 0, len(categories))
 	for _, category := range categories {
@@ -150,9 +147,47 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 		if err != nil {
 			return nil, err
 		}
+		applyDefaults(&pack, defaults)
 		packs = append(packs, pack)
 	}
 	return packs, nil
+}
+
+// loadDefaultsYAML reads the embedded defaults.yaml into a PromptDefaults struct.
+func loadDefaultsYAML() (PromptDefaults, error) {
+	data, err := embeddedRulesFS.ReadFile("rules/defaults.yaml")
+	if err != nil {
+		panic(fmt.Sprintf("dreamer: embedded defaults.yaml missing: %v", err))
+	}
+	var d PromptDefaults
+	if err := yaml.Unmarshal(data, &d); err != nil {
+		return PromptDefaults{}, fmt.Errorf("parse defaults.yaml: %w", err)
+	}
+	return d, nil
+}
+
+// applyDefaults fills empty RulePack fields from PromptDefaults.
+// Per-category YAML and config overrides still take precedence because
+// they're applied later by applyRuleToggles.
+func applyDefaults(pack *RulePack, d PromptDefaults) {
+	if pack.Phase1Preamble == "" {
+		pack.Phase1Preamble = d.Phase1Preamble
+	}
+	if pack.Phase1ResponseSchema == "" {
+		pack.Phase1ResponseSchema = d.Phase1ResponseSchema
+	}
+	if pack.Phase2Preamble == "" {
+		pack.Phase2Preamble = d.Phase2Preamble
+	}
+	if pack.Phase2ResponseSchema == "" {
+		pack.Phase2ResponseSchema = d.Phase2ResponseSchema
+	}
+	if pack.ToolUseInstructions == "" {
+		pack.ToolUseInstructions = d.ToolUseInstructions
+	}
+	if pack.Phase2RecordingInstructions == "" {
+		pack.Phase2RecordingInstructions = d.Phase2RecordingInstructions
+	}
 }
 
 func loadEmbeddedRulePack(category RuleCategory) (RulePack, error) {

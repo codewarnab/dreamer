@@ -54,9 +54,14 @@ func newCapturingSession(handler func(prompt string) (string, error), cap *captu
 
 // minimalPacks returns enabled packs for the given categories.
 func minimalPacks(cats ...RuleCategory) []RulePack {
+	defaults, err := loadDefaultsYAML()
+	if err != nil {
+		panic(fmt.Sprintf("loadDefaultsYAML: %v", err))
+	}
 	out := make([]RulePack, len(cats))
 	for i, c := range cats {
 		out[i] = RulePack{Category: c, Enabled: true, TimeoutSeconds: 10}
+		applyDefaults(&out[i], defaults)
 	}
 	return out
 }
@@ -527,6 +532,10 @@ func TestPromptBuilderPhase1UsesYAMLPreamble(t *testing.T) {
 }
 
 func TestPromptBuilderPhase2UsesYAMLTemplates(t *testing.T) {
+	defaults, err := loadDefaultsYAML()
+	if err != nil {
+		t.Fatalf("loadDefaultsYAML: %v", err)
+	}
 	packs := []RulePack{
 		{
 			Category:                RuleCategoryTest,
@@ -535,6 +544,7 @@ func TestPromptBuilderPhase2UsesYAMLTemplates(t *testing.T) {
 			Phase2Preamble:          "Custom phase2 preamble.",
 		},
 	}
+	applyDefaults(&packs[0], defaults)
 	builder := NewPromptBuilder(packs)
 	mistakes := map[RuleCategory][]Mistake{
 		RuleCategoryTest: {{Summary: "m1", Confidence: 0.9}},

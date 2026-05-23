@@ -184,6 +184,12 @@ func mergeRuleConfig(base, overlay *RuleConfig) {
 	if overlay.Phase2ResponseSchema != "" {
 		base.Phase2ResponseSchema = overlay.Phase2ResponseSchema
 	}
+	if overlay.ToolUseInstructions != "" {
+		base.ToolUseInstructions = overlay.ToolUseInstructions
+	}
+	if overlay.Phase2RecordingInstructions != "" {
+		base.Phase2RecordingInstructions = overlay.Phase2RecordingInstructions
+	}
 }
 
 func mergeProviderBlock(base, overlay *ProviderBlock) {

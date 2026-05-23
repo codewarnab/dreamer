@@ -70,6 +70,12 @@ func applyRuleToggles(packs []analyzer.RulePack, overrides map[string]config.Rul
 		if override.Phase2ResponseSchema != "" {
 			packs[i].Phase2ResponseSchema = override.Phase2ResponseSchema
 		}
+		if override.ToolUseInstructions != "" {
+			packs[i].ToolUseInstructions = override.ToolUseInstructions
+		}
+		if override.Phase2RecordingInstructions != "" {
+			packs[i].Phase2RecordingInstructions = override.Phase2RecordingInstructions
+		}
 	}
 }
 
