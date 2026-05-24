@@ -41,6 +41,8 @@ var sortedValidCategories = func() string {
 	sort.Strings(keys)
 	return strings.Join(keys, ", ")
 }()
+
+// Field length caps. Findings that exceed these limits bloat todos.md and
 // usually indicate the model dumped an entire transcript into one field.
 // Each cap is chosen to be comfortably larger than any legitimate use.
 const (

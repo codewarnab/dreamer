@@ -42,7 +42,7 @@ func New(options Options) (analyzer.Provider, error) {
 		// Note: --strict-mcp-config is a boolean flag (no value). The previous
 		// "--strict-mcp-config {}" form caused '{}' to be consumed as the
 		// positional prompt argument. Rely on --bare for MCP-off.
-			command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", strings.Join(flagutil.ReadOnlyTools, ","), "--bare", "--no-session-persistence"}
+		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", strings.Join(flagutil.ReadOnlyTools, ","), "--bare", "--no-session-persistence"}
 	}
 	return &provider{options: options, command: command}, nil
 }
