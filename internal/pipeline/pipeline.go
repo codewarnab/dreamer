@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -15,9 +16,15 @@ import (
 	"dreamer/internal/chat"
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"dreamer/internal/mcpserver"
 	"dreamer/internal/output"
 	"dreamer/internal/state"
 )
+
+// FindingsTempFilePattern is the glob pattern used for Phase 2 findings
+// temp files. Used both at creation time and by the daemon's stale-file
+// sweep so the pattern is defined in one place.
+const FindingsTempFilePattern = "dreamer-findings-*.jsonl"
 
 // Options captures everything the pipeline needs for one analyze invocation
 // (cli flags + resolved global config).
@@ -286,6 +293,10 @@ type transcriptResult struct {
 	redactionTotal  int
 	transcriptBytes int
 	rulePacks       []analyzer.RulePack
+	// redactor is reused on the outbound side — applied to every Phase 2
+	// Finding's text fields so a model that echoed a transcript secret
+	// back into a finding cannot persist it to todos.md.
+	redactor *analyzer.Redactor
 }
 
 // runTranscriptPrep loads rule packs, builds redacted transcripts, and packs
@@ -359,6 +370,7 @@ func runTranscriptPrep(opts Options, dr discoveryResult, sources []chat.ChatSour
 		redactionTotal:  redactionTotal,
 		transcriptBytes: transcriptBytes,
 		rulePacks:       rulePacks,
+		redactor:        redactor,
 	}, false, nil
 }
 
@@ -403,7 +415,56 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	}
 	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
 
-	sessionFactory := func() (analyzer.Session, error) {
+	// Resolve Phase 2 transport. Dry runs always use the legacy JSON
+	// transport because they short-circuit before Phase 2 anyway and we
+	// don't want them touching disk.
+	phase2Mode := analyzer.LookupPhase2Mode(analyzer.ProviderID(dr.providerID))
+	if opts.DryRun {
+		phase2Mode = analyzer.Phase2ModeNone
+	}
+
+	phase2Config, findingsOutputPath, dreamerBinaryPath, phase2Err := buildPhase2Config(phase2Mode)
+	if phase2Err != nil {
+		// Phase 2 mode was requested but setup failed. Log a warning and
+		// fall back to legacy JSON transport — the run will still produce
+		// findings via inline JSON, just fewer (no tool-verified ones).
+		// Surface through the event bus so operators can see the failure
+		// instead of silently degrading.
+		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
+			logging.Any("mode", string(phase2Mode)),
+			logging.Any("err", phase2Err),
+		)
+		if opts.Events != nil {
+			opts.Events.Publish(Event{
+				Type:    "phase2.fallback",
+				Payload: map[string]any{"mode": string(phase2Mode), "error": phase2Err.Error()},
+			})
+		}
+		phase2Mode = analyzer.Phase2ModeNone
+		phase2Config = nil
+	}
+	defer func() {
+		if findingsOutputPath != "" {
+			if err := os.Remove(findingsOutputPath); err != nil && !os.IsNotExist(err) {
+				logger.Warn("remove findings temp file failed", logging.Any("err", err))
+			}
+		}
+		if phase2Config != nil && phase2Config.MCP != nil && phase2Config.MCP.ConfigFilePath != "" {
+			if err := os.Remove(phase2Config.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
+				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
+			}
+		}
+	}()
+	if phase2Mode != analyzer.Phase2ModeNone {
+		logger.Info("phase2 tool mode",
+			logging.Any("mode", string(phase2Mode)),
+			logging.Any("output", findingsOutputPath),
+		)
+	}
+
+	// Two factories: Phase 1 sessions never see MCP / CLI tool wiring, so a
+	// rogue Phase 1 model cannot pollute the findings file.
+	phase1Factory := func() (analyzer.Session, error) {
 		raw, ferr := provider.NewSession(ctx, analyzer.SessionConfig{
 			WorkingDirectory: dr.projectPath,
 			Model:            dr.providerBlock.Model,
@@ -414,6 +475,22 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 			return nil, ferr
 		}
 		return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
+	}
+	phase2Factory := phase1Factory
+	if phase2Config != nil {
+		phase2Factory = func() (analyzer.Session, error) {
+			raw, ferr := provider.NewSession(ctx, analyzer.SessionConfig{
+				WorkingDirectory: dr.projectPath,
+				Model:            dr.providerBlock.Model,
+				ReadOnly:         true,
+				SystemMessage:    analyzer.BuildReadOnlySystemMessage(dr.projectPath),
+				Phase2:           phase2Config,
+			})
+			if ferr != nil {
+				return nil, ferr
+			}
+			return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
+		}
 	}
 
 	existingFindingHashes := stringSliceToSet(currentState.FindingHashes)
@@ -428,23 +505,28 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 		}
 	}
 	phaseReq := analyzer.PhaseRequest{
-		ProjectRoot:       dr.projectPath,
-		ToolchainSummary:  tc.Summary(),
-		PrimaryLinter:     tc.PrimaryLinter(),
-		TestFramework:     tc.PrimaryTestFramework(),
-		CodebaseContext:   codebaseContext,
-		DryRun:            opts.DryRun,
-		StrictLintRules:   !opts.Permissive,
-		LintRuleValidator: lintrules.NewValidator(),
-		ExistingHashes:    existingFindingHashes,
+		ProjectRoot:        dr.projectPath,
+		ToolchainSummary:   tc.Summary(),
+		PrimaryLinter:      tc.PrimaryLinter(),
+		TestFramework:      tc.PrimaryTestFramework(),
+		CodebaseContext:    codebaseContext,
+		DryRun:             opts.DryRun,
+		StrictLintRules:    !opts.Permissive,
+		LintRuleValidator:  lintrules.NewValidator(),
+		ExistingHashes:     existingFindingHashes,
+		Phase2Mode:         phase2Mode,
+		FindingsOutputPath: findingsOutputPath,
+		CLIBinaryPath:      dreamerBinaryPath,
+		FindingRedactor:    findingRedactorFunc(tr.redactor),
 	}
 
 	logEnabledRulePacks(logger, rctx.packs)
 	orchestrator := analyzer.NewOrchestrator(rctx.packs)
 	rc := analyzer.RunConfig{
-		SessionFactory: sessionFactory,
-		Mode:           mode,
-		MaxConcurrency: resolveMaxConcurrency(dr.appConfig, opts),
+		Phase1SessionFactory: phase1Factory,
+		Phase2SessionFactory: phase2Factory,
+		Mode:                 mode,
+		MaxConcurrency:       resolveMaxConcurrency(dr.appConfig, opts),
 	}
 	in := analyzer.ChunkInputs{
 		Chunks:          tr.chunks,
@@ -689,4 +771,73 @@ func PublishRunError(bus *EventBus, project string, err error) {
 // (SDK or ACP) that writes session files to the Copilot home directory.
 func isCopilotProvider(id config.ProviderID) bool {
 	return id == config.ProviderCopilotSDK || id == config.ProviderCopilotACP
+}
+
+// findingRedactorFunc adapts an *analyzer.Redactor to the simple
+// func(string) string hook PhaseRequest expects. Returns nil when the
+// redactor is nil so the analyzer-side hook stays a cheap no-op.
+func findingRedactorFunc(r *analyzer.Redactor) func(string) string {
+	if r == nil {
+		return nil
+	}
+	return func(s string) string {
+		out, _ := r.Redact(s)
+		return out
+	}
+}
+
+// buildPhase2Config assembles the per-mode Phase 2 wiring: a temp file for
+// findings, the absolute dreamer binary path, and the transport-specific
+// sub-config (MCP launch spec or CLI binary path). All wire-format detail
+// lives in internal/mcpserver — pipeline only ferries the result.
+//
+// Returns (nil, "", "", nil) when the provider does not support tool-based
+// Phase 2 (mode == Phase2ModeNone). Returns a non-nil error if any setup
+// step fails; callers fall back to the legacy JSON transport.
+//
+// On error the returned findingsOutputPath may still be non-empty — the
+// caller is responsible for removing it (the defer in pipeline.Run handles
+// this for both success and failure paths).
+func buildPhase2Config(mode analyzer.Phase2Mode) (cfg *analyzer.Phase2Config, findingsOutputPath, dreamerBinaryPath string, err error) {
+	if mode == analyzer.Phase2ModeNone {
+		return nil, "", "", nil
+	}
+
+	tmpFile, tmpErr := os.CreateTemp("", FindingsTempFilePattern)
+	if tmpErr != nil {
+		return nil, "", "", fmt.Errorf("create findings temp file: %w", tmpErr)
+	}
+	findingsOutputPath = tmpFile.Name()
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		return nil, findingsOutputPath, "", fmt.Errorf("close findings temp file: %w", closeErr)
+	}
+
+	dreamerBinaryPath, binErr := mcpserver.FindDreamerBinary()
+	if binErr != nil {
+		return nil, findingsOutputPath, "", binErr
+	}
+
+	switch mode {
+	case analyzer.Phase2ModeMCP:
+		spec, specErr := mcpserver.BuildClientLaunchSpec(findingsOutputPath, dreamerBinaryPath)
+		if specErr != nil {
+			return nil, findingsOutputPath, dreamerBinaryPath, specErr
+		}
+		return &analyzer.Phase2Config{
+			FindingsOutputPath: findingsOutputPath,
+			MCP: &analyzer.Phase2MCPConfig{
+				ConfigFilePath: spec.ConfigFilePath,
+				ToolNames:      spec.ToolNames,
+			},
+		}, findingsOutputPath, dreamerBinaryPath, nil
+	case analyzer.Phase2ModeCLI:
+		return &analyzer.Phase2Config{
+			FindingsOutputPath: findingsOutputPath,
+			CLI: &analyzer.Phase2CLIConfig{
+				DreamerBinaryPath: dreamerBinaryPath,
+			},
+		}, findingsOutputPath, dreamerBinaryPath, nil
+	default:
+		return nil, findingsOutputPath, dreamerBinaryPath, fmt.Errorf("unknown phase 2 mode %q", mode)
+	}
 }

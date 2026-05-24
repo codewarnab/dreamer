@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/flagutil"
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
@@ -41,7 +42,7 @@ func New(options Options) (analyzer.Provider, error) {
 		// Note: --strict-mcp-config is a boolean flag (no value). The previous
 		// "--strict-mcp-config {}" form caused '{}' to be consumed as the
 		// positional prompt argument. Rely on --bare for MCP-off.
-		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--no-session-persistence"}
+		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", strings.Join(flagutil.ReadOnlyTools, ","), "--bare", "--no-session-persistence"}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -68,6 +69,14 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if wd == "" {
 		return nil, errors.New("openclaude-cli: SessionConfig.WorkingDirectory is required")
 	}
+	// Validate Phase2 config unconditionally when set, regardless of mode,
+	// so misconfiguration is caught at the boundary rather than silently
+	// producing broken runs.
+	if sessionConfig.Phase2 != nil {
+		if err := sessionConfig.Phase2.Validate(); err != nil {
+			return nil, fmt.Errorf("openclaude-cli: phase 2 config: %w", err)
+		}
+	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--add-dir", wd)
 	model := strings.TrimSpace(sessionConfig.Model)
@@ -80,6 +89,20 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if model != "" {
 		command = append(command, "--model", model)
 	}
+
+	// MCP mode: inject --mcp-config, --allowed-tools, and relax permission-mode.
+	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeMCP {
+		var err error
+		command, err = flagutil.InjectMCPFlags(command,
+			sessionConfig.Phase2.MCP.ToolNames,
+			sessionConfig.Phase2.MCP.ConfigFilePath,
+			nil, // already validated above
+		)
+		if err != nil {
+			return nil, fmt.Errorf("openclaude-cli: phase 2 config: %w", err)
+		}
+	}
+
 	return &session{
 		command:    command,
 		env:        p.options.Env,

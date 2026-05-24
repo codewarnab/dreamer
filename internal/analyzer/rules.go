@@ -43,7 +43,6 @@ func AllRuleCategories() []RuleCategory {
 	}
 }
 
-
 // PromptDefaults holds the global prompt text loaded from defaults.yaml.
 // It is intentionally a separate type from RulePack because defaults.yaml
 // has no category field and parseRulePack validates category presence.
@@ -156,9 +155,9 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 
 // cachedDefaults holds the parsed defaults.yaml so it is only unmarshalled once.
 var cachedDefaults struct {
-	once     sync.Once
-	value    PromptDefaults
-	loadErr  error
+	once    sync.Once
+	value   PromptDefaults
+	loadErr error
 }
 
 // loadDefaultsYAML reads the embedded defaults.yaml into a PromptDefaults struct.

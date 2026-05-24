@@ -15,6 +15,7 @@ import (
 	"dreamer/internal/fsutil"
 	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
+	"dreamer/internal/mcpserver"
 	"dreamer/internal/pipeline"
 	"dreamer/internal/web"
 	"github.com/fsnotify/fsnotify"
@@ -79,6 +80,14 @@ func newDaemonCommand() *cobra.Command {
 			}
 			defer stop()
 			defer releaseLock()
+
+			// Sweep leftover Phase 2 findings temp files from prior runs
+			// that crashed or were killed before their defer fired. The
+			// files only live one analysis run, so any that survived from
+			// a prior process are stale.
+			if swept := sweepStaleFindingsTempFiles(); swept > 0 {
+				logger.Info("swept stale phase-2 findings temp files", logging.Any("count", swept))
+			}
 
 			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, events, overrides)
 			workers.Start()
@@ -361,4 +370,44 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 			}
 		}
 	}()
+}
+
+// sweepStaleFindingsTempFiles deletes leftover temp files from prior daemon
+// runs that crashed or were killed before the per-run defer ran. Sweeps
+// both Phase 2 findings temp files (dreamer-findings-*.jsonl) and MCP
+// config temp files (dreamer-mcp-config-*.json).
+// staleAge is the minimum age before a temp file is considered abandoned.
+// Files younger than this may still be in use by a concurrent
+// `dreamer analyze` run (which doesn't hold the daemon lock).
+const staleAge = 10 * time.Minute
+
+// Returns the count of files removed. Errors removing individual files
+// are swallowed silently — the worst case is a small amount of temp-dir
+// clutter on the next sweep.
+func sweepStaleFindingsTempFiles() int {
+	patterns := []string{
+		filepath.Join(os.TempDir(), pipeline.FindingsTempFilePattern),
+		filepath.Join(os.TempDir(), mcpserver.MCPTempFilePattern),
+	}
+	cutoff := time.Now().Add(-staleAge)
+	removed := 0
+	for _, glob := range patterns {
+		matches, err := filepath.Glob(glob)
+		if err != nil {
+			continue
+		}
+		for _, p := range matches {
+			info, err := os.Stat(p)
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(cutoff) {
+				continue // still potentially in use
+			}
+			if err := os.Remove(p); err == nil {
+				removed++
+			}
+		}
+	}
+	return removed
 }

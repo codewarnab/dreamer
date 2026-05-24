@@ -131,10 +131,10 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.WriteString("\n\n")
 
 	vars := map[string]string{
-		"project_root":     req.ProjectRoot,
+		"project_root":      req.ProjectRoot,
 		"toolchain_summary": req.ToolchainSummary,
-		"primary_linter":   req.PrimaryLinter,
-		"test_framework":   req.TestFramework,
+		"primary_linter":    req.PrimaryLinter,
+		"test_framework":    req.TestFramework,
 	}
 	for _, p := range b.Packs {
 		if !p.Enabled {
@@ -156,17 +156,15 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.Write(rendered)
 	sb.WriteString("\n\n")
 
+	var warnings []string
 	if lead != nil {
-		if instr := lead.EffectivePhase2RecordingInstructions(); instr != "" {
-			sb.WriteString(instr)
-		} else {
-			sb.WriteString("Return JSON only with this exact shape:\n")
-			sb.WriteString(lead.EffectivePhase2ResponseSchema())
-		}
+		tail, tailWarnings := buildPhase2Tail(req, lead)
+		sb.WriteString(tail)
+		warnings = append(warnings, tailWarnings...)
 	}
 	sb.WriteString("\n")
 
-	return sb.String(), nil
+	return sb.String(), warnings
 }
 
 // orderMistakesByCategory returns an ordered map keyed by enabled category.

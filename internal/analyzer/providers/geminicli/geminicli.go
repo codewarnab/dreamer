@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/flagutil"
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
@@ -39,6 +40,7 @@ func init() {
 		ID:          analyzer.ProviderGeminiCLI,
 		DisplayName: "Google Gemini CLI",
 		Order:       60,
+		Phase2Mode:  analyzer.Phase2ModeCLI,
 	})
 }
 
@@ -80,6 +82,13 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if wd == "" {
 		return nil, errors.New("gemini-cli: SessionConfig.WorkingDirectory is required")
 	}
+	// Validate Phase2 config unconditionally when set, regardless of mode,
+	// so misconfiguration is caught at the boundary.
+	if sessionConfig.Phase2 != nil {
+		if err := sessionConfig.Phase2.Validate(); err != nil {
+			return nil, fmt.Errorf("gemini-cli: phase 2 config: %w", err)
+		}
+	}
 	command := append([]string(nil), p.command...)
 	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
@@ -91,6 +100,16 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if model != "" {
 		command = append(command, "--model", model)
 	}
+
+	// CLI tool mode: drop --approval-mode=plan and add Bash tool so the model
+	// can call the dreamer record-finding subcommand via heredoc.
+	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeCLI {
+		// already validated above
+		command = flagutil.RemoveFlag(command, "--approval-mode")
+		command = append(command, "--approval-mode", "default")
+		command = append(command, "--tools", strings.Join(flagutil.CLIPhase2Tools, ","))
+	}
+
 	return &session{
 		command:    command,
 		env:        p.options.Env,

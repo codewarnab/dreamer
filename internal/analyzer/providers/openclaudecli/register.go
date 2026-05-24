@@ -15,5 +15,6 @@ func init() {
 		ID:          analyzer.ProviderOpenClaudeCLI,
 		DisplayName: "OpenClaude CLI (recommended)",
 		Order:       10,
+		Phase2Mode:  analyzer.Phase2ModeMCP,
 	})
 }
