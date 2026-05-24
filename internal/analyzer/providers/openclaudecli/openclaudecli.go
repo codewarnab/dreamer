@@ -83,15 +83,17 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	}
 
 	// MCP mode: inject --mcp-config, --allowed-tools, and relax permission-mode.
-	if sessionConfig.Phase2Mode == "mcp" && sessionConfig.MCPConfig != "" {
+	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeMCP {
+		if err := sessionConfig.Phase2.Validate(); err != nil {
+			return nil, fmt.Errorf("openclaude-cli: phase 2 config: %w", err)
+		}
+		toolList := strings.Join(sessionConfig.Phase2.MCP.ToolNames, ",")
 		command = flagutil.ReplaceFlag(command, "--permission-mode", "plan", "default")
-		if sessionConfig.MCPTools != "" {
-			command = flagutil.AppendToFlag(command, "--tools", sessionConfig.MCPTools)
+		if toolList != "" {
+			command = flagutil.AppendToFlag(command, "--tools", toolList)
+			command = append(command, "--allowed-tools", toolList)
 		}
-		if sessionConfig.MCPAllowedTools != "" {
-			command = append(command, "--allowed-tools", sessionConfig.MCPAllowedTools)
-		}
-		command = append(command, "--mcp-config", sessionConfig.MCPConfig)
+		command = append(command, "--mcp-config", sessionConfig.Phase2.MCP.ConfigJSON)
 	}
 
 	return &session{

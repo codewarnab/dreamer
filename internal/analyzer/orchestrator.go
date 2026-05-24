@@ -76,11 +76,21 @@ type PhaseRequest struct {
 	LintRuleValidator LintRuleValidator
 	ExistingHashes    map[string]struct{}
 
-	// Phase2Mode configures tool-based Phase 2 recording.
-	// Empty = JSON parsing, "mcp" = MCP tool, "cli" = CLI tool via Bash.
-	Phase2Mode string
-	// FindingsOutputPath is the temp file where tool-based findings are written.
+	// Phase2Mode configures tool-based Phase 2 recording. Phase2ModeNone
+	// (the default) means the model returns findings inline as JSON.
+	Phase2Mode Phase2Mode
+	// FindingsOutputPath is the temp file where the recording transport
+	// writes JSONL findings. Empty when Phase2Mode is Phase2ModeNone.
 	FindingsOutputPath string
+	// CLIBinaryPath is the absolute path to the running dreamer binary,
+	// used by Phase2ModeCLI to render the heredoc command in the prompt.
+	// Empty otherwise.
+	CLIBinaryPath string
+	// FindingRedactor is applied to every text field on every Finding
+	// before the orchestrator returns it. The hook lets the pipeline
+	// scrub secrets a model might have echoed back from the transcript.
+	// nil = no-op.
+	FindingRedactor func(string) string
 }
 
 // LintRuleValidator returns true when tool/rule are in the allow-list for the

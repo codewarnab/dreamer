@@ -29,12 +29,39 @@ func (m ExecutionMode) String() string {
 	}
 }
 
-// RunConfig tells the orchestrator how to dispatch per-chunk phase-1 calls.
-// SessionFactory must be safe to call concurrently when Mode == ModeParallel.
+// SessionFactory builds a fresh provider Session. Must be safe for
+// concurrent calls when Mode == ModeParallel.
+type SessionFactory func() (Session, error)
+
+// RunConfig tells the orchestrator how to dispatch per-chunk phase-1 calls
+// and the single phase-2 call.
+//
+// Phase 1 and Phase 2 use separate factories so a Phase 1 session can be
+// built without MCP / CLI tool wiring. This prevents a misbehaving Phase 1
+// model from calling the Phase 2 record_finding tool and polluting the
+// findings file (defense in depth — the Phase 1 prompt doesn't reference
+// the tool, but it might be reachable through prompt injection).
+//
+// Phase2SessionFactory falls back to Phase1SessionFactory when nil, so
+// existing callers that don't yet split factories keep working.
 type RunConfig struct {
-	SessionFactory func() (Session, error)
-	Mode           ExecutionMode
-	MaxConcurrency int
+	Phase1SessionFactory SessionFactory
+	Phase2SessionFactory SessionFactory
+	Mode                 ExecutionMode
+	MaxConcurrency       int
+}
+
+// Phase1Factory returns the Phase 1 factory, panicking if unset — callers
+// must always provide it.
+func (rc RunConfig) Phase1Factory() SessionFactory { return rc.Phase1SessionFactory }
+
+// Phase2Factory returns the Phase 2 factory, falling back to Phase 1 if
+// the caller didn't split them.
+func (rc RunConfig) Phase2Factory() SessionFactory {
+	if rc.Phase2SessionFactory != nil {
+		return rc.Phase2SessionFactory
+	}
+	return rc.Phase1SessionFactory
 }
 
 // ParallelCapable is implemented by providers verified to produce correct

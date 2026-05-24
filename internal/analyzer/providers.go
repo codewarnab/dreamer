@@ -125,36 +125,50 @@ type ProviderMeta struct {
 	DisplayName string // e.g. "OpenClaude CLI (recommended)"
 	Order       int    // sort order in UI (lower = higher)
 	// Phase2Mode declares the tool-based Phase 2 strategy for this provider.
-	// "" = JSON parsing fallback, "mcp" = MCP tool, "cli" = CLI tool via Bash.
-	Phase2Mode string
+	Phase2Mode Phase2Mode
 }
 
-var providerMetaRegistry []ProviderMeta
+var (
+	providerMetaRegistryMutex sync.RWMutex
+	providerMetaRegistry      = map[ProviderID]ProviderMeta{}
+	providerMetaOrder         []ProviderID // insertion order, used for stable iteration
+)
 
 // RegisterProviderMeta installs display metadata for a provider. Provider
 // implementation packages call this from init() alongside RegisterProvider.
+// Idempotent — re-registration overwrites the prior entry.
 func RegisterProviderMeta(meta ProviderMeta) {
-	providerMetaRegistry = append(providerMetaRegistry, meta)
+	providerMetaRegistryMutex.Lock()
+	defer providerMetaRegistryMutex.Unlock()
+	if _, exists := providerMetaRegistry[meta.ID]; !exists {
+		providerMetaOrder = append(providerMetaOrder, meta.ID)
+	}
+	providerMetaRegistry[meta.ID] = meta
 }
 
 // RegisteredProviderMeta returns all registered provider metadata sorted by
 // Order (ascending). The slice must not be mutated by callers.
 func RegisteredProviderMeta() []ProviderMeta {
-	out := make([]ProviderMeta, len(providerMetaRegistry))
-	copy(out, providerMetaRegistry)
+	providerMetaRegistryMutex.RLock()
+	defer providerMetaRegistryMutex.RUnlock()
+	out := make([]ProviderMeta, 0, len(providerMetaRegistry))
+	for _, id := range providerMetaOrder {
+		out = append(out, providerMetaRegistry[id])
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Order < out[j].Order })
 	return out
 }
 
 // LookupPhase2Mode returns the Phase2Mode for the given provider id.
-// Returns "" if the provider is not registered or has no tool-based Phase 2 mode.
-func LookupPhase2Mode(id ProviderID) string {
-	for _, meta := range providerMetaRegistry {
-		if meta.ID == id {
-			return meta.Phase2Mode
-		}
+// Returns Phase2ModeNone if the provider is not registered or has no
+// tool-based Phase 2 mode.
+func LookupPhase2Mode(id ProviderID) Phase2Mode {
+	providerMetaRegistryMutex.RLock()
+	defer providerMetaRegistryMutex.RUnlock()
+	if meta, ok := providerMetaRegistry[id]; ok {
+		return meta.Phase2Mode
 	}
-	return ""
+	return Phase2ModeNone
 }
 
 func joinProviderIDs(ids []ProviderID, sep string) string {

@@ -15,6 +15,6 @@ func init() {
 		ID:          analyzer.ProviderClaudeCLI,
 		DisplayName: "Anthropic Claude (stream-json)",
 		Order:       40,
-		Phase2Mode:  "mcp",
+		Phase2Mode:  analyzer.Phase2ModeMCP,
 	})
 }

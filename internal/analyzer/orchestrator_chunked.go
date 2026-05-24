@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"dreamer/internal/errs"
-	"dreamer/internal/mcpserver"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -22,8 +20,8 @@ type ChunkInputs struct {
 // a SessionPool. Sequential mode chains summaries across chunks; parallel runs
 // chunks independently.
 func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInputs, req PhaseRequest) (AnalysisResult, error) {
-	if rc.SessionFactory == nil {
-		return AnalysisResult{}, errors.New("RunChunks: RunConfig.SessionFactory is required")
+	if rc.Phase1SessionFactory == nil {
+		return AnalysisResult{}, errors.New("RunChunks: RunConfig.Phase1SessionFactory is required")
 	}
 	if len(in.Chunks) == 0 {
 		return AnalysisResult{}, errors.New("RunChunks: at least one chunk is required")
@@ -42,10 +40,10 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 			poolCap = len(in.Chunks)
 		}
 	}
-	pool := NewSessionPool(poolCap, rc.SessionFactory)
-	defer pool.Close()
+	phase1Pool := NewSessionPool(poolCap, rc.Phase1Factory())
+	defer phase1Pool.Close()
 
-	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, pool, builder, in, req)
+	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, in, req)
 	analysisResult := AnalysisResult{Warnings: p1Warnings}
 	if err != nil {
 		return analysisResult, err
@@ -59,7 +57,12 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 		return analysisResult, nil
 	}
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, pool, builder, mistakesByCategory, in.RuleTimeoutSecs, req)
+	// Phase 2 uses a single session — a fresh pool with a Phase-2-enabled
+	// factory so MCP / CLI tool wiring stays out of Phase 1 sessions.
+	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
+	defer phase2Pool.Close()
+
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategory, in.RuleTimeoutSecs, req)
 	analysisResult.Warnings = append(analysisResult.Warnings, p2Warnings...)
 	if err != nil {
 		return analysisResult, err
@@ -185,81 +188,30 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 // LLM completion).
 const phase2ToolMultiplier = 3
 
+// runPhase2 dispatches to the transport's decoder. The decoder owns the
+// "where do findings come from" question — inline JSON for the legacy
+// transport, or the JSONL file the recording transport wrote.
 func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder *PromptBuilder, mistakes map[RuleCategory][]Mistake, ruleTimeoutSecs int, req PhaseRequest) (map[RuleCategory][]Finding, []string, error) {
-	prompt, fileWarnings := builder.BuildPhase2(mistakes, req)
+	prompt, promptWarnings := builder.BuildPhase2(mistakes, req)
 	timeout := chunkTimeout(ruleTimeoutSecs) * phase2ToolMultiplier
 	raw, err := runWithPool(ctx, pool, prompt, timeout)
 	if err != nil {
 		if errs.Is(err, errs.KindRateLimit) {
-			return nil, fileWarnings, fmt.Errorf("phase-2 hit provider rate limit: %w", err)
+			return nil, promptWarnings, fmt.Errorf("phase-2 hit provider rate limit: %w", err)
 		}
-		return nil, append(fileWarnings, fmt.Sprintf("phase-2 failed (%v)", err)), err
+		return nil, append(promptWarnings, fmt.Sprintf("phase-2 failed (%v)", err)), err
 	}
 
-	// Try reading findings from the tool-based output file first.
-	if req.Phase2Mode != "" && req.FindingsOutputPath != "" {
-		fileFindings, readErr := mcpserver.ReadFindingsJSONL(req.FindingsOutputPath)
-		if readErr != nil {
-			fileWarnings = append(fileWarnings, fmt.Sprintf("tool-findings read failed (%v), falling back to JSON", readErr))
-		} else if len(fileFindings) > 0 {
-			findingsByCategory, convErr := materializeMCPFindings(fileFindings, o.Packs)
-			if convErr != nil {
-				fileWarnings = append(fileWarnings, fmt.Sprintf("tool-findings convert failed (%v), falling back to JSON", convErr))
-			} else {
-				return findingsByCategory, fileWarnings, nil
-			}
-		} else {
-			fileWarnings = append(fileWarnings, "tool-findings file empty, falling back to JSON parsing")
-		}
+	decoder := lookupPhase2Decoder(req.Phase2Mode)
+	findingsByCategory, decoderWarnings, decodeErr := decoder.decode(raw, req, o.Packs)
+	warnings := append(promptWarnings, decoderWarnings...)
+	if decodeErr != nil {
+		return nil, append(warnings, fmt.Sprintf("phase-2 decode failed (%v)", decodeErr)), decodeErr
 	}
-
-	parsed, parseWarns, parseErr := parsePhase2Response(raw, o.Packs)
-	warns := append(fileWarnings, parseWarns...)
-	if parseErr != nil {
-		return nil, append(warns, fmt.Sprintf("phase-2 parse failed (%v)", parseErr)), parseErr
+	if findingsByCategory == nil {
+		findingsByCategory = map[RuleCategory][]Finding{}
 	}
-	return parsed, warns, nil
-}
-
-// materializeMCPFindings converts validated MCP/CLI findings into the orchestrator's
-// Finding type. Each finding carries its own category (unlike JSON parsing which
-// applies a default category).
-func materializeMCPFindings(raw []mcpserver.FindingInput, packs []RulePack) (map[RuleCategory][]Finding, error) {
-	findingsByCategory := map[RuleCategory][]Finding{}
-	for _, f := range raw {
-		cat := RuleCategory(f.Category)
-		mistake := strings.TrimSpace(f.Mistake)
-		if mistake == "" {
-			continue
-		}
-		// Convert mcpserver types to analyzer types for the shared builder.
-		guardrail := Guardrail{
-			Kind:          f.Guardrail.Kind,
-			Tool:          f.Guardrail.Tool,
-			Rule:          f.Guardrail.Rule,
-			ConfigSnippet: f.Guardrail.ConfigSnippet,
-		}
-		if f.Guardrail.Apply != nil {
-			guardrail.Apply = &ApplySpec{
-				TargetFile: f.Guardrail.Apply.TargetFile,
-				Strategy:   f.Guardrail.Apply.Strategy,
-				Anchor:     f.Guardrail.Apply.Anchor,
-				Snippet:    f.Guardrail.Apply.Snippet,
-			}
-		}
-		evidence := make([]CodebaseEvidence, 0, len(f.CodebaseEvidence))
-		for _, e := range f.CodebaseEvidence {
-			evidence = append(evidence, CodebaseEvidence{
-				Path:   e.Path,
-				Lines:  e.Lines,
-				Symbol: e.Symbol,
-			})
-		}
-
-		finding := buildFinding(cat, mistake, f.Confidence, guardrail, evidence)
-		findingsByCategory[cat] = append(findingsByCategory[cat], finding)
-	}
-	return findingsByCategory, nil
+	return findingsByCategory, warnings, nil
 }
 
 // runWithPool acquires a session, runs the prompt once, releases.

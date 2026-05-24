@@ -102,7 +102,7 @@ func TestRunChunksSingleChunkExactlyTwoCalls(t *testing.T) {
 		}), nil
 	}, cap)
 
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Index: 0, Transcript: "hi", Bytes: 2, SourceLabels: []string{"codex"}}}}
 	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
 
@@ -138,7 +138,7 @@ func TestRunChunksSequentialSummaryChaining(t *testing.T) {
 		}), nil
 	}, cap)
 
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
 		{Index: 0, Transcript: "a", Bytes: 1, SourceLabels: []string{"codex"}},
 		{Index: 1, Transcript: "b", Bytes: 1, SourceLabels: []string{"claude"}},
@@ -181,7 +181,7 @@ func TestRunChunksParallelHasNoRollingContext(t *testing.T) {
 	rc := RunConfig{
 		Mode:           ModeParallel,
 		MaxConcurrency: 3,
-		SessionFactory: func() (Session, error) {
+		Phase1SessionFactory: func() (Session, error) {
 			s := pool[0]
 			pool = pool[1:]
 			return s, nil
@@ -225,7 +225,7 @@ func TestRunChunksSequentialMissingSummaryAborts(t *testing.T) {
 		return phase1Reply("ok", map[string][]map[string]any{}), nil
 	}, cap)
 
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
 		{Index: 0, Transcript: "a"},
 		{Index: 1, Transcript: "b"},
@@ -260,7 +260,7 @@ func TestRunChunksSequentialFinalChunkSummaryOptional(t *testing.T) {
 		return phase1Reply("s", map[string][]map[string]any{}), nil
 	}, cap)
 
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Index: 0, Transcript: "a"}, {Index: 1, Transcript: "b"}}}
 	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
 
@@ -281,7 +281,7 @@ func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
 		}), nil
 	}, cap)
 
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{
 		Chunks: []Chunk{{Transcript: "x"}},
 	}
@@ -320,7 +320,7 @@ func TestRunChunksSixCategoriesExactlyTwoCalls(t *testing.T) {
 			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
 	}, cap)
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Index: 0, Transcript: "x"}}}
 	orch := &Orchestrator{Packs: minimalPacks(
 		RuleCategoryLintRule, RuleCategoryTest, RuleCategoryCICheck,
@@ -343,7 +343,7 @@ func TestRunChunksK1NoRollingContext(t *testing.T) {
 		}
 		return phase1Reply("s", map[string][]map[string]any{}), nil
 	}, cap)
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Transcript: "x"}}}
 	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
 	if _, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{}); err != nil {
@@ -378,7 +378,7 @@ func TestRunChunksParallelParityK3NoChaining(t *testing.T) {
 			}, cap)
 		}
 		pool := []*fakeSession{mk(), mk(), mk(), mk()}
-		rc := RunConfig{Mode: mode, MaxConcurrency: 3, SessionFactory: func() (Session, error) {
+		rc := RunConfig{Mode: mode, MaxConcurrency: 3, Phase1SessionFactory: func() (Session, error) {
 			s := pool[0]
 			pool = pool[1:]
 			return s, nil
@@ -419,7 +419,7 @@ func TestRunChunksSequentialParseFailDoesNotMarkCompleted(t *testing.T) {
 		}), nil
 	}, cap)
 
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
 		{Index: 0, Transcript: "a"},
 		{Index: 1, Transcript: "b"},
@@ -457,7 +457,7 @@ func TestRunChunksParallelParseFailDoesNotMarkCompleted(t *testing.T) {
 	rc := RunConfig{
 		Mode:           ModeParallel,
 		MaxConcurrency: 3,
-		SessionFactory: func() (Session, error) {
+		Phase1SessionFactory: func() (Session, error) {
 			s := pool[0]
 			pool = pool[1:]
 			return s, nil
@@ -490,7 +490,7 @@ func TestRunChunksSequentialAllParseMarksCompleted(t *testing.T) {
 			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
 	}, cap)
-	rc := RunConfig{Mode: ModeSequential, SessionFactory: func() (Session, error) { return sess, nil }}
+	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
 		{Index: 0, Transcript: "a"},
 		{Index: 1, Transcript: "b"},
@@ -615,7 +615,7 @@ func TestRunChunksParallelParityK1(t *testing.T) {
 				"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 			}), nil
 		}, cap)
-		rc := RunConfig{Mode: mode, MaxConcurrency: 1, SessionFactory: func() (Session, error) { return sess, nil }}
+		rc := RunConfig{Mode: mode, MaxConcurrency: 1, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 		in := ChunkInputs{Chunks: []Chunk{{Transcript: "x"}}}
 		orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
 		res, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{})

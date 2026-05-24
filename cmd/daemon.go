@@ -80,6 +80,14 @@ func newDaemonCommand() *cobra.Command {
 			defer stop()
 			defer releaseLock()
 
+			// Sweep leftover Phase 2 findings temp files from prior runs
+			// that crashed or were killed before their defer fired. The
+			// files only live one analysis run, so any that survived from
+			// a prior process are stale.
+			if swept := sweepStaleFindingsTempFiles(); swept > 0 {
+				logger.Info("swept stale phase-2 findings temp files", logging.Any("count", swept))
+			}
+
 			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, events, overrides)
 			workers.Start()
 
@@ -361,4 +369,24 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 			}
 		}
 	}()
+}
+
+// sweepStaleFindingsTempFiles deletes leftover dreamer-findings-*.jsonl
+// files in os.TempDir(). These are Phase 2 temp files written by prior
+// daemon runs that crashed or were killed before the per-run defer ran.
+// Returns the count of files removed. Errors removing individual files
+// are swallowed silently — the worst case is a small amount of temp-dir
+// clutter on the next sweep.
+func sweepStaleFindingsTempFiles() int {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "dreamer-findings-*.jsonl"))
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, p := range matches {
+		if err := os.Remove(p); err == nil {
+			removed++
+		}
+	}
+	return removed
 }

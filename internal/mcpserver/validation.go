@@ -6,14 +6,20 @@ package mcpserver
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
-// ValidCategories is the set of valid rule categories.
+// ValidCategories is the set of valid rule categories (lowercase canonical
+// IDs). Inputs are lowercased+trimmed before lookup so "Test" and " test "
+// both match "test".
 var ValidCategories = map[string]bool{
 	"lint-rule":         true,
 	"test":              true,
@@ -22,6 +28,43 @@ var ValidCategories = map[string]bool{
 	"config":            true,
 	"refactor-boundary": true,
 }
+
+// Field length caps. Findings that exceed these limits bloat todos.md and
+// usually indicate the model dumped an entire transcript into one field.
+// Each cap is chosen to be comfortably larger than any legitimate use.
+const (
+	maxMistakeLen       = 1024
+	maxConfigSnippetLen = 8 * 1024
+	maxApplySnippetLen  = 8 * 1024
+	maxEvidenceEntries  = 32
+	maxEvidenceFieldLen = 512
+)
+
+// validationError marks a finding-rejection error so the MCP tool handler
+// can route it back to the model via RecordResult.Error (instead of
+// escalating to a protocol-level error the model never sees).
+type validationError struct{ msg string }
+
+func (e *validationError) Error() string { return e.msg }
+
+func newValidationError(format string, args ...any) error {
+	return &validationError{msg: fmt.Sprintf(format, args...)}
+}
+
+// IsValidationError reports whether err is a finding-validation error
+// produced by ValidateFinding / Record. Used by the MCP server to decide
+// whether to surface the error as a Go error (transport fault) or as
+// RecordResult.Error (model-correctable fault).
+func IsValidationError(err error) bool {
+	var ve *validationError
+	return errors.As(err, &ve)
+}
+
+// FindingSanitizer is an optional hook called on every FindingInput before
+// it is written to the JSONL file. The pipeline wires the project's
+// redactor here so the model cannot exfiltrate secrets it observed in the
+// transcript by echoing them back into a finding field. nil = no-op.
+type FindingSanitizer func(*FindingInput)
 
 // FindingInput is the wire format accepted by both the MCP tool and the CLI.
 type FindingInput struct {
@@ -63,57 +106,145 @@ type RecordResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-// normalizeFinding trims whitespace on all string fields.
+// normalizeFinding trims whitespace on every string field and lowercases
+// the category so case-only differences ("Test" vs "test") collapse before
+// the registry lookup in ValidateFinding.
 func normalizeFinding(f *FindingInput) {
-	f.Category = strings.TrimSpace(f.Category)
+	f.Category = strings.ToLower(strings.TrimSpace(f.Category))
 	f.Mistake = strings.TrimSpace(f.Mistake)
 	f.Guardrail.Kind = strings.TrimSpace(f.Guardrail.Kind)
 	f.Guardrail.Tool = strings.TrimSpace(f.Guardrail.Tool)
 	f.Guardrail.Rule = strings.TrimSpace(f.Guardrail.Rule)
 	f.Guardrail.ConfigSnippet = strings.TrimSpace(f.Guardrail.ConfigSnippet)
+	if f.Guardrail.Apply != nil {
+		f.Guardrail.Apply.TargetFile = strings.TrimSpace(f.Guardrail.Apply.TargetFile)
+		f.Guardrail.Apply.Strategy = strings.TrimSpace(f.Guardrail.Apply.Strategy)
+		f.Guardrail.Apply.Anchor = strings.TrimSpace(f.Guardrail.Apply.Anchor)
+		f.Guardrail.Apply.Snippet = strings.TrimSpace(f.Guardrail.Apply.Snippet)
+	}
+	for i := range f.CodebaseEvidence {
+		f.CodebaseEvidence[i].Path = strings.TrimSpace(f.CodebaseEvidence[i].Path)
+		f.CodebaseEvidence[i].Lines = strings.TrimSpace(f.CodebaseEvidence[i].Lines)
+		f.CodebaseEvidence[i].Symbol = strings.TrimSpace(f.CodebaseEvidence[i].Symbol)
+	}
 }
 
-// ValidateFinding checks a FindingInput for correctness.
-// Returns an error describing what's wrong, or nil if valid.
-// Does not mutate f — call normalizeFinding first if trimming is needed.
+// ValidateFinding checks a FindingInput for correctness. Returns a
+// validation-tagged error (see IsValidationError) describing what's wrong,
+// or nil if valid. Does not mutate f — call normalizeFinding first if
+// trimming is needed.
 func ValidateFinding(f *FindingInput) error {
 	if f.Category == "" {
-		return fmt.Errorf("category is required")
+		return newValidationError("category is required")
 	}
 	if !ValidCategories[f.Category] {
-		return fmt.Errorf("invalid category %q (valid: lint-rule, test, ci-check, doc, config, refactor-boundary)", f.Category)
+		return newValidationError("invalid category %q (valid: lint-rule, test, ci-check, doc, config, refactor-boundary)", f.Category)
 	}
 	if f.Mistake == "" {
-		return fmt.Errorf("mistake is required")
+		return newValidationError("mistake is required")
 	}
-	if f.Confidence < 0 || f.Confidence > 1 {
-		return fmt.Errorf("confidence must be between 0.0 and 1.0, got %v", f.Confidence)
+	if utf8.RuneCountInString(f.Mistake) > maxMistakeLen {
+		return newValidationError("mistake exceeds %d runes", maxMistakeLen)
+	}
+	if math.IsNaN(f.Confidence) || math.IsInf(f.Confidence, 0) || f.Confidence < 0 || f.Confidence > 1 {
+		return newValidationError("confidence must be between 0.0 and 1.0, got %v", f.Confidence)
 	}
 	if f.Guardrail.Kind == "" {
-		return fmt.Errorf("guardrail.kind is required")
+		return newValidationError("guardrail.kind is required")
+	}
+	if f.Guardrail.Tool == "" {
+		return newValidationError("guardrail.tool is required")
+	}
+	if f.Guardrail.Rule == "" {
+		return newValidationError("guardrail.rule is required")
+	}
+	if utf8.RuneCountInString(f.Guardrail.ConfigSnippet) > maxConfigSnippetLen {
+		return newValidationError("guardrail.config_snippet exceeds %d runes", maxConfigSnippetLen)
+	}
+	if f.Guardrail.Apply != nil && utf8.RuneCountInString(f.Guardrail.Apply.Snippet) > maxApplySnippetLen {
+		return newValidationError("guardrail.apply.snippet exceeds %d runes", maxApplySnippetLen)
+	}
+	if len(f.CodebaseEvidence) > maxEvidenceEntries {
+		return newValidationError("codebase_evidence has %d entries, max %d", len(f.CodebaseEvidence), maxEvidenceEntries)
+	}
+	for i, e := range f.CodebaseEvidence {
+		if utf8.RuneCountInString(e.Path) > maxEvidenceFieldLen ||
+			utf8.RuneCountInString(e.Lines) > maxEvidenceFieldLen ||
+			utf8.RuneCountInString(e.Symbol) > maxEvidenceFieldLen {
+			return newValidationError("codebase_evidence[%d] field exceeds %d runes", i, maxEvidenceFieldLen)
+		}
 	}
 	return nil
 }
 
 // FindingRecorder accumulates validated findings into a JSONL file.
-// Thread-safe for concurrent writes.
+// Thread-safe for concurrent writes within a single process. Cross-process
+// safety is not provided — the MCP server runs as a single child, and the
+// CLI tool path serializes calls via gemini-cli's sequential Bash
+// invocations. If a future use case introduces parallel writers from
+// separate processes, switch this to per-record files or add file locking.
 type FindingRecorder struct {
-	mu    sync.Mutex
-	path  string
-	file  *os.File
-	count int
+	mu       sync.Mutex
+	path     string
+	file     *os.File
+	count    int
+	sanitize FindingSanitizer
+}
+
+// ValidateOutputPath checks that the given path is safe for writing findings.
+// The path must be absolute and live under os.TempDir(). Symlinks are rejected.
+// This prevents prompt-injected transcripts from targeting arbitrary files
+// (e.g. ~/.ssh/authorized_keys) via the --output flag.
+func ValidateOutputPath(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("output path must be absolute, got %q", path)
+	}
+	// Clean to resolve .. components before prefix check.
+	cleaned := filepath.Clean(path)
+	tmpDir := filepath.Clean(os.TempDir())
+	if !strings.HasPrefix(cleaned, tmpDir+string(os.PathSeparator)) && cleaned != tmpDir {
+		return fmt.Errorf("output path %q must be under temp directory %q", path, tmpDir)
+	}
+	// Reject symlinks — both the file itself and its parent directory.
+	if info, err := os.Lstat(cleaned); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("output path %q is a symlink", path)
+	}
+	parent := filepath.Dir(cleaned)
+	if info, err := os.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("parent directory of output path %q is a symlink", path)
+	}
+	return nil
 }
 
 // NewFindingRecorder creates a recorder that appends to the given path.
+// File mode 0600 — findings may contain transcript snippets the redactor
+// missed, so they're treated as sensitive even though the file lives under
+// os.TempDir().
 func NewFindingRecorder(path string) (*FindingRecorder, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err := ValidateOutputPath(path); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open findings file %q: %w", path, err)
 	}
 	return &FindingRecorder{path: path, file: f}, nil
 }
 
-// Record normalizes, validates, and writes one finding. Returns (total, error).
+// WithSanitizer installs a hook called on every FindingInput between
+// normalization and write. Callers wire the project's redactor here so a
+// model that echoes a transcript secret into a finding field cannot persist
+// it to disk.
+func (r *FindingRecorder) WithSanitizer(s FindingSanitizer) *FindingRecorder {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sanitize = s
+	return r
+}
+
+// Record normalizes, validates, sanitizes, and writes one finding. Returns
+// (total, error). Validation errors are tagged so the MCP handler can route
+// them back to the model; write errors are plain errors that escalate.
 func (r *FindingRecorder) Record(f *FindingInput) (int, error) {
 	normalizeFinding(f)
 	if err := ValidateFinding(f); err != nil {
@@ -122,6 +253,13 @@ func (r *FindingRecorder) Record(f *FindingInput) (int, error) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.file == nil {
+		return 0, fmt.Errorf("recorder is closed")
+	}
+	if r.sanitize != nil {
+		r.sanitize(f)
+	}
 
 	line, err := json.Marshal(f)
 	if err != nil {

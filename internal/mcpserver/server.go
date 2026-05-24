@@ -19,13 +19,13 @@ func NewServer(outputPath string) (*mcp.Server, *FindingRecorder, error) {
 	}
 
 	s := mcp.NewServer(&mcp.Implementation{
-		Name:    "dreamer",
+		Name:    ServerName,
 		Version: "1.0.0",
 	}, nil)
 
 	handler := &findingHandler{recorder: recorder}
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "record_finding",
+		Name:        RecordFindingToolName,
 		Description: "Record a validated finding from the analysis. Call this once per finding you want to record. Returns the total count of recorded findings so far.",
 	}, handler.RecordFinding)
 
@@ -38,9 +38,18 @@ type findingHandler struct {
 }
 
 // RecordFinding is the MCP tool handler for record_finding.
+//
+// Validation failures are reported via RecordResult.Error with a nil Go
+// error so the model receives the structured response and can retry with a
+// corrected payload. Only transport / I/O faults (recorder file gone, disk
+// full) escalate to a Go error — those are not the model's fault and
+// surface as a protocol error to the MCP client.
 func (h *findingHandler) RecordFinding(_ context.Context, _ *mcp.CallToolRequest, input FindingInput) (*mcp.CallToolResult, RecordResult, error) {
 	total, err := h.recorder.Record(&input)
 	if err != nil {
+		if IsValidationError(err) {
+			return nil, RecordResult{OK: false, Error: err.Error()}, nil
+		}
 		return nil, RecordResult{OK: false, Error: err.Error()}, err
 	}
 	return nil, RecordResult{OK: true, Total: total}, nil

@@ -40,7 +40,7 @@ func init() {
 		ID:          analyzer.ProviderGeminiCLI,
 		DisplayName: "Google Gemini CLI",
 		Order:       60,
-		Phase2Mode:  "cli",
+		Phase2Mode:  analyzer.Phase2ModeCLI,
 	})
 }
 
@@ -95,8 +95,11 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	}
 
 	// CLI tool mode: drop --approval-mode=plan and add Bash tool so the model
-	// can call: echo '<json>' | dreamer record-finding --output <path>
-	if sessionConfig.Phase2Mode == "cli" && sessionConfig.CLIToolPath != "" {
+	// can call the dreamer record-finding subcommand via heredoc.
+	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeCLI {
+		if err := sessionConfig.Phase2.Validate(); err != nil {
+			return nil, fmt.Errorf("gemini-cli: phase 2 config: %w", err)
+		}
 		command = flagutil.RemoveFlag(command, "--approval-mode")
 		command = append(command, "--approval-mode", "default")
 		command = append(command, "--tools", "Read,Grep,Glob,Bash")

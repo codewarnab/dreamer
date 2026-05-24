@@ -1,49 +1,82 @@
 // Package flagutil provides helpers for manipulating CLI flag slices
 // (e.g. constructing provider command lines with conditional flags).
+//
+// Every helper handles both the space-separated form (`--flag value`) and
+// the equals form (`--flag=value`) — providers may emit either, and the
+// flag rewrites have to survive the difference. Helpers return a new slice
+// (or the same slice when nothing changed); they do not mutate the input.
 package flagutil
 
-// ReplaceFlag searches args for the flag matching `flagName` whose current
-// value equals `oldValue`, and replaces it with `newValue`.
-// Returns the (possibly unchanged) args slice.
+import "strings"
+
+// splitEqualsForm reports whether arg has the shape `--flag=value` for the
+// given flag name, and if so returns the value portion. The leading sigil
+// (one or two dashes) is part of flagName.
+func splitEqualsForm(arg, flagName string) (value string, ok bool) {
+	if !strings.HasPrefix(arg, flagName+"=") {
+		return "", false
+	}
+	return arg[len(flagName)+1:], true
+}
+
+// ReplaceFlag searches args for the flag whose current value equals
+// `oldValue` and replaces it with `newValue`. Handles both forms.
 func ReplaceFlag(args []string, flagName, oldValue, newValue string) []string {
-	for i, a := range args {
-		if a == flagName && i+1 < len(args) && args[i+1] == oldValue {
-			args[i+1] = newValue
-			return args
+	out := append([]string(nil), args...)
+	for i, a := range out {
+		if a == flagName && i+1 < len(out) && out[i+1] == oldValue {
+			out[i+1] = newValue
+			return out
+		}
+		if v, ok := splitEqualsForm(a, flagName); ok && v == oldValue {
+			out[i] = flagName + "=" + newValue
+			return out
 		}
 	}
-	return args
+	return out
 }
 
-// AppendToFlag appends `suffix` (with a comma separator) to the value of the
-// given flag. If the flag appears multiple times, only the first is modified.
-// Returns the (possibly unchanged) args slice.
+// AppendToFlag appends `suffix` to the value of the given flag using a
+// comma separator. If the existing value is empty the suffix replaces it
+// (so we don't end up with a leading comma like `,Bash`). Only the first
+// occurrence of the flag is modified.
 func AppendToFlag(args []string, flagName, suffix string) []string {
-	for i, a := range args {
-		if a == flagName && i+1 < len(args) {
-			args[i+1] = args[i+1] + "," + suffix
-			return args
+	if suffix == "" {
+		return append([]string(nil), args...)
+	}
+	out := append([]string(nil), args...)
+	join := func(current, add string) string {
+		if current == "" {
+			return add
+		}
+		return current + "," + add
+	}
+	for i, a := range out {
+		if a == flagName && i+1 < len(out) {
+			out[i+1] = join(out[i+1], suffix)
+			return out
+		}
+		if v, ok := splitEqualsForm(a, flagName); ok {
+			out[i] = flagName + "=" + join(v, suffix)
+			return out
 		}
 	}
-	return args
+	return out
 }
 
-// RemoveFlag removes the flag and its value from args.
-// Handles both `--flag value` and `--flag=value` forms.
-// Returns the (possibly unchanged) args slice.
+// RemoveFlag removes every occurrence of the flag and its value. Handles
+// both forms. Values are always treated as values (never re-parsed as a
+// new flag) so leading-dash values like `-1` survive.
 func RemoveFlag(args []string, flagName string) []string {
 	var result []string
 	for i := 0; i < len(args); i++ {
-		// --flag=value combined form
-		if len(args[i]) > len(flagName) && args[i][:len(flagName)+1] == flagName+"=" {
+		if args[i] == flagName {
+			if i+1 < len(args) {
+				i++ // also consume the value
+			}
 			continue
 		}
-		if args[i] == flagName {
-			if i+1 < len(args) && len(args[i+1]) > 0 && args[i+1][0] != '-' {
-				// --flag value form: skip both
-				i++
-			}
-			// --flag=value form: already skipped by not appending
+		if _, ok := splitEqualsForm(args[i], flagName); ok {
 			continue
 		}
 		result = append(result, args[i])
