@@ -136,11 +136,11 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 		helpOutput.WriteString("\n")
 		helpOutput.WriteString(headerStyle.Render("OTHER"))
 		helpOutput.WriteString("\n")
-		for _, c := range ungrouped {
-			padded := c.Name() + strings.Repeat(" ", padding-len(c.Name()))
+		for _, subcmd := range ungrouped {
+			padded := subcmd.Name() + strings.Repeat(" ", padding-len(subcmd.Name()))
 			helpOutput.WriteString("  ")
 			helpOutput.WriteString(cmdStyle.Render(padded))
-			helpOutput.WriteString(descStyle.Render(c.Short))
+			helpOutput.WriteString(descStyle.Render(subcmd.Short))
 			helpOutput.WriteString("\n")
 		}
 	}
