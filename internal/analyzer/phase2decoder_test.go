@@ -255,10 +255,10 @@ func TestMaterializeRecordedFindings_SkipsEmptyMistake(t *testing.T) {
 func TestMaterializeRecordedFindings_WithEvidence(t *testing.T) {
 	raw := []mcpserver.FindingInput{
 		{
-			Category:  "lint-rule",
-			Mistake:   "no error check",
+			Category:   "lint-rule",
+			Mistake:    "no error check",
 			Confidence: 0.95,
-			Guardrail: mcpserver.GuardrailInput{Kind: "lint-rule", Tool: "go vet", Rule: "errcheck"},
+			Guardrail:  mcpserver.GuardrailInput{Kind: "lint-rule", Tool: "go vet", Rule: "errcheck"},
 			CodebaseEvidence: []mcpserver.EvidenceInput{
 				{Path: "main.go", Lines: "10-15", Symbol: "doStuff"},
 			},
@@ -314,9 +314,9 @@ func TestApplyFindingRedactor_ScrubsAllTextFields(t *testing.T) {
 	apply := &ApplySpec{Snippet: "secret code", Anchor: "secret anchor"}
 	findings := map[RuleCategory][]Finding{
 		RuleCategoryLintRule: {{
-			Mistake:    "secret mistake",
-			Guardrail:  Guardrail{Kind: "k", Tool: "secret tool", Rule: "secret rule", ConfigSnippet: "secret config", Apply: apply},
-			Evidence:   []CodebaseEvidence{{Path: "main.go", Lines: "1-2", Symbol: "secret sym"}},
+			Mistake:   "secret mistake",
+			Guardrail: Guardrail{Kind: "k", Tool: "secret tool", Rule: "secret rule", ConfigSnippet: "secret config", Apply: apply},
+			Evidence:  []CodebaseEvidence{{Path: "main.go", Lines: "1-2", Symbol: "secret sym"}},
 		}},
 	}
 	applyFindingRedactor(findings, redact)
