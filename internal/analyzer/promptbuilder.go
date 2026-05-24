@@ -218,10 +218,10 @@ func parsePhase1Response(raw string, packs []RulePack) (map[RuleCategory][]Mista
 			warnings = append(warnings, fmt.Sprintf("phase-1 returned unknown/disabled category %q; dropped", catID))
 			continue
 		}
-		ms := normalizeMistakes(toMistakes(rawList, pack.Category), pack.Category)
-		ms = filterMistakesByThreshold(ms, pack.Threshold)
-		if len(ms) > 0 {
-			out[pack.Category] = append(out[pack.Category], ms...)
+		normalizedMistakes := normalizeMistakes(toMistakes(rawList, pack.Category), pack.Category)
+		normalizedMistakes = filterMistakesByThreshold(normalizedMistakes, pack.Threshold)
+		if len(normalizedMistakes) > 0 {
+			out[pack.Category] = append(out[pack.Category], normalizedMistakes...)
 		}
 	}
 	summary := clampSummary(parsed.Summary)
@@ -267,7 +267,7 @@ func parsePhase2Response(raw string, packs []RulePack) (map[RuleCategory][]Findi
 		return map[RuleCategory][]Finding{}, nil, nil
 	}
 	var parsed struct {
-		Findings map[string][]rawFinding `json:"findings"`
+		Findings map[string][]unvalidatedFinding `json:"findings"`
 	}
 	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
 		return nil, nil, fmt.Errorf("invalid phase-2 JSON: %w", err)
@@ -282,9 +282,9 @@ func parsePhase2Response(raw string, packs []RulePack) (map[RuleCategory][]Findi
 			warnings = append(warnings, fmt.Sprintf("phase-2 returned unknown/disabled category %q; dropped", catID))
 			continue
 		}
-		mat := materializeFindings(rawList, pack.Category)
-		if len(mat) > 0 {
-			out[pack.Category] = append(out[pack.Category], mat...)
+		materializedFindings := validateAndBuildFindings(rawList, pack.Category)
+		if len(materializedFindings) > 0 {
+			out[pack.Category] = append(out[pack.Category], materializedFindings...)
 		}
 	}
 	return out, warnings, nil

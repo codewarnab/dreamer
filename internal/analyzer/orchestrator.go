@@ -121,14 +121,14 @@ func NewOrchestrator(packs []RulePack) *Orchestrator {
 	return &Orchestrator{Packs: cloned}
 }
 
-type rawFinding struct {
+type unvalidatedFinding struct {
 	Mistake          string             `json:"mistake"`
 	Guardrail        Guardrail          `json:"guardrail"`
 	CodebaseEvidence []CodebaseEvidence `json:"codebase_evidence"`
 	Confidence       float64            `json:"confidence"`
 }
 
-func materializeFindings(raws []rawFinding, defaultCategory RuleCategory) []Finding {
+func validateAndBuildFindings(raws []unvalidatedFinding, defaultCategory RuleCategory) []Finding {
 	findings := make([]Finding, 0, len(raws))
 	for _, raw := range raws {
 		mistake := strings.TrimSpace(raw.Mistake)
