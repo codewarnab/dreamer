@@ -132,7 +132,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 
 	systemMessage := sessionConfig.SystemMessage
 	if strings.TrimSpace(systemMessage) == "" {
-		systemMessage = analyzer.BuildReadOnlySystemMessage(sessionConfig.WorkingDirectory)
+		systemMessage = analyzer.BuildReadOnlySystemMessage(sessionConfig.WorkingDirectory, sessionConfig.RunID)
 	}
 	preferredModel := strings.TrimSpace(sessionConfig.Model)
 	if preferredModel == "" {
@@ -161,6 +161,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		systemMessage:  systemMessage,
 		model:          preferredModel,
 		modelFallbacks: p.modelFallbacks,
+		runID:          sessionConfig.RunID,
 	}, nil
 }
 
@@ -187,6 +188,7 @@ type session struct {
 	systemMessage  string
 	model          string
 	modelFallbacks []string
+	runID          string
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -245,7 +247,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	// 200 KB ≈ 50k tokens keeps Opus runs well under their per-turn budget too.
 	const acpMaxInputBytes = 200_000
 
-	body := chat.PrependMarker(prompt)
+	body := chat.PrependMarker(prompt, s.runID)
 	if s.systemMessage != "" {
 		body = s.systemMessage + "\n\n" + body
 	}

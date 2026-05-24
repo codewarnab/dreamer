@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +27,19 @@ import (
 // temp files. Used both at creation time and by the daemon's stale-file
 // sweep so the pattern is defined in one place.
 const FindingsTempFilePattern = "dreamer-findings-*.jsonl"
+
+// runIDLength is the number of hex characters in a run ID.
+// 8 hex chars = 32 bits of entropy — enough for collision avoidance
+// within a single daemon lifetime, short enough to not bloat prompts.
+const runIDLength = 8
+
+// generateRunID returns a random 8-character hex string for correlating
+// all prompts and outputs from a single analysis run.
+func generateRunID() string {
+	b := make([]byte, runIDLength/2)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // Options captures everything the pipeline needs for one analyze invocation
 // (cli flags + resolved global config).
@@ -258,7 +273,7 @@ func runCaching(opts Options, dr discoveryResult, currentState *state.State, rep
 	if !opts.Force && opts.DiscoveryCache != nil {
 		if opts.DiscoveryCache.Check(dr.projectPath, dr.sources, repoHeadSHA) {
 			logger.Info("discovery cache hit", logging.Any("project", dr.projectName), logging.Any("sources", len(dr.sources)))
-			publishRunDone(opts.Events, dr.projectName, 0, 0, 0)
+			publishRunDone(opts.Events, dr.projectName, "", 0, 0, 0)
 			return cachingResult{cacheHit: true}, nil
 		}
 	}
@@ -276,7 +291,7 @@ func runCaching(opts Options, dr discoveryResult, currentState *state.State, rep
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
 		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(dr.sources)), logging.Any("reason", "all cached, head unchanged"))
-		publishRunDone(opts.Events, dr.projectName, 0, 0, 0)
+		publishRunDone(opts.Events, dr.projectName, "", 0, 0, 0)
 		return cachingResult{cacheHit: true}, nil
 	}
 	logger.Info("cache miss", logging.Any("analyzing", len(dr.sources)), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("cached", cacheStats.Cached))
@@ -374,7 +389,7 @@ func runTranscriptPrep(opts Options, dr discoveryResult, sources []chat.ChatSour
 	}, false, nil
 }
 
-// analysisResult holds the output of the analysis stage.
+// analysisResult bundles the orchestrator's outputs.
 type analysisResult struct {
 	result   analyzer.AnalysisResult
 	provider analyzer.Provider
@@ -383,7 +398,7 @@ type analysisResult struct {
 
 // runAnalysis instantiates the provider, detects the toolchain, and runs the
 // orchestrator. The caller must close the returned provider.
-func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr transcriptResult, rctx *runCtx, currentState *state.State, logger *logging.Logger) (analysisResult, error) {
+func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr transcriptResult, rctx *runCtx, currentState *state.State, runID string, logger *logging.Logger) (analysisResult, error) {
 	var ar analysisResult
 
 	providerCfg := buildProviderConfig(dr.providerID, dr.providerBlock)
@@ -464,12 +479,14 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 
 	// Two factories: Phase 1 sessions never see MCP / CLI tool wiring, so a
 	// rogue Phase 1 model cannot pollute the findings file.
+	systemMsg := analyzer.BuildReadOnlySystemMessage(dr.projectPath, runID)
 	phase1Factory := func() (analyzer.Session, error) {
 		raw, ferr := provider.NewSession(ctx, analyzer.SessionConfig{
 			WorkingDirectory: dr.projectPath,
 			Model:            dr.providerBlock.Model,
 			ReadOnly:         true,
-			SystemMessage:    analyzer.BuildReadOnlySystemMessage(dr.projectPath),
+			SystemMessage:    systemMsg,
+			RunID:            runID,
 		})
 		if ferr != nil {
 			return nil, ferr
@@ -483,7 +500,8 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 				WorkingDirectory: dr.projectPath,
 				Model:            dr.providerBlock.Model,
 				ReadOnly:         true,
-				SystemMessage:    analyzer.BuildReadOnlySystemMessage(dr.projectPath),
+				SystemMessage:    systemMsg,
+				RunID:            runID,
 				Phase2:           phase2Config,
 			})
 			if ferr != nil {
@@ -510,6 +528,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 		PrimaryLinter:      tc.PrimaryLinter(),
 		TestFramework:      tc.PrimaryTestFramework(),
 		CodebaseContext:    codebaseContext,
+		RunID:              runID,
 		DryRun:             opts.DryRun,
 		StrictLintRules:    !opts.Permissive,
 		LintRuleValidator:  lintrules.NewValidator(),
@@ -550,7 +569,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 
 // runOutputAndPersist generates todos, updates state, saves, updates the
 // discovery cache, and records history.
-func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr transcriptResult, rctx *runCtx, cacheKeys map[string]string, repoHeadSHA string, runStart time.Time, logger *logging.Logger) (Result, error) {
+func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr transcriptResult, rctx *runCtx, cacheKeys map[string]string, repoHeadSHA string, runStart time.Time, runID string, logger *logging.Logger) (Result, error) {
 	currentState := rctx.state
 	warnings := tr.warnings
 	warnings = append(warnings, ar.result.Warnings...)
@@ -566,7 +585,7 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 
 	if opts.DryRun {
 		pipelineResult.TodosPath = todosOutputPath(dr.outputRoot, dr.projectName)
-		publishRunDone(opts.Events, dr.projectName, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
+		publishRunDone(opts.Events, dr.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
 		return pipelineResult, nil
 	}
 
@@ -579,6 +598,7 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 		OutputRoot:   dr.outputRoot,
 		ProjectTitle: dr.projectName,
 		Warnings:     warnings,
+		RunID:        runID,
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("generate todos: %w", err)
@@ -640,7 +660,7 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 		logger.Warn("history update failed", logging.Any("err", err))
 	}
 
-	publishRunDone(opts.Events, dr.projectName, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
+	publishRunDone(opts.Events, dr.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
 	return pipelineResult, nil
 }
 
@@ -661,8 +681,10 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	runStart := time.Now()
+	runID := generateRunID()
+	logger.Info("run id", logging.Any("run_id", runID))
 	if opts.Events != nil {
-		opts.Events.Publish(Event{Type: EventRunStart, Payload: map[string]any{"project": opts.ProjectName}})
+		opts.Events.Publish(Event{Type: EventRunStart, Payload: map[string]any{"project": opts.ProjectName, "run_id": runID}})
 	}
 
 	// Stage 1: Discovery — paths, project config, chat sources.
@@ -721,7 +743,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		if saveErr := rctx.savePrunedState(); saveErr != nil {
 			logger.Warn("preflight state save failed", logging.Any("err", saveErr))
 		}
-		publishRunDone(opts.Events, dr.projectName, 0, 0, 0)
+		publishRunDone(opts.Events, dr.projectName, runID, 0, 0, 0)
 		return Result{
 			ProviderID:      dr.providerID,
 			SourcesAnalyzed: 0,
@@ -733,23 +755,24 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	// Stage 4: Analysis — provider, toolchain, orchestrator.
-	ar, err := runAnalysis(ctx, opts, dr, tr, rctx, currentState, logger)
+	ar, err := runAnalysis(ctx, opts, dr, tr, rctx, currentState, runID, logger)
 	if err != nil {
 		return Result{}, err
 	}
 	defer func() { _ = ar.provider.Close() }()
 
 	// Stage 5: Output and persistence.
-	return runOutputAndPersist(opts, dr, ar, tr, rctx, cr.cacheKeys, repoHeadSHA, runStart, logger)
+	return runOutputAndPersist(opts, dr, ar, tr, rctx, cr.cacheKeys, repoHeadSHA, runStart, runID, logger)
 }
 
 // publishRunDone is a nil-safe helper for the run.done event payload.
-func publishRunDone(bus *EventBus, project string, findingsNew, sources, messages int) {
+func publishRunDone(bus *EventBus, project, runID string, findingsNew, sources, messages int) {
 	if bus == nil {
 		return
 	}
 	bus.Publish(Event{Type: EventRunDone, Payload: map[string]any{
 		"project":      project,
+		"run_id":       runID,
 		"findings_new": findingsNew,
 		"sources":      sources,
 		"messages":     messages,

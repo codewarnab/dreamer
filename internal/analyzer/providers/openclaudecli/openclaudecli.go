@@ -108,6 +108,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		env:        p.options.Env,
 		workingDir: wd,
 		systemMsg:  strings.TrimSpace(sessionConfig.SystemMessage),
+		runID:      sessionConfig.RunID,
 	}, nil
 }
 
@@ -118,6 +119,7 @@ type session struct {
 	env        map[string]string
 	workingDir string
 	systemMsg  string
+	runID      string
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -153,7 +155,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	go func() {
 		defer stdin.Close()
-		body := chat.PrependMarker(prompt)
+		body := chat.PrependMarker(prompt, s.runID)
 		if s.systemMsg != "" {
 			body = s.systemMsg + "\n\n" + body
 		}

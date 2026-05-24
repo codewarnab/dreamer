@@ -125,9 +125,9 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 				fmt.Errorf("unable to create Copilot session with requested model %q (%v) and SDK auto-model fallback (%w)", requestedModel, err, fallbackErr),
 			)
 		}
-		return &copilotSession{session: fallback}, nil
+		return &copilotSession{session: fallback, runID: sessionConfig.RunID}, nil
 	}
-	return &copilotSession{session: session}, nil
+	return &copilotSession{session: session, runID: sessionConfig.RunID}, nil
 }
 
 func (p *provider) Close() error {
@@ -139,6 +139,7 @@ func (p *provider) Close() error {
 
 type copilotSession struct {
 	session sdkSession
+	runID   string
 }
 
 func (s *copilotSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -150,7 +151,7 @@ func (s *copilotSession) Run(ctx context.Context, prompt string, timeout time.Du
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	event, err := s.session.SendAndWait(ctx, copilot.MessageOptions{Prompt: chat.PrependMarker(prompt)})
+	event, err := s.session.SendAndWait(ctx, copilot.MessageOptions{Prompt: chat.PrependMarker(prompt, s.runID)})
 	if err != nil {
 		return "", fmt.Errorf("run copilot-sdk prompt: Copilot request failed; verify authentication and connectivity: %w", err)
 	}
@@ -223,7 +224,7 @@ func buildSessionConfig(model string, sessionConfig analyzer.SessionConfig) *cop
 	wd := strings.TrimSpace(sessionConfig.WorkingDirectory)
 	systemMessage := sessionConfig.SystemMessage
 	if strings.TrimSpace(systemMessage) == "" {
-		systemMessage = analyzer.BuildReadOnlySystemMessage(wd)
+		systemMessage = analyzer.BuildReadOnlySystemMessage(wd, sessionConfig.RunID)
 	}
 	return &copilot.SessionConfig{
 		Model:               strings.TrimSpace(model),

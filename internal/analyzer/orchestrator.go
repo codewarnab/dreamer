@@ -71,6 +71,7 @@ type PhaseRequest struct {
 	PrimaryLinter     string
 	TestFramework     string
 	CodebaseContext   string
+	RunID             string // injected into grounding preamble for transcript correlation
 	DryRun            bool
 	StrictLintRules   bool
 	LintRuleValidator LintRuleValidator

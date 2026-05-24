@@ -40,7 +40,7 @@ No lint target is wired in; use `go vet ./...` and `gofmt -w .` directly.
 ### Command layer (`cmd/`)
 
 Cobra commands registered in `cmd/root.go`:
-- `analyze` — one-shot analysis for one project (`--project` required).
+- `analyze` — one-shot analysis for one project (`--path` required).
 - `daemon` — periodic analysis of all configured projects on `daemon.frequency_seconds`. Uses `signal.NotifyContext` for graceful shutdown. v1.5: also spawns the embedded web server.
 - `setup` — interactive TUI wizard (v1.5) that writes `config.yaml` directly (overwrites; YAML comments dropped — Open Issue I6). Replaces the removed `config init`.
 - `add [path]` — append a project to `config.yaml` (v1.5). Preserves comments via the yaml.v3 Node API; rejects duplicates by name or path.
