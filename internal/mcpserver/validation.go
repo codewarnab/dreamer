@@ -12,6 +12,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -29,7 +31,16 @@ var ValidCategories = map[string]bool{
 	"refactor-boundary": true,
 }
 
-// Field length caps. Findings that exceed these limits bloat todos.md and
+// sortedValidCategories returns the valid category names in sorted order
+// for use in error messages. Computed once from ValidCategories.
+var sortedValidCategories = func() string {
+	keys := make([]string, 0, len(ValidCategories))
+	for k := range ValidCategories {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}()
 // usually indicate the model dumped an entire transcript into one field.
 // Each cap is chosen to be comfortably larger than any legitimate use.
 const (
@@ -138,7 +149,7 @@ func ValidateFinding(f *FindingInput) error {
 		return newValidationError("category is required")
 	}
 	if !ValidCategories[f.Category] {
-		return newValidationError("invalid category %q (valid: lint-rule, test, ci-check, doc, config, refactor-boundary)", f.Category)
+		return newValidationError("invalid category %q (valid: %s)", f.Category, sortedValidCategories)
 	}
 	if f.Mistake == "" {
 		return newValidationError("mistake is required")
@@ -191,29 +202,65 @@ type FindingRecorder struct {
 	sanitize FindingSanitizer
 }
 
+// hasPathPrefix reports whether p is a child of (or equal to) root,
+// using case-insensitive comparison on Windows to handle C:\ vs c:\.
+func hasPathPrefix(p, root string) bool {
+	sep := string(os.PathSeparator)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(p, root) || strings.HasPrefix(p, root+sep)
+	}
+	return p == root || strings.HasPrefix(p, root+sep)
+}
+
 // ValidateOutputPath checks that the given path is safe for writing findings.
-// The path must be absolute and live under os.TempDir(). Symlinks are rejected.
-// This prevents prompt-injected transcripts from targeting arbitrary files
-// (e.g. ~/.ssh/authorized_keys) via the --output flag.
+// The path must be absolute and live under os.TempDir(). Symlinks are rejected
+// anywhere in the ancestor chain. This prevents prompt-injected transcripts
+// from targeting arbitrary files (e.g. ~/.ssh/authorized_keys) via the --output flag.
 func ValidateOutputPath(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("output path must be absolute, got %q", path)
 	}
-	// Clean to resolve .. components before prefix check.
+	// Resolve symlinks on the temp dir to get the real root.
+	tmpDir, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		return fmt.Errorf("resolve temp dir: %w", err)
+	}
+	tmpDir = filepath.Clean(tmpDir)
+	// Walk ancestors from the target upward, resolving symlinks at each
+	// level so a symlinked parent pointing outside tmpDir is caught.
+	// This mirrors the approach in internal/web/apply/apply.go.
 	cleaned := filepath.Clean(path)
-	tmpDir := filepath.Clean(os.TempDir())
-	if !strings.HasPrefix(cleaned, tmpDir+string(os.PathSeparator)) && cleaned != tmpDir {
-		return fmt.Errorf("output path %q must be under temp directory %q", path, tmpDir)
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		if !hasPathPrefix(resolved, tmpDir) {
+			return fmt.Errorf("output path %q resolves to %q, outside temp directory %q", path, resolved, tmpDir)
+		}
+		return nil // resolved path is under tmpDir; symlinks resolved
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("resolve output path %q: %w", path, err)
 	}
-	// Reject symlinks — both the file itself and its parent directory.
-	if info, err := os.Lstat(cleaned); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("output path %q is a symlink", path)
+	// File doesn't exist yet — walk ancestors to find the deepest existing
+	// directory and verify symlinks aren't used to escape.
+	parent := cleaned
+	var trail []string
+	for {
+		next := filepath.Dir(parent)
+		if next == parent {
+			break
+		}
+		if resolved, rerr := filepath.EvalSymlinks(parent); rerr == nil {
+			resolved = filepath.Join(resolved, filepath.Join(trail...))
+			if !hasPathPrefix(resolved, tmpDir) {
+				return fmt.Errorf("output path %q has parent symlink resolving outside temp: %q", path, resolved)
+			}
+			return nil
+		} else if !errors.Is(rerr, os.ErrNotExist) {
+			return fmt.Errorf("resolve ancestor %q: %w", parent, rerr)
+		}
+		trail = append([]string{filepath.Base(parent)}, trail...)
+		parent = next
 	}
-	parent := filepath.Dir(cleaned)
-	if info, err := os.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("parent directory of output path %q is a symlink", path)
-	}
-	return nil
+	// No existing ancestor found (shouldn't happen since os.TempDir() exists).
+	return fmt.Errorf("output path %q has no existing ancestor directory", path)
 }
 
 // NewFindingRecorder creates a recorder that appends to the given path.
