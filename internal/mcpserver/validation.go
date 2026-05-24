@@ -249,14 +249,14 @@ func ValidateOutputPath(path string) error {
 		if next == parent {
 			break
 		}
-		if resolved, rerr := filepath.EvalSymlinks(parent); rerr == nil {
+		if resolved, resolveErr := filepath.EvalSymlinks(parent); resolveErr == nil {
 			resolved = filepath.Join(resolved, filepath.Join(trail...))
 			if !hasPathPrefix(resolved, tmpDir) {
 				return fmt.Errorf("output path %q has parent symlink resolving outside temp: %q", path, resolved)
 			}
 			return nil
-		} else if !errors.Is(rerr, os.ErrNotExist) {
-			return fmt.Errorf("resolve ancestor %q: %w", parent, rerr)
+		} else if !errors.Is(resolveErr, os.ErrNotExist) {
+			return fmt.Errorf("resolve ancestor %q: %w", parent, resolveErr)
 		}
 		trail = append([]string{filepath.Base(parent)}, trail...)
 		parent = next

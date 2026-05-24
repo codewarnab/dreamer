@@ -150,7 +150,7 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	// Re-evaluate symlinks on rev.Path so a parent dir swapped into a
 	// symlink between apply and undo still gets caught by containment.
 	cleanPath := rev.Path
-	if resolved, rerr := filepath.EvalSymlinks(rev.Path); rerr == nil {
+	if resolved, resolveErr := filepath.EvalSymlinks(rev.Path); resolveErr == nil {
 		cleanPath = resolved
 	}
 	if !strings.HasPrefix(cleanPath, absRoot+string(filepath.Separator)) && cleanPath != absRoot {
@@ -237,11 +237,11 @@ func resolveTargetUnderRoot(absRoot, targetFile string) (string, error) {
 			if next == parent {
 				break
 			}
-			if resolved, rerr := filepath.EvalSymlinks(parent); rerr == nil {
+			if resolved, resolveErr := filepath.EvalSymlinks(parent); resolveErr == nil {
 				abs = filepath.Join(resolved, filepath.Join(trail...))
 				break
-			} else if !errors.Is(rerr, os.ErrNotExist) {
-				return "", fmt.Errorf("resolve target ancestor %q: %w", parent, rerr)
+			} else if !errors.Is(resolveErr, os.ErrNotExist) {
+				return "", fmt.Errorf("resolve target ancestor %q: %w", parent, resolveErr)
 			}
 			trail = append([]string{filepath.Base(parent)}, trail...)
 			parent = next

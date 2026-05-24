@@ -317,12 +317,12 @@ func serializeToolInput(toolName string, input map[string]any) string {
 			return filePath
 		}
 	case "Grep", "grep":
-		if filePath, ok := input["pattern"].(string); ok {
-			return filePath
+		if pattern, ok := input["pattern"].(string); ok {
+			return pattern
 		}
 	case "Glob", "glob":
-		if filePath, ok := input["pattern"].(string); ok {
-			return filePath
+		if pattern, ok := input["pattern"].(string); ok {
+			return pattern
 		}
 	}
 

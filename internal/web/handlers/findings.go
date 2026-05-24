@@ -372,14 +372,14 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 		var diff string
 		q := r.URL.Query()
 		if q.Get("target_file") != "" && q.Get("snippet") != "" {
-			pre, post, _, perr := apply.Preview(apply.ApplyRequest{
+			pre, post, _, previewErr := apply.Preview(apply.ApplyRequest{
 				ProjectRoot: proj.Path,
 				TargetFile:  q.Get("target_file"),
 				Strategy:    q.Get("strategy"),
 				Anchor:      q.Get("anchor"),
 				Snippet:     q.Get("snippet"),
 			})
-			if perr == nil {
+			if previewErr == nil {
 				diff = unifiedDiff(string(pre), string(post))
 			}
 		}

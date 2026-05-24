@@ -243,22 +243,22 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		// under "# Options:".
 		"providerOptionsComment": func() string {
 			meta := analyzer.RegisteredProviderMeta()
-			var b strings.Builder
+			var builder strings.Builder
 			const perRow = 3
 			for i, m := range meta {
 				if i%perRow == 0 {
-					b.WriteString("#   ")
+					builder.WriteString("#   ")
 				}
-				b.WriteString(string(m.ID))
+				builder.WriteString(string(m.ID))
 				if i == len(meta)-1 {
-					b.WriteString("\n")
+					builder.WriteString("\n")
 				} else if (i+1)%perRow == 0 {
-					b.WriteString("\n")
+					builder.WriteString("\n")
 				} else {
-					b.WriteString(" | ")
+					builder.WriteString(" | ")
 				}
 			}
-			return b.String()
+			return builder.String()
 		},
 	})
 	tmpl, err := tmpl.Parse(configTemplate)
