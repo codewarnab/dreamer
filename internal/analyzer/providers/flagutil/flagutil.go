@@ -9,6 +9,35 @@ package flagutil
 
 import "strings"
 
+// ReadOnlyTools is the baseline tool list for Claude-family providers in
+// Phase 1 / read-only mode. Phase 2 MCP mode appends the record_finding
+// MCP tool on top of this set.
+var ReadOnlyTools = []string{"Read", "Grep", "Glob"}
+
+// CLIPhase2Tools is the tool list for the Bash-based CLI Phase 2 transport
+// (Bash is needed so the model can invoke dreamer record-finding).
+var CLIPhase2Tools = append(append([]string(nil), ReadOnlyTools...), "Bash")
+
+// InjectMCPFlags applies the standard MCP-mode mutation to a Claude-family
+// provider command slice: relaxes permission-mode from "plan" to "default",
+// injects --tools and --allowed-tools with the MCP tool names, and adds
+// --mcp-config. Returns the modified slice.
+func InjectMCPFlags(command []string, toolNames []string, configJSON string, validateFn func() error) ([]string, error) {
+	if validateFn != nil {
+		if err := validateFn(); err != nil {
+			return nil, err
+		}
+	}
+	toolList := strings.Join(toolNames, ",")
+	command = ReplaceFlag(command, "--permission-mode", "plan", "default")
+	if toolList != "" {
+		command = AppendToFlag(command, "--tools", toolList)
+		command = append(command, "--allowed-tools", toolList)
+	}
+	command = append(command, "--mcp-config", configJSON)
+	return command, nil
+}
+
 // splitEqualsForm reports whether arg has the shape `--flag=value` for the
 // given flag name, and if so returns the value portion. The leading sigil
 // (one or two dashes) is part of flagName.

@@ -42,7 +42,7 @@ func New(options Options) (analyzer.Provider, error) {
 		// passing it without --mcp-config is meaningless and the previous
 		// "--strict-mcp-config {}" form caused '{}' to be consumed as the
 		// positional prompt argument. We rely on --bare to keep MCP off.
-		command = []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--no-session-persistence"}
+			command = []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", strings.Join(flagutil.ReadOnlyTools, ","), "--bare", "--no-session-persistence"}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -68,6 +68,14 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if wd == "" {
 		return nil, errors.New("claude-cli: SessionConfig.WorkingDirectory is required")
 	}
+	// Validate Phase2 config unconditionally when set, regardless of mode,
+	// so misconfiguration is caught at the boundary rather than silently
+	// producing broken runs.
+	if sessionConfig.Phase2 != nil {
+		if err := sessionConfig.Phase2.Validate(); err != nil {
+			return nil, fmt.Errorf("claude-cli: phase 2 config: %w", err)
+		}
+	}
 	command := append([]string(nil), p.command...)
 	command = append(command, "--add-dir", wd)
 	model := strings.TrimSpace(sessionConfig.Model)
@@ -80,16 +88,15 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 
 	// MCP mode: inject --mcp-config, --allowed-tools, and relax permission-mode.
 	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeMCP {
-		if err := sessionConfig.Phase2.Validate(); err != nil {
+		var err error
+		command, err = flagutil.InjectMCPFlags(command,
+			sessionConfig.Phase2.MCP.ToolNames,
+			sessionConfig.Phase2.MCP.ConfigJSON,
+			nil, // already validated above
+		)
+		if err != nil {
 			return nil, fmt.Errorf("claude-cli: phase 2 config: %w", err)
 		}
-		toolList := strings.Join(sessionConfig.Phase2.MCP.ToolNames, ",")
-		command = flagutil.ReplaceFlag(command, "--permission-mode", "plan", "default")
-		if toolList != "" {
-			command = flagutil.AppendToFlag(command, "--tools", toolList)
-			command = append(command, "--allowed-tools", toolList)
-		}
-		command = append(command, "--mcp-config", sessionConfig.Phase2.MCP.ConfigJSON)
 	}
 
 	return &session{
