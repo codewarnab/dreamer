@@ -177,10 +177,10 @@ func parseProjectNameFromFindings(urlPath string) string {
 func buildFindingView(entry todosEntry, st *state.State, latestRunHashes map[string]bool) FindingView {
 	status := "open"
 	var findingState state.FindingState
-	var lifecycle bool
+	var hasLifecycleState bool
 	if st != nil {
-		findingState, lifecycle = st.Findings[entry.Hash]
-		if lifecycle && findingState.Status != "" {
+		findingState, hasLifecycleState = st.Findings[entry.Hash]
+		if hasLifecycleState && findingState.Status != "" {
 			status = findingState.Status
 		}
 	}
@@ -193,7 +193,7 @@ func buildFindingView(entry todosEntry, st *state.State, latestRunHashes map[str
 		LastSeenUTC: entry.RunTimestamp,
 	}
 
-	if lifecycle {
+	if hasLifecycleState {
 		if !findingState.AppliedAt.IsZero() {
 			view.AppliedAt = findingState.AppliedAt.UTC().Format(time.RFC3339)
 		}
@@ -250,7 +250,7 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 		// new run sections to the bottom). For dedupe by hash, we keep
 		// the most recent occurrence so LastSeenUTC reflects the latest
 		// run that mentioned the finding.
-		dedupe := map[string]int{}
+		seenHashes := map[string]int{}
 		out := make([]FindingView, 0, len(allEntries))
 		for _, entry := range allEntries {
 			view := buildFindingView(entry, st, latestRunHashes)
@@ -268,11 +268,11 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 
 			// Dedupe by hash; overwrite earlier (older) occurrences so
 			// LastSeenUTC reflects the most recent run mentioning it.
-			if i, seen := dedupe[view.Hash]; seen {
+			if i, seen := seenHashes[view.Hash]; seen {
 				out[i] = view
 				continue
 			}
-			dedupe[view.Hash] = len(out)
+			seenHashes[view.Hash] = len(out)
 			out = append(out, view)
 		}
 
@@ -299,18 +299,18 @@ func unifiedDiff(pre, post string) string {
 	if pre == post {
 		return ""
 	}
-	var b strings.Builder
-	for _, l := range strings.Split(pre, "\n") {
-		b.WriteString("- ")
-		b.WriteString(l)
-		b.WriteByte('\n')
+	var builder strings.Builder
+	for _, line := range strings.Split(pre, "\n") {
+		builder.WriteString("- ")
+		builder.WriteString(line)
+		builder.WriteByte('\n')
 	}
-	for _, l := range strings.Split(post, "\n") {
-		b.WriteString("+ ")
-		b.WriteString(l)
-		b.WriteByte('\n')
+	for _, line := range strings.Split(post, "\n") {
+		builder.WriteString("+ ")
+		builder.WriteString(line)
+		builder.WriteByte('\n')
 	}
-	return b.String()
+	return builder.String()
 }
 
 // FindingDetail handles GET /api/projects/{name}/findings/{hash}.
@@ -355,18 +355,18 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 		}
 		hashLower := strings.ToLower(hash)
 		// Take the most recent occurrence (file is oldest-first).
-		var found *todosEntry
+		var matchedEntry *todosEntry
 		for i := range allEntries {
 			if allEntries[i].Hash == hashLower {
 				e := allEntries[i]
-				found = &e
+				matchedEntry = &e
 			}
 		}
-		if found == nil {
+		if matchedEntry == nil {
 			http.NotFound(w, r)
 			return
 		}
-		view := buildFindingView(*found, st, latestRunHashes)
+		view := buildFindingView(*matchedEntry, st, latestRunHashes)
 
 		// Diff preview is opt-in via query params.
 		var diff string
@@ -393,7 +393,7 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			DiffPreview   string `json:"diff_preview,omitempty"`
 		}{
 			FindingView:   view,
-			ApplyEligible: apply.EligibleCategories[strings.ToLower(found.Category)],
+			ApplyEligible: apply.EligibleCategories[strings.ToLower(matchedEntry.Category)],
 			DiffPreview:   diff,
 		}
 		w.Header().Set("Content-Type", "application/json")

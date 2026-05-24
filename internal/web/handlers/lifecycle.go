@@ -18,12 +18,12 @@ import (
 type transition string
 
 const (
-	txApply     transition = "apply"
-	txUndo      transition = "undo"
-	txDismiss   transition = "dismiss"
-	txResolve   transition = "resolve"
-	txUndismiss transition = "undismiss"
-	txUnresolve transition = "unresolve"
+	transitionApply     transition = "apply"
+	transitionUndo      transition = "undo"
+	transitionDismiss   transition = "dismiss"
+	transitionResolve   transition = "resolve"
+	transitionUndismiss transition = "undismiss"
+	transitionUnresolve transition = "unresolve"
 )
 
 // applyRequest is the body the SPA POSTs for the /apply endpoint. The
@@ -43,7 +43,7 @@ type applyRequest struct {
 // parseProjectHashTransition extracts {name}, {hash}, {transition} from
 // /api/projects/{name}/findings/{hash}/{transition}. Returns empty
 // strings when the path shape is wrong.
-func parseProjectHashTransition(urlPath string) (name, hash, tx string) {
+func parseProjectHashTransition(urlPath string) (name, hash, transition string) {
 	parts := strings.Split(strings.Trim(urlPath, "/"), "/")
 	// Expect: api, projects, {name}, findings, {hash}, {transition}.
 	if len(parts) != 6 || parts[0] != "api" || parts[1] != "projects" || parts[3] != "findings" {
@@ -86,8 +86,8 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	n, h, tx := parseProjectHashTransition(r.URL.Path)
-	if n == "" || h == "" || transition(tx) != want {
+	name, hash, tx := parseProjectHashTransition(r.URL.Path)
+	if name == "" || hash == "" || transition(tx) != want {
 		http.NotFound(w, r)
 		return
 	}
@@ -96,21 +96,21 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		writeJSONError(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
-	p, found := findProject(appConfig, n)
+	proj, found := findProject(appConfig, name)
 	if !found {
 		http.NotFound(w, r)
 		return
 	}
-	s, err := state.Load(appConfig.Daemon.OutputRoot, n)
+	st, err := state.Load(appConfig.Daemon.OutputRoot, name)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s == nil {
+	if st == nil {
 		writeJSONError(w, http.StatusInternalServerError, "state unavailable")
 		return
 	}
-	return p, s, n, strings.ToLower(h), true
+	return proj, st, name, strings.ToLower(hash), true
 }
 
 // Apply handles POST /api/projects/{name}/findings/{hash}/apply.
@@ -121,7 +121,7 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 // finding.applied on the bus.
 func Apply(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, txApply)
+		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionApply)
 		if !ok {
 			return
 		}
@@ -191,7 +191,7 @@ func Apply(deps Deps) http.HandlerFunc {
 // target file's SHA-256 has drifted (operator edited it post-apply).
 func Undo(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUndo)
+		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUndo)
 		if !ok {
 			return
 		}
@@ -228,7 +228,7 @@ func Undo(deps Deps) http.HandlerFunc {
 // Dismiss handles POST /api/projects/{name}/findings/{hash}/dismiss.
 func Dismiss(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txDismiss)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionDismiss)
 		if !ok {
 			return
 		}
@@ -256,7 +256,7 @@ func Dismiss(deps Deps) http.HandlerFunc {
 // Resolve handles POST /api/projects/{name}/findings/{hash}/resolve.
 func Resolve(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txResolve)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionResolve)
 		if !ok {
 			return
 		}
@@ -285,7 +285,7 @@ func Resolve(deps Deps) http.HandlerFunc {
 // pool. No-op (still 200) when the entry is absent or not dismissed.
 func Undismiss(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUndismiss)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUndismiss)
 		if !ok {
 			return
 		}
@@ -316,7 +316,7 @@ func Undismiss(deps Deps) http.HandlerFunc {
 // Symmetric to Undismiss for resolved entries.
 func Unresolve(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUnresolve)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUnresolve)
 		if !ok {
 			return
 		}

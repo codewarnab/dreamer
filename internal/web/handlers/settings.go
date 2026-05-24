@@ -68,8 +68,8 @@ func sanitizeProviderSecrets(m map[string]any) {
 			continue
 		}
 		for k := range env {
-			uk := strings.ToUpper(k)
-			if strings.Contains(uk, "TOKEN") || strings.Contains(uk, "KEY") || strings.Contains(uk, "SECRET") || strings.Contains(uk, "PASSWORD") {
+			upperKey := strings.ToUpper(k)
+			if strings.Contains(upperKey, "TOKEN") || strings.Contains(upperKey, "KEY") || strings.Contains(upperKey, "SECRET") || strings.Contains(upperKey, "PASSWORD") {
 				env[k] = "***redacted***"
 			}
 		}
