@@ -2,10 +2,6 @@
   <img src="docs/assets/dreamer-eye.svg" alt="dreamer" width="550">
 </p>
 
-<p align="center">
-  <img src="docs/assets/dreamer-eye.svg" alt="dreamer" width="550">
-</p>
-
 `dreamer` is a single-binary Go CLI that discovers AI-assistant chat
 transcripts on disk, redacts secrets, runs them through a configurable
 provider (Copilot / Claude / Gemini / Kiro / Codex / OpenClaude / Codebuff /
