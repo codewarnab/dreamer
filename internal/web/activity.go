@@ -11,9 +11,9 @@ import (
 // pipeline events. The web dashboard reads a snapshot on first paint so
 // the live_activity panel hydrates without waiting for the SSE stream.
 type ActivityRing struct {
-	mu     sync.RWMutex
-	events []pipeline.Event
-	cap    int
+	mu       sync.RWMutex
+	events   []pipeline.Event
+	capacity int
 }
 
 // NewActivityRing returns a ring with the given capacity. A non-positive
@@ -22,16 +22,16 @@ func NewActivityRing(capacity int) *ActivityRing {
 	if capacity <= 0 {
 		capacity = 1
 	}
-	return &ActivityRing{cap: capacity}
+	return &ActivityRing{capacity: capacity}
 }
 
 // Push appends an event, evicting the oldest when the ring is full.
-func (a *ActivityRing) Push(e pipeline.Event) {
+func (a *ActivityRing) Push(event pipeline.Event) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.events = append(a.events, e)
-	if len(a.events) > a.cap {
-		a.events = a.events[len(a.events)-a.cap:]
+	a.events = append(a.events, event)
+	if len(a.events) > a.capacity {
+		a.events = a.events[len(a.events)-a.capacity:]
 	}
 }
 
@@ -53,11 +53,11 @@ func (a *ActivityRing) Bind(ctx context.Context, bus *pipeline.EventBus) {
 		select {
 		case <-ctx.Done():
 			return
-		case e, ok := <-ch:
+		case event, ok := <-ch:
 			if !ok {
 				return
 			}
-			a.Push(e)
+			a.Push(event)
 		}
 	}
 }

@@ -52,19 +52,19 @@ func Providers(deps Deps) http.HandlerFunc {
 			if err != nil || st == nil {
 				continue
 			}
-			for id, pu := range st.ProviderUsage {
+			for id, usage := range st.ProviderUsage {
 				agg := merged[id]
-				agg.Runs += pu.Runs
-				agg.TotalTokens += pu.TotalTokens
-				agg.Failures += pu.Failures
-				agg.Timeouts += pu.Timeouts
-				if pu.LastSuccessUTC.After(agg.LastSuccessUTC) {
-					agg.LastSuccessUTC = pu.LastSuccessUTC
+				agg.Runs += usage.Runs
+				agg.TotalTokens += usage.TotalTokens
+				agg.Failures += usage.Failures
+				agg.Timeouts += usage.Timeouts
+				if usage.LastSuccessUTC.After(agg.LastSuccessUTC) {
+					agg.LastSuccessUTC = usage.LastSuccessUTC
 					// Last-success wins: clear any stale error from a prior
 					// failing run on a different project.
-					agg.LastError = pu.LastError
-				} else if agg.LastSuccessUTC.IsZero() && pu.LastError != "" {
-					agg.LastError = pu.LastError
+					agg.LastError = usage.LastError
+				} else if agg.LastSuccessUTC.IsZero() && usage.LastError != "" {
+					agg.LastError = usage.LastError
 				}
 				merged[id] = agg
 			}
@@ -72,7 +72,7 @@ func Providers(deps Deps) http.HandlerFunc {
 
 		now := time.Now().UTC()
 		out := providersResponse{Providers: make([]ProviderHealth, 0, len(merged))}
-		for id, pu := range merged {
+		for id, usage := range merged {
 			model := ""
 			if cfg.Providers != nil {
 				model = cfg.Providers[id].Model
@@ -81,22 +81,22 @@ func Providers(deps Deps) http.HandlerFunc {
 				model = config.DefaultModelByProvider[config.ProviderID(id)]
 			}
 			lastSuccess := ""
-			if !pu.LastSuccessUTC.IsZero() {
-				lastSuccess = pu.LastSuccessUTC.UTC().Format(time.RFC3339)
+			if !usage.LastSuccessUTC.IsZero() {
+				lastSuccess = usage.LastSuccessUTC.UTC().Format(time.RFC3339)
 			}
-			healthy := pu.LastError == "" &&
-				pu.Runs > 0 &&
-				!pu.LastSuccessUTC.IsZero() &&
-				now.Sub(pu.LastSuccessUTC.UTC()) < providerHealthWindow
+			healthy := usage.LastError == "" &&
+				usage.Runs > 0 &&
+				!usage.LastSuccessUTC.IsZero() &&
+				now.Sub(usage.LastSuccessUTC.UTC()) < providerHealthWindow
 			out.Providers = append(out.Providers, ProviderHealth{
 				ID:             id,
 				Model:          model,
-				Runs:           pu.Runs,
-				TotalTokens:    pu.TotalTokens,
+				Runs:           usage.Runs,
+				TotalTokens:    usage.TotalTokens,
 				LastSuccessUTC: lastSuccess,
-				LastError:      pu.LastError,
-				Failures:       pu.Failures,
-				Timeouts:       pu.Timeouts,
+				LastError:      usage.LastError,
+				Failures:       usage.Failures,
+				Timeouts:       usage.Timeouts,
 				Healthy:        healthy,
 			})
 		}

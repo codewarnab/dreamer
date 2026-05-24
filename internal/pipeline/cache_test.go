@@ -11,13 +11,13 @@ import (
 	"dreamer/internal/state"
 )
 
-func priorRunState() time.Time {
+func priorRunTime() time.Time {
 	return time.Date(2026, 5, 16, 12, 0, 0, 0, time.UTC)
 }
 
 func TestCacheUnchangedReturnsTrueForMatchingHashesAndRepo(t *testing.T) {
 	current := &state.State{
-		LastRunUTC:  priorRunState(),
+		LastRunUTC:  priorRunTime(),
 		RepoHeadSHA: "abc123",
 		ChatHashes: map[string]string{
 			"a.jsonl": "hash-a",
@@ -37,7 +37,7 @@ func TestCacheUnchangedReturnsTrueForMatchingHashesAndRepo(t *testing.T) {
 
 func TestCacheUnchangedReturnsFalseForHashDrift(t *testing.T) {
 	current := &state.State{
-		LastRunUTC:  priorRunState(),
+		LastRunUTC:  priorRunTime(),
 		RepoHeadSHA: "abc123",
 		ChatHashes:  map[string]string{"a.jsonl": "old-hash"},
 	}
@@ -49,7 +49,7 @@ func TestCacheUnchangedReturnsFalseForHashDrift(t *testing.T) {
 
 func TestCacheUnchangedReturnsFalseForRepoDrift(t *testing.T) {
 	current := &state.State{
-		LastRunUTC:  priorRunState(),
+		LastRunUTC:  priorRunTime(),
 		RepoHeadSHA: "abc123",
 		ChatHashes:  map[string]string{"a.jsonl": "hash-a"},
 	}
@@ -73,7 +73,7 @@ func TestCacheUnchangedTrueForEmptyVsEmptyAfterPriorRun(t *testing.T) {
 	// before is a legitimate cache hit. Without this, preflight skip
 	// re-walks discovery on every subsequent daemon tick.
 	current := &state.State{
-		LastRunUTC:  priorRunState(),
+		LastRunUTC:  priorRunTime(),
 		RepoHeadSHA: "abc123",
 		ChatHashes:  map[string]string{},
 	}
@@ -242,7 +242,7 @@ func TestPruneProviderUsageRespectsTTL(t *testing.T) {
 
 func TestForceBypassesCacheDecisionInCaller(t *testing.T) {
 	current := &state.State{
-		LastRunUTC:  priorRunState(),
+		LastRunUTC:  priorRunTime(),
 		RepoHeadSHA: "abc123",
 		ChatHashes:  map[string]string{"a.jsonl": "hash-a"},
 	}

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	id             = "codebuff-sdk"
+	ID             = "codebuff-sdk"
 	defaultModel   = "claude-opus-4-7"
 	defaultBaseURL = "https://codebuff.com/api/v1"
 )
@@ -107,7 +107,7 @@ type provider struct {
 	closed  bool
 }
 
-func (p *provider) ID() string { return id }
+func (p *provider) ID() string { return ID }
 
 func (p *provider) Start(ctx context.Context) error {
 	p.mu.Lock()
@@ -117,7 +117,7 @@ func (p *provider) Start(ctx context.Context) error {
 	}
 
 	if err := p.healthCheck(ctx); err != nil {
-		return errs.ProviderUnavailable(id, "start", fmt.Errorf(
+		return errs.ProviderUnavailable(ID, "start", fmt.Errorf(
 			"cannot reach Codebuff API at %s: %w. Check your API key and network connectivity.", p.baseURL, err))
 	}
 	p.started = true
@@ -217,7 +217,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		b, _ := io.ReadAll(resp.Body)
 		responseBody := string(b)
 		if transport.IsRateLimitMessage(responseBody) {
-			return "", errs.RateLimit(id, "session/prompt", 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, responseBody))
+			return "", errs.RateLimit(ID, "session/prompt", 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, responseBody))
 		}
 		return "", fmt.Errorf("codebuff-sdk: HTTP %d: %s", resp.StatusCode, responseBody)
 	}

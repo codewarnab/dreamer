@@ -124,8 +124,8 @@ func probeJSONLForCWD(path string, maxLines int, extract func(record map[string]
 			continue
 		}
 
-		if path := extract(record); path != "" {
-			return path, true
+		if extractedDir := extract(record); extractedDir != "" {
+			return extractedDir, true
 		}
 	}
 

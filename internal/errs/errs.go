@@ -37,17 +37,17 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	var sb strings.Builder
+	var msgBuilder strings.Builder
 	if e.Provider != "" && e.Op != "" {
-		fmt.Fprintf(&sb, "[%s:%s] ", e.Provider, e.Op)
+		fmt.Fprintf(&msgBuilder, "[%s:%s] ", e.Provider, e.Op)
 	} else if e.Op != "" {
-		fmt.Fprintf(&sb, "[%s] ", e.Op)
+		fmt.Fprintf(&msgBuilder, "[%s] ", e.Op)
 	}
-	fmt.Fprintf(&sb, "%s: %s", e.Kind, e.Message)
+	fmt.Fprintf(&msgBuilder, "%s: %s", e.Kind, e.Message)
 	if e.Cause != nil {
-		fmt.Fprintf(&sb, ": %v", e.Cause)
+		fmt.Fprintf(&msgBuilder, ": %v", e.Cause)
 	}
-	return sb.String()
+	return msgBuilder.String()
 }
 
 func (e *Error) Unwrap() error { return e.Cause }

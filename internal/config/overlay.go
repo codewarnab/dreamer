@@ -103,10 +103,10 @@ func mergeOverlay(base, overlay *Config) {
 		if base.Providers == nil {
 			base.Providers = map[string]ProviderBlock{}
 		}
-		for k, v := range overlay.Providers {
-			existing := base.Providers[k]
-			mergeProviderBlock(&existing, &v)
-			base.Providers[k] = existing
+		for providerID, block := range overlay.Providers {
+			existing := base.Providers[providerID]
+			mergeProviderBlock(&existing, &block)
+			base.Providers[providerID] = existing
 		}
 	}
 	mergeAnalyzer(&base.Analyzer, &overlay.Analyzer)

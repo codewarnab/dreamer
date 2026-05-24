@@ -175,26 +175,26 @@ func hardSplit(b ProviderBlock, budget int, startIndex int, sinceLabel string) (
 
 	startChunk()
 	for _, m := range b.Messages {
-		mb := len(m)
-		if mb == 0 {
+		msgBytes := len(m)
+		if msgBytes == 0 {
 			continue
 		}
 		// Single message bigger than budget: emit it on its own chunk.
-		if mb+headerBytes > budget {
+		if msgBytes+headerBytes > budget {
 			emit()
 			sb.WriteString(header)
 			sb.WriteString(m)
-			curBytes = headerBytes + mb
+			curBytes = headerBytes + msgBytes
 			emit()
 			startChunk()
 			continue
 		}
-		if curBytes+mb > budget {
+		if curBytes+msgBytes > budget {
 			emit()
 			startChunk()
 		}
 		sb.WriteString(m)
-		curBytes += mb
+		curBytes += msgBytes
 	}
 	emit()
 

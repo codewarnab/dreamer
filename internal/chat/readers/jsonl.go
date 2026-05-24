@@ -190,8 +190,8 @@ func roleFromRecord(record map[string]any) string {
 	return ""
 }
 
-func rawRole(value any) string {
-	switch typed := value.(type) {
+func rawRole(roleCandidate any) string {
+	switch typed := roleCandidate.(type) {
 	case string:
 		return typed
 	case map[string]any:

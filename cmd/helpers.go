@@ -78,16 +78,16 @@ func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.Config) {
 // printBox renders a Unicode box around the given lines.
 func printBox(cmd *cobra.Command, lines []string) {
 	maxLen := 0
-	for _, l := range lines {
-		if len(l) > maxLen {
-			maxLen = len(l)
+	for _, line := range lines {
+		if len(line) > maxLen {
+			maxLen = len(line)
 		}
 	}
-	w := maxLen + 4 // padding inside the box
+	boxWidth := maxLen + 4 // padding inside the box
 
-	cmd.Printf("╔%s╗\n", strings.Repeat("═", w))
-	for _, l := range lines {
-		cmd.Printf("║  %-*s  ║\n", maxLen, l)
+	cmd.Printf("╔%s╗\n", strings.Repeat("═", boxWidth))
+	for _, line := range lines {
+		cmd.Printf("║  %-*s  ║\n", maxLen, line)
 	}
-	cmd.Printf("╚%s╝\n", strings.Repeat("═", w))
+	cmd.Printf("╚%s╝\n", strings.Repeat("═", boxWidth))
 }

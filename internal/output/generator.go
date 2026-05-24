@@ -80,11 +80,11 @@ func MergeTodos(projectName, existingContent string, findings []analyzer.Finding
 	existingHashes := extractExistingFindingHashes(existingContent)
 	newFindings := filterNewFindings(findings, existingHashes)
 
-	now := opts.Now
-	if now == nil {
-		now = time.Now
+	timeSource := opts.Now
+	if timeSource == nil {
+		timeSource = time.Now
 	}
-	runAt := now().UTC()
+	runAt := timeSource().UTC()
 
 	var sections []string
 	if len(newFindings) > 0 {
@@ -364,8 +364,8 @@ func mergeContent(existing string, header string, sections []string) string {
 }
 
 func projectTitle(projectName string, override string) string {
-	if t := strings.TrimSpace(override); t != "" {
-		return "# dreamer todos — " + t
+	if trimmedTitle := strings.TrimSpace(override); trimmedTitle != "" {
+		return "# dreamer todos — " + trimmedTitle
 	}
 	return "# dreamer todos — " + projectName
 }

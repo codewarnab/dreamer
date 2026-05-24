@@ -64,9 +64,9 @@ func newStatusCommand() *cobra.Command {
 // filterStatus returns a copy of status with only jobs matching the given project name.
 func filterStatus(status jobqueue.QueueStatus, project string) jobqueue.QueueStatus {
 	var filtered []*jobqueue.Job
-	for _, j := range status.Jobs {
-		if j.Project == project {
-			filtered = append(filtered, j)
+	for _, job := range status.Jobs {
+		if job.Project == project {
+			filtered = append(filtered, job)
 		}
 	}
 	status.Jobs = filtered
@@ -78,13 +78,13 @@ func filterStatus(status jobqueue.QueueStatus, project string) jobqueue.QueueSta
 func filterRecent(status jobqueue.QueueStatus, maxAge time.Duration) jobqueue.QueueStatus {
 	cutoff := time.Now().UTC().Add(-maxAge)
 	var filtered []*jobqueue.Job
-	for _, j := range status.Jobs {
-		if !j.Status.IsTerminal() {
-			filtered = append(filtered, j)
+	for _, job := range status.Jobs {
+		if !job.Status.IsTerminal() {
+			filtered = append(filtered, job)
 			continue
 		}
-		if j.FinishedAt != nil && j.FinishedAt.After(cutoff) {
-			filtered = append(filtered, j)
+		if job.FinishedAt != nil && job.FinishedAt.After(cutoff) {
+			filtered = append(filtered, job)
 		}
 	}
 	status.Jobs = filtered
@@ -100,8 +100,8 @@ func recount(status jobqueue.QueueStatus) jobqueue.QueueStatus {
 	status.Failed = 0
 	status.TimedOut = 0
 	status.Cancelled = 0
-	for _, j := range status.Jobs {
-		switch j.Status {
+	for _, job := range status.Jobs {
+		switch job.Status {
 		case jobqueue.StatusRunning:
 			status.Running++
 		case jobqueue.StatusPending:
@@ -139,53 +139,53 @@ func printStatusTable(cmd *cobra.Command, status jobqueue.QueueStatus) {
 		jobqueue.StatusTimedOut:  {},
 		jobqueue.StatusCancelled: {},
 	}
-	for _, j := range status.Jobs {
-		groups[j.Status] = append(groups[j.Status], j)
+	for _, job := range status.Jobs {
+		groups[job.Status] = append(groups[job.Status], job)
 	}
 
 	if jobs := groups[jobqueue.StatusRunning]; len(jobs) > 0 {
 		cmd.Println("RUNNING")
-		for _, j := range jobs {
+		for _, job := range jobs {
 			elapsed := ""
 			started := "-"
-			if j.StartedAt != nil {
-				elapsed = time.Since(*j.StartedAt).Truncate(time.Minute).String()
-				started = j.StartedAt.Format("15:04")
+			if job.StartedAt != nil {
+				elapsed = time.Since(*job.StartedAt).Truncate(time.Minute).String()
+				started = job.StartedAt.Format("15:04")
 			}
 			cmd.Printf("  %-20s  started %s  elapsed %-8s  provider %-15s findings: %d\n",
-				j.Project, started, elapsed, j.Provider, j.FindingsAdded)
+				job.Project, started, elapsed, job.Provider, job.FindingsAdded)
 		}
 		cmd.Println()
 	}
 
 	if jobs := groups[jobqueue.StatusPending]; len(jobs) > 0 {
 		cmd.Println("PENDING")
-		for _, j := range jobs {
+		for _, job := range jobs {
 			cmd.Printf("  %-20s  enqueued %s  provider %s\n",
-				j.Project, j.EnqueuedAt.Format("15:04"), j.Provider)
+				job.Project, job.EnqueuedAt.Format("15:04"), job.Provider)
 		}
 		cmd.Println()
 	}
 
-	terminal := make([]*jobqueue.Job, 0)
-	terminal = append(terminal, groups[jobqueue.StatusCompleted]...)
-	terminal = append(terminal, groups[jobqueue.StatusFailed]...)
-	terminal = append(terminal, groups[jobqueue.StatusTimedOut]...)
-	terminal = append(terminal, groups[jobqueue.StatusCancelled]...)
-	if len(terminal) > 0 {
+	finishedJobs := make([]*jobqueue.Job, 0)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusCompleted]...)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusFailed]...)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusTimedOut]...)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusCancelled]...)
+	if len(finishedJobs) > 0 {
 		cmd.Println("COMPLETED")
-		for _, j := range terminal {
+		for _, job := range finishedJobs {
 			finished := ""
-			if j.FinishedAt != nil {
-				finished = j.FinishedAt.Format("15:04")
+			if job.FinishedAt != nil {
+				finished = job.FinishedAt.Format("15:04")
 			}
-			dur := j.Duration.Truncate(time.Minute).String()
+			dur := job.Duration.Truncate(time.Minute).String()
 			extra := ""
-			if j.Error != "" {
-				extra = "  error: " + j.Error
+			if job.Error != "" {
+				extra = "  error: " + job.Error
 			}
 			cmd.Printf("  %-20s  %-10s %s  duration %-8s  findings: %d%s\n",
-				j.Project, j.Status, finished, dur, j.FindingsAdded, extra)
+				job.Project, job.Status, finished, dur, job.FindingsAdded, extra)
 		}
 	}
 
@@ -229,20 +229,20 @@ func printStatusJSON(cmd *cobra.Command, status jobqueue.QueueStatus) error {
 		Cancelled: status.Cancelled,
 		Jobs:      make([]jsonJob, 0, len(status.Jobs)),
 	}
-	for _, j := range status.Jobs {
+	for _, job := range status.Jobs {
 		out.Jobs = append(out.Jobs, jsonJob{
-			ID:            j.ID,
-			Project:       j.Project,
-			Status:        string(j.Status),
-			EnqueuedAt:    j.EnqueuedAt,
-			StartedAt:     j.StartedAt,
-			FinishedAt:    j.FinishedAt,
-			Duration:      j.Duration,
-			Error:         j.Error,
-			FindingsAdded: j.FindingsAdded,
-			MessagesRead:  j.MessagesRead,
-			SourcesCount:  j.SourcesCount,
-			Provider:      j.Provider,
+			ID:            job.ID,
+			Project:       job.Project,
+			Status:        string(job.Status),
+			EnqueuedAt:    job.EnqueuedAt,
+			StartedAt:     job.StartedAt,
+			FinishedAt:    job.FinishedAt,
+			Duration:      job.Duration,
+			Error:         job.Error,
+			FindingsAdded: job.FindingsAdded,
+			MessagesRead:  job.MessagesRead,
+			SourcesCount:  job.SourcesCount,
+			Provider:      job.Provider,
 		})
 	}
 

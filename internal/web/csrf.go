@@ -42,8 +42,8 @@ func CSRFMiddleware(token string, next http.Handler) http.Handler {
 			http.Error(w, "Origin or Referer required", http.StatusForbidden)
 			return
 		}
-		u, err := url.Parse(origin)
-		if err != nil || !isLoopbackHost(u.Hostname()) {
+		parsedOrigin, err := url.Parse(origin)
+		if err != nil || !isLoopbackHost(parsedOrigin.Hostname()) {
 			http.Error(w, "non-loopback Origin", http.StatusForbidden)
 			return
 		}
@@ -51,11 +51,11 @@ func CSRFMiddleware(token string, next http.Handler) http.Handler {
 	})
 }
 
-func isLoopbackHost(h string) bool {
+func isLoopbackHost(hostname string) bool {
 	// Empty hostname comes from non-http schemes like file://, data:,
 	// and the literal Origin: null; treat those as non-loopback so a
 	// sandboxed iframe or non-browser caller cannot bypass the check.
-	switch h {
+	switch hostname {
 	case "127.0.0.1", "localhost", "::1":
 		return true
 	}

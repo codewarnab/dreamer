@@ -173,13 +173,13 @@ func resolveSymlinksAllowingMissing(abs string) (string, error) {
 	}
 
 	tail := []string{}
-	cur := abs
+	currentPath := abs
 	for {
-		parent := filepath.Dir(cur)
-		if parent == cur {
+		parent := filepath.Dir(currentPath)
+		if parent == currentPath {
 			return abs, nil
 		}
-		base := filepath.Base(cur)
+		base := filepath.Base(currentPath)
 		tail = append([]string{base}, tail...)
 		resolvedParent, err := filepath.EvalSymlinks(parent)
 		if err == nil {
@@ -192,7 +192,7 @@ func resolveSymlinksAllowingMissing(abs string) (string, error) {
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", fmt.Errorf("resolve symlinks for ancestor %q of %q: %w", parent, abs, err)
 		}
-		cur = parent
+		currentPath = parent
 	}
 }
 

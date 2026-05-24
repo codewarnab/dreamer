@@ -64,41 +64,41 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 		return nil, err
 	}
 
-	pre, err := readPreImage(abs)
+	preImage, err := readPreImage(abs)
 	if err != nil {
 		return nil, err
 	}
 
-	post, actualStrategy, err := transform(string(pre), req.Strategy, req.Anchor, req.Snippet)
+	postImage, actualStrategy, err := transform(string(preImage), req.Strategy, req.Anchor, req.Snippet)
 	if err != nil {
 		return nil, err
 	}
-	if len(post) > MaxApplyTargetBytes {
-		return nil, fmt.Errorf("%w (post-image %d bytes)", ErrTargetTooLarge, len(post))
+	if len(postImage) > MaxApplyTargetBytes {
+		return nil, fmt.Errorf("%w (post-image %d bytes)", ErrTargetTooLarge, len(postImage))
 	}
 
 	if err := os.MkdirAll(filepath.Dir(abs), fsutil.DirPerms); err != nil {
 		return nil, fmt.Errorf("mkdir target parent: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(abs, []byte(post), fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(abs, []byte(postImage), fsutil.FilePerms); err != nil {
 		return nil, fmt.Errorf("write target: %w", err)
 	}
 
-	preHash := sha256.Sum256(pre)
-	postHash := sha256.Sum256([]byte(post))
+	preHash := sha256.Sum256(preImage)
+	postHash := sha256.Sum256([]byte(postImage))
 	return &state.FindingReversal{
 		Path:            abs,
 		Strategy:        actualStrategy,
 		PreImageSHA256:  hex.EncodeToString(preHash[:]),
 		PostImageSHA256: hex.EncodeToString(postHash[:]),
-		PreImage:        string(pre),
+		PreImage:        string(preImage),
 	}, nil
 }
 
 // Preview returns the pre- and post-image bytes that Apply would write,
 // without performing any write or recording a reversal. The same
 // containment, symlink, and size checks as Apply are enforced.
-func Preview(req ApplyRequest) (pre []byte, post []byte, finalStrategy string, err error) {
+func Preview(req ApplyRequest) (preImage []byte, postImage []byte, finalStrategy string, err error) {
 	absRoot, err := filepath.EvalSymlinks(req.ProjectRoot)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
@@ -107,15 +107,15 @@ func Preview(req ApplyRequest) (pre []byte, post []byte, finalStrategy string, e
 	if err != nil {
 		return nil, nil, "", err
 	}
-	pre, err = readPreImage(abs)
+	preImage, err = readPreImage(abs)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	postStr, finalStrategy, err := transform(string(pre), req.Strategy, req.Anchor, req.Snippet)
+	postStr, finalStrategy, err := transform(string(preImage), req.Strategy, req.Anchor, req.Snippet)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	return pre, []byte(postStr), finalStrategy, nil
+	return preImage, []byte(postStr), finalStrategy, nil
 }
 
 // readPreImage stat-checks and reads the target file. A missing file is
@@ -150,7 +150,7 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	// Re-evaluate symlinks on rev.Path so a parent dir swapped into a
 	// symlink between apply and undo still gets caught by containment.
 	cleanPath := rev.Path
-	if resolved, rerr := filepath.EvalSymlinks(rev.Path); rerr == nil {
+	if resolved, resolveErr := filepath.EvalSymlinks(rev.Path); resolveErr == nil {
 		cleanPath = resolved
 	}
 	if !strings.HasPrefix(cleanPath, absRoot+string(filepath.Separator)) && cleanPath != absRoot {
@@ -237,11 +237,11 @@ func resolveTargetUnderRoot(absRoot, targetFile string) (string, error) {
 			if next == parent {
 				break
 			}
-			if resolved, rerr := filepath.EvalSymlinks(parent); rerr == nil {
+			if resolved, resolveErr := filepath.EvalSymlinks(parent); resolveErr == nil {
 				abs = filepath.Join(resolved, filepath.Join(trail...))
 				break
-			} else if !errors.Is(rerr, os.ErrNotExist) {
-				return "", fmt.Errorf("resolve target ancestor %q: %w", parent, rerr)
+			} else if !errors.Is(resolveErr, os.ErrNotExist) {
+				return "", fmt.Errorf("resolve target ancestor %q: %w", parent, resolveErr)
 			}
 			trail = append([]string{filepath.Base(parent)}, trail...)
 			parent = next
