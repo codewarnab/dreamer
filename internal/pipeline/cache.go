@@ -109,12 +109,12 @@ func recordFindingApplySpecs(st *state.State, findings []analyzer.Finding, proje
 			Anchor:     f.Guardrail.Apply.Anchor,
 			Snippet:    f.Guardrail.Apply.Snippet,
 		}
-		fs := st.Findings[hash]
-		fs.ApplySpec = spec
-		if fs.ProjectName == "" {
-			fs.ProjectName = projectName
+		findingState := st.Findings[hash]
+		findingState.ApplySpec = spec
+		if findingState.ProjectName == "" {
+			findingState.ProjectName = projectName
 		}
-		st.Findings[hash] = fs
+		st.Findings[hash] = findingState
 	}
 }
 

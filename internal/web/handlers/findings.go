@@ -176,12 +176,12 @@ func parseProjectNameFromFindings(urlPath string) string {
 // buildFindingView reconciles a todosEntry against the loaded state and constructs a FindingView.
 func buildFindingView(entry todosEntry, st *state.State, latestRunHashes map[string]bool) FindingView {
 	status := "open"
-	var fs state.FindingState
+	var findingState state.FindingState
 	var lifecycle bool
 	if st != nil {
-		fs, lifecycle = st.Findings[entry.Hash]
-		if lifecycle && fs.Status != "" {
-			status = fs.Status
+		findingState, lifecycle = st.Findings[entry.Hash]
+		if lifecycle && findingState.Status != "" {
+			status = findingState.Status
 		}
 	}
 
@@ -194,14 +194,14 @@ func buildFindingView(entry todosEntry, st *state.State, latestRunHashes map[str
 	}
 
 	if lifecycle {
-		if !fs.AppliedAt.IsZero() {
-			view.AppliedAt = fs.AppliedAt.UTC().Format(time.RFC3339)
+		if !findingState.AppliedAt.IsZero() {
+			view.AppliedAt = findingState.AppliedAt.UTC().Format(time.RFC3339)
 		}
-		if !fs.DismissedAt.IsZero() {
-			view.DismissedAt = fs.DismissedAt.UTC().Format(time.RFC3339)
+		if !findingState.DismissedAt.IsZero() {
+			view.DismissedAt = findingState.DismissedAt.UTC().Format(time.RFC3339)
 		}
-		if !fs.ResolvedAt.IsZero() {
-			view.ResolvedAt = fs.ResolvedAt.UTC().Format(time.RFC3339)
+		if !findingState.ResolvedAt.IsZero() {
+			view.ResolvedAt = findingState.ResolvedAt.UTC().Format(time.RFC3339)
 		}
 		if (status == state.FindingStatusApplied || status == state.FindingStatusResolved) &&
 			latestRunHashes[entry.Hash] {

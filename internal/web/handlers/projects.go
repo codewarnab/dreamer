@@ -98,8 +98,8 @@ func projectRollup(cfg *config.Config, p config.ProjectConfig) ProjectRollup {
 	}
 	rollup.ChatsCount = len(st.ChatHashes)
 	lifecycleTouched := 0
-	for _, fs := range st.Findings {
-		switch fs.Status {
+	for _, findingState := range st.Findings {
+		switch findingState.Status {
 		case state.FindingStatusApplied:
 			rollup.FindingsApplied++
 			lifecycleTouched++

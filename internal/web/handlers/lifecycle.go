@@ -166,12 +166,12 @@ func Apply(deps Deps) http.HandlerFunc {
 		}
 		// Merge into any existing entry so a dismissed/resolved record's
 		// timestamps survive the transition into applied.
-		fs := st.Findings[hash]
-		fs.Status = state.FindingStatusApplied
-		fs.AppliedAt = time.Now().UTC()
-		fs.AppliedReversal = rev
-		fs.ProjectName = name
-		st.Findings[hash] = fs
+		findingState := st.Findings[hash]
+		findingState.Status = state.FindingStatusApplied
+		findingState.AppliedAt = time.Now().UTC()
+		findingState.AppliedReversal = rev
+		findingState.ProjectName = name
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -182,7 +182,7 @@ func Apply(deps Deps) http.HandlerFunc {
 			"target":   rev.Path,
 			"strategy": rev.Strategy,
 		})
-		writeJSON(w, http.StatusOK, fs)
+		writeJSON(w, http.StatusOK, findingState)
 	}
 }
 
@@ -196,12 +196,12 @@ func Undo(deps Deps) http.HandlerFunc {
 			return
 		}
 		appConfig := deps.Config()
-		fs, exists := st.Findings[hash]
-		if !exists || fs.Status != state.FindingStatusApplied || fs.AppliedReversal == nil {
+		findingState, exists := st.Findings[hash]
+		if !exists || findingState.Status != state.FindingStatusApplied || findingState.AppliedReversal == nil {
 			writeJSONError(w, http.StatusNotFound, "no applied reversal for hash")
 			return
 		}
-		if err := apply.Undo(proj.Path, *fs.AppliedReversal); err != nil {
+		if err := apply.Undo(proj.Path, *findingState.AppliedReversal); err != nil {
 			switch {
 			case apply.IsTargetChanged(err):
 				writeJSONError(w, http.StatusConflict, "target file has changed since apply; refusing undo")
@@ -236,11 +236,11 @@ func Dismiss(deps Deps) http.HandlerFunc {
 		// Preserve prior fields (AppliedAt + AppliedReversal in particular)
 		// so a later undismiss can fall back to the applied state and a
 		// captured reversal remains valid.
-		fs := st.Findings[hash]
-		fs.Status = state.FindingStatusDismissed
-		fs.DismissedAt = time.Now().UTC()
-		fs.ProjectName = name
-		st.Findings[hash] = fs
+		findingState := st.Findings[hash]
+		findingState.Status = state.FindingStatusDismissed
+		findingState.DismissedAt = time.Now().UTC()
+		findingState.ProjectName = name
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -249,7 +249,7 @@ func Dismiss(deps Deps) http.HandlerFunc {
 			"project": name,
 			"hash":    hash,
 		})
-		writeJSON(w, http.StatusOK, fs)
+		writeJSON(w, http.StatusOK, findingState)
 	}
 }
 
@@ -263,11 +263,11 @@ func Resolve(deps Deps) http.HandlerFunc {
 		appConfig := deps.Config()
 		// Preserve prior AppliedAt + AppliedReversal so a later unresolve
 		// returns the finding to its applied state with the reversal intact.
-		fs := st.Findings[hash]
-		fs.Status = state.FindingStatusResolved
-		fs.ResolvedAt = time.Now().UTC()
-		fs.ProjectName = name
-		st.Findings[hash] = fs
+		findingState := st.Findings[hash]
+		findingState.Status = state.FindingStatusResolved
+		findingState.ResolvedAt = time.Now().UTC()
+		findingState.ProjectName = name
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -276,7 +276,7 @@ func Resolve(deps Deps) http.HandlerFunc {
 			"project": name,
 			"hash":    hash,
 		})
-		writeJSON(w, http.StatusOK, fs)
+		writeJSON(w, http.StatusOK, findingState)
 	}
 }
 
@@ -290,16 +290,16 @@ func Undismiss(deps Deps) http.HandlerFunc {
 			return
 		}
 		appConfig := deps.Config()
-		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusDismissed {
+		if findingState, exists := st.Findings[hash]; exists && findingState.Status == state.FindingStatusDismissed {
 			// If a prior Apply captured a reversal that we preserved
 			// through dismiss, fall back to the applied state instead of
 			// dropping the entry — otherwise the reversal becomes
 			// unreachable (state.Findings[hash] is the only path Undo
 			// reads from). Drop only when there was no underlying apply.
-			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
-				fs.Status = state.FindingStatusApplied
-				fs.DismissedAt = time.Time{}
-				st.Findings[hash] = fs
+			if findingState.AppliedReversal != nil && !findingState.AppliedAt.IsZero() {
+				findingState.Status = state.FindingStatusApplied
+				findingState.DismissedAt = time.Time{}
+				st.Findings[hash] = findingState
 			} else {
 				delete(st.Findings, hash)
 			}
@@ -321,12 +321,12 @@ func Unresolve(deps Deps) http.HandlerFunc {
 			return
 		}
 		appConfig := deps.Config()
-		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusResolved {
+		if findingState, exists := st.Findings[hash]; exists && findingState.Status == state.FindingStatusResolved {
 			// Same fallback as Undismiss: keep an applied reversal reachable.
-			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
-				fs.Status = state.FindingStatusApplied
-				fs.ResolvedAt = time.Time{}
-				st.Findings[hash] = fs
+			if findingState.AppliedReversal != nil && !findingState.AppliedAt.IsZero() {
+				findingState.Status = state.FindingStatusApplied
+				findingState.ResolvedAt = time.Time{}
+				st.Findings[hash] = findingState
 			} else {
 				delete(st.Findings, hash)
 			}
