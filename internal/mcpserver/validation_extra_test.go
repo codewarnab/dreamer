@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -220,10 +221,18 @@ func TestBuildClientLaunchSpec(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildClientLaunchSpec: %v", err)
 			}
+			defer os.Remove(spec.ConfigFilePath)
 			if len(spec.ToolNames) != 1 || spec.ToolNames[0] != PrefixedToolName {
 				t.Fatalf("unexpected tool names: %v", spec.ToolNames)
 			}
-			// Validate the JSON parses back to the inputs.
+			if spec.ConfigFilePath == "" {
+				t.Fatal("ConfigFilePath is empty")
+			}
+			// Validate the temp file exists and its JSON parses back to the inputs.
+			raw, readErr := os.ReadFile(spec.ConfigFilePath)
+			if readErr != nil {
+				t.Fatalf("read config temp file: %v", readErr)
+			}
 			parsed := struct {
 				MCPServers struct {
 					Dreamer struct {
@@ -232,14 +241,20 @@ func TestBuildClientLaunchSpec(t *testing.T) {
 					} `json:"dreamer"`
 				} `json:"mcpServers"`
 			}{}
-			if err := json.Unmarshal([]byte(spec.ConfigJSON), &parsed); err != nil {
-				t.Fatalf("unmarshal ConfigJSON: %v", err)
+			if err := json.Unmarshal(raw, &parsed); err != nil {
+				t.Fatalf("unmarshal config file: %v", err)
 			}
 			if parsed.MCPServers.Dreamer.Command != c.binary {
 				t.Errorf("command: got %q want %q", parsed.MCPServers.Dreamer.Command, c.binary)
 			}
-			if len(parsed.MCPServers.Dreamer.Args) != 3 || parsed.MCPServers.Dreamer.Args[2] != c.outputPath {
-				t.Errorf("args: %v", parsed.MCPServers.Dreamer.Args)
+			wantArgs := []string{"mcp-server", "--output", c.outputPath}
+			if len(parsed.MCPServers.Dreamer.Args) != len(wantArgs) {
+				t.Fatalf("args length: got %d want %d; args: %v", len(parsed.MCPServers.Dreamer.Args), len(wantArgs), parsed.MCPServers.Dreamer.Args)
+			}
+			for i, want := range wantArgs {
+				if parsed.MCPServers.Dreamer.Args[i] != want {
+					t.Errorf("args[%d]: got %q want %q", i, parsed.MCPServers.Dreamer.Args[i], want)
+				}
 			}
 		})
 	}

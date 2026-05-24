@@ -66,8 +66,11 @@ type Phase2Config struct {
 // Phase2MCPConfig is the launch spec for the MCP transport — produced by
 // internal/mcpserver and passed through unchanged by the pipeline.
 type Phase2MCPConfig struct {
-	// ConfigJSON is the inline JSON that gets passed to --mcp-config.
-	ConfigJSON string
+	// ConfigFilePath is the absolute path to a temp file containing the
+	// MCP server configuration JSON. Providers pass this path to
+	// --mcp-config instead of inline JSON, avoiding Windows
+	// backslash-escaping issues in exec.Command → CreateProcess.
+	ConfigFilePath string
 	// ToolNames is the list of MCP tool names the model is allowed to call.
 	// Providers map this onto their flag naming convention (--tools vs --allowed-tools).
 	ToolNames []string
@@ -113,8 +116,8 @@ func (p *Phase2Config) Validate() error {
 		return errors.New("Phase2Config: MCP and CLI are mutually exclusive")
 	case !hasMCP && !hasCLI:
 		return errors.New("Phase2Config: one of MCP or CLI must be set")
-	case hasMCP && p.MCP.ConfigJSON == "":
-		return errors.New("Phase2MCPConfig.ConfigJSON is required")
+	case hasMCP && p.MCP.ConfigFilePath == "":
+		return errors.New("Phase2MCPConfig.ConfigFilePath is required")
 	case hasCLI && p.CLI.DreamerBinaryPath == "":
 		return errors.New("Phase2CLIConfig.DreamerBinaryPath is required")
 	}

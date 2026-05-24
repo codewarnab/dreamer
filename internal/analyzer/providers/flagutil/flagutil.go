@@ -22,7 +22,13 @@ var CLIPhase2Tools = append(append([]string(nil), ReadOnlyTools...), "Bash")
 // provider command slice: relaxes permission-mode from "plan" to "default",
 // injects --tools and --allowed-tools with the MCP tool names, and adds
 // --mcp-config. Returns the modified slice.
-func InjectMCPFlags(command []string, toolNames []string, configJSON string, validateFn func() error) ([]string, error) {
+//
+// configFilePath is the path to a temp file containing the MCP server
+// configuration JSON (written by mcpserver.BuildClientLaunchSpec).
+// Both Claude-family CLIs support file-path mode — it's actually the
+// primary mode; inline JSON is the secondary "parse-first" path.
+// Using a file avoids Windows CreateProcess backslash-mangling.
+func InjectMCPFlags(command []string, toolNames []string, configFilePath string, validateFn func() error) ([]string, error) {
 	if validateFn != nil {
 		if err := validateFn(); err != nil {
 			return nil, err
@@ -34,7 +40,7 @@ func InjectMCPFlags(command []string, toolNames []string, configJSON string, val
 		command = AppendToFlag(command, "--tools", toolList)
 		command = append(command, "--allowed-tools", toolList)
 	}
-	command = append(command, "--mcp-config", configJSON)
+	command = append(command, "--mcp-config", configFilePath)
 	return command, nil
 }
 

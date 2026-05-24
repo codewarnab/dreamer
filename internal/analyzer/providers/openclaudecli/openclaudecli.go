@@ -95,7 +95,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		var err error
 		command, err = flagutil.InjectMCPFlags(command,
 			sessionConfig.Phase2.MCP.ToolNames,
-			sessionConfig.Phase2.MCP.ConfigJSON,
+			sessionConfig.Phase2.MCP.ConfigFilePath,
 			nil, // already validated above
 		)
 		if err != nil {

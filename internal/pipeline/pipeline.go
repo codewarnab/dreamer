@@ -449,6 +449,11 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 				logger.Warn("remove findings temp file failed", logging.Any("err", err))
 			}
 		}
+		if phase2Config != nil && phase2Config.MCP != nil && phase2Config.MCP.ConfigFilePath != "" {
+			if err := os.Remove(phase2Config.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
+				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
+			}
+		}
 	}()
 	if phase2Mode != analyzer.Phase2ModeNone {
 		logger.Info("phase2 tool mode",
@@ -821,8 +826,8 @@ func buildPhase2Config(mode analyzer.Phase2Mode) (cfg *analyzer.Phase2Config, fi
 		return &analyzer.Phase2Config{
 			FindingsOutputPath: findingsOutputPath,
 			MCP: &analyzer.Phase2MCPConfig{
-				ConfigJSON: spec.ConfigJSON,
-				ToolNames:  spec.ToolNames,
+				ConfigFilePath: spec.ConfigFilePath,
+				ToolNames:      spec.ToolNames,
 			},
 		}, findingsOutputPath, dreamerBinaryPath, nil
 	case analyzer.Phase2ModeCLI:

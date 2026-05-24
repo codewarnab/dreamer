@@ -15,6 +15,7 @@ import (
 	"dreamer/internal/fsutil"
 	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
+	"dreamer/internal/mcpserver"
 	"dreamer/internal/pipeline"
 	"dreamer/internal/web"
 	"github.com/fsnotify/fsnotify"
@@ -371,11 +372,12 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 	}()
 }
 
-// sweepStaleFindingsTempFiles deletes leftover dreamer-findings-*.jsonl
-// files in os.TempDir(). These are Phase 2 temp files written by prior
-// daemon runs that crashed or were killed before the per-run defer ran.
-// staleAge is the minimum age before a findings temp file is considered
-// abandoned. Files younger than this may still be in use by a concurrent
+// sweepStaleFindingsTempFiles deletes leftover temp files from prior daemon
+// runs that crashed or were killed before the per-run defer ran. Sweeps
+// both Phase 2 findings temp files (dreamer-findings-*.jsonl) and MCP
+// config temp files (dreamer-mcp-config-*.json).
+// staleAge is the minimum age before a temp file is considered abandoned.
+// Files younger than this may still be in use by a concurrent
 // `dreamer analyze` run (which doesn't hold the daemon lock).
 const staleAge = 10 * time.Minute
 
@@ -383,22 +385,28 @@ const staleAge = 10 * time.Minute
 // are swallowed silently — the worst case is a small amount of temp-dir
 // clutter on the next sweep.
 func sweepStaleFindingsTempFiles() int {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), pipeline.FindingsTempFilePattern))
-	if err != nil {
-		return 0
+	patterns := []string{
+		filepath.Join(os.TempDir(), pipeline.FindingsTempFilePattern),
+		filepath.Join(os.TempDir(), mcpserver.MCPTempFilePattern),
 	}
 	cutoff := time.Now().Add(-staleAge)
 	removed := 0
-	for _, p := range matches {
-		info, err := os.Stat(p)
+	for _, glob := range patterns {
+		matches, err := filepath.Glob(glob)
 		if err != nil {
 			continue
 		}
-		if info.ModTime().After(cutoff) {
-			continue // still potentially in use
-		}
-		if err := os.Remove(p); err == nil {
-			removed++
+		for _, p := range matches {
+			info, err := os.Stat(p)
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(cutoff) {
+				continue // still potentially in use
+			}
+			if err := os.Remove(p); err == nil {
+				removed++
+			}
 		}
 	}
 	return removed
