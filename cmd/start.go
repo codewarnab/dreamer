@@ -57,19 +57,19 @@ func newStartCommand() *cobra.Command {
 
 			// Build child command.
 			daemonArgs := []string{"daemon", "--config", resolvedConfigPath}
-			child := exec.Command(exePath, daemonArgs...)
-			child.Stdout = logFile
-			child.Stderr = logFile
-			child.SysProcAttr = detachedProcessAttr()
+			daemonProcess := exec.Command(exePath, daemonArgs...)
+			daemonProcess.Stdout = logFile
+			daemonProcess.Stderr = logFile
+			daemonProcess.SysProcAttr = detachedProcessAttr()
 
-			if startErr := child.Start(); startErr != nil {
+			if startErr := daemonProcess.Start(); startErr != nil {
 				return fmt.Errorf("start daemon process: %w", startErr)
 			}
 
 			// Poll lockfile to confirm the daemon started successfully.
 			daemonPID := waitForLockfile(lockPath, lockfileWaitTimeoutShort)
 			if daemonPID == 0 {
-				return fmt.Errorf("daemon process started (PID %d) but did not write lockfile; check %s", child.Process.Pid, logPath)
+				return fmt.Errorf("daemon process started (PID %d) but did not write lockfile; check %s", daemonProcess.Process.Pid, logPath)
 			}
 
 			printStartedBox(cmd, daemonPID, logPath, cfg)

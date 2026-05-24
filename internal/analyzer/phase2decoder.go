@@ -45,8 +45,8 @@ var phase2Decoders = map[Phase2Mode]phase2Decoder{
 // to the JSON decoder if the mode is unknown (defensive — should be
 // unreachable because Phase2Mode constants are an enum).
 func lookupPhase2Decoder(mode Phase2Mode) phase2Decoder {
-	if d, ok := phase2Decoders[mode]; ok {
-		return d
+	if decoder, ok := phase2Decoders[mode]; ok {
+		return decoder
 	}
 	return phase2Decoders[Phase2ModeNone]
 }

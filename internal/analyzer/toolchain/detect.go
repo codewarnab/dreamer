@@ -128,8 +128,8 @@ func Detect(projectRoot string) Toolchain {
 		for _, lang := range rule.languages {
 			detected.Languages = appendUnique(detected.Languages, lang)
 		}
-		for _, fw := range rule.testFrameworks {
-			detected.TestFrameworks = appendUnique(detected.TestFrameworks, fw)
+		for _, framework := range rule.testFrameworks {
+			detected.TestFrameworks = appendUnique(detected.TestFrameworks, framework)
 		}
 		if rule.detectTestFW != nil {
 			detected.TestFrameworks = appendUnique(detected.TestFrameworks, rule.detectTestFW(root))
@@ -141,8 +141,8 @@ func Detect(projectRoot string) Toolchain {
 				detected.Linters = append(detected.Linters, LinterConfig{Tool: candidate.tool, ConfigPath: configFile})
 				detected.ConfigFiles = append(detected.ConfigFiles, configFile)
 			} else {
-				for _, fb := range candidate.fallbacks {
-					detected.Linters = append(detected.Linters, LinterConfig{Tool: fb})
+				for _, fallback := range candidate.fallbacks {
+					detected.Linters = append(detected.Linters, LinterConfig{Tool: fallback})
 				}
 			}
 		}
@@ -172,9 +172,9 @@ func anyPresent(root string, names []string) bool {
 
 // PrimaryLinter returns the first detected linter tool, or empty.
 func (t Toolchain) PrimaryLinter() string {
-	for _, l := range t.Linters {
-		if strings.TrimSpace(l.Tool) != "" {
-			return l.Tool
+	for _, linter := range t.Linters {
+		if strings.TrimSpace(linter.Tool) != "" {
+			return linter.Tool
 		}
 	}
 	return ""

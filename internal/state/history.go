@@ -125,8 +125,8 @@ func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryD
 		// Rolling average across runs in this day.
 		bucket.AvgRunMillis = (bucket.AvgRunMillis*int64(priorRuns) + delta.RunMillis*int64(delta.Runs)) / int64(bucket.Runs)
 	}
-	for cat, n := range delta.PerCategory {
-		bucket.PerCategory[cat] += n
+	for category, count := range delta.PerCategory {
+		bucket.PerCategory[category] += count
 	}
 
 	if idx >= 0 {

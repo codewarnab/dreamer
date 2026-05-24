@@ -221,11 +221,11 @@ func readStreamJSON(r io.Reader) (string, error) {
 		case "result":
 			resultText = event.Response
 		case "error":
-			eventMessage := event.Message
-			if eventMessage == "" {
-				eventMessage = "unknown error"
+			errorMsg := event.Message
+			if errorMsg == "" {
+				errorMsg = "unknown error"
 			}
-			resultErr = eventMessage
+			resultErr = errorMsg
 		}
 	}
 	if err := scanner.Err(); err != nil {

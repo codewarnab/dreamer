@@ -379,11 +379,11 @@ func TestDismiss_PersistsAndPublishes(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
-	fs, ok := st.Findings[hash]
-	if !ok || fs.Status != state.FindingStatusDismissed {
+	findingState, ok := st.Findings[hash]
+	if !ok || findingState.Status != state.FindingStatusDismissed {
 		t.Fatalf("dismiss not persisted: %+v", st.Findings)
 	}
-	if fs.DismissedAt.IsZero() {
+	if findingState.DismissedAt.IsZero() {
 		t.Errorf("DismissedAt zero")
 	}
 	select {
@@ -407,8 +407,8 @@ func TestResolve_PersistsAndPublishes(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
-	fs, ok := st.Findings[hash]
-	if !ok || fs.Status != state.FindingStatusResolved {
+	findingState, ok := st.Findings[hash]
+	if !ok || findingState.Status != state.FindingStatusResolved {
 		t.Fatalf("resolve not persisted: %+v", st.Findings)
 	}
 	select {

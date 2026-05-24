@@ -46,8 +46,8 @@ func (b *EventBus) Subscribe(buf int) chan Event {
 func (b *EventBus) Unsubscribe(ch chan Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i, s := range b.subscribers {
-		if s == ch {
+	for i, sub := range b.subscribers {
+		if sub == ch {
 			b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
 			close(ch)
 			return

@@ -193,10 +193,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 	providers := providerItems()
 	// Use a sensible initial width; WindowSizeMsg will update it.
 	initialW := 80
-	pl := list.New(providers, compactDelegate{}, initialW-20, listHeight(len(providers)))
-	pl.Title = "1/5 - Provider"
-	pl.SetShowHelp(false)
-	pl.SetShowStatusBar(false)
+	providerList := list.New(providers, compactDelegate{}, initialW-20, listHeight(len(providers)))
+	providerList.Title = "1/5 - Provider"
+	providerList.SetShowHelp(false)
+	providerList.SetShowStatusBar(false)
 
 	freq := textinput.New()
 	freq.Placeholder = "60"
@@ -274,7 +274,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		step:             stepProvider,
 		advanced:         advanced,
 		skipStartup:      skipStartup,
-		providerList:     pl,
+		providerList:     providerList,
 		freqInput:        freq,
 		outputInput:      out,
 		logLevelList:     logLevelList,
@@ -298,9 +298,9 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 func (m setupModel) Init() tea.Cmd { return textinput.Blink }
 
 func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch t := msg.(type) {
+	switch typedMsg := msg.(type) {
 	case tea.KeyMsg:
-		key := t.String()
+		key := typedMsg.String()
 		// Step-specific key handling for yes/no prompts.
 		switch m.step {
 		case stepStartupYN:
@@ -352,23 +352,23 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.advance()
 		}
 	case tea.WindowSizeMsg:
-		m.width = t.Width
-		m.height = t.Height
+		m.width = typedMsg.Width
+		m.height = typedMsg.Height
 		// Box inner width: terminal minus box border (2) + padding (4) minus some margin (6).
 		// Clamp to a usable range so tiny and huge terminals both look fine.
-		w := t.Width - 12
-		if w < 40 {
-			w = 40
+		innerWidth := typedMsg.Width - 12
+		if innerWidth < 40 {
+			innerWidth = 40
 		}
-		if w > 90 {
-			w = 90
+		if innerWidth > 90 {
+			innerWidth = 90
 		}
-		m.providerList.SetWidth(w)
+		m.providerList.SetWidth(innerWidth)
 		if m.step == stepModel {
-			m.modelList.SetWidth(w)
+			m.modelList.SetWidth(innerWidth)
 		}
-		m.logLevelList.SetWidth(w)
-		m.projectSinceList.SetWidth(w)
+		m.logLevelList.SetWidth(innerWidth)
+		m.projectSinceList.SetWidth(innerWidth)
 	}
 
 	var cmd tea.Cmd
@@ -806,18 +806,18 @@ func newSetupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			mm := final.(setupModel)
-			if mm.quit || !mm.confirmed {
+			finalModel := final.(setupModel)
+			if finalModel.quit || !finalModel.confirmed {
 				fmt.Fprintln(cmd.OutOrStdout(), "setup cancelled; no changes written")
 				return nil
 			}
 
-			out := buildConfigYAML(mm.answers)
+			out := buildConfigYAML(finalModel.answers)
 			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)
-			if mm.answers.startupInstall && !noStartup {
+			if finalModel.answers.startupInstall && !noStartup {
 				fmt.Fprintln(cmd.OutOrStdout(), "next step: run 'dreamer startup install'")
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "note: re-running setup rewrites this file and drops YAML comments.")

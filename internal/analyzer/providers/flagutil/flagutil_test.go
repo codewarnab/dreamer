@@ -107,12 +107,12 @@ func TestInjectMCPFlags(t *testing.T) {
 	configPath := `C:\Users\test\AppData\Local\Temp\dreamer-mcp-config-abc123.json`
 
 	cases := []struct {
-		name        string
-		toolNames   []string
-		configPath  string
-		validateFn  func() error
-		wantErr     bool
-		check       func(t *testing.T, got []string)
+		name       string
+		toolNames  []string
+		configPath string
+		validateFn func() error
+		wantErr    bool
+		check      func(t *testing.T, got []string)
 	}{
 		{
 			name:       "basic MCP injection",

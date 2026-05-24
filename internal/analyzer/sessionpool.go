@@ -94,18 +94,18 @@ func (p *SessionPool) Acquire(ctx context.Context) (Session, error) {
 		// All sessions are live and in use — we must block. Spawn the
 		// watchdog goroutine lazily only when we are actually about to
 		// wait, so fast-path acquires pay no goroutine overhead.
-		stop := make(chan struct{})
+		watchdogStop := make(chan struct{})
 		go func() {
 			select {
 			case <-ctx.Done():
 				p.mu.Lock()
 				p.cond.Broadcast()
 				p.mu.Unlock()
-			case <-stop:
+			case <-watchdogStop:
 			}
 		}()
 		p.cond.Wait()
-		close(stop)
+		close(watchdogStop)
 	}
 }
 

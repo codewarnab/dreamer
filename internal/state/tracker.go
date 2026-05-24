@@ -203,12 +203,12 @@ func Save(outputRoot, projectName string, state *State) error {
 		}
 	}
 
-	dup := *state
-	if dup.Version == 0 {
-		dup.Version = StateVersion
+	stateCopy := *state
+	if stateCopy.Version == 0 {
+		stateCopy.Version = StateVersion
 	}
-	normalizeState(&dup)
-	stateBytes, err := json.MarshalIndent(&dup, "", "  ")
+	normalizeState(&stateCopy)
+	stateBytes, err := json.MarshalIndent(&stateCopy, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state for project %q: %w", projectName, err)
 	}
@@ -228,9 +228,9 @@ func readPriorVersion(data []byte) int {
 	if !ok {
 		return 0
 	}
-	var v int
-	_ = json.Unmarshal(raw, &v)
-	return v
+	var version int
+	_ = json.Unmarshal(raw, &version)
+	return version
 }
 
 func defaultState() *State {
@@ -270,13 +270,13 @@ func normalizeState(s *State) {
 const maxErrorLen = 500
 
 // TruncateError clamps to maxErrorLen runes; appends '…' on truncation.
-func TruncateError(s string) string {
-	if s == "" {
+func TruncateError(msg string) string {
+	if msg == "" {
 		return ""
 	}
-	runes := []rune(s)
+	runes := []rune(msg)
 	if len(runes) <= maxErrorLen {
-		return s
+		return msg
 	}
 	return string(runes[:maxErrorLen]) + "…"
 }

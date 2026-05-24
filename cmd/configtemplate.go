@@ -187,7 +187,7 @@ web:
 // renderCommentedConfig substitutes the wizard's answers into the
 // commented template and returns the rendered bytes ready to write.
 func renderCommentedConfig(a setupAnswers) ([]byte, error) {
-	data := struct {
+	tmplData := struct {
 		DefaultProvider    string
 		UserProvider       string
 		UserModel          string
@@ -220,7 +220,7 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		if since == "" {
 			since = "24h"
 		}
-		data.Projects = []templateProject{{Name: name, Path: a.projectPath, Since: since}}
+		tmplData.Projects = []templateProject{{Name: name, Path: a.projectPath, Since: since}}
 	}
 
 	tmpl := template.New("config").Funcs(template.FuncMap{
@@ -243,22 +243,22 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		// under "# Options:".
 		"providerOptionsComment": func() string {
 			meta := analyzer.RegisteredProviderMeta()
-			var b strings.Builder
+			var builder strings.Builder
 			const perRow = 3
 			for i, m := range meta {
 				if i%perRow == 0 {
-					b.WriteString("#   ")
+					builder.WriteString("#   ")
 				}
-				b.WriteString(string(m.ID))
+				builder.WriteString(string(m.ID))
 				if i == len(meta)-1 {
-					b.WriteString("\n")
+					builder.WriteString("\n")
 				} else if (i+1)%perRow == 0 {
-					b.WriteString("\n")
+					builder.WriteString("\n")
 				} else {
-					b.WriteString(" | ")
+					builder.WriteString(" | ")
 				}
 			}
-			return b.String()
+			return builder.String()
 		},
 	})
 	tmpl, err := tmpl.Parse(configTemplate)
@@ -266,7 +266,7 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		return nil, fmt.Errorf("parse config template: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := tmpl.Execute(&buf, tmplData); err != nil {
 		return nil, fmt.Errorf("execute config template: %w", err)
 	}
 	return buf.Bytes(), nil

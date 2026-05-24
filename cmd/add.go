@@ -69,18 +69,18 @@ func newAddCommand() *cobra.Command {
 }
 
 // resolveAddPath turns the CLI arg into an absolute, existing directory path.
-func resolveAddPath(p string) (string, error) {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		p = "."
+func resolveAddPath(pathArg string) (string, error) {
+	pathArg = strings.TrimSpace(pathArg)
+	if pathArg == "" {
+		pathArg = "."
 	}
-	expanded, err := config.ExpandUserHome(p)
+	expanded, err := config.ExpandUserHome(pathArg)
 	if err != nil {
 		return "", err
 	}
 	abs, err := filepath.Abs(expanded)
 	if err != nil {
-		return "", fmt.Errorf("resolve absolute path %q: %w", p, err)
+		return "", fmt.Errorf("resolve absolute path %q: %w", pathArg, err)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
@@ -133,12 +133,12 @@ func appendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, 
 	_ = projectsKey
 
 	var buf strings.Builder
-	enc := yaml.NewEncoder(&strBuilderWriter{b: &buf})
-	enc.SetIndent(2)
-	if err := enc.Encode(&root); err != nil {
+	yamlEncoder := yaml.NewEncoder(&strBuilderWriter{b: &buf})
+	yamlEncoder.SetIndent(2)
+	if err := yamlEncoder.Encode(&root); err != nil {
 		return nil, fmt.Errorf("encode config yaml: %w", err)
 	}
-	if err := enc.Close(); err != nil {
+	if err := yamlEncoder.Close(); err != nil {
 		return nil, fmt.Errorf("close encoder: %w", err)
 	}
 	return []byte(buf.String()), nil
@@ -158,12 +158,12 @@ func findDuplicateProject(seq *yaml.Node, name, path string) string {
 		if item.Kind != yaml.MappingNode {
 			continue
 		}
-		_, n := findMappingChild(item, "name")
-		_, p := findMappingChild(item, "path")
-		if n != nil && n.Value == name {
+		_, nameNode := findMappingChild(item, "name")
+		_, pathNode := findMappingChild(item, "path")
+		if nameNode != nil && nameNode.Value == name {
 			return fmt.Sprintf("name=%q", name)
 		}
-		if p != nil && p.Value == path {
+		if pathNode != nil && pathNode.Value == path {
 			return fmt.Sprintf("path=%q", path)
 		}
 	}

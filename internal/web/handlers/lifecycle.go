@@ -18,12 +18,12 @@ import (
 type transition string
 
 const (
-	txApply     transition = "apply"
-	txUndo      transition = "undo"
-	txDismiss   transition = "dismiss"
-	txResolve   transition = "resolve"
-	txUndismiss transition = "undismiss"
-	txUnresolve transition = "unresolve"
+	transitionApply     transition = "apply"
+	transitionUndo      transition = "undo"
+	transitionDismiss   transition = "dismiss"
+	transitionResolve   transition = "resolve"
+	transitionUndismiss transition = "undismiss"
+	transitionUnresolve transition = "unresolve"
 )
 
 // applyRequest is the body the SPA POSTs for the /apply endpoint. The
@@ -43,7 +43,7 @@ type applyRequest struct {
 // parseProjectHashTransition extracts {name}, {hash}, {transition} from
 // /api/projects/{name}/findings/{hash}/{transition}. Returns empty
 // strings when the path shape is wrong.
-func parseProjectHashTransition(urlPath string) (name, hash, tx string) {
+func parseProjectHashTransition(urlPath string) (name, hash, transition string) {
 	parts := strings.Split(strings.Trim(urlPath, "/"), "/")
 	// Expect: api, projects, {name}, findings, {hash}, {transition}.
 	if len(parts) != 6 || parts[0] != "api" || parts[1] != "projects" || parts[3] != "findings" {
@@ -86,8 +86,8 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	n, h, tx := parseProjectHashTransition(r.URL.Path)
-	if n == "" || h == "" || transition(tx) != want {
+	name, hash, tx := parseProjectHashTransition(r.URL.Path)
+	if name == "" || hash == "" || transition(tx) != want {
 		http.NotFound(w, r)
 		return
 	}
@@ -96,21 +96,21 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		writeJSONError(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
-	p, found := findProject(appConfig, n)
+	proj, found := findProject(appConfig, name)
 	if !found {
 		http.NotFound(w, r)
 		return
 	}
-	s, err := state.Load(appConfig.Daemon.OutputRoot, n)
+	st, err := state.Load(appConfig.Daemon.OutputRoot, name)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s == nil {
+	if st == nil {
 		writeJSONError(w, http.StatusInternalServerError, "state unavailable")
 		return
 	}
-	return p, s, n, strings.ToLower(h), true
+	return proj, st, name, strings.ToLower(hash), true
 }
 
 // Apply handles POST /api/projects/{name}/findings/{hash}/apply.
@@ -121,7 +121,7 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 // finding.applied on the bus.
 func Apply(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, txApply)
+		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionApply)
 		if !ok {
 			return
 		}
@@ -166,12 +166,12 @@ func Apply(deps Deps) http.HandlerFunc {
 		}
 		// Merge into any existing entry so a dismissed/resolved record's
 		// timestamps survive the transition into applied.
-		fs := st.Findings[hash]
-		fs.Status = state.FindingStatusApplied
-		fs.AppliedAt = time.Now().UTC()
-		fs.AppliedReversal = rev
-		fs.ProjectName = name
-		st.Findings[hash] = fs
+		findingState := st.Findings[hash]
+		findingState.Status = state.FindingStatusApplied
+		findingState.AppliedAt = time.Now().UTC()
+		findingState.AppliedReversal = rev
+		findingState.ProjectName = name
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -182,7 +182,7 @@ func Apply(deps Deps) http.HandlerFunc {
 			"target":   rev.Path,
 			"strategy": rev.Strategy,
 		})
-		writeJSON(w, http.StatusOK, fs)
+		writeJSON(w, http.StatusOK, findingState)
 	}
 }
 
@@ -191,17 +191,17 @@ func Apply(deps Deps) http.HandlerFunc {
 // target file's SHA-256 has drifted (operator edited it post-apply).
 func Undo(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUndo)
+		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUndo)
 		if !ok {
 			return
 		}
 		appConfig := deps.Config()
-		fs, exists := st.Findings[hash]
-		if !exists || fs.Status != state.FindingStatusApplied || fs.AppliedReversal == nil {
+		findingState, exists := st.Findings[hash]
+		if !exists || findingState.Status != state.FindingStatusApplied || findingState.AppliedReversal == nil {
 			writeJSONError(w, http.StatusNotFound, "no applied reversal for hash")
 			return
 		}
-		if err := apply.Undo(proj.Path, *fs.AppliedReversal); err != nil {
+		if err := apply.Undo(proj.Path, *findingState.AppliedReversal); err != nil {
 			switch {
 			case apply.IsTargetChanged(err):
 				writeJSONError(w, http.StatusConflict, "target file has changed since apply; refusing undo")
@@ -228,7 +228,7 @@ func Undo(deps Deps) http.HandlerFunc {
 // Dismiss handles POST /api/projects/{name}/findings/{hash}/dismiss.
 func Dismiss(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txDismiss)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionDismiss)
 		if !ok {
 			return
 		}
@@ -236,11 +236,11 @@ func Dismiss(deps Deps) http.HandlerFunc {
 		// Preserve prior fields (AppliedAt + AppliedReversal in particular)
 		// so a later undismiss can fall back to the applied state and a
 		// captured reversal remains valid.
-		fs := st.Findings[hash]
-		fs.Status = state.FindingStatusDismissed
-		fs.DismissedAt = time.Now().UTC()
-		fs.ProjectName = name
-		st.Findings[hash] = fs
+		findingState := st.Findings[hash]
+		findingState.Status = state.FindingStatusDismissed
+		findingState.DismissedAt = time.Now().UTC()
+		findingState.ProjectName = name
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -249,25 +249,25 @@ func Dismiss(deps Deps) http.HandlerFunc {
 			"project": name,
 			"hash":    hash,
 		})
-		writeJSON(w, http.StatusOK, fs)
+		writeJSON(w, http.StatusOK, findingState)
 	}
 }
 
 // Resolve handles POST /api/projects/{name}/findings/{hash}/resolve.
 func Resolve(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txResolve)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionResolve)
 		if !ok {
 			return
 		}
 		appConfig := deps.Config()
 		// Preserve prior AppliedAt + AppliedReversal so a later unresolve
 		// returns the finding to its applied state with the reversal intact.
-		fs := st.Findings[hash]
-		fs.Status = state.FindingStatusResolved
-		fs.ResolvedAt = time.Now().UTC()
-		fs.ProjectName = name
-		st.Findings[hash] = fs
+		findingState := st.Findings[hash]
+		findingState.Status = state.FindingStatusResolved
+		findingState.ResolvedAt = time.Now().UTC()
+		findingState.ProjectName = name
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -276,7 +276,7 @@ func Resolve(deps Deps) http.HandlerFunc {
 			"project": name,
 			"hash":    hash,
 		})
-		writeJSON(w, http.StatusOK, fs)
+		writeJSON(w, http.StatusOK, findingState)
 	}
 }
 
@@ -285,21 +285,21 @@ func Resolve(deps Deps) http.HandlerFunc {
 // pool. No-op (still 200) when the entry is absent or not dismissed.
 func Undismiss(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUndismiss)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUndismiss)
 		if !ok {
 			return
 		}
 		appConfig := deps.Config()
-		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusDismissed {
+		if findingState, exists := st.Findings[hash]; exists && findingState.Status == state.FindingStatusDismissed {
 			// If a prior Apply captured a reversal that we preserved
 			// through dismiss, fall back to the applied state instead of
 			// dropping the entry — otherwise the reversal becomes
 			// unreachable (state.Findings[hash] is the only path Undo
 			// reads from). Drop only when there was no underlying apply.
-			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
-				fs.Status = state.FindingStatusApplied
-				fs.DismissedAt = time.Time{}
-				st.Findings[hash] = fs
+			if findingState.AppliedReversal != nil && !findingState.AppliedAt.IsZero() {
+				findingState.Status = state.FindingStatusApplied
+				findingState.DismissedAt = time.Time{}
+				st.Findings[hash] = findingState
 			} else {
 				delete(st.Findings, hash)
 			}
@@ -316,17 +316,17 @@ func Undismiss(deps Deps) http.HandlerFunc {
 // Symmetric to Undismiss for resolved entries.
 func Unresolve(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, txUnresolve)
+		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUnresolve)
 		if !ok {
 			return
 		}
 		appConfig := deps.Config()
-		if fs, exists := st.Findings[hash]; exists && fs.Status == state.FindingStatusResolved {
+		if findingState, exists := st.Findings[hash]; exists && findingState.Status == state.FindingStatusResolved {
 			// Same fallback as Undismiss: keep an applied reversal reachable.
-			if fs.AppliedReversal != nil && !fs.AppliedAt.IsZero() {
-				fs.Status = state.FindingStatusApplied
-				fs.ResolvedAt = time.Time{}
-				st.Findings[hash] = fs
+			if findingState.AppliedReversal != nil && !findingState.AppliedAt.IsZero() {
+				findingState.Status = state.FindingStatusApplied
+				findingState.ResolvedAt = time.Time{}
+				st.Findings[hash] = findingState
 			} else {
 				delete(st.Findings, hash)
 			}

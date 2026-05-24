@@ -44,15 +44,15 @@ func Dashboard(deps Deps) http.HandlerFunc {
 		out := buildDashboard(cfg)
 		if deps.RecentActivity != nil {
 			events := deps.RecentActivity()
-			la := make([]any, 0, len(events))
+			liveActivity := make([]any, 0, len(events))
 			for _, e := range events {
-				la = append(la, map[string]any{
+				liveActivity = append(liveActivity, map[string]any{
 					"type":    e.Type,
 					"at":      e.At.UTC().Format(time.RFC3339),
 					"payload": e.Payload,
 				})
 			}
-			out.LiveActivity = la
+			out.LiveActivity = liveActivity
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
@@ -133,11 +133,11 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 		out.Stats.FindingsResolved += resolved
 		out.Stats.FindingsOpen += open
 
-		h, err := state.LoadHistory(cfg.Daemon.OutputRoot, p.Name)
-		if err != nil || h == nil {
+		history, err := state.LoadHistory(cfg.Daemon.OutputRoot, p.Name)
+		if err != nil || history == nil {
 			continue
 		}
-		sparkline, weekTokens, weightedRunMillis, runsForAvg, perCategory := buildSparklines(h.Days, cutoff30d, cutoff7d)
+		sparkline, weekTokens, weightedRunMillis, runsForAvg, perCategory := buildSparklines(history.Days, cutoff30d, cutoff7d)
 		for date, day := range sparkline {
 			if cur, ok := aggregatedSparkline[date]; ok {
 				cur.Runs += day.Runs
@@ -211,8 +211,8 @@ func buildProviderHealth(usage map[string]state.ProviderUsage) (healthy map[stri
 // buildLifecycleCounts computes finding lifecycle counts from per-finding state.
 func buildLifecycleCounts(findings map[string]state.FindingState, findingHashes []string) (applied, dismissed, resolved, open int) {
 	lifecycleTouched := 0
-	for _, fs := range findings {
-		switch fs.Status {
+	for _, findingState := range findings {
+		switch findingState.Status {
 		case state.FindingStatusApplied:
 			applied++
 			lifecycleTouched++
@@ -237,11 +237,11 @@ func buildSparklines(days []state.DaySummary, cutoff30d, cutoff7d time.Time) (sp
 	sparkline = map[string]state.DaySummary{}
 	perCategory = map[string]int{}
 	for _, d := range days {
-		t, perr := time.Parse("2006-01-02", d.Date)
-		if perr != nil {
+		parsedDate, parseErr := time.Parse("2006-01-02", d.Date)
+		if parseErr != nil {
 			continue
 		}
-		if !t.Before(cutoff30d.Truncate(24 * time.Hour)) {
+		if !parsedDate.Before(cutoff30d.Truncate(24 * time.Hour)) {
 			cur, ok := sparkline[d.Date]
 			if !ok {
 				cur = state.DaySummary{Date: d.Date, PerCategory: map[string]int{}}
@@ -262,7 +262,7 @@ func buildSparklines(days []state.DaySummary, cutoff30d, cutoff7d time.Time) (sp
 			}
 			sparkline[d.Date] = cur
 		}
-		if !t.Before(cutoff7d.Truncate(24 * time.Hour)) {
+		if !parsedDate.Before(cutoff7d.Truncate(24 * time.Hour)) {
 			weekTokens += d.Tokens
 			weightedRunMillis += d.AvgRunMillis * int64(d.Runs)
 			runsForAvg += int64(d.Runs)

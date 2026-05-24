@@ -121,14 +121,14 @@ func NewOrchestrator(packs []RulePack) *Orchestrator {
 	return &Orchestrator{Packs: cloned}
 }
 
-type rawFinding struct {
+type unvalidatedFinding struct {
 	Mistake          string             `json:"mistake"`
 	Guardrail        Guardrail          `json:"guardrail"`
 	CodebaseEvidence []CodebaseEvidence `json:"codebase_evidence"`
 	Confidence       float64            `json:"confidence"`
 }
 
-func materializeFindings(raws []rawFinding, defaultCategory RuleCategory) []Finding {
+func validateAndBuildFindings(raws []unvalidatedFinding, defaultCategory RuleCategory) []Finding {
 	findings := make([]Finding, 0, len(raws))
 	for _, raw := range raws {
 		mistake := strings.TrimSpace(raw.Mistake)
@@ -263,7 +263,7 @@ func ComputeFindingHash(f Finding) string {
 	// sha256.Hash implements io.StringWriter internally.
 	io.WriteString(hasher, strings.ToLower(strings.TrimSpace(string(f.Category)))) //nolint:errcheck
 	hasher.Write([]byte{'|'})
-	io.WriteString(hasher, strings.ToLower(normalizeWhitespace(f.Mistake))) //nolint:errcheck
+	io.WriteString(hasher, strings.ToLower(normalizeForHash(f.Mistake))) //nolint:errcheck
 	hasher.Write([]byte{'|'})
 	io.WriteString(hasher, strings.ToLower(strings.TrimSpace(f.Guardrail.Tool))) //nolint:errcheck
 	hasher.Write([]byte{'|'})
@@ -271,7 +271,7 @@ func ComputeFindingHash(f Finding) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-func normalizeWhitespace(text string) string {
+func normalizeForHash(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 

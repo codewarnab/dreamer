@@ -19,11 +19,11 @@ type ChunkInputs struct {
 // RunChunks executes phase 1 (per chunk) and phase 2 (single union call) against
 // a SessionPool. Sequential mode chains summaries across chunks; parallel runs
 // chunks independently.
-func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInputs, req PhaseRequest) (AnalysisResult, error) {
+func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs ChunkInputs, req PhaseRequest) (AnalysisResult, error) {
 	if rc.Phase1SessionFactory == nil {
 		return AnalysisResult{}, errors.New("RunChunks: RunConfig.Phase1SessionFactory is required")
 	}
-	if len(in.Chunks) == 0 {
+	if len(chunkInputs.Chunks) == 0 {
 		return AnalysisResult{}, errors.New("RunChunks: at least one chunk is required")
 	}
 
@@ -36,14 +36,14 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 	poolCap := 1
 	if rc.Mode == ModeParallel {
 		poolCap = rc.MaxConcurrency
-		if poolCap <= 0 || poolCap > len(in.Chunks) {
-			poolCap = len(in.Chunks)
+		if poolCap <= 0 || poolCap > len(chunkInputs.Chunks) {
+			poolCap = len(chunkInputs.Chunks)
 		}
 	}
 	phase1Pool := NewSessionPool(poolCap, rc.Phase1Factory())
 	defer phase1Pool.Close()
 
-	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, in, req)
+	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, chunkInputs, req)
 	analysisResult := AnalysisResult{Warnings: p1Warnings}
 	if err != nil {
 		return analysisResult, err
@@ -51,7 +51,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 	analysisResult.Mistakes = orderedByCategory(mistakesByCategory, enabled)
 
 	if req.DryRun || len(analysisResult.Mistakes) == 0 {
-		if completedChunks == len(in.Chunks) {
+		if completedChunks == len(chunkInputs.Chunks) {
 			analysisResult.CompletedCategories = stringsFromCategories(enabled)
 		}
 		return analysisResult, nil
@@ -62,7 +62,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
 	defer phase2Pool.Close()
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategory, in.RuleTimeoutSecs, req)
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategory, chunkInputs.RuleTimeoutSecs, req)
 	analysisResult.Warnings = append(analysisResult.Warnings, p2Warnings...)
 	if err != nil {
 		return analysisResult, err
@@ -75,7 +75,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, in ChunkInpu
 	}
 	analysisResult.Findings = orderedByCategory(findingsByCategory, enabled)
 
-	if completedChunks == len(in.Chunks) {
+	if completedChunks == len(chunkInputs.Chunks) {
 		analysisResult.CompletedCategories = stringsFromCategories(enabled)
 	}
 	return analysisResult, nil
@@ -91,22 +91,22 @@ type chunkResult struct {
 }
 
 // runPhase1 dispatches per-chunk calls; returns the union, count of clean chunks, warnings.
-func (o *Orchestrator) runPhase1(ctx context.Context, rc RunConfig, pool *SessionPool, builder *PromptBuilder, in ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
-	if rc.Mode == ModeParallel && len(in.Chunks) > 1 {
-		return o.runPhase1Parallel(ctx, pool, builder, in, req)
+func (o *Orchestrator) runPhase1(ctx context.Context, rc RunConfig, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
+	if rc.Mode == ModeParallel && len(chunkInputs.Chunks) > 1 {
+		return o.runPhase1Parallel(ctx, pool, builder, chunkInputs, req)
 	}
-	return o.runPhase1Sequential(ctx, pool, builder, in, req)
+	return o.runPhase1Sequential(ctx, pool, builder, chunkInputs, req)
 }
 
-func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPool, builder *PromptBuilder, in ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
+func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
 	mistakes := map[RuleCategory][]Mistake{}
 	warnings := []string{}
 	priorSummary := ""
 	completed := 0
-	timeout := chunkTimeout(in.RuleTimeoutSecs)
+	timeout := chunkTimeout(chunkInputs.RuleTimeoutSecs)
 
-	for i, chunk := range in.Chunks {
-		prompt := builder.BuildPhase1(chunk, req, priorSummary, len(in.Chunks))
+	for i, chunk := range chunkInputs.Chunks {
+		prompt := builder.BuildPhase1(chunk, req, priorSummary, len(chunkInputs.Chunks))
 		raw, runErr := runWithPool(ctx, pool, prompt, timeout)
 		if runErr != nil {
 			if errs.Is(runErr, errs.KindRateLimit) {
@@ -122,7 +122,7 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 			priorSummary = ""
 			continue
 		}
-		final := i == len(in.Chunks)-1
+		final := i == len(chunkInputs.Chunks)-1
 		if !final && summary == "" {
 			warnings = append(warnings, fmt.Sprintf("schema violation chunk=%d (missing summary)", i))
 			return mistakes, completed, warnings, fmt.Errorf("phase-1 schema violation: chunk %d missing summary", i)
@@ -134,15 +134,15 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 	return mistakes, completed, warnings, nil
 }
 
-func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool, builder *PromptBuilder, in ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
-	results := make([]chunkResult, len(in.Chunks))
-	timeout := chunkTimeout(in.RuleTimeoutSecs)
+func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
+	results := make([]chunkResult, len(chunkInputs.Chunks))
+	timeout := chunkTimeout(chunkInputs.RuleTimeoutSecs)
 
 	g, gctx := errgroup.WithContext(ctx)
-	for i, chunk := range in.Chunks {
+	for i, chunk := range chunkInputs.Chunks {
 		i, chunk := i, chunk
 		g.Go(func() error {
-			prompt := builder.BuildPhase1(chunk, req, "", len(in.Chunks))
+			prompt := builder.BuildPhase1(chunk, req, "", len(chunkInputs.Chunks))
 			raw, runErr := runWithPool(gctx, pool, prompt, timeout)
 			if runErr != nil {
 				results[i] = chunkResult{index: i, err: runErr}
@@ -152,11 +152,11 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 				return nil
 			}
 			parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
-			cr := chunkResult{index: i, mistakesByCat: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
+			chunkRes := chunkResult{index: i, mistakesByCat: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
 			if parseErr != nil {
-				cr.warnings = append(cr.warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
+				chunkRes.warnings = append(chunkRes.warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
 			}
-			results[i] = cr
+			results[i] = chunkRes
 			return nil
 		})
 	}
@@ -235,8 +235,8 @@ func chunkTimeout(secs int) time.Duration {
 
 // mergeMistakes merges src into dst, appending in encounter order.
 func mergeMistakes(dst, src map[RuleCategory][]Mistake) {
-	for c, ms := range src {
-		dst[c] = append(dst[c], ms...)
+	for category, mistakes := range src {
+		dst[category] = append(dst[category], mistakes...)
 	}
 }
 

@@ -36,9 +36,9 @@ const runIDLength = 8
 // generateRunID returns a random 8-character hex string for correlating
 // all prompts and outputs from a single analysis run.
 func generateRunID() string {
-	b := make([]byte, runIDLength/2)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	randomBytes := make([]byte, runIDLength/2)
+	_, _ = rand.Read(randomBytes)
+	return hex.EncodeToString(randomBytes)
 }
 
 // Options captures everything the pipeline needs for one analyze invocation
@@ -481,22 +481,22 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	// rogue Phase 1 model cannot pollute the findings file.
 	systemMsg := analyzer.BuildReadOnlySystemMessage(dr.projectPath, runID)
 	phase1Factory := func() (analyzer.Session, error) {
-		raw, ferr := provider.NewSession(ctx, analyzer.SessionConfig{
+		raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
 			WorkingDirectory: dr.projectPath,
 			Model:            dr.providerBlock.Model,
 			ReadOnly:         true,
 			SystemMessage:    systemMsg,
 			RunID:            runID,
 		})
-		if ferr != nil {
-			return nil, ferr
+		if factoryErr != nil {
+			return nil, factoryErr
 		}
 		return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
 	}
 	phase2Factory := phase1Factory
 	if phase2Config != nil {
 		phase2Factory = func() (analyzer.Session, error) {
-			raw, ferr := provider.NewSession(ctx, analyzer.SessionConfig{
+			raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
 				WorkingDirectory: dr.projectPath,
 				Model:            dr.providerBlock.Model,
 				ReadOnly:         true,
@@ -504,8 +504,8 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 				RunID:            runID,
 				Phase2:           phase2Config,
 			})
-			if ferr != nil {
-				return nil, ferr
+			if factoryErr != nil {
+				return nil, factoryErr
 			}
 			return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
 		}
@@ -513,8 +513,8 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 
 	existingFindingHashes := stringSliceToSet(currentState.FindingHashes)
 	if currentState != nil {
-		for hash, fs := range currentState.Findings {
-			if fs.Status == state.FindingStatusDismissed {
+		for hash, findingState := range currentState.Findings {
+			if findingState.Status == state.FindingStatusDismissed {
 				if existingFindingHashes == nil {
 					existingFindingHashes = map[string]struct{}{}
 				}
@@ -547,12 +547,12 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 		Mode:                 mode,
 		MaxConcurrency:       resolveMaxConcurrency(dr.appConfig, opts),
 	}
-	in := analyzer.ChunkInputs{
+	chunkInputs := analyzer.ChunkInputs{
 		Chunks:          tr.chunks,
 		RuleTimeoutSecs: dr.appConfig.Analyzer.RuleTimeoutSeconds,
 	}
 	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(tr.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
-	pipelineResult, err := orchestrator.RunChunks(ctx, rc, in, phaseReq)
+	pipelineResult, err := orchestrator.RunChunks(ctx, rc, chunkInputs, phaseReq)
 	if err != nil {
 		_ = provider.Close()
 		recordProviderFailure(currentState, dr.providerID, err)
@@ -803,8 +803,8 @@ func findingRedactorFunc(r *analyzer.Redactor) func(string) string {
 	if r == nil {
 		return nil
 	}
-	return func(s string) string {
-		out, _ := r.Redact(s)
+	return func(text string) string {
+		out, _ := r.Redact(text)
 		return out
 	}
 }
