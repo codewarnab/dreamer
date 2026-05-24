@@ -59,112 +59,112 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 	defaultStyle := lipgloss.NewStyle().Foreground(colorDim)
 	usageStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
 
-	var b strings.Builder
+	var helpOutput strings.Builder
 
 	// Banner — only on root command.
 	if cmd.Parent() == nil {
-		b.WriteString(bannerStyle.Render(dreamerBanner))
-		b.WriteString("\n\n")
+		helpOutput.WriteString(bannerStyle.Render(dreamerBanner))
+		helpOutput.WriteString("\n\n")
 	}
 
 	// Description.
 	if cmd.Long != "" {
-		b.WriteString(cmd.Long)
+		helpOutput.WriteString(cmd.Long)
 	} else if cmd.Short != "" {
-		b.WriteString(cmd.Short)
+		helpOutput.WriteString(cmd.Short)
 	}
-	b.WriteString("\n\n")
+	helpOutput.WriteString("\n\n")
 
 	// USAGE.
-	b.WriteString(headerStyle.Render("USAGE"))
-	b.WriteString("\n")
-	b.WriteString("  " + cmd.UseLine())
-	b.WriteString("\n")
+	helpOutput.WriteString(headerStyle.Render("USAGE"))
+	helpOutput.WriteString("\n")
+	helpOutput.WriteString("  " + cmd.UseLine())
+	helpOutput.WriteString("\n")
 
 	// Grouped commands.
 	grouped := make(map[string][]*cobra.Command)
 	var ungrouped []*cobra.Command
-	for _, c := range cmd.Commands() {
-		if !c.IsAvailableCommand() && c.Name() != "help" {
+	for _, subcmd := range cmd.Commands() {
+		if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
 			continue
 		}
-		gid := c.GroupID
+		gid := subcmd.GroupID
 		if gid == "" {
-			if assigned, ok := groupAssignments[c.Name()]; ok {
+			if assigned, ok := groupAssignments[subcmd.Name()]; ok {
 				gid = assigned
 			}
 		}
 		if gid != "" {
-			grouped[gid] = append(grouped[gid], c)
+			grouped[gid] = append(grouped[gid], subcmd)
 		} else {
-			ungrouped = append(ungrouped, c)
+			ungrouped = append(ungrouped, subcmd)
 		}
 	}
 
 	// Calculate padding: longest command name + 4 spaces.
 	maxNameLen := 0
-	for _, c := range cmd.Commands() {
-		if !c.IsAvailableCommand() && c.Name() != "help" {
+	for _, subcmd := range cmd.Commands() {
+		if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
 			continue
 		}
-		if n := len(c.Name()); n > maxNameLen {
-			maxNameLen = n
+		if nameLen := len(subcmd.Name()); nameLen > maxNameLen {
+			maxNameLen = nameLen
 		}
 	}
 	padding := maxNameLen + 4
 
 	// Render each group.
-	for _, g := range commandGroups {
-		cmds := grouped[g.ID]
+	for _, group := range commandGroups {
+		cmds := grouped[group.ID]
 		if len(cmds) == 0 {
 			continue
 		}
-		b.WriteString("\n")
-		b.WriteString(headerStyle.Render(strings.ToUpper(g.Title)))
-		b.WriteString("\n")
-		for _, c := range cmds {
-			padded := c.Name() + strings.Repeat(" ", padding-len(c.Name()))
-			b.WriteString("  ")
-			b.WriteString(cmdStyle.Render(padded))
-			b.WriteString(descStyle.Render(c.Short))
-			b.WriteString("\n")
+		helpOutput.WriteString("\n")
+		helpOutput.WriteString(headerStyle.Render(strings.ToUpper(group.Title)))
+		helpOutput.WriteString("\n")
+		for _, subcmd := range cmds {
+			padded := subcmd.Name() + strings.Repeat(" ", padding-len(subcmd.Name()))
+			helpOutput.WriteString("  ")
+			helpOutput.WriteString(cmdStyle.Render(padded))
+			helpOutput.WriteString(descStyle.Render(subcmd.Short))
+			helpOutput.WriteString("\n")
 		}
 	}
 
 	// Ungrouped commands (completion, help, etc.).
 	if len(ungrouped) > 0 {
-		b.WriteString("\n")
-		b.WriteString(headerStyle.Render("OTHER"))
-		b.WriteString("\n")
+		helpOutput.WriteString("\n")
+		helpOutput.WriteString(headerStyle.Render("OTHER"))
+		helpOutput.WriteString("\n")
 		for _, c := range ungrouped {
 			padded := c.Name() + strings.Repeat(" ", padding-len(c.Name()))
-			b.WriteString("  ")
-			b.WriteString(cmdStyle.Render(padded))
-			b.WriteString(descStyle.Render(c.Short))
-			b.WriteString("\n")
+			helpOutput.WriteString("  ")
+			helpOutput.WriteString(cmdStyle.Render(padded))
+			helpOutput.WriteString(descStyle.Render(c.Short))
+			helpOutput.WriteString("\n")
 		}
 	}
 
 	// FLAGS — styled per-flag with colored parts.
-	renderFlagSection(&b, "FLAGS", cmd.LocalFlags(), headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle)
+	renderFlagSection(&helpOutput, "FLAGS", cmd.LocalFlags(), headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle)
 
 	// Global flags.
 	if cmd.HasPersistentFlags() {
-		renderFlagSection(&b, "GLOBAL FLAGS", cmd.InheritedFlags(), headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle)
+		renderFlagSection(&helpOutput, "GLOBAL FLAGS", cmd.InheritedFlags(), headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle)
 	}
 
 	// Footer hint.
-	b.WriteString("\n")
-	b.WriteString(dimStyle.Render(fmt.Sprintf("Use %q for more information about a command.",
+	helpOutput.WriteString("\n")
+	helpOutput.WriteString(dimStyle.Render(fmt.Sprintf("Use %q for more information about a command.",
 		cmd.CommandPath()+" [command] --help")))
-	b.WriteString("\n")
+	helpOutput.WriteString("\n")
 
-	fmt.Fprintln(cmd.OutOrStdout(), b.String())
+	fmt.Fprintln(cmd.OutOrStdout(), helpOutput.String())
 }
 
 // renderFlagSection writes a styled FLAGS section from a pflag.FlagSet.
 func renderFlagSection(
-	b *strings.Builder,
+	builder *strings.Builder,
 	title string,
 	flags *pflag.FlagSet,
 	headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle lipgloss.Style,
@@ -172,9 +172,9 @@ func renderFlagSection(
 	if !flags.HasAvailableFlags() {
 		return
 	}
-	b.WriteString("\n")
-	b.WriteString(headerStyle.Render(title))
-	b.WriteString("\n")
+	builder.WriteString("\n")
+	builder.WriteString(headerStyle.Render(title))
+	builder.WriteString("\n")
 
 	// Find longest flag name column for alignment.
 	maxCol := 0
@@ -197,42 +197,42 @@ func renderFlagSection(
 			return
 		}
 
-		b.WriteString("  ")
+		builder.WriteString("  ")
 
 		// Short form.
 		if f.Shorthand != "" {
-			b.WriteString(flagNameStyle.Render("-" + f.Shorthand))
-			b.WriteString(", ")
+			builder.WriteString(flagNameStyle.Render("-" + f.Shorthand))
+			builder.WriteString(", ")
 		} else {
-			b.WriteString("   ")
+			builder.WriteString("   ")
 		}
 
 		// Long form.
-		b.WriteString(flagNameStyle.Render("--" + f.Name))
+		builder.WriteString(flagNameStyle.Render("--" + f.Name))
 
 		// Type (skip for bools).
 		typeStr := ""
 		if f.Value.Type() != "bool" {
 			typeStr = " " + f.Value.Type()
-			b.WriteString(typeStyle.Render(typeStr))
+			builder.WriteString(typeStyle.Render(typeStr))
 		}
 
 		// Pad to alignment column.
 		nameCol := len(f.Shorthand) + len(f.Name) + 6 + len(typeStr)
 		if nameCol < maxCol {
-			b.WriteString(strings.Repeat(" ", maxCol-nameCol))
+			builder.WriteString(strings.Repeat(" ", maxCol-nameCol))
 		}
 
 		// Description.
-		b.WriteString(usageStyle.Render(f.Usage))
+		builder.WriteString(usageStyle.Render(f.Usage))
 
 		// Default value (if non-empty and not "false"/"0"/"").
 		def := f.DefValue
 		if def != "" && def != "false" && def != "0" {
-			b.WriteString(" ")
-			b.WriteString(defaultStyle.Render("(default " + def + ")"))
+			builder.WriteString(" ")
+			builder.WriteString(defaultStyle.Render("(default " + def + ")"))
 		}
 
-		b.WriteString("\n")
+		builder.WriteString("\n")
 	})
 }

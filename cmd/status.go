@@ -64,9 +64,9 @@ func newStatusCommand() *cobra.Command {
 // filterStatus returns a copy of status with only jobs matching the given project name.
 func filterStatus(status jobqueue.QueueStatus, project string) jobqueue.QueueStatus {
 	var filtered []*jobqueue.Job
-	for _, j := range status.Jobs {
-		if j.Project == project {
-			filtered = append(filtered, j)
+	for _, job := range status.Jobs {
+		if job.Project == project {
+			filtered = append(filtered, job)
 		}
 	}
 	status.Jobs = filtered
@@ -167,14 +167,14 @@ func printStatusTable(cmd *cobra.Command, status jobqueue.QueueStatus) {
 		cmd.Println()
 	}
 
-	terminal := make([]*jobqueue.Job, 0)
-	terminal = append(terminal, groups[jobqueue.StatusCompleted]...)
-	terminal = append(terminal, groups[jobqueue.StatusFailed]...)
-	terminal = append(terminal, groups[jobqueue.StatusTimedOut]...)
-	terminal = append(terminal, groups[jobqueue.StatusCancelled]...)
-	if len(terminal) > 0 {
+	finishedJobs := make([]*jobqueue.Job, 0)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusCompleted]...)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusFailed]...)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusTimedOut]...)
+	finishedJobs = append(finishedJobs, groups[jobqueue.StatusCancelled]...)
+	if len(finishedJobs) > 0 {
 		cmd.Println("COMPLETED")
-		for _, j := range terminal {
+		for _, j := range finishedJobs {
 			finished := ""
 			if j.FinishedAt != nil {
 				finished = j.FinishedAt.Format("15:04")

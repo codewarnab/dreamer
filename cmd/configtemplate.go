@@ -187,7 +187,7 @@ web:
 // renderCommentedConfig substitutes the wizard's answers into the
 // commented template and returns the rendered bytes ready to write.
 func renderCommentedConfig(a setupAnswers) ([]byte, error) {
-	data := struct {
+	tmplData := struct {
 		DefaultProvider    string
 		UserProvider       string
 		UserModel          string
@@ -220,7 +220,7 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		if since == "" {
 			since = "24h"
 		}
-		data.Projects = []templateProject{{Name: name, Path: a.projectPath, Since: since}}
+		tmplData.Projects = []templateProject{{Name: name, Path: a.projectPath, Since: since}}
 	}
 
 	tmpl := template.New("config").Funcs(template.FuncMap{
@@ -266,7 +266,7 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 		return nil, fmt.Errorf("parse config template: %w", err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := tmpl.Execute(&buf, tmplData); err != nil {
 		return nil, fmt.Errorf("execute config template: %w", err)
 	}
 	return buf.Bytes(), nil

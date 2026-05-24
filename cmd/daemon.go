@@ -109,8 +109,8 @@ func newDaemonCommand() *cobra.Command {
 				logging.Any("max_concurrent", cfg.Daemon.MaxConcurrentJobs),
 			)
 
-			retDur, _ := time.ParseDuration(cfg.Daemon.JobHistoryRetention)
-			runDaemonLoop(ctx, cmd, queue, cfg, frequency, retDur, logger, workers)
+			retentionDur, _ := time.ParseDuration(cfg.Daemon.JobHistoryRetention)
+			runDaemonLoop(ctx, cmd, queue, cfg, frequency, retentionDur, logger, workers)
 			<-webDone
 			return nil
 		},
@@ -152,9 +152,9 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 	queue *jobqueue.Queue, discoveryCache *pipeline.DiscoveryCache,
 	events *pipeline.EventBus, releaseLock func(), err error,
 ) {
-	maxDur, perr := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
-	if perr != nil {
-		err = fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, perr)
+	maxDur, parseErr := time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
+	if parseErr != nil {
+		err = fmt.Errorf("parse max_analysis_duration %q: %w", cfg.Daemon.MaxAnalysisDuration, parseErr)
 		return
 	}
 
@@ -173,8 +173,8 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 		MaxDuration:   maxDur,
 		Logger:        logger,
 	})
-	if rerr := queue.Recover(); rerr != nil {
-		logger.Warn("failed to recover job queue", logging.Any("err", rerr))
+	if recoverErr := queue.Recover(); recoverErr != nil {
+		logger.Warn("failed to recover job queue", logging.Any("err", recoverErr))
 	}
 	recoverStaleJobs(queue, stalePID, logger)
 
@@ -320,8 +320,8 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 		// WRITE/CREATE events per save via temp+rename) into a single
 		// reload + config.reloaded publish.
 		const debounce = 200 * time.Millisecond
-		var pending *time.Timer
-		var pendingC <-chan time.Time
+		var debounceTimer *time.Timer
+		var debounceCh <-chan time.Time
 		reload := func() {
 			newCfg, loadErr := config.LoadConfigWithOverlay(configPath, overlayPath)
 			if loadErr != nil {
@@ -354,19 +354,19 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 				if clean != filepath.Clean(configPath) && clean != filepath.Clean(overlayPath) {
 					continue
 				}
-				if pending != nil {
-					pending.Stop()
+				if debounceTimer != nil {
+					debounceTimer.Stop()
 				}
-				pending = time.NewTimer(debounce)
-				pendingC = pending.C
-			case <-pendingC:
-				pendingC = nil
+				debounceTimer = time.NewTimer(debounce)
+				debounceCh = debounceTimer.C
+			case <-debounceCh:
+				debounceCh = nil
 				reload()
-			case werr, ok := <-watcher.Errors:
+			case watchErr, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				logger.Info("config watcher error", logging.Any("err", werr))
+				logger.Info("config watcher error", logging.Any("err", watchErr))
 			}
 		}
 	}()
