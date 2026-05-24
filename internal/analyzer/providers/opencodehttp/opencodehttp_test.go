@@ -72,7 +72,7 @@ func TestSessionRunEndToEnd(t *testing.T) {
 			var req messageRequest
 			json.NewDecoder(r.Body).Decode(&req)
 			json.NewEncoder(w).Encode(messageResponse{
-				Parts: []part{{Type: "text", Text: "analysis result here"}},
+				Parts: []messagePart{{Type: "text", Text: "analysis result here"}},
 			})
 
 		case r.URL.Path == "/session/sess-123" && r.Method == http.MethodDelete:

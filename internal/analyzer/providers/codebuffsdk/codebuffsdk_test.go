@@ -23,8 +23,8 @@ func TestNewDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if p.ID() != id {
-		t.Errorf("ID = %q, want %q", p.ID(), id)
+	if p.ID() != ID {
+		t.Errorf("ID = %q, want %q", p.ID(), ID)
 	}
 }
 
@@ -239,8 +239,8 @@ func TestProviderRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
-	if p.ID() != id {
-		t.Errorf("ID = %q, want %q", p.ID(), id)
+	if p.ID() != ID {
+		t.Errorf("ID = %q, want %q", p.ID(), ID)
 	}
 }
 

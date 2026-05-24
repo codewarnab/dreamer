@@ -198,7 +198,7 @@ func (p *provider) healthCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	p.setAuth(req)
+	p.setBasicAuthHeader(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -211,7 +211,7 @@ func (p *provider) healthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (p *provider) setAuth(req *http.Request) {
+func (p *provider) setBasicAuthHeader(req *http.Request) {
 	if p.password != "" {
 		req.SetBasicAuth("opencode", p.password)
 	}
@@ -349,7 +349,7 @@ func (s *session) createSession(ctx context.Context) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	s.provider.setAuth(req)
+	s.provider.setBasicAuthHeader(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -377,7 +377,7 @@ func (s *session) createSession(ctx context.Context) (string, error) {
 // sendMessage sends a prompt and waits for the full response.
 func (s *session) sendMessage(ctx context.Context, sessionID, text string, timeout time.Duration) (string, error) {
 	msgReq := messageRequest{
-		Parts: []part{{Type: "text", Text: text}},
+		Parts: []messagePart{{Type: "text", Text: text}},
 		Model: s.model,
 	}
 	body, err := json.Marshal(msgReq)
@@ -395,7 +395,7 @@ func (s *session) sendMessage(ctx context.Context, sessionID, text string, timeo
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	s.provider.setAuth(req)
+	s.provider.setBasicAuthHeader(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -433,7 +433,7 @@ func (s *session) deleteSession(ctx context.Context, sessionID string) {
 	if err != nil {
 		return
 	}
-	s.provider.setAuth(req)
+	s.provider.setBasicAuthHeader(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return
@@ -443,17 +443,17 @@ func (s *session) deleteSession(ctx context.Context, sessionID string) {
 
 // --- API types ---
 
-type part struct {
+type messagePart struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 }
 
 type messageRequest struct {
-	Parts []part `json:"parts"`
-	Model string `json:"model,omitempty"`
+	Parts []messagePart `json:"parts"`
+	Model string        `json:"model,omitempty"`
 }
 
 type messageResponse struct {
 	Info  json.RawMessage `json:"info"`
-	Parts []part          `json:"parts"`
+	Parts []messagePart   `json:"parts"`
 }

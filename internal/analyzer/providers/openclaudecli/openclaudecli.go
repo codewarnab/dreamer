@@ -231,11 +231,11 @@ func readStreamJSON(r io.Reader) (string, error) {
 			default:
 				// error_during_execution, error_max_turns,
 				// error_max_budget_usd, error_max_structured_output_retries
-				msgs := event.Errors
-				if len(msgs) == 0 {
-					msgs = []string{"unknown error (" + event.Subtype + ")"}
+				errorMessages := event.Errors
+				if len(errorMessages) == 0 {
+					errorMessages = []string{"unknown error (" + event.Subtype + ")"}
 				}
-				resultErr = strings.Join(msgs, "; ")
+				resultErr = strings.Join(errorMessages, "; ")
 			}
 		}
 	}
