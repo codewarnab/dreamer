@@ -148,18 +148,18 @@ type contentBlock struct {
 	toolRes   *toolResultBlock // for type="tool_result"
 }
 
-func parseTextBlock(m map[string]any) (contentBlock, bool) {
-	text, _ := m["text"].(string)
+func parseTextBlock(block map[string]any) (contentBlock, bool) {
+	text, _ := block["text"].(string)
 	if strings.TrimSpace(text) != "" {
 		return contentBlock{blockType: "text", text: strings.TrimSpace(text)}, true
 	}
 	return contentBlock{}, false
 }
 
-func parseToolUseBlock(m map[string]any) (contentBlock, bool) {
-	id, _ := m["id"].(string)
-	name, _ := m["name"].(string)
-	input, _ := m["input"].(map[string]any)
+func parseToolUseBlock(block map[string]any) (contentBlock, bool) {
+	id, _ := block["id"].(string)
+	name, _ := block["name"].(string)
+	input, _ := block["input"].(map[string]any)
 	if id != "" && name != "" {
 		return contentBlock{
 			blockType: "tool_use",
@@ -169,10 +169,10 @@ func parseToolUseBlock(m map[string]any) (contentBlock, bool) {
 	return contentBlock{}, false
 }
 
-func parseToolResultBlock(m map[string]any) (contentBlock, bool) {
-	toolUseID, _ := m["tool_use_id"].(string)
-	isError, _ := m["is_error"].(bool)
-	content := textFromValue(m["content"], 0)
+func parseToolResultBlock(block map[string]any) (contentBlock, bool) {
+	toolUseID, _ := block["tool_use_id"].(string)
+	isError, _ := block["is_error"].(bool)
+	content := textFromValue(block["content"], 0)
 	if toolUseID != "" {
 		return contentBlock{
 			blockType: "tool_result",
@@ -182,8 +182,8 @@ func parseToolResultBlock(m map[string]any) (contentBlock, bool) {
 	return contentBlock{}, false
 }
 
-func parseUnknownBlock(m map[string]any) (contentBlock, bool) {
-	text := textFromValue(m, 0)
+func parseUnknownBlock(block map[string]any) (contentBlock, bool) {
+	text := textFromValue(block, 0)
 	if text != "" {
 		return contentBlock{blockType: "text", text: text}, true
 	}
@@ -203,7 +203,7 @@ func parseContentArray(content any) []contentBlock {
 	hasStructured := false
 
 	for _, item := range arr {
-		m, ok := item.(map[string]any)
+		block, ok := item.(map[string]any)
 		if !ok {
 			// Might be a string element in the array.
 			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
@@ -212,24 +212,24 @@ func parseContentArray(content any) []contentBlock {
 			continue
 		}
 
-		bt, _ := m["type"].(string)
-		switch bt {
+		blockType, _ := block["type"].(string)
+		switch blockType {
 		case "text":
-			if b, ok := parseTextBlock(m); ok {
+			if b, ok := parseTextBlock(block); ok {
 				blocks = append(blocks, b)
 			}
 		case "tool_use":
 			hasStructured = true
-			if b, ok := parseToolUseBlock(m); ok {
+			if b, ok := parseToolUseBlock(block); ok {
 				blocks = append(blocks, b)
 			}
 		case "tool_result":
 			hasStructured = true
-			if b, ok := parseToolResultBlock(m); ok {
+			if b, ok := parseToolResultBlock(block); ok {
 				blocks = append(blocks, b)
 			}
 		default:
-			if b, ok := parseUnknownBlock(m); ok {
+			if b, ok := parseUnknownBlock(block); ok {
 				blocks = append(blocks, b)
 			}
 		}
@@ -246,28 +246,28 @@ func parseContentArray(content any) []contentBlock {
 func processContentBlocks(role string, ts time.Time, blocks []contentBlock, pending map[string]pendingToolCall) []ChatMessage {
 	var messages []ChatMessage
 
-	for _, b := range blocks {
-		switch b.blockType {
+	for _, block := range blocks {
+		switch block.blockType {
 		case "text":
-			messages = append(messages, ChatMessage{Role: role, Content: b.text, Timestamp: ts})
+			messages = append(messages, ChatMessage{Role: role, Content: block.text, Timestamp: ts})
 
 		case "tool_use":
 			var input string
 			if !DropToolDetails {
-				input = serializeToolInput(b.toolUse.name, b.toolUse.input)
+				input = serializeToolInput(block.toolUse.name, block.toolUse.input)
 			}
-			pending[b.toolUse.id] = pendingToolCall{
-				name:      b.toolUse.name,
+			pending[block.toolUse.id] = pendingToolCall{
+				name:      block.toolUse.name,
 				input:     input,
 				timestamp: ts,
 			}
 
 		case "tool_result":
-			if call, ok := pending[b.toolRes.toolUseID]; ok {
-				delete(pending, b.toolRes.toolUseID)
+			if call, ok := pending[block.toolRes.toolUseID]; ok {
+				delete(pending, block.toolRes.toolUseID)
 				var output string
 				if !DropToolDetails {
-					output = truncateToolOutput(b.toolRes.content)
+					output = truncateToolOutput(block.toolRes.content)
 				}
 				messages = append(messages, ChatMessage{
 					Role:      "assistant",
@@ -275,9 +275,9 @@ func processContentBlocks(role string, ts time.Time, blocks []contentBlock, pend
 					Timestamp: call.timestamp,
 					ToolName:  call.name,
 				})
-			} else if !DropToolDetails && b.toolRes.content != "" {
+			} else if !DropToolDetails && block.toolRes.content != "" {
 				// Orphaned result — no matching tool_use found.
-				output := truncateToolOutput(b.toolRes.content)
+				output := truncateToolOutput(block.toolRes.content)
 				messages = append(messages, ChatMessage{
 					Role:      "assistant",
 					Content:   fmt.Sprintf("[tool_result] %s", output),
@@ -303,26 +303,26 @@ func serializeToolInput(toolName string, input map[string]any) string {
 			return cmd
 		}
 	case "Read", "read":
-		if p, ok := input["file_path"].(string); ok {
-			return p
+		if filePath, ok := input["file_path"].(string); ok {
+			return filePath
 		}
-		if p, ok := input["path"].(string); ok {
-			return p
+		if filePath, ok := input["path"].(string); ok {
+			return filePath
 		}
 	case "Edit", "edit", "Write", "write":
-		if p, ok := input["file_path"].(string); ok {
-			return p
+		if filePath, ok := input["file_path"].(string); ok {
+			return filePath
 		}
-		if p, ok := input["path"].(string); ok {
-			return p
+		if filePath, ok := input["path"].(string); ok {
+			return filePath
 		}
 	case "Grep", "grep":
-		if p, ok := input["pattern"].(string); ok {
-			return p
+		if filePath, ok := input["pattern"].(string); ok {
+			return filePath
 		}
 	case "Glob", "glob":
-		if p, ok := input["pattern"].(string); ok {
-			return p
+		if filePath, ok := input["pattern"].(string); ok {
+			return filePath
 		}
 	}
 
@@ -331,11 +331,11 @@ func serializeToolInput(toolName string, input map[string]any) string {
 	if err != nil {
 		return ""
 	}
-	s := string(raw)
-	if len(s) > maxToolInputChars {
-		return s[:maxToolInputChars] + "..."
+	serialized := string(raw)
+	if len(serialized) > maxToolInputChars {
+		return serialized[:maxToolInputChars] + "..."
 	}
-	return s
+	return serialized
 }
 
 // formatToolCall produces the folded "[ToolName] input → output" format.

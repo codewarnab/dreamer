@@ -357,8 +357,8 @@ func (reader OpenCodeReader) DeleteSession(dbPath string, sessionID string) erro
 	return nil
 }
 
-func openCodeRoleFromMessageData(data string) string {
-	trimmed := strings.TrimSpace(data)
+func openCodeRoleFromMessageData(messageDataJSON string) string {
+	trimmed := strings.TrimSpace(messageDataJSON)
 	if trimmed == "" {
 		return ""
 	}
@@ -400,8 +400,8 @@ func readOpenCodePartsContent(database *sql.DB, messageID string) (string, error
 	return strings.TrimSpace(strings.Join(pieces, "\n")), nil
 }
 
-func openCodePartText(data string) string {
-	trimmed := strings.TrimSpace(data)
+func openCodePartText(partDataJSON string) string {
+	trimmed := strings.TrimSpace(partDataJSON)
 	if trimmed == "" {
 		return ""
 	}

@@ -222,8 +222,8 @@ func (reader KiroReader) DeleteConversation(dbPath string, conversationID string
 	return nil
 }
 
-func parseKiroConversationValue(value string) []ChatMessage {
-	trimmed := strings.TrimSpace(value)
+func parseKiroConversationValue(historyJSON string) []ChatMessage {
+	trimmed := strings.TrimSpace(historyJSON)
 	if trimmed == "" {
 		return nil
 	}
