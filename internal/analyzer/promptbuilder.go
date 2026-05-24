@@ -156,12 +156,15 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 	sb.Write(rendered)
 	sb.WriteString("\n\n")
 
+	var warnings []string
 	if lead != nil {
-		sb.WriteString(buildPhase2Tail(req, lead))
+		tail, tailWarnings := buildPhase2Tail(req, lead)
+		sb.WriteString(tail)
+		warnings = append(warnings, tailWarnings...)
 	}
 	sb.WriteString("\n")
 
-	return sb.String(), nil
+	return sb.String(), warnings
 }
 
 // orderMistakesByCategory returns an ordered map keyed by enabled category.

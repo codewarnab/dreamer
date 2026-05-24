@@ -21,9 +21,10 @@ import (
 // phase2Decoder bundles the two transport-specific operations.
 type phase2Decoder struct {
 	// tail returns the per-mode trailing instructions appended to the
-	// Phase 2 prompt. lead is the first enabled rule pack (used to source
-	// the response schema or recording instructions from YAML).
-	tail func(req PhaseRequest, lead *RulePack) string
+	// Phase 2 prompt plus any warnings. lead is the first enabled rule
+	// pack (used to source the response schema or recording instructions
+	// from YAML).
+	tail func(req PhaseRequest, lead *RulePack) (string, []string)
 	// decode turns one Phase 2 session's raw text response plus the
 	// findings output path into per-category Findings. raw is the
 	// session's stdout; outputPath is the JSONL file the recording
@@ -52,30 +53,33 @@ func lookupPhase2Decoder(mode Phase2Mode) phase2Decoder {
 
 // buildPhase2Tail is the single entry point promptbuilder calls. It
 // dispatches to the registered tail for the request's mode.
-func buildPhase2Tail(req PhaseRequest, lead *RulePack) string {
+func buildPhase2Tail(req PhaseRequest, lead *RulePack) (string, []string) {
 	return lookupPhase2Decoder(req.Phase2Mode).tail(req, lead)
 }
 
 // jsonPhase2Tail produces the legacy JSON-output tail.
-func jsonPhase2Tail(_ PhaseRequest, lead *RulePack) string {
+func jsonPhase2Tail(_ PhaseRequest, lead *RulePack) (string, []string) {
 	if lead == nil {
-		return ""
+		return "", nil
 	}
-	return "Return JSON only with this exact shape:\n" + lead.EffectivePhase2ResponseSchema()
+	return "Return JSON only with this exact shape:\n" + lead.EffectivePhase2ResponseSchema(), nil
 }
 
 // mcpPhase2Tail produces the recording instructions for the MCP transport.
 // The YAML rule pack supplies the literal text (so operators can tune it
-// without recompiling); we fall back to JSON if the pack has no
-// recording-instructions block.
-func mcpPhase2Tail(_ PhaseRequest, lead *RulePack) string {
+// without recompiling). Returns a warning if the pack has no
+// recording-instructions block (the model would be told to return JSON
+// while the decoder reads from a file — silent zero findings).
+func mcpPhase2Tail(_ PhaseRequest, lead *RulePack) (string, []string) {
 	if lead == nil {
-		return ""
+		return "", nil
 	}
 	if instr := lead.EffectivePhase2RecordingInstructions(); instr != "" {
-		return instr
+		return instr, nil
 	}
-	return jsonPhase2Tail(PhaseRequest{}, lead)
+	// Fallback: use JSON tail but warn — the file decoder will find nothing.
+	jsonTail, _ := jsonPhase2Tail(PhaseRequest{}, lead)
+	return jsonTail, []string{"mcp phase2: rule pack missing phase2_recording_instructions; model will return JSON but file decoder expects JSONL — likely zero findings"}
 }
 
 // cliPhase2Tail produces the Bash-tool recording instructions for gemini-cli.
@@ -90,7 +94,7 @@ func mcpPhase2Tail(_ PhaseRequest, lead *RulePack) string {
 // The binary path comes from the resolved request (not a hard-coded
 // "dreamer") because the running binary may not be on $PATH — see
 // internal/mcpserver.FindDreamerBinary.
-func cliPhase2Tail(req PhaseRequest, _ *RulePack) string {
+func cliPhase2Tail(req PhaseRequest, _ *RulePack) (string, []string) {
 	binaryPath := req.CLIBinaryPath
 	if binaryPath == "" {
 		binaryPath = "dreamer"
@@ -114,7 +118,7 @@ The finding JSON format:
 
 Do NOT return findings as JSON text. Use the command for each finding individually.
 If the command returns {"ok":false}, fix the input and retry.
-After recording all findings, confirm completion with the count.`, binaryPath, req.FindingsOutputPath)
+After recording all findings, confirm completion with the count.`, binaryPath, req.FindingsOutputPath), nil
 }
 
 // jsonPhase2Decode parses inline JSON findings from the session's raw output.
