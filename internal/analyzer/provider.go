@@ -25,6 +25,7 @@ type SessionConfig struct {
 	Model            string
 	ReadOnly         bool
 	SystemMessage    string
+	RunID            string // injected into marker for transcript correlation
 
 	// Phase2 configures tool-based finding recording for the Phase 2 session.
 	// Nil means JSON parsing fallback (the default and also what Phase 1

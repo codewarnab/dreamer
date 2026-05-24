@@ -142,6 +142,7 @@ func (p *provider) NewSession(_ context.Context, sessionConfig analyzer.SessionC
 		workingDir: sessionConfig.WorkingDirectory,
 		model:      model,
 		sysMessage: sessionConfig.SystemMessage,
+		runID:      sessionConfig.RunID,
 	}, nil
 }
 
@@ -181,6 +182,7 @@ type session struct {
 	workingDir string
 	model      string
 	sysMessage string
+	runID      string
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -243,7 +245,7 @@ func (s *session) buildMessages(prompt string) []chatMessage {
 
 	messages = append(messages, chatMessage{
 		Role:    "user",
-		Content: chat.PrependMarker(prompt),
+		Content: chat.PrependMarker(prompt, s.runID),
 	})
 
 	return messages

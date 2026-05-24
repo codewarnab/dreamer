@@ -43,6 +43,9 @@ func writeGroundingPreamble(sb *strings.Builder, req PhaseRequest) {
 	if s := strings.TrimSpace(req.TestFramework); s != "" {
 		fmt.Fprintf(sb, "Test framework: %s\n", s)
 	}
+	if s := strings.TrimSpace(req.RunID); s != "" {
+		fmt.Fprintf(sb, "Session ID: %s\n", s)
+	}
 }
 
 // firstEnabledPack returns a pointer to the first enabled pack, or nil.

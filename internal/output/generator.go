@@ -28,6 +28,7 @@ type GenerateOptions struct {
 	ProjectTitle string
 	Warnings     []string
 	Now          func() time.Time
+	RunID        string // appended to run header for traceability
 }
 
 // GenerateResult reports what GenerateTodos produced.
@@ -87,10 +88,10 @@ func MergeTodos(projectName, existingContent string, findings []analyzer.Finding
 
 	var sections []string
 	if len(newFindings) > 0 {
-		sections = append(sections, renderRunSection(newFindings, runAt))
+		sections = append(sections, renderRunSection(newFindings, runAt, opts.RunID))
 	}
 	if len(opts.Warnings) > 0 {
-		sections = append(sections, renderWarningsSection(opts.Warnings, runAt))
+		sections = append(sections, renderWarningsSection(opts.Warnings, runAt, opts.RunID))
 	}
 
 	mergeResult = GenerateResult{
@@ -167,12 +168,16 @@ func filterNewFindings(findings []analyzer.Finding, existing map[string]struct{}
 	return out
 }
 
-func renderRunSection(findings []analyzer.Finding, runAt time.Time) string {
+func renderRunSection(findings []analyzer.Finding, runAt time.Time, runID string) string {
 	grouped := groupByCategory(findings)
 	categories := sortedCategoryHeadings(grouped)
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "## Run %s\n\n", runAt.Format(time.RFC3339))
+	if runID != "" {
+		fmt.Fprintf(&builder, "## Run %s [%s]\n\n", runAt.Format(time.RFC3339), runID)
+	} else {
+		fmt.Fprintf(&builder, "## Run %s\n\n", runAt.Format(time.RFC3339))
+	}
 	for i, heading := range categories {
 		if i > 0 {
 			builder.WriteByte('\n')
@@ -185,9 +190,13 @@ func renderRunSection(findings []analyzer.Finding, runAt time.Time) string {
 	return builder.String()
 }
 
-func renderWarningsSection(warnings []string, runAt time.Time) string {
+func renderWarningsSection(warnings []string, runAt time.Time, runID string) string {
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "## Warnings (Run %s)\n\n", runAt.Format(time.RFC3339))
+	if runID != "" {
+		fmt.Fprintf(&builder, "## Warnings (Run %s [%s])\n\n", runAt.Format(time.RFC3339), runID)
+	} else {
+		fmt.Fprintf(&builder, "## Warnings (Run %s)\n\n", runAt.Format(time.RFC3339))
+	}
 	for _, warning := range warnings {
 		text := strings.TrimSpace(warning)
 		if text == "" {

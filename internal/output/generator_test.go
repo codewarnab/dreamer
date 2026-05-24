@@ -38,6 +38,26 @@ func TestGenerateTodosCreatesFileWithGroupedMarkdown(t *testing.T) {
 	assertContains(t, content, "<!-- dreamer:finding:")
 }
 
+func TestGenerateTodosIncludesRunIDInHeading(t *testing.T) {
+	runAt := time.Date(2025, 2, 3, 4, 5, 6, 0, time.UTC)
+	findings := []analyzer.Finding{
+		{
+			Category: analyzer.RuleCategoryTest,
+			Mistake:  "Nil pointer when processing empty chat payload",
+		},
+	}
+
+	content, result := MergeTodos("project-a", "", findings, GenerateOptions{
+		Now:   func() time.Time { return runAt },
+		RunID: "a1b2c3d4",
+	})
+	if got, want := result.AddedFindings, 1; got != want {
+		t.Fatalf("result.AddedFindings = %d, want %d", got, want)
+	}
+
+	assertContains(t, content, "## Run 2025-02-03T04:05:06Z [a1b2c3d4]")
+}
+
 func TestGenerateTodosDeduplicatesAgainstExistingEntries(t *testing.T) {
 	firstRunAt := time.Date(2025, 1, 1, 9, 0, 0, 0, time.UTC)
 	existingContent, _ := MergeTodos("project-a", "", []analyzer.Finding{

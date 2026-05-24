@@ -84,6 +84,10 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 		line := sc.Text()
 		if m := runHeaderRe.FindStringSubmatch(line); m != nil {
 			currentRun = strings.TrimSpace(m[1])
+			// Strip optional [runID] suffix ("## Run <ts> [abc12345]").
+			if idx := strings.LastIndex(currentRun, " ["); idx >= 0 {
+				currentRun = strings.TrimSpace(currentRun[:idx])
+			}
 			latestRun = currentRun // newest run wins; file order is oldest-first.
 			currentCategory = ""
 			pendingSummary = ""

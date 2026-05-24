@@ -7,13 +7,17 @@ import (
 
 // BuildReadOnlySystemMessage returns the canonical read-only sandbox prompt
 // applied to every provider session. The working directory is used to scope
-// filesystem access; empty means no scoping.
-func BuildReadOnlySystemMessage(workingDirectory string) string {
+// filesystem access; empty means no scoping. When runID is non-empty, a
+// <session_id> tag is appended for transcript correlation.
+func BuildReadOnlySystemMessage(workingDirectory, runID string) string {
 	workingDirectory = strings.TrimSpace(workingDirectory)
 	systemMessage := baseReadOnlyMessage()
 	if workingDirectory != "" {
 		systemMessage += fmt.Sprintf("Scope boundary: inspect only files under the project directory %q unless the request is an explicit web fetch.\n", workingDirectory)
 		systemMessage += fmt.Sprintf("Never read files outside the project directory %q.\n", workingDirectory)
+	}
+	if runID != "" {
+		systemMessage += fmt.Sprintf("<session_id>%s</session_id>\n", runID)
 	}
 	return systemMessage
 }

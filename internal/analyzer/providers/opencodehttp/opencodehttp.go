@@ -174,6 +174,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		workingDir: sessionConfig.WorkingDirectory,
 		model:      model,
 		sysMessage: sessionConfig.SystemMessage,
+		runID:      sessionConfig.RunID,
 	}, nil
 }
 
@@ -309,6 +310,7 @@ type session struct {
 	workingDir string
 	model      string
 	sysMessage string
+	runID      string
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -324,7 +326,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	}()
 
 	// Build the message with system message prepended.
-	text := chat.PrependMarker(prompt)
+	text := chat.PrependMarker(prompt, s.runID)
 	if s.sysMessage != "" {
 		text = s.sysMessage + "\n\n" + text
 	}
