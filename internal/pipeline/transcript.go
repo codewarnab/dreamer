@@ -35,12 +35,12 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 // Returns one ProviderBlock per tool with messages in discovery order.
 // When includeSubagents is false, sources with a non-empty ParentID are skipped.
 func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger, includeSubagents bool) ([]ProviderBlock, []chat.ChatSource, int, []string, int, error) {
-	type accumulator struct {
+	type toolAggregator struct {
 		tool     string
 		paths    []string
 		messages []string
 	}
-	byTool := map[string]*accumulator{}
+	byTool := map[string]*toolAggregator{}
 	toolOrder := []string{}
 	usedSources := make([]chat.ChatSource, 0, len(sources))
 	warnings := []string{}
@@ -64,13 +64,13 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 		}
 		usedSources = append(usedSources, source)
 		toolKey := string(source.Tool)
-		acc, ok := byTool[toolKey]
+		agg, ok := byTool[toolKey]
 		if !ok {
-			acc = &accumulator{tool: toolKey}
-			byTool[toolKey] = acc
+			agg = &toolAggregator{tool: toolKey}
+			byTool[toolKey] = agg
 			toolOrder = append(toolOrder, toolKey)
 		}
-		acc.paths = append(acc.paths, source.Path)
+		agg.paths = append(agg.paths, source.Path)
 		sourceMessages := 0
 		sourceHits := 0
 		for _, message := range messages {
@@ -78,9 +78,9 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 			if text == "" {
 				continue
 			}
-			redacted, result := redactor.Redact(text)
-			totalHits += result.TotalHits()
-			sourceHits += result.TotalHits()
+			redacted, redactStats := redactor.Redact(text)
+			totalHits += redactStats.TotalHits()
+			sourceHits += redactStats.TotalHits()
 			messageCount++
 			sourceMessages++
 			var line strings.Builder
@@ -93,20 +93,20 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 			line.WriteString(": ")
 			line.WriteString(redacted)
 			line.WriteByte('\n')
-			acc.messages = append(acc.messages, line.String())
+			agg.messages = append(agg.messages, line.String())
 		}
 		logger.Info("source read", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("raw", raw), logging.Any("kept", sourceMessages), logging.Any("redactions", sourceHits))
 	}
 
 	blocks := make([]ProviderBlock, 0, len(toolOrder))
 	for _, tool := range toolOrder {
-		acc := byTool[tool]
-		header := fmt.Sprintf("tool: %s\nsources: %s\n\n", tool, strings.Join(acc.paths, ", "))
+		agg := byTool[tool]
+		header := fmt.Sprintf("tool: %s\nsources: %s\n\n", tool, strings.Join(agg.paths, ", "))
 		blocks = append(blocks, ProviderBlock{
 			Tool:     tool,
-			Sources:  acc.paths,
+			Sources:  agg.paths,
 			Header:   header,
-			Messages: acc.messages,
+			Messages: agg.messages,
 		})
 	}
 	return blocks, usedSources, messageCount, warnings, totalHits, nil
