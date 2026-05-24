@@ -21,6 +21,11 @@ import (
 	"dreamer/internal/state"
 )
 
+// FindingsTempFilePattern is the glob pattern used for Phase 2 findings
+// temp files. Used both at creation time and by the daemon's stale-file
+// sweep so the pattern is defined in one place.
+const FindingsTempFilePattern = "dreamer-findings-*.jsonl"
+
 // Options captures everything the pipeline needs for one analyze invocation
 // (cli flags + resolved global config).
 type Options struct {
@@ -420,7 +425,21 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 
 	phase2Config, findingsOutputPath, dreamerBinaryPath, phase2Err := buildPhase2Config(phase2Mode)
 	if phase2Err != nil {
-		logger.Warn("phase 2 tool wiring failed, falling back to inline JSON", logging.Any("err", phase2Err))
+		// Phase 2 mode was requested but setup failed. Log a warning and
+		// fall back to legacy JSON transport — the run will still produce
+		// findings via inline JSON, just fewer (no tool-verified ones).
+		// Surface through the event bus so operators can see the failure
+		// instead of silently degrading.
+		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
+			logging.Any("mode", string(phase2Mode)),
+			logging.Any("err", phase2Err),
+		)
+		if opts.Events != nil {
+			opts.Events.Publish(Event{
+				Type:    "phase2.fallback",
+				Payload: map[string]any{"mode": string(phase2Mode), "error": phase2Err.Error()},
+			})
+		}
 		phase2Mode = analyzer.Phase2ModeNone
 		phase2Config = nil
 	}
@@ -779,7 +798,7 @@ func buildPhase2Config(mode analyzer.Phase2Mode) (cfg *analyzer.Phase2Config, fi
 		return nil, "", "", nil
 	}
 
-	tmpFile, tmpErr := os.CreateTemp("", "dreamer-findings-*.jsonl")
+	tmpFile, tmpErr := os.CreateTemp("", FindingsTempFilePattern)
 	if tmpErr != nil {
 		return nil, "", "", fmt.Errorf("create findings temp file: %w", tmpErr)
 	}

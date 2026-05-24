@@ -374,16 +374,29 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 // sweepStaleFindingsTempFiles deletes leftover dreamer-findings-*.jsonl
 // files in os.TempDir(). These are Phase 2 temp files written by prior
 // daemon runs that crashed or were killed before the per-run defer ran.
+// staleAge is the minimum age before a findings temp file is considered
+// abandoned. Files younger than this may still be in use by a concurrent
+// `dreamer analyze` run (which doesn't hold the daemon lock).
+const staleAge = 10 * time.Minute
+
 // Returns the count of files removed. Errors removing individual files
 // are swallowed silently — the worst case is a small amount of temp-dir
 // clutter on the next sweep.
 func sweepStaleFindingsTempFiles() int {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "dreamer-findings-*.jsonl"))
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), pipeline.FindingsTempFilePattern))
 	if err != nil {
 		return 0
 	}
+	cutoff := time.Now().Add(-staleAge)
 	removed := 0
 	for _, p := range matches {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue // still potentially in use
+		}
 		if err := os.Remove(p); err == nil {
 			removed++
 		}
