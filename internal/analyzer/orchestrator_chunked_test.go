@@ -514,6 +514,23 @@ func TestRunChunksPhase2TimeoutMultiplier(t *testing.T) {
 	}
 }
 
+func TestChunkTimeoutZeroUsesDefault(t *testing.T) {
+	// Regression: chunkTimeout(0) must return the default, not 0s.
+	got := chunkTimeout(0)
+	want := time.Duration(defaultRuleTimeoutSeconds) * time.Second
+	if got != want {
+		t.Fatalf("chunkTimeout(0) = %v, want %v", got, want)
+	}
+}
+
+func TestChunkTimeoutNegativeUsesDefault(t *testing.T) {
+	got := chunkTimeout(-5)
+	want := time.Duration(defaultRuleTimeoutSeconds) * time.Second
+	if got != want {
+		t.Fatalf("chunkTimeout(-5) = %v, want %v", got, want)
+	}
+}
+
 func TestPromptBuilderPhase1UsesYAMLPreamble(t *testing.T) {
 	packs := []RulePack{
 		{Category: RuleCategoryTest, Enabled: true, Phase1Preamble: "Custom preamble for testing.",
