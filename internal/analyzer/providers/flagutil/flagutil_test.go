@@ -1,6 +1,7 @@
 package flagutil
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -96,6 +97,125 @@ func TestAppendToFlag(t *testing.T) {
 			got := AppendToFlag(append([]string(nil), c.args...), c.flag, c.value)
 			if !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestInjectMCPFlags(t *testing.T) {
+	base := []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--no-session-persistence"}
+	configPath := `C:\Users\test\AppData\Local\Temp\dreamer-mcp-config-abc123.json`
+
+	cases := []struct {
+		name        string
+		toolNames   []string
+		configPath  string
+		validateFn  func() error
+		wantErr     bool
+		check       func(t *testing.T, got []string)
+	}{
+		{
+			name:       "basic MCP injection",
+			toolNames:  []string{"mcp__dreamer__record_finding"},
+			configPath: configPath,
+			check: func(t *testing.T, got []string) {
+				// permission-mode changed from plan to default
+				for i, a := range got {
+					if a == "--permission-mode" && i+1 < len(got) {
+						if got[i+1] != "default" {
+							t.Errorf("permission-mode: got %q want %q", got[i+1], "default")
+						}
+					}
+				}
+				// --tools includes MCP tool name
+				for i, a := range got {
+					if a == "--tools" && i+1 < len(got) {
+						if got[i+1] != "Read,Grep,Glob,mcp__dreamer__record_finding" {
+							t.Errorf("--tools: got %q", got[i+1])
+						}
+					}
+				}
+				// --allowed-tools present
+				found := false
+				for i, a := range got {
+					if a == "--allowed-tools" && i+1 < len(got) && got[i+1] == "mcp__dreamer__record_finding" {
+						found = true
+					}
+				}
+				if !found {
+					t.Error("--allowed-tools with MCP tool name not found")
+				}
+				// --mcp-config with file path
+				found = false
+				for i, a := range got {
+					if a == "--mcp-config" && i+1 < len(got) && got[i+1] == configPath {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("--mcp-config %s not found", configPath)
+				}
+			},
+		},
+		{
+			name:       "validation error propagated",
+			toolNames:  []string{"mcp__dreamer__record_finding"},
+			configPath: configPath,
+			validateFn: func() error { return fmt.Errorf("blocked") },
+			wantErr:    true,
+		},
+		{
+			name:       "empty tool names still adds --mcp-config",
+			toolNames:  nil,
+			configPath: configPath,
+			check: func(t *testing.T, got []string) {
+				found := false
+				for i, a := range got {
+					if a == "--mcp-config" && i+1 < len(got) && got[i+1] == configPath {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("--mcp-config %s not found", configPath)
+				}
+				// --tools should NOT be appended to (empty tool list)
+				for _, a := range got {
+					if a == "--allowed-tools" {
+						t.Error("--allowed-tools should not be present with empty tool names")
+					}
+				}
+			},
+		},
+		{
+			name:       "Windows path preserved as-is in args",
+			toolNames:  []string{"mcp__dreamer__record_finding"},
+			configPath: `C:\Users\user name\AppData\Local\Temp\dreamer-mcp-config-xyz.json`,
+			check: func(t *testing.T, got []string) {
+				for i, a := range got {
+					if a == "--mcp-config" && i+1 < len(got) {
+						if got[i+1] != `C:\Users\user name\AppData\Local\Temp\dreamer-mcp-config-xyz.json` {
+							t.Errorf("--mcp-config value mangled: got %q", got[i+1])
+						}
+					}
+				}
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := InjectMCPFlags(append([]string(nil), base...), c.toolNames, c.configPath, c.validateFn)
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if c.check != nil {
+				c.check(t, got)
 			}
 		})
 	}
