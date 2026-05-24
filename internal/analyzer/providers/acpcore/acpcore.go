@@ -270,10 +270,10 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		}
 		return "", wrapped
 	}
-	stop := extractStopReason(promptResponse)
+	stopReason := extractStopReason(promptResponse)
 	text := stream.text()
-	if text == "" && stop != "" && stop != "end_turn" {
-		return "", fmt.Errorf("acpcore: session/prompt stopReason=%q with no agent_message_chunk content", stop)
+	if text == "" && stopReason != "" && stopReason != "end_turn" {
+		return "", fmt.Errorf("acpcore: session/prompt stopReason=%q with no agent_message_chunk content", stopReason)
 	}
 	return text, nil
 }
@@ -289,7 +289,7 @@ type transport struct {
 	encMu  sync.Mutex
 
 	nextID  int64
-	pending sync.Map // map[string]chan rpcResponse
+	pending sync.Map // map[string]chan jsonrpcResponse
 
 	mu          sync.Mutex
 	closed      bool
@@ -338,18 +338,18 @@ func (t *transport) notify(_ context.Context, method string, params any) error {
 	})
 }
 
-type rpcResponse struct {
+type jsonrpcResponse struct {
 	Result json.RawMessage
-	Error  *rpcError
+	Error  *jsonrpcError
 }
 
-type rpcError struct {
+type jsonrpcError struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-func (e *rpcError) Error() string {
+func (e *jsonrpcError) Error() string {
 	if e == nil {
 		return ""
 	}
@@ -388,14 +388,14 @@ func dialStdio(ctx context.Context, command []string, env map[string]string) (*t
 }
 
 func (t *transport) call(ctx context.Context, method string, params any, onPermission permissionHandler) (json.RawMessage, error) {
-	id := strings.TrimSpace(fmt.Sprintf("%d", atomic.AddInt64(&t.nextID, 1)))
-	ch := make(chan rpcResponse, 1)
-	t.pending.Store(id, ch)
-	defer t.pending.Delete(id)
+	requestID := strings.TrimSpace(fmt.Sprintf("%d", atomic.AddInt64(&t.nextID, 1)))
+	respCh := make(chan jsonrpcResponse, 1)
+	t.pending.Store(requestID, respCh)
+	defer t.pending.Delete(requestID)
 
 	payload := map[string]any{
 		"jsonrpc": "2.0",
-		"id":      id,
+		"id":      requestID,
 		"method":  method,
 		"params":  params,
 	}
@@ -421,7 +421,7 @@ func (t *transport) call(ctx context.Context, method string, params any, onPermi
 			return nil, errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, ctx.Err())
 		}
 		return nil, ctx.Err()
-	case resp := <-ch:
+	case resp := <-respCh:
 		if resp.Error != nil {
 			if t.isClosed() {
 				return nil, errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, resp.Error)
@@ -464,8 +464,8 @@ func (t *transport) readLoop(initial *bytes.Buffer) {
 		}
 		if envelope.ID != "" && (envelope.Result != nil || envelope.Error != nil) {
 			if chRaw, ok := t.pending.Load(envelope.ID); ok {
-				ch := chRaw.(chan rpcResponse)
-				ch <- rpcResponse{Result: envelope.Result, Error: envelope.Error}
+				ch := chRaw.(chan jsonrpcResponse)
+				ch <- jsonrpcResponse{Result: envelope.Result, Error: envelope.Error}
 				continue
 			}
 		}
@@ -499,11 +499,11 @@ func (t *transport) markClosed() {
 	t.closed = true
 	t.mu.Unlock()
 
-	closedErr := &rpcError{Code: errCodeTransportClosed, Message: ErrTransportClosed.Error()}
+	closedErr := &jsonrpcError{Code: errCodeTransportClosed, Message: ErrTransportClosed.Error()}
 	t.pending.Range(func(key, value any) bool {
-		if ch, ok := value.(chan rpcResponse); ok {
+		if ch, ok := value.(chan jsonrpcResponse); ok {
 			select {
-			case ch <- rpcResponse{Error: closedErr}:
+			case ch <- jsonrpcResponse{Error: closedErr}:
 			default:
 			}
 		}
@@ -614,7 +614,7 @@ func selectPermissionOptionID(params map[string]any, approved bool) string {
 	if !approved {
 		wantKinds = []string{"reject_once", "reject_always"}
 	}
-	var firstAny string
+	var fallbackOptionID string
 	for _, raw := range rawOpts {
 		opt, ok := raw.(map[string]any)
 		if !ok {
@@ -624,8 +624,8 @@ func selectPermissionOptionID(params map[string]any, approved bool) string {
 		if id == "" {
 			continue
 		}
-		if firstAny == "" {
-			firstAny = id
+		if fallbackOptionID == "" {
+			fallbackOptionID = id
 		}
 		kind, _ := opt["kind"].(string)
 		for _, want := range wantKinds {
@@ -634,7 +634,7 @@ func selectPermissionOptionID(params map[string]any, approved bool) string {
 			}
 		}
 	}
-	return firstAny
+	return fallbackOptionID
 }
 
 func (t *transport) drainStderr(r io.Reader) {
@@ -685,7 +685,7 @@ type rpcEnvelope struct {
 	Method  string          `json:"method,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	Error   *jsonrpcError   `json:"error,omitempty"`
 }
 
 func translatePermissionRequest(req map[string]any) analyzer.PermissionRequest {
@@ -710,8 +710,8 @@ func translatePermissionRequest(req map[string]any) analyzer.PermissionRequest {
 		out.Path = &path
 	}
 	if possible, ok := req["possible_paths"].([]any); ok {
-		for _, item := range possible {
-			if s, ok := item.(string); ok {
+		for _, candidatePath := range possible {
+			if s, ok := candidatePath.(string); ok {
 				out.PossiblePaths = append(out.PossiblePaths, s)
 			}
 		}
