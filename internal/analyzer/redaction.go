@@ -56,11 +56,11 @@ func (r *Redactor) Redact(text string) (string, RedactionResult) {
 	if r == nil || len(r.patterns) == 0 || text == "" {
 		return text, redactionResult
 	}
-	current := text
+	workingText := text
 	for _, pattern := range r.patterns {
 		marker := "[REDACTED:" + pattern.Name + "]"
 		hits := 0
-		current = pattern.Pattern.ReplaceAllStringFunc(current, func(string) string {
+		workingText = pattern.Pattern.ReplaceAllStringFunc(workingText, func(string) string {
 			hits++
 			return marker
 		})
@@ -68,7 +68,7 @@ func (r *Redactor) Redact(text string) (string, RedactionResult) {
 			redactionResult.HitsByName[pattern.Name] += hits
 		}
 	}
-	return current, redactionResult
+	return workingText, redactionResult
 }
 
 func defaultRedactionPatterns() []RedactionPattern {
