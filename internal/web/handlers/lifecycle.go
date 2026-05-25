@@ -96,8 +96,7 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.NotFound(w, r)
 		return
 	}
-	deps.StateLock.Lock(name)
-	unlock = func() { deps.StateLock.Unlock(name) }
+	unlock = deps.StateLock.Lock(name)
 	appConfig := deps.Config()
 	if appConfig == nil {
 		unlock()

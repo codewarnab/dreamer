@@ -2,11 +2,9 @@ package handlers
 
 import "sync"
 
-// projectEntry wraps a mutex with a locked flag so Unlock is idempotent
-// (double-unlock returns silently instead of panicking).
+// projectEntry wraps a mutex for per-project locking.
 type projectEntry struct {
-	mu     sync.Mutex
-	locked bool
+	mu sync.Mutex
 }
 
 // ProjectLock serializes state Load→Mutate→Save cycles per project
@@ -21,8 +19,10 @@ func NewProjectLock() *ProjectLock {
 	return &ProjectLock{locks: make(map[string]*projectEntry)}
 }
 
-// Lock acquires the per-project mutex. Always pair with defer Unlock.
-func (pl *ProjectLock) Lock(projectName string) {
+// Lock acquires the per-project mutex and returns a release function.
+// The returned closure is single-shot: calling it more than once is a
+// no-op. Always defer the returned closure after the ok/error check.
+func (pl *ProjectLock) Lock(projectName string) func() {
 	pl.mu.Lock()
 	entry, ok := pl.locks[projectName]
 	if !ok {
@@ -31,18 +31,8 @@ func (pl *ProjectLock) Lock(projectName string) {
 	}
 	pl.mu.Unlock()
 	entry.mu.Lock()
-	entry.locked = true
-}
-
-// Unlock releases the per-project mutex. Safe to call multiple times
-// for the same project (second call is a no-op) or for a project that
-// was never Locked.
-func (pl *ProjectLock) Unlock(projectName string) {
-	pl.mu.Lock()
-	entry := pl.locks[projectName]
-	pl.mu.Unlock()
-	if entry != nil && entry.locked {
-		entry.locked = false
-		entry.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(entry.mu.Unlock)
 	}
 }

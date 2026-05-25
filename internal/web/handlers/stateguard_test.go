@@ -17,8 +17,8 @@ func TestProjectLock_SerializesSameProject(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			pl.Lock("proj-a")
-			defer pl.Unlock("proj-a")
+			unlock := pl.Lock("proj-a")
+			defer unlock()
 			mu.Lock()
 			order = append(order, id)
 			mu.Unlock()
@@ -42,8 +42,8 @@ func TestProjectLock_AllowsConcurrentDifferentProjects(t *testing.T) {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			pl.Lock(p)
-			defer pl.Unlock(p)
+			unlock := pl.Lock(p)
+			defer unlock()
 			started <- p
 			<-proceed
 		}(proj)
@@ -61,10 +61,12 @@ func TestProjectLock_AllowsConcurrentDifferentProjects(t *testing.T) {
 	wg.Wait()
 }
 
-func TestProjectLock_UnlockMissingKeyNoPanic(t *testing.T) {
+func TestProjectLock_ReleaseClosureIdempotent(t *testing.T) {
 	pl := NewProjectLock()
-	// Should not panic.
-	pl.Unlock("never-locked")
+	unlock := pl.Lock("proj-x")
+	unlock()
+	// Second call is a no-op thanks to sync.Once.
+	unlock()
 }
 
 func TestProjectLock_DefersReleaseOnPanic(t *testing.T) {
@@ -72,16 +74,16 @@ func TestProjectLock_DefersReleaseOnPanic(t *testing.T) {
 
 	func() {
 		defer func() { recover() }()
-		pl.Lock("proj-panic")
-		defer pl.Unlock("proj-panic")
+		unlock := pl.Lock("proj-panic")
+		defer unlock()
 		panic("test panic")
 	}()
 
 	// Lock should be released — acquiring it again must not deadlock.
 	done := make(chan struct{})
 	go func() {
-		pl.Lock("proj-panic")
-		defer pl.Unlock("proj-panic")
+		unlock := pl.Lock("proj-panic")
+		defer unlock()
 		close(done)
 	}()
 
@@ -93,10 +95,33 @@ func TestProjectLock_DefersReleaseOnPanic(t *testing.T) {
 	}
 }
 
-func TestProjectLock_DoubleUnlockNoPanic(t *testing.T) {
+// TestProjectLock_MutualExclusion verifies that two goroutines cannot
+// hold the same project lock simultaneously. Each goroutine increments
+// a shared counter 1000 times while holding the lock; the final value
+// must be exactly 2000.
+func TestProjectLock_MutualExclusion(t *testing.T) {
 	pl := NewProjectLock()
-	pl.Lock("proj-x")
-	pl.Unlock("proj-x")
-	// Second unlock must not panic.
-	pl.Unlock("proj-x")
+
+	counter := 0
+	var mu sync.Mutex // protects counter only for reads after both goroutines finish
+	var wg sync.WaitGroup
+
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 1000 {
+				unlock := pl.Lock("proj-exclusive")
+				counter++
+				unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if counter != 2000 {
+		t.Fatalf("counter = %d, want 2000 (lock did not enforce mutual exclusion)", counter)
+	}
 }
