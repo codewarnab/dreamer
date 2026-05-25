@@ -10,6 +10,6 @@ import "os/exec"
 // Currently only Windows is implemented.
 func Available() bool { return false }
 
-func prepare(cmd *exec.Cmd, cfg Config) error { return nil }
+func prepare(cmd *exec.Cmd, cfg Config) (func(), error) { return func() {}, nil }
 
-func postStart(cmd *exec.Cmd, cfg Config) error { return nil }
+func postStart(cmd *exec.Cmd, cfg Config) (func(), error) { return func() {}, nil }

@@ -40,24 +40,57 @@ func TestParseMode(t *testing.T) {
 	}
 }
 
-func TestPrepareModeOffIsNoOp(t *testing.T) {
+func TestPrepare_ModeOff_ReturnsNilOnNilCmd(t *testing.T) {
 	cfg := Config{
 		ProjectDir: "/tmp/test",
 		Mode:       ModeOff,
 	}
 	// Prepare with nil cmd is fine when mode is off — it returns early.
 	// (We can't test with a real cmd without starting a process.)
-	if err := Prepare(nil, cfg); err != nil {
-		t.Errorf("Prepare with ModeOff should return nil, got: %v", err)
+	cleanup, err := Prepare(nil, cfg)
+	if err != nil {
+		t.Fatalf("Prepare with ModeOff should return nil error, got: %v", err)
 	}
+	if cleanup == nil {
+		t.Fatal("Prepare with ModeOff should return non-nil cleanup")
+	}
+	cleanup() // should be safe to call
 }
 
-func TestPostStartModeOffIsNoOp(t *testing.T) {
+func TestPostStart_ModeOff_ReturnsNilOnNilCmd(t *testing.T) {
 	cfg := Config{
 		ProjectDir: "/tmp/test",
 		Mode:       ModeOff,
 	}
-	if err := PostStart(nil, cfg); err != nil {
-		t.Errorf("PostStart with ModeOff should return nil, got: %v", err)
+	cleanup, err := PostStart(nil, cfg)
+	if err != nil {
+		t.Fatalf("PostStart with ModeOff should return nil error, got: %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("PostStart with ModeOff should return non-nil cleanup")
+	}
+	cleanup() // should be safe to call
+}
+
+func TestBuildConfig(t *testing.T) {
+	cfg, err := BuildConfig("/tmp/project", ".claude", "auto")
+	if err != nil {
+		t.Fatalf("BuildConfig: %v", err)
+	}
+	if cfg.ProjectDir != "/tmp/project" {
+		t.Errorf("ProjectDir = %q, want %q", cfg.ProjectDir, "/tmp/project")
+	}
+	if cfg.Mode != ModeAuto {
+		t.Errorf("Mode = %q, want %q", cfg.Mode, ModeAuto)
+	}
+	if len(cfg.WritableDirs) != 2 {
+		t.Fatalf("WritableDirs len = %d, want 2", len(cfg.WritableDirs))
+	}
+}
+
+func TestBuildConfig_InvalidMode(t *testing.T) {
+	_, err := BuildConfig("/tmp/project", ".claude", "maybe")
+	if err == nil {
+		t.Fatal("BuildConfig with invalid mode should return error")
 	}
 }

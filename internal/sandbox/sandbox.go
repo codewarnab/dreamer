@@ -6,13 +6,19 @@
 // The sandbox replaces provider-native policy flags (--permission-mode plan,
 // --yolo, --sandbox read-only) with kernel-enforced file access control.
 // Providers use unrestricted flags (--dangerously-skip-permissions, --yolo,
-// etc.) so the model gets full tool access; the kernel blocks writes to the
-// project directory regardless.
+// etc.) so the model gets full tool access. On Windows, the kernel blocks
+// writes to the project directory (except for ACP providers where the
+// project dir is not known at spawn time — see acpcore.go). On non-Windows
+// platforms, sandbox functions are no-ops; callers must rely on provider
+// policy flags for access control.
 package sandbox
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -60,9 +66,12 @@ func ParseMode(raw string) (Mode, error) {
 // On Windows, this sets a WRITE_RESTRICTED token with a capability SID and
 // applies Allow-Write ACLs on writable dirs. On other platforms it is a
 // no-op. Must be called before cmd.Start().
-func Prepare(cmd *exec.Cmd, cfg Config) error {
+//
+// Returns a cleanup function that must be called after cmd.Wait() to release
+// kernel handles (restricted token). Returns a no-op cleanup on ModeOff.
+func Prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	if cfg.Mode == ModeOff {
-		return nil
+		return func() {}, nil
 	}
 	return prepare(cmd, cfg)
 }
@@ -70,9 +79,47 @@ func Prepare(cmd *exec.Cmd, cfg Config) error {
 // PostStart applies post-fork sandbox constraints. On Windows, this assigns
 // the process to a Job Object with KILL_ON_JOB_CLOSE. Must be called after
 // cmd.Start(). A nil cmd.Process is a no-op.
-func PostStart(cmd *exec.Cmd, cfg Config) error {
+//
+// Returns a cleanup function that must be called after cmd.Wait() to close
+// the job handle. Closing the handle triggers KILL_ON_JOB_CLOSE, so the
+// caller MUST NOT call cleanup before cmd.Wait() returns. Returns a no-op
+// cleanup on ModeOff or nil Process.
+func PostStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	if cfg.Mode == ModeOff || cmd.Process == nil {
-		return nil
+		return func() {}, nil
 	}
 	return postStart(cmd, cfg)
+}
+
+// BuildConfig returns a Config for a provider with standard writable dirs
+// (os.TempDir + ~/<providerHome>) and the given project dir + raw mode string.
+// This collapses ~30 lines of boilerplate duplicated across CLI providers.
+func BuildConfig(projectDir, providerHome, rawMode string) (Config, error) {
+	mode, err := ParseMode(rawMode)
+	if err != nil {
+		return Config{}, err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return Config{}, fmt.Errorf("sandbox: resolve home dir: %w", err)
+	}
+	return Config{
+		ProjectDir:   projectDir,
+		WritableDirs: []string{os.TempDir(), filepath.Join(home, providerHome)},
+		Mode:         mode,
+	}, nil
+}
+
+// PostStartOrKill calls PostStart; on error, closes stdin/stdout, kills the
+// process, and wraps the error. This collapses the identical error-handling
+// pattern duplicated across all CLI providers.
+func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, providerID string) (func(), error) {
+	cleanup, err := PostStart(cmd, cfg)
+	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = cmd.Process.Kill()
+		return nil, fmt.Errorf("%s: sandbox post-start: %w", providerID, err)
+	}
+	return cleanup, nil
 }
