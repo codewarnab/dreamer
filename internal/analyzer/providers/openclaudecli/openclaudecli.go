@@ -39,7 +39,15 @@ func New(options Options) (analyzer.Provider, error) {
 		// actual enforcement layer. Policy-only flags (--permission-mode plan,
 		// --tools read-only) are removed because the kernel blocks writes to
 		// the project directory regardless.
-		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"}
+		command = []string{
+			"openclaude",
+			"-p",
+			"--verbose",
+			"--output-format=stream-json",
+			"--dangerously-skip-permissions",
+			"--bare",
+			"--no-session-persistence",
+		}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -108,7 +116,10 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 
 	// WritableDirs: temp + openclaude config home so the CLI can write
 	// session state and cached data.
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("openclaude-cli: resolve home dir for sandbox writable paths: %w", err)
+	}
 	writable := []string{os.TempDir(), filepath.Join(home, ".openclaude")}
 
 	return &session{
@@ -151,9 +162,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
 
 	// Apply OS-level sandbox before starting the process.
-	if err := sandbox.Prepare(cmd, s.sandboxCfg); err != nil {
+	// prepareCleanup closes the restricted token after cmd.Wait().
+	prepareCleanup, err := sandbox.Prepare(cmd, s.sandboxCfg)
+	if err != nil {
 		return "", fmt.Errorf("openclaude-cli: sandbox prepare: %w", err)
 	}
+	defer prepareCleanup()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -173,10 +187,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	}
 
 	// Apply post-start sandbox constraints (Job Object on Windows).
-	if err := sandbox.PostStart(cmd, s.sandboxCfg); err != nil {
-		_ = cmd.Process.Kill()
-		return "", fmt.Errorf("openclaude-cli: sandbox post-start: %w", err)
+	// postCleanup closes the job handle after cmd.Wait().
+	postCleanup, err := sandbox.PostStartOrKill(cmd, s.sandboxCfg, stdin, stdout, ID)
+	if err != nil {
+		return "", err
 	}
+	defer postCleanup()
 
 	go func() {
 		defer stdin.Close()

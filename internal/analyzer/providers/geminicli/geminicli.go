@@ -58,7 +58,12 @@ func New(options Options) (analyzer.Provider, error) {
 		// Note: Gemini CLI has a known design issue where exit_plan_mode
 		// auto-switches to YOLO mode — with --yolo as default, this is a
 		// no-op rather than an escalation.
-		command = []string{"gemini", "-p", "--output-format=stream-json", "--yolo"}
+		command = []string{
+			"gemini",
+			"-p",
+			"--output-format=stream-json",
+			"--yolo",
+		}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -118,7 +123,10 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 
 	// WritableDirs: temp + gemini config home so the CLI can write
 	// session state and cached data.
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("gemini-cli: resolve home dir for sandbox writable paths: %w", err)
+	}
 	writable := []string{os.TempDir(), filepath.Join(home, ".gemini")}
 
 	return &session{
@@ -161,9 +169,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
 
 	// Apply OS-level sandbox before starting the process.
-	if err := sandbox.Prepare(cmd, s.sandboxCfg); err != nil {
+	// prepareCleanup closes the restricted token after cmd.Wait().
+	prepareCleanup, err := sandbox.Prepare(cmd, s.sandboxCfg)
+	if err != nil {
 		return "", fmt.Errorf("gemini-cli: sandbox prepare: %w", err)
 	}
+	defer prepareCleanup()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -182,10 +193,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	}
 
 	// Apply post-start sandbox constraints (Job Object on Windows).
-	if err := sandbox.PostStart(cmd, s.sandboxCfg); err != nil {
-		_ = cmd.Process.Kill()
-		return "", fmt.Errorf("gemini-cli: sandbox post-start: %w", err)
+	// postCleanup closes the job handle after cmd.Wait().
+	postCleanup, err := sandbox.PostStartOrKill(cmd, s.sandboxCfg, stdin, stdout, ID)
+	if err != nil {
+		return "", err
 	}
+	defer postCleanup()
 
 	go func() {
 		defer stdin.Close()
@@ -201,16 +214,21 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	final, parseErr := readStreamJSON(stdout)
 
 	waitErr := cmd.Wait()
-	if parseErr != nil {
-		err := fmt.Errorf("gemini-cli: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
-		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
+	// Check waitErr first (matches claude/codex pattern). If the process
+	// crashed, its partial output should not be trusted — the exit error
+	// is the authoritative signal. Trade-off: a valid partial result from
+	// a crashed process is discarded, but a crashed process's output cannot
+	// be trusted to be complete or consistent.
+	if waitErr != nil {
+		err := fmt.Errorf("gemini-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(stderrBuf.String()) {
 			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}
-	if waitErr != nil {
-		err := fmt.Errorf("gemini-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
-		if transport.IsRateLimitMessage(stderrBuf.String()) {
+	if parseErr != nil {
+		err := fmt.Errorf("gemini-cli: parse stream-json: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
 			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
