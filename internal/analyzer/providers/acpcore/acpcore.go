@@ -308,6 +308,9 @@ type transport struct {
 	stderrBuf   strings.Builder
 
 	streams sync.Map // map[string]*sessionStream — keyed by ACP sessionId
+
+	sandboxCleanup  func() // closes job handle after process exits
+	prepareCleanup  func() // closes restricted token after process exits
 }
 
 type sessionStream struct {
@@ -379,51 +382,81 @@ func dialStdio(ctx context.Context, command []string, env map[string]string, san
 	if err != nil {
 		return nil, fmt.Errorf("acpcore: %w", err)
 	}
+	// ACP providers don't know the project dir at spawn time (received
+	// per-session via session/new). The kernel write-block does NOT
+	// cover ACP project files — per-session path restrictions rely
+	// entirely on the policy layer (permission handler). Under agents
+	// running with --yolo / --dangerously-skip-permissions, the policy
+	// layer is bypassed, leaving project files unprotected from writes.
+	// Privilege stripping (WRITE_RESTRICTED token) and orphan cleanup
+	// (Job Object KILL_ON_JOB_CLOSE) are still applied.
+	sbCfg := sandbox.Config{
+		ProjectDir:   "",
+		WritableDirs: []string{os.TempDir()},
+		Mode:         sbMode,
+	}
+	var prepareCleanup func()
 	if sbMode != sandbox.ModeOff {
-		// ACP providers don't have a project dir at spawn time — they
-		// receive it per-session via session/new. We still apply the
-		// restricted token and Job Object for privilege stripping and
-		// orphan cleanup, but skip directory ACLs (the policy layer
-		// handles per-session path restrictions).
-		sbCfg := sandbox.Config{
-			ProjectDir:   "",
-			WritableDirs: []string{os.TempDir()},
-			Mode:         sbMode,
-		}
-		if err := sandbox.Prepare(cmd, sbCfg); err != nil {
+		var err error
+		prepareCleanup, err = sandbox.Prepare(cmd, sbCfg)
+		if err != nil {
 			return nil, fmt.Errorf("acpcore: sandbox prepare: %w", err)
 		}
 	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		if prepareCleanup != nil {
+			prepareCleanup()
+		}
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
+		if prepareCleanup != nil {
+			prepareCleanup()
+		}
 		return nil, err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		if prepareCleanup != nil {
+			prepareCleanup()
+		}
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		if prepareCleanup != nil {
+			prepareCleanup()
+		}
 		return nil, err
 	}
 
 	// Apply post-start sandbox (Job Object on Windows).
+	// Store cleanup on transport so it's called when transport.close() runs.
+	var postCleanup func()
 	if sbMode != sandbox.ModeOff {
-		sbCfg := sandbox.Config{Mode: sbMode}
-		if err := sandbox.PostStart(cmd, sbCfg); err != nil {
+		var err error
+		postCleanup, err = sandbox.PostStart(cmd, sbCfg)
+		if err != nil {
+			_ = stdin.Close()
+			_ = stdout.Close()
 			_ = cmd.Process.Kill()
 			return nil, fmt.Errorf("acpcore: sandbox post-start: %w", err)
 		}
 	}
 
 	t := &transport{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReader(stdout),
+		cmd:            cmd,
+		stdin:          stdin,
+		stdout:         bufio.NewReader(stdout),
+		sandboxCleanup: postCleanup,
+		prepareCleanup: prepareCleanup,
 	}
 	go t.drainStderr(stderr)
 	go t.readLoop(nil)
@@ -710,16 +743,24 @@ func (t *transport) close() error {
 	_ = t.stdin.Close()
 	done := make(chan error, 1)
 	go func() { done <- t.cmd.Wait() }()
+	var waitErr error
 	select {
 	case <-time.After(5 * time.Second):
 		_ = t.cmd.Process.Kill()
 		<-done
-	case err := <-done:
-		if err != nil {
-			return err
-		}
+	case waitErr = <-done:
 	}
-	return nil
+
+	// Release sandbox kernel handles after the process has exited.
+	// Order matters: post-start (Job Object) first, then prepare (token).
+	// Closing the job handle is safe here because cmd.Wait() returned.
+	if t.sandboxCleanup != nil {
+		t.sandboxCleanup()
+	}
+	if t.prepareCleanup != nil {
+		t.prepareCleanup()
+	}
+	return waitErr
 }
 
 type rpcEnvelope struct {
