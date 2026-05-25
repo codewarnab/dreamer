@@ -113,8 +113,8 @@ func shellRequestReadOnly(req PermissionRequest) bool {
 
 // normalizeCandidatePath returns the absolute, symlink-resolved candidate path.
 // Non-existent leaves resolve via the deepest existing ancestor; resolver errors deny.
-func normalizeCandidatePath(path string, normalizedRoot string) (string, error) {
-	trimmed := strings.TrimSpace(path)
+func normalizeCandidatePath(candidate string, normalizedRoot string) (string, error) {
+	trimmed := strings.TrimSpace(candidate)
 	if trimmed == "" {
 		return "", fmt.Errorf("path is empty")
 	}
@@ -124,7 +124,7 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 	if looksLikeNonFilesystemPath(trimmed) {
 		return "", fmt.Errorf("path appears to be non-filesystem")
 	}
-	candidate := trimmed
+	candidate = trimmed
 	if isVolumeRelativeRootedPath(candidate) {
 		candidate = filepath.VolumeName(normalizedRoot) + candidate
 	}
@@ -140,16 +140,16 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 }
 
 
-func looksLikeNonFilesystemPath(path string) bool {
-	lower := strings.ToLower(path)
+func looksLikeNonFilesystemPath(candidate string) bool {
+	lower := strings.ToLower(candidate)
 	return strings.Contains(lower, "://") || strings.HasPrefix(lower, "file:")
 }
 
-func isVolumeRelativeRootedPath(path string) bool {
+func isVolumeRelativeRootedPath(candidate string) bool {
 	if runtime.GOOS != "windows" {
 		return false
 	}
-	return filepath.VolumeName(path) == "" && strings.HasPrefix(filepath.Clean(path), string(filepath.Separator))
+	return filepath.VolumeName(candidate) == "" && strings.HasPrefix(filepath.Clean(candidate), string(filepath.Separator))
 }
 
 
