@@ -16,6 +16,10 @@ const (
 	maxProtobufReaderDepth = 8
 	maxProtobufCandidates  = 4096
 	minCandidateLength     = 8
+
+	// minPrintableRuneRatio is the minimum fraction of printable runes
+	// required for a byte sequence to be considered a valid text candidate.
+	minPrintableRuneRatio = 0.85
 )
 
 func ReadProtobuf(filePath string) ([]ChatMessage, error) {
@@ -194,7 +198,7 @@ func decodeCandidateString(raw []byte) (string, bool) {
 	if printableRunes == 0 || letterOrDigit == 0 {
 		return "", false
 	}
-	if float64(printableRunes)/float64(len([]rune(candidate))) < 0.85 {
+	if float64(printableRunes)/float64(len([]rune(candidate))) < minPrintableRuneRatio {
 		return "", false
 	}
 
