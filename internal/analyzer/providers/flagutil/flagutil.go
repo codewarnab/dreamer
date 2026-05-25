@@ -72,16 +72,32 @@ func ReplaceFlag(command []string, flag, oldVal, newVal string) []string {
 	return out
 }
 
+// booleanFlags lists flags that never take a separate value argument.
+// RemoveFlag uses this to avoid consuming the next token as a value when
+// the flag is boolean. Trade-off: new boolean flags added to any CLI tool
+// must be added here or RemoveFlag will incorrectly consume the next token.
+var booleanFlags = map[string]bool{
+	"--bare":                        true,
+	"--no-session-persistence":      true,
+	"--verbose":                     true,
+	"--dangerously-skip-permissions": true,
+	"--yolo":                        true,
+	"--strict-mcp-config":           true,
+	"-p":                            true,
+}
+
 // RemoveFlag removes every occurrence of a flag and its value from command.
 // Handles both "--flag value" (space form) and "--flag=value" (equals form).
-// Values are always treated as values (never re-parsed as a new flag) so
-// leading-dash values like "-1" survive. Returns the (possibly unchanged) slice.
+// For non-value flags, the next token is consumed as the value. For known
+// boolean flags (see booleanFlags), only the flag itself is removed.
+// Leading-dash values like "-1" survive. Returns the (possibly unchanged) slice.
 func RemoveFlag(command []string, flag string) []string {
 	var out []string
 	for i := 0; i < len(command); i++ {
 		if command[i] == flag {
-			// Space form: skip the flag and consume the next token as its value.
-			if i+1 < len(command) {
+			// Space form: skip the flag. Only consume the next token as
+			// a value if the flag is NOT a known boolean flag.
+			if i+1 < len(command) && !booleanFlags[flag] {
 				i++
 			}
 			continue

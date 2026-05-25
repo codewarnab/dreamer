@@ -99,6 +99,19 @@ func TestInjectMCPFlags(t *testing.T) {
 				if !found {
 					t.Errorf("--mcp-config %s not found", configPath)
 				}
+				// Verify flags that must survive InjectMCPFlags (B6 regression).
+				for _, must := range []string{"-p", "--verbose", "--no-session-persistence"} {
+					survived := false
+					for _, a := range got {
+						if a == must {
+							survived = true
+							break
+						}
+					}
+					if !survived {
+						t.Errorf("expected %q to survive InjectMCPFlags, but it was removed", must)
+					}
+				}
 			},
 		},
 		{
@@ -207,6 +220,18 @@ func TestRemoveFlag(t *testing.T) {
 			args: []string{"cmd", "--keep"},
 			flag: "--gone",
 			want: []string{"cmd", "--keep"},
+		},
+		{
+			name: "boolean flag does not consume next token",
+			args: []string{"claude", "--bare", "--no-session-persistence", "--verbose"},
+			flag: "--bare",
+			want: []string{"claude", "--no-session-persistence", "--verbose"},
+		},
+		{
+			name: "boolean flag --no-session-persistence does not consume next",
+			args: []string{"claude", "--no-session-persistence", "--verbose", "-p"},
+			flag: "--no-session-persistence",
+			want: []string{"claude", "--verbose", "-p"},
 		},
 	}
 	for _, c := range cases {
