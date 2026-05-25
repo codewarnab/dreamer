@@ -473,16 +473,23 @@ func TestValidateProjectName_RejectsWindowsReserved(t *testing.T) {
 }
 
 func TestIsWindowsReservedName(t *testing.T) {
-	if !isWindowsReservedName("CON") {
-		t.Fatal("CON should be reserved")
+	reserved := []string{
+		"CON", "PRN", "AUX", "NUL",
+		"COM0", "COM9.txt", "LPT0", "LPT9.txt",
+		"CONIN$", "CONOUT$",
+		"CON..", "CON...", "CON. . ", // trailing-dot variants
 	}
-	if !isWindowsReservedName("COM9.txt") {
-		t.Fatal("COM9.txt should be reserved")
+	for _, name := range reserved {
+		if !isWindowsReservedName(name) {
+			t.Errorf("%q should be reserved", name)
+		}
 	}
-	if isWindowsReservedName("CONSOLE") {
-		t.Fatal("CONSOLE should not be reserved")
+	notReserved := []string{
+		"CONSOLE", "com10", "LPT10", "COM", "LPT", "hello",
 	}
-	if isWindowsReservedName("com10") {
-		t.Fatal("com10 should not be reserved")
+	for _, name := range notReserved {
+		if isWindowsReservedName(name) {
+			t.Errorf("%q should not be reserved", name)
+		}
 	}
 }

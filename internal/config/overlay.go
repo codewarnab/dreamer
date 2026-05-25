@@ -129,7 +129,7 @@ func mergeAnalyzer(base, overlay *AnalyzerConfig) {
 	// Bool field: zero-value guard means overlay can set false→true but
 	// not true→false. This matches the additive overlay convention for
 	// non-pointer fields. To override true→false, edit config.yaml.
-	if overlay.IncludeSubagentTranscripts {
+	if overlay.IncludeSubagentTranscripts != nil {
 		base.IncludeSubagentTranscripts = overlay.IncludeSubagentTranscripts
 	}
 	if overlay.Execution.Mode != "" {

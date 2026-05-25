@@ -168,7 +168,7 @@ analyzer:
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if !cfg.Analyzer.IncludeSubagentTranscripts {
-		t.Fatalf("IncludeSubagentTranscripts = false, want true (overlay)")
+	if cfg.Analyzer.IncludeSubagentTranscripts == nil || !*cfg.Analyzer.IncludeSubagentTranscripts {
+		t.Fatalf("IncludeSubagentTranscripts = %v, want true (overlay)", cfg.Analyzer.IncludeSubagentTranscripts)
 	}
 }
