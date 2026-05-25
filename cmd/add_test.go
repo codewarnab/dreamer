@@ -110,6 +110,24 @@ func TestAddCommand_FailsWhenConfigMissing(t *testing.T) {
 	}
 }
 
+func TestAppendProjectToYAML_RejectsDuplicatePath_TildeExpanded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows
+	absDir := filepath.Join(home, "myproj")
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Seed config stores the path as ~/myproj.
+	seed := strings.Replace(minimalSeedConfig, "projects: []",
+		"projects:\n  - name: alpha\n    path: ~/myproj\n    since: 24h\n", 1)
+	// Adding with the resolved absolute path should detect the duplicate.
+	_, err := appendProjectToYAML([]byte(seed), "beta", absDir, "7d")
+	if err == nil {
+		t.Fatalf("expected duplicate-path error for tilde-expanded path")
+	}
+}
+
 func TestAddCommand_AppendsProjectToExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)

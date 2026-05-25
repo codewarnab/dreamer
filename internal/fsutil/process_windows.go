@@ -16,13 +16,12 @@ var (
 )
 
 const (
-	processQueryInformation        = 0x0400
 	processQueryLimitedInformation = 0x1000
 	stillActive                    = 259
 )
 
 func isProcessAlive(pid int) bool {
-	handle, _, _ := procOpenProcess.Call(processQueryInformation, 0, uintptr(pid))
+	handle, _, _ := procOpenProcess.Call(processQueryLimitedInformation, 0, uintptr(pid))
 	if handle == 0 {
 		return false
 	}

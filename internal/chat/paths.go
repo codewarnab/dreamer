@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -63,10 +64,32 @@ func pathWithinNormalizedRoot(path string, root string) bool {
 }
 
 func normalizeDiscoveryPathForComparison(path string) string {
-	normalizedSeparators := strings.ReplaceAll(path, `\`, "/")
-	cleanPath := filepath.Clean(filepath.FromSlash(normalizedSeparators))
-	if runtime.GOOS == "windows" {
-		return strings.ToLower(cleanPath)
+	return CanonicalPath(path)
+}
+
+// CanonicalPath resolves ~/ and relative paths to an absolute, cleaned
+// path. On Windows it lowercases the result so comparisons are
+// case-insensitive. This is the single source of truth for path
+// normalization used by both discovery and the add command.
+func CanonicalPath(p string) string {
+	resolved := p
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
+		if home, err := os.UserHomeDir(); err == nil {
+			if p == "~" {
+				resolved = home
+			} else {
+				resolved = filepath.Join(home, p[2:])
+			}
+		}
 	}
-	return cleanPath
+	if !filepath.IsAbs(resolved) {
+		if abs, err := filepath.Abs(resolved); err == nil {
+			resolved = abs
+		}
+	}
+	resolved = filepath.Clean(resolved)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(resolved)
+	}
+	return resolved
 }

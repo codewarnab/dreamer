@@ -133,9 +133,10 @@ type AnalyzerConfig struct {
 	// Phase-2 (tool-use verification) uses 3x this value.
 	RuleTimeoutSeconds int `yaml:"rule_timeout_seconds,omitempty" json:"rule_timeout_seconds,omitempty"`
 	// IncludeSubagentTranscripts controls whether subagent/child chat
-	// transcripts are included in analysis. When false (default), sources
-	// with a non-empty ParentID are skipped.
-	IncludeSubagentTranscripts bool                  `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
+	// transcripts are included in analysis. When nil or false (default),
+	// sources with a non-empty ParentID are skipped. Pointer so the
+	// overlay merge can distinguish "unset" from "explicitly false".
+	IncludeSubagentTranscripts *bool                  `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
 	Rules                      map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
 	Execution                  ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
 	Chunking                   ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`
@@ -560,5 +561,28 @@ func ValidateProjectName(projectName string) error {
 	if name == "." || name == ".." {
 		return fmt.Errorf("project name is invalid: %q", projectName)
 	}
+	if isWindowsReservedName(name) {
+		return fmt.Errorf("project name %q is a reserved name on Windows", projectName)
+	}
 	return nil
+}
+
+// isWindowsReservedName returns true for names that Windows reserves as
+// device files (CON, PRN, AUX, NUL, COM0-9, LPT0-9, CONIN$, CONOUT$)
+// regardless of extension or case. Trailing dots and spaces are trimmed
+// before checking because Windows treats "CON.." and "CON." the same as
+// "CON". Creating a directory with one of these names fails silently or
+// with an opaque error.
+func isWindowsReservedName(name string) bool {
+	// Windows ignores trailing dots and spaces in reserved names.
+	name = strings.TrimRight(name, " .")
+	upper := strings.ToUpper(strings.SplitN(name, ".", 2)[0])
+	switch upper {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+		"CONIN$", "CONOUT$":
+		return true
+	}
+	return false
 }

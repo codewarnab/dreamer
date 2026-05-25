@@ -117,3 +117,58 @@ func TestLoadConfigWithOverlay_ParseErrorSetsNotice(t *testing.T) {
 		t.Fatalf("OverlayParseError %q should mention overlay or yaml", cfg.Notices.OverlayParseError)
 	}
 }
+
+func TestLoadConfigWithOverlay_DaemonFieldsMerge(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "config.yaml")
+	overlay := filepath.Join(dir, "ui-overrides.yaml")
+	writeYAML(t, base, `default_provider: copilot-sdk
+daemon:
+  frequency_seconds: 60
+  output_root: `+dir+`
+  max_concurrent_jobs: 1
+  max_analysis_duration: "8h"
+  job_history_retention: "720h"
+`)
+	writeYAML(t, overlay, `daemon:
+  max_concurrent_jobs: 4
+  max_analysis_duration: "2h"
+  job_history_retention: "168h"
+`)
+	cfg, err := LoadConfigWithOverlay(base, overlay)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Daemon.MaxConcurrentJobs != 4 {
+		t.Fatalf("MaxConcurrentJobs = %d, want 4 (overlay)", cfg.Daemon.MaxConcurrentJobs)
+	}
+	if cfg.Daemon.MaxAnalysisDuration != "2h" {
+		t.Fatalf("MaxAnalysisDuration = %q, want 2h (overlay)", cfg.Daemon.MaxAnalysisDuration)
+	}
+	if cfg.Daemon.JobHistoryRetention != "168h" {
+		t.Fatalf("JobHistoryRetention = %q, want 168h (overlay)", cfg.Daemon.JobHistoryRetention)
+	}
+}
+
+func TestLoadConfigWithOverlay_IncludeSubagentTranscripts(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "config.yaml")
+	overlay := filepath.Join(dir, "ui-overrides.yaml")
+	writeYAML(t, base, `default_provider: copilot-sdk
+daemon:
+  frequency_seconds: 60
+  output_root: `+dir+`
+analyzer:
+  include_subagent_transcripts: false
+`)
+	writeYAML(t, overlay, `analyzer:
+  include_subagent_transcripts: true
+`)
+	cfg, err := LoadConfigWithOverlay(base, overlay)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Analyzer.IncludeSubagentTranscripts == nil || !*cfg.Analyzer.IncludeSubagentTranscripts {
+		t.Fatalf("IncludeSubagentTranscripts = %v, want true (overlay)", cfg.Analyzer.IncludeSubagentTranscripts)
+	}
+}

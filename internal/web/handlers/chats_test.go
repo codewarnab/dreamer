@@ -322,7 +322,7 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }, StateLock: NewProjectLock()})
 
 	body := `{"path":"` + chatPath + `"}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
@@ -386,7 +386,7 @@ func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
 	}
-	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }, StateLock: NewProjectLock()})
 
 	body := `{"paths":["` + pathA + `","` + pathB + `"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))

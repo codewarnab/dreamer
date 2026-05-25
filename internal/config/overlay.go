@@ -84,6 +84,15 @@ func mergeOverlay(base, overlay *Config) {
 	if overlay.Daemon.OutputRoot != "" {
 		base.Daemon.OutputRoot = overlay.Daemon.OutputRoot
 	}
+	if overlay.Daemon.MaxConcurrentJobs != 0 {
+		base.Daemon.MaxConcurrentJobs = overlay.Daemon.MaxConcurrentJobs
+	}
+	if overlay.Daemon.MaxAnalysisDuration != "" {
+		base.Daemon.MaxAnalysisDuration = overlay.Daemon.MaxAnalysisDuration
+	}
+	if overlay.Daemon.JobHistoryRetention != "" {
+		base.Daemon.JobHistoryRetention = overlay.Daemon.JobHistoryRetention
+	}
 	if overlay.Logging.Level != "" {
 		base.Logging.Level = overlay.Logging.Level
 	}
@@ -116,6 +125,12 @@ func mergeOverlay(base, overlay *Config) {
 func mergeAnalyzer(base, overlay *AnalyzerConfig) {
 	if overlay.RuleTimeoutSeconds != 0 {
 		base.RuleTimeoutSeconds = overlay.RuleTimeoutSeconds
+	}
+	// Bool field: zero-value guard means overlay can set false→true but
+	// not true→false. This matches the additive overlay convention for
+	// non-pointer fields. To override true→false, edit config.yaml.
+	if overlay.IncludeSubagentTranscripts != nil {
+		base.IncludeSubagentTranscripts = overlay.IncludeSubagentTranscripts
 	}
 	if overlay.Execution.Mode != "" {
 		base.Execution.Mode = overlay.Execution.Mode
