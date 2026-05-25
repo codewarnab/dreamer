@@ -57,6 +57,9 @@ func DetectFiles(projectRoot string, cap int) ([]string, error) {
 
 // FilterRelevant returns the subset of files whose path contains any token
 // from the substrings list. Empty input returns the input unchanged.
+//
+// NOTE: currently unused in production — kept as a public utility for future
+// grounding strategies that need keyword-based file filtering.
 func FilterRelevant(files []string, substrings []string, cap int) []string {
 	if len(substrings) == 0 {
 		if cap > 0 && len(files) > cap {

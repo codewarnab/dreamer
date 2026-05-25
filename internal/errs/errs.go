@@ -101,6 +101,8 @@ func NotInstalled(provider, op, hint string, cause error) *Error {
 
 // Unauthenticated indicates the provider CLI/SDK is installed but not
 // authenticated. provider is required; hint should be the login command.
+//
+// NOTE: currently unused in production — kept for future auth error handling.
 func Unauthenticated(provider, op, hint string, cause error) *Error {
 	return newErr(KindUnauthenticated, provider, op,
 		provider+" is not authenticated",
@@ -145,6 +147,8 @@ func ConfigInvalid(field string, value any, cause error) *Error {
 
 // CacheMiss is an informational (non-fatal) error indicating a state cache miss.
 // reason should be one of "hash_mismatch", "head_sha_changed", "missing_state".
+//
+// NOTE: currently unused in production — kept for future cache diagnostics.
 func CacheMiss(reason string) *Error {
 	return &Error{
 		Kind:    KindCacheMiss,
