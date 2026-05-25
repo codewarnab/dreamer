@@ -20,6 +20,7 @@ func init() {
 			Env:            providerConfig.Env,
 			DefaultModel:   providerConfig.DefaultModel,
 			ModelFallbacks: config.DefaultModelFallbacks[config.ProviderGeminiACP],
+			Sandbox:        providerConfig.Sandbox,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

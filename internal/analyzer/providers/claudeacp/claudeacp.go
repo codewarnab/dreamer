@@ -24,6 +24,7 @@ func init() {
 			Command:      command,
 			Env:          env,
 			DefaultModel: providerConfig.DefaultModel,
+			Sandbox:      providerConfig.Sandbox,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

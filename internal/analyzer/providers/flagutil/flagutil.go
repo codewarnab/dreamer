@@ -9,18 +9,14 @@ package flagutil
 
 import "strings"
 
-// ReadOnlyTools is the baseline tool list for Claude-family providers in
-// Phase 1 / read-only mode. Phase 2 MCP mode appends the record_finding
-// MCP tool on top of this set.
-var ReadOnlyTools = []string{"Read", "Grep", "Glob"}
-
-// CLIPhase2Tools is the tool list for the Bash-based CLI Phase 2 transport
-// (Bash is needed so the model can invoke dreamer record-finding).
-var CLIPhase2Tools = append(append([]string(nil), ReadOnlyTools...), "Bash")
+// Phase2MCPTools is the tool list for CLI-based Phase 2 MCP transport.
+// Includes Bash so the model can invoke `dreamer record-finding`.
+// Used by Claude-family CLI providers in MCP mode.
+var Phase2MCPTools = []string{"Read", "Grep", "Glob", "Bash"}
 
 // InjectMCPFlags applies the standard MCP-mode mutation to a Claude-family
-// provider command slice: relaxes permission-mode from "plan" to "default",
-// injects --tools and --allowed-tools with the MCP tool names, and adds
+// provider command slice: removes --bare (MCP auto-discovery must be active),
+// injects --dangerously-skip-permissions, --tools, --allowed-tools, and
 // --mcp-config. Returns the modified slice.
 //
 // configFilePath is the path to a temp file containing the MCP server
@@ -35,86 +31,76 @@ func InjectMCPFlags(command []string, toolNames []string, configFilePath string,
 		}
 	}
 	toolList := strings.Join(toolNames, ",")
-	command = ReplaceFlag(command, "--permission-mode", "plan", "default")
-	if toolList != "" {
-		command = AppendToFlag(command, "--tools", toolList)
+
+	// Remove --bare so MCP auto-discovery loads the configured servers.
+	command = RemoveFlag(command, "--bare")
+	// Remove --strict-mcp-config if present (incompatible with file-based MCP).
+	command = RemoveFlag(command, "--strict-mcp-config")
+	// Remove --permission-mode if present (sandbox replaces policy flags).
+	command = RemoveFlag(command, "--permission-mode")
+
+	// Add unrestricted mode + MCP tools.
+	if !HasFlag(command, "--dangerously-skip-permissions") {
+		command = append(command, "--dangerously-skip-permissions")
+	}
+	if len(toolNames) > 0 {
+		command = append(command, "--tools", toolList)
 		command = append(command, "--allowed-tools", toolList)
 	}
 	command = append(command, "--mcp-config", configFilePath)
 	return command, nil
 }
 
-// splitEqualsForm reports whether arg has the shape `--flag=value` for the
-// given flag name, and if so returns the value portion. The leading sigil
-// (one or two dashes) is part of flagName.
-func splitEqualsForm(arg, flagName string) (value string, ok bool) {
-	if !strings.HasPrefix(arg, flagName+"=") {
-		return "", false
-	}
-	return arg[len(flagName)+1:], true
-}
-
-// ReplaceFlag searches args for the flag whose current value equals
-// `oldValue` and replaces it with `newValue`. Handles both forms.
-func ReplaceFlag(args []string, flagName, oldValue, newValue string) []string {
-	out := append([]string(nil), args...)
-	for i, a := range out {
-		if a == flagName && i+1 < len(out) && out[i+1] == oldValue {
-			out[i+1] = newValue
+// ReplaceFlag replaces oldVal with newVal for --flag in command.
+// Handles both "--flag oldVal" and "--flag=oldVal" forms.
+// Returns the (possibly unchanged) slice.
+func ReplaceFlag(command []string, flag, oldVal, newVal string) []string {
+	out := append([]string(nil), command...)
+	for i, arg := range out {
+		if arg == flag && i+1 < len(out) && out[i+1] == oldVal {
+			out[i+1] = newVal
 			return out
 		}
-		if v, ok := splitEqualsForm(a, flagName); ok && v == oldValue {
-			out[i] = flagName + "=" + newValue
-			return out
+		if strings.HasPrefix(arg, flag+"=") {
+			suffix := strings.TrimPrefix(arg, flag+"=")
+			if suffix == oldVal {
+				out[i] = flag + "=" + newVal
+				return out
+			}
 		}
 	}
 	return out
 }
 
-// AppendToFlag appends `suffix` to the value of the given flag using a
-// comma separator. If the existing value is empty the suffix replaces it
-// (so we don't end up with a leading comma like `,Bash`). Only the first
-// occurrence of the flag is modified.
-func AppendToFlag(args []string, flagName, suffix string) []string {
-	if suffix == "" {
-		return append([]string(nil), args...)
-	}
-	out := append([]string(nil), args...)
-	join := func(current, add string) string {
-		if current == "" {
-			return add
-		}
-		return current + "," + add
-	}
-	for i, a := range out {
-		if a == flagName && i+1 < len(out) {
-			out[i+1] = join(out[i+1], suffix)
-			return out
-		}
-		if v, ok := splitEqualsForm(a, flagName); ok {
-			out[i] = flagName + "=" + join(v, suffix)
-			return out
-		}
-	}
-	return out
-}
-
-// RemoveFlag removes every occurrence of the flag and its value. Handles
-// both forms. Values are always treated as values (never re-parsed as a
-// new flag) so leading-dash values like `-1` survive.
-func RemoveFlag(args []string, flagName string) []string {
-	var result []string
-	for i := 0; i < len(args); i++ {
-		if args[i] == flagName {
-			if i+1 < len(args) {
-				i++ // also consume the value
+// RemoveFlag removes every occurrence of a flag and its value from command.
+// Handles both "--flag value" (space form) and "--flag=value" (equals form).
+// Values are always treated as values (never re-parsed as a new flag) so
+// leading-dash values like "-1" survive. Returns the (possibly unchanged) slice.
+func RemoveFlag(command []string, flag string) []string {
+	var out []string
+	for i := 0; i < len(command); i++ {
+		if command[i] == flag {
+			// Space form: skip the flag and consume the next token as its value.
+			if i+1 < len(command) {
+				i++
 			}
 			continue
 		}
-		if _, ok := splitEqualsForm(args[i], flagName); ok {
+		if strings.HasPrefix(command[i], flag+"=") {
+			// Equals form: skip the entire "flag=value" token.
 			continue
 		}
-		result = append(result, args[i])
+		out = append(out, command[i])
 	}
-	return result
+	return out
+}
+
+// HasFlag reports whether flag is present in command.
+func HasFlag(command []string, flag string) bool {
+	for _, arg := range command {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
 }

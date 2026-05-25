@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestDefaultCommandIncludesSandboxFlags(t *testing.T) {
+func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
 	p, err := New(Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -15,16 +15,14 @@ func TestDefaultCommandIncludesSandboxFlags(t *testing.T) {
 	cmd := p.(*provider).command
 	got := strings.Join(cmd, " ")
 
-	requiredFlags := []string{
-		"--sandbox read-only",
+	if !strings.Contains(got, "--yolo") {
+		t.Errorf("default command missing --yolo\ngot: %s", got)
 	}
-	for _, flag := range requiredFlags {
-		if !strings.Contains(got, flag) {
-			t.Errorf("default command missing %q\ngot: %s", flag, got)
-		}
+	// --sandbox read-only must NOT be present (sandbox replaces it).
+	if strings.Contains(got, "--sandbox") {
+		t.Errorf("default command must not include --sandbox (OS sandbox replaces it)\ngot: %s", got)
 	}
-	// --ask-for-approval is not a valid `codex exec` flag; it lives on the
-	// interactive `codex` command. Guard against re-introducing it.
+	// --ask-for-approval is not a valid `codex exec` flag.
 	if strings.Contains(got, "--ask-for-approval") {
 		t.Errorf("default command must not include --ask-for-approval (rejected by codex exec)\ngot: %s", got)
 	}

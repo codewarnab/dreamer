@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/sandbox"
 )
 
 const ID = "gemini-cli"
@@ -49,13 +52,13 @@ func init() {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
-		// Sandbox note: --approval-mode plan is the primary defense, blocking tool
-		// execution. However, Gemini CLI has a known design issue: in headless mode,
-		// if the model calls exit_plan_mode, the CLI auto-switches to YOLO mode and
-		// all restrictions vanish. This is a Gemini CLI upstream issue — a fix would
-		// require either a headless-specific flag or Policy Engine TOML rules
-		// (~/.gemini/policies/). Until then, this provider carries residual risk.
-		command = []string{"gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"}
+		// Unrestricted flags — the OS sandbox (ACLs + Job Objects) is the
+		// actual enforcement layer. --yolo lets the model call tools freely;
+		// the kernel blocks writes to the project directory regardless.
+		// Note: Gemini CLI has a known design issue where exit_plan_mode
+		// auto-switches to YOLO mode — with --yolo as default, this is a
+		// no-op rather than an escalation.
+		command = []string{"gemini", "-p", "--output-format=stream-json", "--yolo"}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -101,14 +104,22 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		command = append(command, "--model", model)
 	}
 
-	// CLI tool mode: drop --approval-mode=plan and add Bash tool so the model
-	// can call the dreamer record-finding subcommand via heredoc.
+	// CLI tool mode: inject --tools so the model can call the dreamer
+	// record-finding subcommand via Bash.
 	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeCLI {
-		// already validated above
-		command = flagutil.RemoveFlag(command, "--approval-mode")
-		command = append(command, "--approval-mode", "default")
-		command = append(command, "--tools", strings.Join(flagutil.CLIPhase2Tools, ","))
+		command = append(command, "--tools", strings.Join(flagutil.Phase2MCPTools, ","))
 	}
+
+	// Resolve sandbox mode.
+	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("gemini-cli: %w", err)
+	}
+
+	// WritableDirs: temp + gemini config home so the CLI can write
+	// session state and cached data.
+	home, _ := os.UserHomeDir()
+	writable := []string{os.TempDir(), filepath.Join(home, ".gemini")}
 
 	return &session{
 		command:    command,
@@ -116,6 +127,11 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		workingDir: wd,
 		systemMsg:  strings.TrimSpace(sessionConfig.SystemMessage),
 		runID:      sessionConfig.RunID,
+		sandboxCfg: sandbox.Config{
+			ProjectDir:   wd,
+			WritableDirs: writable,
+			Mode:         sbMode,
+		},
 	}, nil
 }
 
@@ -127,6 +143,7 @@ type session struct {
 	workingDir string
 	systemMsg  string
 	runID      string
+	sandboxCfg sandbox.Config
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -143,6 +160,11 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd.Dir = s.workingDir
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
 
+	// Apply OS-level sandbox before starting the process.
+	if err := sandbox.Prepare(cmd, s.sandboxCfg); err != nil {
+		return "", fmt.Errorf("gemini-cli: sandbox prepare: %w", err)
+	}
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return "", fmt.Errorf("gemini-cli: open stdin: %w", err)
@@ -157,6 +179,12 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("gemini-cli: start gemini: %w", err)
+	}
+
+	// Apply post-start sandbox constraints (Job Object on Windows).
+	if err := sandbox.PostStart(cmd, s.sandboxCfg); err != nil {
+		_ = cmd.Process.Kill()
+		return "", fmt.Errorf("gemini-cli: sandbox post-start: %w", err)
 	}
 
 	go func() {

@@ -23,6 +23,7 @@ import (
 	transportutil "dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/sandbox"
 )
 
 // ErrTransportClosed: ACP child process exited before/during a session.Run.
@@ -53,6 +54,11 @@ type Options struct {
 	// model (from SessionConfig.Model or DefaultModel) is not in the
 	// agent's availableModels list. Only used by ACP providers.
 	ModelFallbacks []string
+
+	// Sandbox holds the resolved sandbox mode ("auto", "true", "false").
+	// The ACP provider spawns a long-lived child process; the sandbox is
+	// applied at process start time.
+	Sandbox string
 }
 
 // New returns an analyzer.Provider that drives an ACP agent over stdio.
@@ -69,6 +75,7 @@ func New(options Options) (analyzer.Provider, error) {
 		env:            copyStringMap(options.Env),
 		defaultModel:   strings.TrimSpace(options.DefaultModel),
 		modelFallbacks: append([]string(nil), options.ModelFallbacks...),
+		sandboxMode:    options.Sandbox,
 	}, nil
 }
 
@@ -78,6 +85,7 @@ type provider struct {
 	env            map[string]string
 	defaultModel   string
 	modelFallbacks []string
+	sandboxMode    string
 
 	mu         sync.Mutex
 	transport  *transport
@@ -94,7 +102,7 @@ func (p *provider) Start(ctx context.Context) error {
 	if p.started {
 		return nil
 	}
-	t, err := dialStdio(ctx, p.command, p.env)
+	t, err := dialStdio(ctx, p.command, p.env, p.sandboxMode)
 	if err != nil {
 		return fmt.Errorf("acpcore: spawn %v: %w", p.command, err)
 	}
@@ -359,9 +367,31 @@ func (e *jsonrpcError) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
 
-func dialStdio(ctx context.Context, command []string, env map[string]string) (*transport, error) {
+func dialStdio(ctx context.Context, command []string, env map[string]string, sandboxMode string) (*transport, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Env = transportutil.MergeWithProcessEnv(env)
+
+	// Apply OS-level sandbox if configured.
+	sbMode, err := sandbox.ParseMode(sandboxMode)
+	if err != nil {
+		return nil, fmt.Errorf("acpcore: %w", err)
+	}
+	if sbMode != sandbox.ModeOff {
+		// ACP providers don't have a project dir at spawn time — they
+		// receive it per-session via session/new. We still apply the
+		// restricted token and Job Object for privilege stripping and
+		// orphan cleanup, but skip directory ACLs (the policy layer
+		// handles per-session path restrictions).
+		sbCfg := sandbox.Config{
+			ProjectDir:   "",
+			WritableDirs: []string{os.TempDir()},
+			Mode:         sbMode,
+		}
+		if err := sandbox.Prepare(cmd, sbCfg); err != nil {
+			return nil, fmt.Errorf("acpcore: sandbox prepare: %w", err)
+		}
+	}
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -377,6 +407,16 @@ func dialStdio(ctx context.Context, command []string, env map[string]string) (*t
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+
+	// Apply post-start sandbox (Job Object on Windows).
+	if sbMode != sandbox.ModeOff {
+		sbCfg := sandbox.Config{Mode: sbMode}
+		if err := sandbox.PostStart(cmd, sbCfg); err != nil {
+			_ = cmd.Process.Kill()
+			return nil, fmt.Errorf("acpcore: sandbox post-start: %w", err)
+		}
+	}
+
 	t := &transport{
 		cmd:    cmd,
 		stdin:  stdin,
