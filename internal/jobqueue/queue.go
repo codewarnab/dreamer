@@ -254,6 +254,10 @@ func (q *Queue) PruneHistory(maxAge time.Duration) {
 		}
 		filtered = append(filtered, j)
 	}
+	// Nil out dangling slots to release *Job pointers for GC.
+	for i := len(filtered); i < len(q.jobs); i++ {
+		q.jobs[i] = nil
+	}
 	q.jobs = filtered
 	q.persistLocked()
 }

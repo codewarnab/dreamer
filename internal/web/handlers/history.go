@@ -9,7 +9,10 @@ import (
 	"dreamer/internal/state"
 )
 
-const defaultHistoryDays = 90
+const (
+	defaultHistoryDays = 90
+	maxHistoryDays     = 365
+)
 
 type historyResponse struct {
 	Days []state.DaySummary `json:"days"`
@@ -50,6 +53,9 @@ func ProjectHistory(deps Deps) http.HandlerFunc {
 		days := defaultHistoryDays
 		if raw := strings.TrimSpace(r.URL.Query().Get("days")); raw != "" {
 			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				if n > maxHistoryDays {
+					n = maxHistoryDays
+				}
 				days = n
 			}
 		}

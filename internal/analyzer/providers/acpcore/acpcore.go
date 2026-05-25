@@ -139,9 +139,12 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		preferredModel = p.defaultModel
 	}
 
-	normalizedRoot, _ := analyzer.NormalizeRootPath(sessionConfig.WorkingDirectory)
+	normalizedRoot, normErr := analyzer.NormalizeRootPath(sessionConfig.WorkingDirectory)
 	handler := func(req map[string]any) map[string]any {
 		permReq := translatePermissionRequest(req)
+		if normErr != nil {
+			return map[string]any{"decision": "deny", "reason": "working directory invalid: " + normErr.Error()}
+		}
 		decision := analyzer.DecidePermission(permReq, normalizedRoot)
 		if decision.Approved {
 			return map[string]any{"decision": "allow"}

@@ -215,7 +215,15 @@ func runDiscovery(opts Options, appConfig *config.Config, logger *logging.Logger
 
 	dr.projectName = strings.TrimSpace(opts.ProjectName)
 	if dr.projectName == "" {
-		dr.projectName = deriveProjectName(projectPath)
+		// Build collision map from configured projects so two projects
+		// with the same basename get distinct directory names.
+		usedNames := make(map[string]string, len(appConfig.Projects))
+		for _, p := range appConfig.Projects {
+			if p.Name != "" && p.Path != "" {
+				usedNames["project-"+p.Name] = p.Path
+			}
+		}
+		dr.projectName = DeriveProjectName(projectPath, usedNames)
 	}
 	logger.Info("analyze begin", logging.Any("project", dr.projectName), logging.Any("path", projectPath))
 
@@ -424,7 +432,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	tc := toolchain.Detect(dr.projectPath)
 	logger.Info("toolchain detected", logging.Any("summary", tc.String()))
 
-	codebaseContext, err := analyzer.BuildCodebaseContext(dr.projectPath, tc)
+	codebaseContext, err := analyzer.BuildCodebaseContext(dr.projectPath)
 	if err != nil {
 		logger.Warn("codebase context build failed", logging.Any("err", err))
 	}
