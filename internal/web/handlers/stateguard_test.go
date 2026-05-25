@@ -92,3 +92,11 @@ func TestProjectLock_DefersReleaseOnPanic(t *testing.T) {
 		t.Fatal("deadlock: lock not released after panic")
 	}
 }
+
+func TestProjectLock_DoubleUnlockNoPanic(t *testing.T) {
+	pl := NewProjectLock()
+	pl.Lock("proj-x")
+	pl.Unlock("proj-x")
+	// Second unlock must not panic.
+	pl.Unlock("proj-x")
+}

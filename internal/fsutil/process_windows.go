@@ -16,7 +16,6 @@ var (
 )
 
 const (
-	processQueryInformation        = 0x0400
 	processQueryLimitedInformation = 0x1000
 	stillActive                    = 259
 )

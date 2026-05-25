@@ -126,6 +126,9 @@ func mergeAnalyzer(base, overlay *AnalyzerConfig) {
 	if overlay.RuleTimeoutSeconds != 0 {
 		base.RuleTimeoutSeconds = overlay.RuleTimeoutSeconds
 	}
+	// Bool field: zero-value guard means overlay can set false→true but
+	// not true→false. This matches the additive overlay convention for
+	// non-pointer fields. To override true→false, edit config.yaml.
 	if overlay.IncludeSubagentTranscripts {
 		base.IncludeSubagentTranscripts = overlay.IncludeSubagentTranscripts
 	}
