@@ -411,6 +411,125 @@ type analysisResult struct {
 	mode     analyzer.ExecutionMode
 }
 
+// phase2Setup bundles the resolved Phase 2 transport state and its cleanup.
+type phase2Setup struct {
+	mode             analyzer.Phase2Mode
+	config           *analyzer.Phase2Config
+	findingsFilePath string
+	binaryPath       string
+}
+
+// setupPhase2Transport resolves the Phase 2 transport mode, builds the
+// config, and returns a cleanup function that removes any temp files.
+// The caller must defer the returned cleanup.
+func setupPhase2Transport(ctx context.Context, opts Options, providerID string, events *EventBus, logger *logging.Logger) (phase2Setup, func()) {
+	mode := analyzer.LookupPhase2Mode(analyzer.ProviderID(providerID))
+	if opts.DryRun {
+		mode = analyzer.Phase2ModeNone
+	}
+
+	cfg, findingsPath, binaryPath, buildErr := buildPhase2Config(mode)
+	if buildErr != nil {
+		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
+			logging.Any("mode", string(mode)),
+			logging.Any("err", buildErr),
+		)
+		if events != nil {
+			events.Publish(Event{
+				Type:    "phase2.fallback",
+				Payload: map[string]any{"mode": string(mode), "error": buildErr.Error()},
+			})
+		}
+		mode = analyzer.Phase2ModeNone
+		cfg = nil
+	}
+	if mode != analyzer.Phase2ModeNone {
+		logger.Info("phase2 tool mode",
+			logging.Any("mode", string(mode)),
+			logging.Any("output", findingsPath),
+		)
+	}
+
+	cleanup := func() {
+		if findingsPath != "" {
+			if err := os.Remove(findingsPath); err != nil && !os.IsNotExist(err) {
+				logger.Warn("remove findings temp file failed", logging.Any("err", err))
+			}
+		}
+		if cfg != nil && cfg.MCP != nil && cfg.MCP.ConfigFilePath != "" {
+			if err := os.Remove(cfg.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
+				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
+			}
+		}
+	}
+
+	return phase2Setup{
+		mode:             mode,
+		config:           cfg,
+		findingsFilePath: findingsPath,
+		binaryPath:       binaryPath,
+	}, cleanup
+}
+
+// buildSessionFactories creates the Phase 1 and Phase 2 session factory
+// functions. Phase 1 sessions never see MCP/CLI tool wiring so a rogue
+// Phase 1 model cannot pollute the findings file.
+func buildSessionFactories(ctx context.Context, provider analyzer.Provider, dr discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger) (phase1, phase2 func() (analyzer.Session, error)) {
+	systemMsg := analyzer.BuildReadOnlySystemMessage(dr.projectPath, runID)
+	phase1 = func() (analyzer.Session, error) {
+		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
+			WorkingDirectory: dr.projectPath,
+			Model:            dr.providerBlock.Model,
+			ReadOnly:         true,
+			SystemMessage:    systemMsg,
+			RunID:            runID,
+			Sandbox:          sandboxMode,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
+	}
+	if phase2Cfg == nil {
+		return phase1, phase1
+	}
+	phase2 = func() (analyzer.Session, error) {
+		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
+			WorkingDirectory: dr.projectPath,
+			Model:            dr.providerBlock.Model,
+			ReadOnly:         true,
+			SystemMessage:    systemMsg,
+			RunID:            runID,
+			Phase2:           phase2Cfg,
+			Sandbox:          sandboxMode,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
+	}
+	return phase1, phase2
+}
+
+// collectDismissedHashes builds a set of finding hashes that includes both
+// persisted hashes and any that have been dismissed via the UI. Dismissed
+// hashes are folded into the dedup set so the analyzer never re-emits them.
+func collectDismissedHashes(currentState *state.State) map[string]struct{} {
+	if currentState == nil {
+		return nil
+	}
+	hashes := stringSliceToSet(currentState.FindingHashes)
+	for hash, findingState := range currentState.Findings {
+		if findingState.Status == state.FindingStatusDismissed {
+			if hashes == nil {
+				hashes = map[string]struct{}{}
+			}
+			hashes[hash] = struct{}{}
+		}
+	}
+	return hashes
+}
+
 // runAnalysis instantiates the provider, detects the toolchain, and runs the
 // orchestrator. The caller must close the returned provider.
 func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr transcriptResult, rctx *runCtx, currentState *state.State, runID string, logger *logging.Logger) (analysisResult, error) {
@@ -445,101 +564,12 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	}
 	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
 
-	// Resolve Phase 2 transport. Dry runs always use the legacy JSON
-	// transport because they short-circuit before Phase 2 anyway and we
-	// don't want them touching disk.
-	phase2Mode := analyzer.LookupPhase2Mode(analyzer.ProviderID(dr.providerID))
-	if opts.DryRun {
-		phase2Mode = analyzer.Phase2ModeNone
-	}
+	p2, p2Cleanup := setupPhase2Transport(ctx, opts, dr.providerID, opts.Events, logger)
+	defer p2Cleanup()
 
-	phase2Config, findingsOutputPath, dreamerBinaryPath, phase2Err := buildPhase2Config(phase2Mode)
-	if phase2Err != nil {
-		// Phase 2 mode was requested but setup failed. Log a warning and
-		// fall back to legacy JSON transport — the run will still produce
-		// findings via inline JSON, just fewer (no tool-verified ones).
-		// Surface through the event bus so operators can see the failure
-		// instead of silently degrading.
-		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
-			logging.Any("mode", string(phase2Mode)),
-			logging.Any("err", phase2Err),
-		)
-		if opts.Events != nil {
-			opts.Events.Publish(Event{
-				Type:    "phase2.fallback",
-				Payload: map[string]any{"mode": string(phase2Mode), "error": phase2Err.Error()},
-			})
-		}
-		phase2Mode = analyzer.Phase2ModeNone
-		phase2Config = nil
-	}
-	defer func() {
-		if findingsOutputPath != "" {
-			if err := os.Remove(findingsOutputPath); err != nil && !os.IsNotExist(err) {
-				logger.Warn("remove findings temp file failed", logging.Any("err", err))
-			}
-		}
-		if phase2Config != nil && phase2Config.MCP != nil && phase2Config.MCP.ConfigFilePath != "" {
-			if err := os.Remove(phase2Config.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
-				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
-			}
-		}
-	}()
-	if phase2Mode != analyzer.Phase2ModeNone {
-		logger.Info("phase2 tool mode",
-			logging.Any("mode", string(phase2Mode)),
-			logging.Any("output", findingsOutputPath),
-		)
-	}
+	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, dr, p2.config, providerCfg.Sandbox, runID, logger)
 
-	// Two factories: Phase 1 sessions never see MCP / CLI tool wiring, so a
-	// rogue Phase 1 model cannot pollute the findings file.
-	systemMsg := analyzer.BuildReadOnlySystemMessage(dr.projectPath, runID)
-	sandboxMode := providerCfg.Sandbox
-	phase1Factory := func() (analyzer.Session, error) {
-		raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
-			WorkingDirectory: dr.projectPath,
-			Model:            dr.providerBlock.Model,
-			ReadOnly:         true,
-			SystemMessage:    systemMsg,
-			RunID:            runID,
-			Sandbox:          sandboxMode,
-		})
-		if factoryErr != nil {
-			return nil, factoryErr
-		}
-		return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
-	}
-	phase2Factory := phase1Factory
-	if phase2Config != nil {
-		phase2Factory = func() (analyzer.Session, error) {
-			raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
-				WorkingDirectory: dr.projectPath,
-				Model:            dr.providerBlock.Model,
-				ReadOnly:         true,
-				SystemMessage:    systemMsg,
-				RunID:            runID,
-				Phase2:           phase2Config,
-				Sandbox:          sandboxMode,
-			})
-			if factoryErr != nil {
-				return nil, factoryErr
-			}
-			return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
-		}
-	}
-
-	existingFindingHashes := stringSliceToSet(currentState.FindingHashes)
-	if currentState != nil {
-		for hash, findingState := range currentState.Findings {
-			if findingState.Status == state.FindingStatusDismissed {
-				if existingFindingHashes == nil {
-					existingFindingHashes = map[string]struct{}{}
-				}
-				existingFindingHashes[hash] = struct{}{}
-			}
-		}
-	}
+	existingFindingHashes := collectDismissedHashes(currentState)
 	phaseReq := analyzer.PhaseRequest{
 		ProjectRoot:        dr.projectPath,
 		ToolchainSummary:   tc.Summary(),
@@ -551,9 +581,9 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 		StrictLintRules:    !opts.Permissive,
 		LintRuleValidator:  lintrules.NewValidator(),
 		ExistingHashes:     existingFindingHashes,
-		Phase2Mode:         phase2Mode,
-		FindingsOutputPath: findingsOutputPath,
-		CLIBinaryPath:      dreamerBinaryPath,
+		Phase2Mode:         p2.mode,
+		FindingsOutputPath: p2.findingsFilePath,
+		CLIBinaryPath:      p2.binaryPath,
 		FindingRedactor:    findingRedactorFunc(tr.redactor),
 	}
 
