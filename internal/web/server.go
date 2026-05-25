@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"html/template"
@@ -256,11 +257,17 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate
 	// v1.5; future migration to Alpine's CSP build (or a single static
 	// bundle) can tighten both directives.
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self'; connect-src 'self'")
-	if err := tmpl.Execute(w, s.layoutData(extra)); err != nil {
+	// Pre-render to a buffer so a mid-template error doesn't write
+	// truncated HTML to the client.
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, s.layoutData(extra)); err != nil {
 		s.opts.Logger.Error("template execute failed",
 			logging.String("page", dir),
 			logging.Any("err", err))
+		http.Error(w, "template render failed", http.StatusInternalServerError)
+		return
 	}
+	buf.WriteTo(w)
 }
 
 // renderProjectPage parses /projects/{name}[/{tab}], validates the project
