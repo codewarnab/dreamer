@@ -27,6 +27,9 @@ type Deps struct {
 	OverlayPath    func() string
 	RecentActivity func() []pipeline.Event
 	RestartDaemon  func() error
+	// StateLock serializes state Load→Mutate→Save cycles per project
+	// so concurrent lifecycle handlers don't clobber each other.
+	StateLock *ProjectLock
 }
 
 // Dashboard returns an http.HandlerFunc for GET /api/dashboard.

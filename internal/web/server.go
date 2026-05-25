@@ -61,6 +61,9 @@ type Server struct {
 	httpSrv   *http.Server
 	listener  net.Listener
 	addr      string
+	// templates caches parsed HTML templates keyed by page name.
+	// Populated once at startup; never mutated afterward.
+	templates map[string]*template.Template
 }
 
 // NewServer constructs a Server but does not bind.
@@ -74,7 +77,34 @@ func NewServer(opts Options) (*Server, error) {
 	if opts.Events == nil {
 		return nil, fmt.Errorf("Options.Events required")
 	}
-	return &Server{opts: opts, csrfToken: MintCSRFToken()}, nil
+	s := &Server{opts: opts, csrfToken: MintCSRFToken()}
+	s.initTemplates()
+	return s, nil
+}
+
+// initTemplates parses all page templates once at startup and caches
+// them so renderPage never re-parses per request.
+func (s *Server) initTemplates() {
+	s.templates = make(map[string]*template.Template)
+	for _, page := range []string{
+		"dashboard",
+		"settings",
+		"logs",
+		"providers",
+		"project_overview",
+		"project_findings",
+		"project_chats",
+		"project_history",
+	} {
+		tmpl, err := template.ParseFS(assets,
+			"templates/layout.html",
+			"templates/"+page+".html",
+		)
+		if err != nil {
+			panic("web: parse templates/" + page + ": " + err.Error())
+		}
+		s.templates[page] = tmpl
+	}
 }
 
 // Addr returns the bound TCP address (host:port) after Start.
@@ -209,9 +239,11 @@ func (s *Server) layoutData(extra any) layoutData {
 }
 
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate string, extra any) {
-	tmpl, err := template.ParseFS(assets, "templates/layout.html", "templates/"+pageTemplate)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Normalize: "dashboard.html" → "dashboard", "project_overview.html" → "project_overview".
+	dir := strings.TrimSuffix(pageTemplate, ".html")
+	tmpl, ok := s.templates[dir]
+	if !ok {
+		http.Error(w, "unknown page template: "+pageTemplate, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -222,7 +254,11 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate
 	// v1.5; future migration to Alpine's CSP build (or a single static
 	// bundle) can tighten both directives.
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self'; connect-src 'self'")
-	_ = tmpl.Execute(w, s.layoutData(extra))
+	if err := tmpl.Execute(w, s.layoutData(extra)); err != nil {
+		s.opts.Logger.Error("template execute failed",
+			logging.String("page", dir),
+			logging.Any("err", err))
+	}
 }
 
 // renderProjectPage parses /projects/{name}[/{tab}], validates the project
@@ -286,6 +322,7 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			}
 			return s.opts.RestartHook()
 		},
+		StateLock: handlers.NewProjectLock(),
 	}
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

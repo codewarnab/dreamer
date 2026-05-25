@@ -79,9 +79,14 @@ func publish(bus *pipeline.EventBus, evt string, payload map[string]any) {
 
 // resolveProjectAndState validates method, parses path, looks up the
 // project, and loads the per-project state. Returns the project, the
-// loaded state, the hash, and a bool indicating whether the response has
-// already been written (caller must return on false).
-func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, want transition) (proj config.ProjectConfig, st *state.State, name, hash string, ok bool) {
+// loaded state, the hash, an unlock function, and a bool indicating
+// whether the response has already been written (caller must return on
+// false).
+//
+// On success the per-project state lock is held; the caller MUST defer
+// unlock() after the ok check. On early failure the lock is not held
+// and unlock is nil.
+func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, want transition) (proj config.ProjectConfig, st *state.State, name, hash string, unlock func(), ok bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -91,26 +96,32 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.NotFound(w, r)
 		return
 	}
+	deps.StateLock.Lock(name)
+	unlock = func() { deps.StateLock.Unlock(name) }
 	appConfig := deps.Config()
 	if appConfig == nil {
+		unlock()
 		writeJSONError(w, http.StatusInternalServerError, "config unavailable")
-		return
+		return proj, nil, name, hash, nil, false
 	}
 	proj, found := findProject(appConfig, name)
 	if !found {
+		unlock()
 		http.NotFound(w, r)
-		return
+		return proj, nil, name, hash, nil, false
 	}
 	st, err := state.Load(appConfig.Daemon.OutputRoot, name)
 	if err != nil {
+		unlock()
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
-		return
+		return proj, nil, name, hash, nil, false
 	}
 	if st == nil {
+		unlock()
 		writeJSONError(w, http.StatusInternalServerError, "state unavailable")
-		return
+		return proj, nil, name, hash, nil, false
 	}
-	return proj, st, name, strings.ToLower(hash), true
+	return proj, st, name, strings.ToLower(hash), unlock, true
 }
 
 // Apply handles POST /api/projects/{name}/findings/{hash}/apply.
@@ -121,10 +132,11 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 // finding.applied on the bus.
 func Apply(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionApply)
+		proj, st, name, hash, unlock, ok := resolveProjectAndState(w, r, deps, transitionApply)
 		if !ok {
 			return
 		}
+		defer unlock()
 		appConfig := deps.Config()
 		// Trusted apply plan lives in state; body fields are ignored
 		// so a loopback caller cannot redirect the write to any path.
@@ -191,10 +203,11 @@ func Apply(deps Deps) http.HandlerFunc {
 // target file's SHA-256 has drifted (operator edited it post-apply).
 func Undo(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proj, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUndo)
+		proj, st, name, hash, unlock, ok := resolveProjectAndState(w, r, deps, transitionUndo)
 		if !ok {
 			return
 		}
+		defer unlock()
 		appConfig := deps.Config()
 		findingState, exists := st.Findings[hash]
 		if !exists || findingState.Status != state.FindingStatusApplied || findingState.AppliedReversal == nil {
@@ -228,10 +241,11 @@ func Undo(deps Deps) http.HandlerFunc {
 // Dismiss handles POST /api/projects/{name}/findings/{hash}/dismiss.
 func Dismiss(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionDismiss)
+		_, st, name, hash, unlock, ok := resolveProjectAndState(w, r, deps, transitionDismiss)
 		if !ok {
 			return
 		}
+		defer unlock()
 		appConfig := deps.Config()
 		// Preserve prior fields (AppliedAt + AppliedReversal in particular)
 		// so a later undismiss can fall back to the applied state and a
@@ -256,10 +270,11 @@ func Dismiss(deps Deps) http.HandlerFunc {
 // Resolve handles POST /api/projects/{name}/findings/{hash}/resolve.
 func Resolve(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionResolve)
+		_, st, name, hash, unlock, ok := resolveProjectAndState(w, r, deps, transitionResolve)
 		if !ok {
 			return
 		}
+		defer unlock()
 		appConfig := deps.Config()
 		// Preserve prior AppliedAt + AppliedReversal so a later unresolve
 		// returns the finding to its applied state with the reversal intact.
@@ -285,10 +300,11 @@ func Resolve(deps Deps) http.HandlerFunc {
 // pool. No-op (still 200) when the entry is absent or not dismissed.
 func Undismiss(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUndismiss)
+		_, st, name, hash, unlock, ok := resolveProjectAndState(w, r, deps, transitionUndismiss)
 		if !ok {
 			return
 		}
+		defer unlock()
 		appConfig := deps.Config()
 		if findingState, exists := st.Findings[hash]; exists && findingState.Status == state.FindingStatusDismissed {
 			// If a prior Apply captured a reversal that we preserved
@@ -316,10 +332,11 @@ func Undismiss(deps Deps) http.HandlerFunc {
 // Symmetric to Undismiss for resolved entries.
 func Unresolve(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, st, name, hash, ok := resolveProjectAndState(w, r, deps, transitionUnresolve)
+		_, st, name, hash, unlock, ok := resolveProjectAndState(w, r, deps, transitionUnresolve)
 		if !ok {
 			return
 		}
+		defer unlock()
 		appConfig := deps.Config()
 		if findingState, exists := st.Findings[hash]; exists && findingState.Status == state.FindingStatusResolved {
 			// Same fallback as Undismiss: keep an applied reversal reachable.
