@@ -4,7 +4,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -57,8 +56,7 @@ func Dashboard(deps Deps) http.HandlerFunc {
 			}
 			out.LiveActivity = liveActivity
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 

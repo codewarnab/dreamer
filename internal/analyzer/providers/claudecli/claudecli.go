@@ -230,13 +230,16 @@ func (s *session) Close() error { return nil }
 func readStreamJSON(r io.Reader) (string, error) {
 	scanner := transport.NewScanner(r)
 	var assistantText strings.Builder
+	var totalLines, parseErrors int
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
+		totalLines++
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			parseErrors++
 			continue
 		}
 		if event.Type == "assistant" {
@@ -250,6 +253,9 @@ func readStreamJSON(r io.Reader) (string, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return "", err
+	}
+	if assistantText.Len() == 0 && totalLines > 0 && parseErrors == totalLines {
+		return "", fmt.Errorf("claude-cli: all %d output lines failed to parse (provider schema change?)", totalLines)
 	}
 	return strings.TrimSpace(assistantText.String()), nil
 }

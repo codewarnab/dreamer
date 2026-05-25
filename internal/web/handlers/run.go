@@ -2,7 +2,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -48,13 +47,10 @@ func Run(deps Deps) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		if !accepted {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": "a run is already in flight for this project"})
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "a run is already in flight for this project"})
 			return
 		}
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]any{"run_id": runID, "project": name})
+		writeJSON(w, http.StatusAccepted, map[string]any{"run_id": runID, "project": name})
 	}
 }

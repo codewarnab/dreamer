@@ -12,24 +12,25 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"dreamer/internal/categories"
+	"dreamer/internal/fsutil"
 )
 
 // ValidCategories is the set of valid rule categories (lowercase canonical
 // IDs). Inputs are lowercased+trimmed before lookup so "Test" and " test "
-// both match "test".
-var ValidCategories = map[string]bool{
-	"lint-rule":         true,
-	"test":              true,
-	"ci-check":          true,
-	"doc":               true,
-	"config":            true,
-	"refactor-boundary": true,
-}
+// both match "test". Derived from the canonical category constants.
+var ValidCategories = func() map[string]bool {
+	m := make(map[string]bool, len(categories.All()))
+	for _, c := range categories.All() {
+		m[string(c)] = true
+	}
+	return m
+}()
 
 // sortedValidCategories returns the valid category names in sorted order
 // for use in error messages. Computed once from ValidCategories.
@@ -204,16 +205,6 @@ type FindingRecorder struct {
 	sanitize FindingSanitizer
 }
 
-// hasPathPrefix reports whether p is a child of (or equal to) root,
-// using case-insensitive comparison on Windows to handle C:\ vs c:\.
-func hasPathPrefix(p, root string) bool {
-	sep := string(os.PathSeparator)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(p, root) || strings.HasPrefix(p, root+sep)
-	}
-	return p == root || strings.HasPrefix(p, root+sep)
-}
-
 // ValidateOutputPath checks that the given path is safe for writing findings.
 // The path must be absolute and live under os.TempDir(). Symlinks are rejected
 // anywhere in the ancestor chain. This prevents prompt-injected transcripts
@@ -222,47 +213,21 @@ func ValidateOutputPath(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("output path must be absolute, got %q", path)
 	}
-	// Resolve symlinks on the temp dir to get the real root.
 	tmpDir, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil {
 		return fmt.Errorf("resolve temp dir: %w", err)
 	}
 	tmpDir = filepath.Clean(tmpDir)
-	// Walk ancestors from the target upward, resolving symlinks at each
-	// level so a symlinked parent pointing outside tmpDir is caught.
-	// This mirrors the approach in internal/web/apply/apply.go.
+
 	cleaned := filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		if !hasPathPrefix(resolved, tmpDir) {
-			return fmt.Errorf("output path %q resolves to %q, outside temp directory %q", path, resolved, tmpDir)
-		}
-		return nil // resolved path is under tmpDir; symlinks resolved
-	} else if !errors.Is(err, os.ErrNotExist) {
+	resolved, err := fsutil.ResolveSymlinks(cleaned)
+	if err != nil {
 		return fmt.Errorf("resolve output path %q: %w", path, err)
 	}
-	// File doesn't exist yet — walk ancestors to find the deepest existing
-	// directory and verify symlinks aren't used to escape.
-	parent := cleaned
-	var trail []string
-	for {
-		next := filepath.Dir(parent)
-		if next == parent {
-			break
-		}
-		if resolved, resolveErr := filepath.EvalSymlinks(parent); resolveErr == nil {
-			resolved = filepath.Join(resolved, filepath.Join(trail...))
-			if !hasPathPrefix(resolved, tmpDir) {
-				return fmt.Errorf("output path %q has parent symlink resolving outside temp: %q", path, resolved)
-			}
-			return nil
-		} else if !errors.Is(resolveErr, os.ErrNotExist) {
-			return fmt.Errorf("resolve ancestor %q: %w", parent, resolveErr)
-		}
-		trail = append([]string{filepath.Base(parent)}, trail...)
-		parent = next
+	if !fsutil.PathWithinRoot(resolved, tmpDir) {
+		return fmt.Errorf("output path %q resolves to %q, outside temp directory %q", path, resolved, tmpDir)
 	}
-	// No existing ancestor found (shouldn't happen since os.TempDir() exists).
-	return fmt.Errorf("output path %q has no existing ancestor directory", path)
+	return nil
 }
 
 // NewFindingRecorder creates a recorder that appends to the given path.

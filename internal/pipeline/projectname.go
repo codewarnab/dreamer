@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
 )
 
 var projectNameSafePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -58,7 +58,7 @@ func resolveAbsoluteProjectPath(path string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("--path is required")
 	}
-	expanded, err := config.ExpandUserHome(trimmed)
+	expanded, err := fsutil.ExpandUserHome(trimmed)
 	if err != nil {
 		return "", err
 	}

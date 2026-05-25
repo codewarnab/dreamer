@@ -45,8 +45,7 @@ func settingsGet(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sanitizeProviderSecrets(clone)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(clone)
+	writeJSON(w, http.StatusOK, clone)
 }
 
 // sanitizeProviderSecrets redacts env values whose keys hint at secrets and top-level passwords.
@@ -130,8 +129,7 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("write overlay: %v", err), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "overlay_path": overlayPath})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "overlay_path": overlayPath})
 }
 
 func readJSONObject(r *http.Request) (map[string]any, error) {

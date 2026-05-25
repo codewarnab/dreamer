@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"sort"
 	"time"
@@ -104,7 +103,6 @@ func Providers(deps Deps) http.HandlerFunc {
 			return out.Providers[i].ID < out.Providers[j].ID
 		})
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }

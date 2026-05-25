@@ -23,6 +23,7 @@ import (
 	transportutil "dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/sandbox"
 )
 
@@ -147,7 +148,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		preferredModel = p.defaultModel
 	}
 
-	normalizedRoot, normErr := analyzer.NormalizeRootPath(sessionConfig.WorkingDirectory)
+	normalizedRoot, normErr := fsutil.NormalizeRootPath(sessionConfig.WorkingDirectory)
 	handler := func(req map[string]any) map[string]any {
 		permReq := translatePermissionRequest(req)
 		if normErr != nil {
@@ -655,7 +656,9 @@ func (t *transport) handlePermissionRequest(envelope rpcEnvelope) {
 		"id":      envelope.ID,
 		"result":  map[string]any{"outcome": outcome},
 	}
-	_ = t.send(response)
+	if err := t.send(response); err != nil {
+		fmt.Fprintf(os.Stderr, "acpcore: send permission response failed (agent may hang): %v\n", err)
+	}
 }
 
 // decidePermission produces (approved, reason) for an ACP permission request

@@ -1,8 +1,9 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"dreamer/internal/logging"
 )
 
 // DaemonRestart returns an http.HandlerFunc for POST /api/daemon/restart.
@@ -19,15 +20,17 @@ func DaemonRestart(deps Deps) http.HandlerFunc {
 			http.Error(w, "restart hook not configured", http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
 			"message": "daemon restart triggered",
 		})
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
-		go func() { _ = deps.RestartDaemon() }()
+		go func() {
+			if err := deps.RestartDaemon(); err != nil {
+				deps.Logger.Error("daemon restart failed", logging.ErrAttr(err)...)
+			}
+		}()
 	}
 }

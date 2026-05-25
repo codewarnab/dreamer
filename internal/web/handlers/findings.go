@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -276,8 +275,7 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 			out = append(out, view)
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"findings": out})
+		writeJSON(w, http.StatusOK, map[string]any{"findings": out})
 	}
 }
 
@@ -396,7 +394,6 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			ApplyEligible: apply.EligibleCategories[strings.ToLower(matchedEntry.Category)],
 			DiffPreview:   diff,
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }

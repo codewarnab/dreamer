@@ -241,11 +241,13 @@ func readStreamJSON(r io.Reader) (string, error) {
 	scanner := transport.NewScanner(r)
 	var assembled strings.Builder
 	var streamErr string
+	var totalLines, parseErrors int
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
+		totalLines++
 		var event struct {
 			Type string `json:"type"`
 			Item struct {
@@ -258,6 +260,7 @@ func readStreamJSON(r io.Reader) (string, error) {
 			} `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			parseErrors++
 			continue
 		}
 		switch event.Type {
@@ -285,6 +288,9 @@ func readStreamJSON(r io.Reader) (string, error) {
 	}
 	if streamErr != "" {
 		return "", fmt.Errorf("codex stream error: %s", streamErr)
+	}
+	if assembled.Len() == 0 && totalLines > 0 && parseErrors == totalLines {
+		return "", fmt.Errorf("codex-cli: all %d output lines failed to parse (provider schema change?)", totalLines)
 	}
 	return strings.TrimSpace(assembled.String()), nil
 }

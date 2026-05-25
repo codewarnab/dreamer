@@ -9,21 +9,23 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"dreamer/internal/categories"
 )
 
 //go:embed rules/*.yaml
 var embeddedRulesFS embed.FS
 
 // RuleCategory is one of the six v1 spec categories.
-type RuleCategory string
+type RuleCategory = categories.Category
 
 const (
-	RuleCategoryLintRule         RuleCategory = "lint-rule"
-	RuleCategoryTest             RuleCategory = "test"
-	RuleCategoryCICheck          RuleCategory = "ci-check"
-	RuleCategoryDoc              RuleCategory = "doc"
-	RuleCategoryConfig           RuleCategory = "config"
-	RuleCategoryRefactorBoundary RuleCategory = "refactor-boundary"
+	RuleCategoryLintRule         = categories.CategoryLintRule
+	RuleCategoryTest             = categories.CategoryTest
+	RuleCategoryCICheck          = categories.CategoryCICheck
+	RuleCategoryDoc              = categories.CategoryDoc
+	RuleCategoryConfig           = categories.CategoryConfig
+	RuleCategoryRefactorBoundary = categories.CategoryRefactorBoundary
 )
 
 // defaultRuleTimeoutSeconds is the fallback per-rule prompt timeout
@@ -31,16 +33,8 @@ const (
 const defaultRuleTimeoutSeconds = 45
 
 // AllRuleCategories returns the canonical list of v1 categories in fixed order.
-// Keep in sync with the RuleCategory constants above when adding new categories.
 func AllRuleCategories() []RuleCategory {
-	return []RuleCategory{
-		RuleCategoryLintRule,
-		RuleCategoryTest,
-		RuleCategoryCICheck,
-		RuleCategoryDoc,
-		RuleCategoryConfig,
-		RuleCategoryRefactorBoundary,
-	}
+	return categories.All()
 }
 
 // PromptDefaults holds the global prompt text loaded from defaults.yaml.
