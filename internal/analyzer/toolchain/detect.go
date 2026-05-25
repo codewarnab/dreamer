@@ -151,7 +151,7 @@ func Detect(projectRoot string) Toolchain {
 		}
 	}
 	// JS conditional: typescript language when tsconfig.json present.
-	if has(root, "package.json") && has(root, "tsconfig.json") {
+	if fileExists(root, "package.json") && fileExists(root, "tsconfig.json") {
 		detected.Languages = appendUnique(detected.Languages, "typescript")
 		detected.ConfigFiles = append(detected.ConfigFiles, filepath.Join(root, "tsconfig.json"))
 	}
@@ -163,7 +163,7 @@ func Detect(projectRoot string) Toolchain {
 
 func anyPresent(root string, names []string) bool {
 	for _, n := range names {
-		if has(root, n) {
+		if fileExists(root, n) {
 			return true
 		}
 	}
@@ -212,7 +212,7 @@ func (t Toolchain) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
-func has(root string, name string) bool {
+func fileExists(root string, name string) bool {
 	path := filepath.Join(root, name)
 	fileInfo, err := os.Stat(path)
 	if err != nil {

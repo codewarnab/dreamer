@@ -192,7 +192,7 @@ func Save(outputRoot, projectName string, state *State) error {
 	}
 
 	if priorData, readErr := os.ReadFile(path); readErr == nil {
-		priorVersion := readPriorVersion(priorData)
+		priorVersion := parsePriorVersion(priorData)
 		if priorVersion >= 0 && priorVersion < StateVersion {
 			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
 			if _, err := os.Stat(backupPath); os.IsNotExist(err) {
@@ -219,7 +219,7 @@ func Save(outputRoot, projectName string, state *State) error {
 	return nil
 }
 
-func readPriorVersion(data []byte) int {
+func parsePriorVersion(data []byte) int {
 	var peek map[string]json.RawMessage
 	if err := json.Unmarshal(data, &peek); err != nil {
 		return 0
