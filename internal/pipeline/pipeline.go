@@ -495,6 +495,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 	// Two factories: Phase 1 sessions never see MCP / CLI tool wiring, so a
 	// rogue Phase 1 model cannot pollute the findings file.
 	systemMsg := analyzer.BuildReadOnlySystemMessage(dr.projectPath, runID)
+	sandboxMode := providerCfg.Sandbox
 	phase1Factory := func() (analyzer.Session, error) {
 		raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
 			WorkingDirectory: dr.projectPath,
@@ -502,6 +503,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 			ReadOnly:         true,
 			SystemMessage:    systemMsg,
 			RunID:            runID,
+			Sandbox:          sandboxMode,
 		})
 		if factoryErr != nil {
 			return nil, factoryErr
@@ -518,6 +520,7 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 				SystemMessage:    systemMsg,
 				RunID:            runID,
 				Phase2:           phase2Config,
+				Sandbox:          sandboxMode,
 			})
 			if factoryErr != nil {
 				return nil, factoryErr

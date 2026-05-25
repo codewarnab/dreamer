@@ -91,7 +91,7 @@ providers:
   claude-cli:
     # Claude CLI via stream-json. Flags validated upstream; do not strip --output-format.
     model: {{provModel "claude-cli" .UserProvider .UserModel}}  # default. Override: claude-sonnet-4-5-20250929 | claude-opus-4-7-20250917
-    command: ["claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
+    command: ["claude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"]
     # env: {}
 
   claude-acp:
@@ -102,7 +102,7 @@ providers:
   gemini-cli:
     # Gemini CLI via stream-json in headless mode.
     model: {{provModel "gemini-cli" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
-    command: ["gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"]
+    command: ["gemini", "-p", "--output-format=stream-json", "--yolo"]
     # env: {}
 
   gemini-acp:
@@ -117,10 +117,10 @@ providers:
     # env: {}
 
   codex-cli:
-    # OpenAI Codex CLI via 'codex exec --json --sandbox read-only' (spec v1.1).
+    # OpenAI Codex CLI via 'codex exec --json' (spec v1.1).
     # Override command to add flags like --model, --image, or to point at a wrapper.
     model: {{provModel "codex-cli" .UserProvider .UserModel}}              # default. Override: gpt-5.4-mini-2026-03-17 | gpt-5
-    command: ["codex", "exec", "--json", "--sandbox", "read-only"]
+    command: ["codex", "exec", "--json", "--yolo"]
     # env: {}                   # extra environment for the subprocess
 
   codex-acp:
@@ -141,7 +141,7 @@ providers:
     # mirror ~/.openclaude/.openclaude-profile.json so the subprocess does
     # not have to inherit them from an interactive shell.
     model: {{provModel "openclaude-cli" .UserProvider .UserModel}}
-    command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan"]
+    command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"]
     env:
       OPENAI_BASE_URL: "https://opengateway.gitlawb.com/v1"
       OPENAI_MODEL: "mimo-v2.5-pro"

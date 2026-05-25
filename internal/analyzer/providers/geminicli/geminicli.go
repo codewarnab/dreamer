@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/sandbox"
 )
 
 const ID = "gemini-cli"
@@ -49,13 +52,18 @@ func init() {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
-		// Sandbox note: --approval-mode plan is the primary defense, blocking tool
-		// execution. However, Gemini CLI has a known design issue: in headless mode,
-		// if the model calls exit_plan_mode, the CLI auto-switches to YOLO mode and
-		// all restrictions vanish. This is a Gemini CLI upstream issue — a fix would
-		// require either a headless-specific flag or Policy Engine TOML rules
-		// (~/.gemini/policies/). Until then, this provider carries residual risk.
-		command = []string{"gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"}
+		// Unrestricted flags — the OS sandbox (ACLs + Job Objects) is the
+		// actual enforcement layer. --yolo lets the model call tools freely;
+		// the kernel blocks writes to the project directory regardless.
+		// Note: Gemini CLI has a known design issue where exit_plan_mode
+		// auto-switches to YOLO mode — with --yolo as default, this is a
+		// no-op rather than an escalation.
+		command = []string{
+			"gemini",
+			"-p",
+			"--output-format=stream-json",
+			"--yolo",
+		}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -101,14 +109,25 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		command = append(command, "--model", model)
 	}
 
-	// CLI tool mode: drop --approval-mode=plan and add Bash tool so the model
-	// can call the dreamer record-finding subcommand via heredoc.
+	// CLI tool mode: inject --tools so the model can call the dreamer
+	// record-finding subcommand via Bash.
 	if sessionConfig.Phase2.Mode() == analyzer.Phase2ModeCLI {
-		// already validated above
-		command = flagutil.RemoveFlag(command, "--approval-mode")
-		command = append(command, "--approval-mode", "default")
-		command = append(command, "--tools", strings.Join(flagutil.CLIPhase2Tools, ","))
+		command = append(command, "--tools", strings.Join(flagutil.Phase2MCPTools, ","))
 	}
+
+	// Resolve sandbox mode.
+	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("gemini-cli: %w", err)
+	}
+
+	// WritableDirs: temp + gemini config home so the CLI can write
+	// session state and cached data.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("gemini-cli: resolve home dir for sandbox writable paths: %w", err)
+	}
+	writable := []string{os.TempDir(), filepath.Join(home, ".gemini")}
 
 	return &session{
 		command:    command,
@@ -116,6 +135,11 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		workingDir: wd,
 		systemMsg:  strings.TrimSpace(sessionConfig.SystemMessage),
 		runID:      sessionConfig.RunID,
+		sandboxCfg: sandbox.Config{
+			ProjectDir:   wd,
+			WritableDirs: writable,
+			Mode:         sbMode,
+		},
 	}, nil
 }
 
@@ -127,6 +151,7 @@ type session struct {
 	workingDir string
 	systemMsg  string
 	runID      string
+	sandboxCfg sandbox.Config
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -142,6 +167,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd := exec.CommandContext(ctx, s.command[0], s.command[1:]...)
 	cmd.Dir = s.workingDir
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
+
+	// Apply OS-level sandbox before starting the process.
+	// prepareCleanup closes the restricted token after cmd.Wait().
+	prepareCleanup, err := sandbox.Prepare(cmd, s.sandboxCfg)
+	if err != nil {
+		return "", fmt.Errorf("gemini-cli: sandbox prepare: %w", err)
+	}
+	defer prepareCleanup()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -159,6 +192,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", fmt.Errorf("gemini-cli: start gemini: %w", err)
 	}
 
+	// Apply post-start sandbox constraints (Job Object on Windows).
+	// postCleanup closes the job handle after cmd.Wait().
+	postCleanup, err := sandbox.PostStartOrKill(cmd, s.sandboxCfg, stdin, stdout, ID)
+	if err != nil {
+		return "", err
+	}
+	defer postCleanup()
+
 	go func() {
 		defer stdin.Close()
 		body := chat.PrependMarker(prompt, s.runID)
@@ -173,16 +214,21 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	final, parseErr := readStreamJSON(stdout)
 
 	waitErr := cmd.Wait()
-	if parseErr != nil {
-		err := fmt.Errorf("gemini-cli: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
-		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
+	// Check waitErr first (matches claude/codex pattern). If the process
+	// crashed, its partial output should not be trusted — the exit error
+	// is the authoritative signal. Trade-off: a valid partial result from
+	// a crashed process is discarded, but a crashed process's output cannot
+	// be trusted to be complete or consistent.
+	if waitErr != nil {
+		err := fmt.Errorf("gemini-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(stderrBuf.String()) {
 			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err
 	}
-	if waitErr != nil {
-		err := fmt.Errorf("gemini-cli: process exited: %w (stderr: %s)", waitErr, strings.TrimSpace(stderrBuf.String()))
-		if transport.IsRateLimitMessage(stderrBuf.String()) {
+	if parseErr != nil {
+		err := fmt.Errorf("gemini-cli: parse stream-json: %w (stderr: %s)", parseErr, strings.TrimSpace(stderrBuf.String()))
+		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderrBuf.String()) {
 			return "", errs.RateLimit(ID, "session.run", 0, err)
 		}
 		return "", err

@@ -48,62 +48,8 @@ func TestReplaceFlag(t *testing.T) {
 	}
 }
 
-func TestAppendToFlag(t *testing.T) {
-	cases := []struct {
-		name        string
-		args        []string
-		flag, value string
-		want        []string
-	}{
-		{
-			name: "space form append to non-empty",
-			args: []string{"gemini", "--tools", "Read,Grep"},
-			flag: "--tools", value: "Bash",
-			want: []string{"gemini", "--tools", "Read,Grep,Bash"},
-		},
-		{
-			name: "equals form append to non-empty",
-			args: []string{"gemini", "--tools=Read,Grep"},
-			flag: "--tools", value: "Bash",
-			want: []string{"gemini", "--tools=Read,Grep,Bash"},
-		},
-		{
-			name: "empty current value: no leading comma",
-			args: []string{"gemini", "--tools", ""},
-			flag: "--tools", value: "Bash",
-			want: []string{"gemini", "--tools", "Bash"},
-		},
-		{
-			name: "equals form empty value: no leading comma",
-			args: []string{"gemini", "--tools="},
-			flag: "--tools", value: "Bash",
-			want: []string{"gemini", "--tools=Bash"},
-		},
-		{
-			name: "empty suffix is a no-op",
-			args: []string{"gemini", "--tools", "Read"},
-			flag: "--tools", value: "",
-			want: []string{"gemini", "--tools", "Read"},
-		},
-		{
-			name: "missing flag is a no-op",
-			args: []string{"gemini", "--add-dir", "/x"},
-			flag: "--tools", value: "Bash",
-			want: []string{"gemini", "--add-dir", "/x"},
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := AppendToFlag(append([]string(nil), c.args...), c.flag, c.value)
-			if !reflect.DeepEqual(got, c.want) {
-				t.Fatalf("got %v, want %v", got, c.want)
-			}
-		})
-	}
-}
-
 func TestInjectMCPFlags(t *testing.T) {
-	base := []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", "Read,Grep,Glob", "--bare", "--no-session-persistence"}
+	base := []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"}
 	configPath := `C:\Users\test\AppData\Local\Temp\dreamer-mcp-config-abc123.json`
 
 	cases := []struct {
@@ -119,18 +65,16 @@ func TestInjectMCPFlags(t *testing.T) {
 			toolNames:  []string{"mcp__dreamer__record_finding"},
 			configPath: configPath,
 			check: func(t *testing.T, got []string) {
-				// permission-mode changed from plan to default
-				for i, a := range got {
-					if a == "--permission-mode" && i+1 < len(got) {
-						if got[i+1] != "default" {
-							t.Errorf("permission-mode: got %q want %q", got[i+1], "default")
-						}
+				// --bare should be removed (MCP auto-discovery must be active)
+				for _, a := range got {
+					if a == "--bare" {
+						t.Error("--bare should be removed by InjectMCPFlags")
 					}
 				}
 				// --tools includes MCP tool name
 				for i, a := range got {
 					if a == "--tools" && i+1 < len(got) {
-						if got[i+1] != "Read,Grep,Glob,mcp__dreamer__record_finding" {
+						if got[i+1] != "mcp__dreamer__record_finding" {
 							t.Errorf("--tools: got %q", got[i+1])
 						}
 					}
@@ -154,6 +98,19 @@ func TestInjectMCPFlags(t *testing.T) {
 				}
 				if !found {
 					t.Errorf("--mcp-config %s not found", configPath)
+				}
+				// Verify flags that must survive InjectMCPFlags (B6 regression).
+				for _, must := range []string{"-p", "--verbose", "--no-session-persistence"} {
+					survived := false
+					for _, a := range got {
+						if a == must {
+							survived = true
+							break
+						}
+					}
+					if !survived {
+						t.Errorf("expected %q to survive InjectMCPFlags, but it was removed", must)
+					}
 				}
 			},
 		},
@@ -264,6 +221,18 @@ func TestRemoveFlag(t *testing.T) {
 			flag: "--gone",
 			want: []string{"cmd", "--keep"},
 		},
+		{
+			name: "boolean flag does not consume next token",
+			args: []string{"claude", "--bare", "--no-session-persistence", "--verbose"},
+			flag: "--bare",
+			want: []string{"claude", "--no-session-persistence", "--verbose"},
+		},
+		{
+			name: "boolean flag --no-session-persistence does not consume next",
+			args: []string{"claude", "--no-session-persistence", "--verbose", "-p"},
+			flag: "--no-session-persistence",
+			want: []string{"claude", "--verbose", "-p"},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -272,5 +241,17 @@ func TestRemoveFlag(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+func TestHasFlag(t *testing.T) {
+	if HasFlag([]string{"claude", "--bare", "--no-session"}, "--bare") != true {
+		t.Error("expected true for present flag")
+	}
+	if HasFlag([]string{"claude", "--bare"}, "--verbose") != false {
+		t.Error("expected false for absent flag")
+	}
+	if HasFlag([]string{"claude", "--output-format=stream-json"}, "--output-format") != true {
+		t.Error("expected true for equals form")
 	}
 }

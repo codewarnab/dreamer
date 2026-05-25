@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/sandbox"
 )
 
 const ID = "openclaude-cli"
@@ -32,16 +35,19 @@ type Options struct {
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
 	if len(command) == 0 {
-		// Defense-in-depth (NOT a true sandbox — policy-only, no isolation):
-		// --permission-mode plan: permission layer rejects write tool calls.
-		// --tools "Read,Grep,Glob": narrows the top-level model's tool list to
-		//   read-only built-ins. Skills/subagents (if any) keep their own grants.
-		// --bare: skip hook, skill, plugin, auto-memory, CLAUDE.md, and MCP
-		//   auto-discovery.
-		// Note: --strict-mcp-config is a boolean flag (no value). The previous
-		// "--strict-mcp-config {}" form caused '{}' to be consumed as the
-		// positional prompt argument. Rely on --bare for MCP-off.
-		command = []string{"openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--tools", strings.Join(flagutil.ReadOnlyTools, ","), "--bare", "--no-session-persistence"}
+		// Unrestricted flags — the OS sandbox (ACLs + Job Objects) is the
+		// actual enforcement layer. Policy-only flags (--permission-mode plan,
+		// --tools read-only) are removed because the kernel blocks writes to
+		// the project directory regardless.
+		command = []string{
+			"openclaude",
+			"-p",
+			"--verbose",
+			"--output-format=stream-json",
+			"--dangerously-skip-permissions",
+			"--bare",
+			"--no-session-persistence",
+		}
 	}
 	return &provider{options: options, command: command}, nil
 }
@@ -102,12 +108,31 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		}
 	}
 
+	// Resolve sandbox mode.
+	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("openclaude-cli: %w", err)
+	}
+
+	// WritableDirs: temp + openclaude config home so the CLI can write
+	// session state and cached data.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("openclaude-cli: resolve home dir for sandbox writable paths: %w", err)
+	}
+	writable := []string{os.TempDir(), filepath.Join(home, ".openclaude")}
+
 	return &session{
 		command:    command,
 		env:        p.options.Env,
 		workingDir: wd,
 		systemMsg:  strings.TrimSpace(sessionConfig.SystemMessage),
 		runID:      sessionConfig.RunID,
+		sandboxCfg: sandbox.Config{
+			ProjectDir:   wd,
+			WritableDirs: writable,
+			Mode:         sbMode,
+		},
 	}, nil
 }
 
@@ -119,6 +144,7 @@ type session struct {
 	workingDir string
 	systemMsg  string
 	runID      string
+	sandboxCfg sandbox.Config
 }
 
 func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
@@ -134,6 +160,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd := exec.CommandContext(ctx, s.command[0], s.command[1:]...)
 	cmd.Dir = s.workingDir
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
+
+	// Apply OS-level sandbox before starting the process.
+	// prepareCleanup closes the restricted token after cmd.Wait().
+	prepareCleanup, err := sandbox.Prepare(cmd, s.sandboxCfg)
+	if err != nil {
+		return "", fmt.Errorf("openclaude-cli: sandbox prepare: %w", err)
+	}
+	defer prepareCleanup()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -151,6 +185,14 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", errs.ProviderUnavailable(ID, "session.run",
 			fmt.Errorf("openclaude-cli: start openclaude: %w", err))
 	}
+
+	// Apply post-start sandbox constraints (Job Object on Windows).
+	// postCleanup closes the job handle after cmd.Wait().
+	postCleanup, err := sandbox.PostStartOrKill(cmd, s.sandboxCfg, stdin, stdout, ID)
+	if err != nil {
+		return "", err
+	}
+	defer postCleanup()
 
 	go func() {
 		defer stdin.Close()

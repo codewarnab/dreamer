@@ -26,3 +26,24 @@ var DefaultModelByProvider = map[ProviderID]string{
 var DefaultModelFallbacks = map[ProviderID][]string{
 	ProviderGeminiACP: {"gemini-2.5-flash"},
 }
+
+// DefaultSandboxByProvider maps each provider id to its default sandbox mode.
+// Providers that shell out to child processes with policy-only flags default
+// to "auto" (use OS sandbox if available). Providers that don't spawn child
+// processes (copilot-sdk, codebuff-sdk, opencode-server) default to "false".
+// ACP providers use "auto" since they also spawn child processes.
+var DefaultSandboxByProvider = map[ProviderID]string{
+	ProviderCopilotSDK:     "false",
+	ProviderCopilotACP:     "auto",
+	ProviderClaudeCLI:      "auto",
+	ProviderClaudeACP:      "auto",
+	ProviderGeminiCLI:      "auto",
+	ProviderGeminiACP:      "auto",
+	ProviderKiroACP:        "auto",
+	ProviderCodexCLI:       "auto",
+	ProviderCodexACP:       "auto",
+	ProviderOpenClaudeCLI:  "auto",
+	ProviderOpenCodeACP:    "auto",
+	ProviderOpenCodeServer: "false",
+	ProviderCodebuffSDK:    "false",
+}
