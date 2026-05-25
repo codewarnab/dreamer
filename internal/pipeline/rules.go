@@ -98,6 +98,10 @@ func buildProviderConfig(providerID string, block config.ProviderBlock) analyzer
 		BaseURL:        block.BaseURL,
 		Password:       block.Password,
 		MaxInputTokens: block.MaxInputTokens,
+		Sandbox:        config.DefaultSandboxByProvider[config.ProviderID(providerID)],
+	}
+	if block.Sandbox != nil {
+		out.Sandbox = *block.Sandbox
 	}
 	if block.UseLoggedInUser != nil {
 		out.UseLoggedInUser = *block.UseLoggedInUser

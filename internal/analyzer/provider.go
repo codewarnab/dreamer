@@ -32,6 +32,11 @@ type SessionConfig struct {
 	// sessions always pass). Non-nil means the provider must wire the
 	// corresponding transport (MCP stdio child, or Bash CLI tool).
 	Phase2 *Phase2Config
+
+	// Sandbox holds the resolved sandbox mode ("auto", "true", "false")
+	// for this session. Providers that spawn child processes read this
+	// to decide whether to apply OS-level sandboxing.
+	Sandbox string
 }
 
 // Phase2Mode names the tool-based Phase 2 transport.

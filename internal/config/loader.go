@@ -125,6 +125,7 @@ type ProviderBlock struct {
 	BaseURL         string            `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	Password        string            `yaml:"password,omitempty" json:"password,omitempty"`
 	MaxInputTokens  int               `yaml:"max_input_tokens,omitempty" json:"max_input_tokens,omitempty"`
+	Sandbox         *string           `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
 }
 
 // AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
@@ -542,6 +543,9 @@ func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
 	}
 	if override.MaxInputTokens > 0 {
 		out.MaxInputTokens = override.MaxInputTokens
+	}
+	if override.Sandbox != nil {
+		out.Sandbox = override.Sandbox
 	}
 	return out
 }
