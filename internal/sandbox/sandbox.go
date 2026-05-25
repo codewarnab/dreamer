@@ -1,16 +1,14 @@
 // Package sandbox provides OS-level process sandboxing for child-process
 // providers. On Windows, it uses WRITE_RESTRICTED tokens with capability SIDs
-// and Job Objects. On other platforms, it is a no-op (providers run
-// unsandboxed — the caller is responsible for policy-only flags).
+// and Job Objects. On other platforms, ModeAuto is a no-op and providers are
+// responsible for using policy-only flags.
 //
 // The sandbox replaces provider-native policy flags (--permission-mode plan,
 // --yolo, --sandbox read-only) with kernel-enforced file access control.
-// Providers use unrestricted flags (--dangerously-skip-permissions, --yolo,
-// etc.) so the model gets full tool access. On Windows, the kernel blocks
-// writes to the project directory (except for ACP providers where the
-// project dir is not known at spawn time — see acpcore.go). On non-Windows
-// platforms, sandbox functions are no-ops; callers must rely on provider
-// policy flags for access control.
+// Providers may use unrestricted flags (--dangerously-skip-permissions,
+// --yolo, etc.) only when ShouldUseNative returns true. When the native
+// sandbox is unavailable or disabled, providers must keep their policy-only
+// read-only flags for access control.
 package sandbox
 
 import (
@@ -26,7 +24,8 @@ import (
 type Mode string
 
 const (
-	// ModeAuto uses the OS sandbox if available. Errors out if unavailable.
+	// ModeAuto uses the OS sandbox if available. If unavailable, callers
+	// should keep provider-native policy flags instead.
 	ModeAuto Mode = "auto"
 	// ModeOn requires the sandbox. Errors out if the OS doesn't support it.
 	ModeOn Mode = "true"
@@ -46,6 +45,16 @@ type Config struct {
 
 	// Mode controls whether the sandbox is applied.
 	Mode Mode
+}
+
+// ShouldUseNative reports whether child providers may rely on the OS sandbox
+// for write protection and therefore use unrestricted provider CLI flags.
+//
+// ModeAuto returns true only on platforms with an implemented sandbox backend.
+// ModeOff always returns false because the user explicitly disabled the native
+// sandbox and providers must fall back to their own policy flags.
+func ShouldUseNative(mode Mode) bool {
+	return mode != ModeOff && Available()
 }
 
 // ParseMode converts a raw string into a Mode. Empty string maps to ModeAuto.
@@ -73,6 +82,15 @@ func Prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	if cfg.Mode == ModeOff {
 		return func() {}, nil
 	}
+	if !Available() {
+		if cfg.Mode == ModeOn {
+			return nil, fmt.Errorf("sandbox: mode true requested but OS sandbox is not available on this platform")
+		}
+		return func() {}, nil
+	}
+	if cmd == nil {
+		return nil, fmt.Errorf("sandbox: nil command")
+	}
 	return prepare(cmd, cfg)
 }
 
@@ -85,7 +103,16 @@ func Prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 // caller MUST NOT call cleanup before cmd.Wait() returns. Returns a no-op
 // cleanup on ModeOff or nil Process.
 func PostStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
-	if cfg.Mode == ModeOff || cmd.Process == nil {
+	if cfg.Mode == ModeOff {
+		return func() {}, nil
+	}
+	if !Available() {
+		if cfg.Mode == ModeOn {
+			return nil, fmt.Errorf("sandbox: mode true requested but OS sandbox is not available on this platform")
+		}
+		return func() {}, nil
+	}
+	if cmd == nil || cmd.Process == nil {
 		return func() {}, nil
 	}
 	return postStart(cmd, cfg)
@@ -118,7 +145,10 @@ func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, provide
 	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		_ = cmd.Process.Kill()
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			go func() { _ = cmd.Wait() }()
+		}
 		return nil, fmt.Errorf("%s: sandbox post-start: %w", providerID, err)
 	}
 	return cleanup, nil

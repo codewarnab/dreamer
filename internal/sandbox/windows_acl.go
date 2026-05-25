@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -77,27 +78,106 @@ func setAllowWriteACL(dir string, sid *windows.SID) error {
 }
 
 // aclSnapshot captures a directory's DACL before mutation so it can be
-// restored on partial failure.
+// restored after the last in-process sandbox user releases that directory.
 type aclSnapshot struct {
 	dir string
 	acl *windows.ACL
+	sd  *windows.SECURITY_DESCRIPTOR
+}
+
+type aclReference struct {
+	snapshot aclSnapshot
+	count    int
+}
+
+var writableACLState = struct {
+	sync.Mutex
+	refs map[string]*aclReference
+}{
+	refs: map[string]*aclReference{},
+}
+
+// acquireWritableACL grants the sandbox capability SID write access to dir and
+// returns a release function that restores the original DACL after the last
+// overlapping sandbox in this process releases the same directory.
+func acquireWritableACL(dir string, sid *windows.SID) (func(), error) {
+	writableACLState.Lock()
+	ref := writableACLState.refs[dir]
+	if ref == nil {
+		snapshot, err := snapshotDACL(dir)
+		if err != nil {
+			writableACLState.Unlock()
+			return nil, err
+		}
+		ref = &aclReference{snapshot: snapshot}
+		writableACLState.refs[dir] = ref
+	}
+	ref.count++
+	writableACLState.Unlock()
+
+	if err := setAllowWriteACL(dir, sid); err != nil {
+		releaseWritableACL(dir)
+		return nil, err
+	}
+
+	released := false
+	return func() {
+		if released {
+			return
+		}
+		released = true
+		releaseWritableACL(dir)
+	}, nil
+}
+
+// releaseWritableACL decrements the in-process reference count for dir. The
+// original DACL is restored only when no active sandbox still depends on it.
+func releaseWritableACL(dir string) {
+	writableACLState.Lock()
+	defer writableACLState.Unlock()
+
+	ref := writableACLState.refs[dir]
+	if ref == nil {
+		return
+	}
+	ref.count--
+	if ref.count > 0 {
+		return
+	}
+	delete(writableACLState.refs, dir)
+	restoreDACL(ref.snapshot)
+	freeDACL(ref.snapshot)
 }
 
 // snapshotDACL reads the current DACL on a directory for rollback purposes.
-func snapshotDACL(dir string) (*windows.ACL, error) {
+func snapshotDACL(dir string) (aclSnapshot, error) {
 	sd, err := windows.GetNamedSecurityInfo(
 		dir,
 		windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: snapshot DACL(%s): %w", dir, err)
+		return aclSnapshot{}, fmt.Errorf("sandbox: snapshot DACL(%s): %w", dir, err)
 	}
 	acl, _, err := sd.DACL()
 	if err != nil {
 		// Nil DACL (no explicit entries) — return nil ACL which restores
 		// as "no explicit DACL" on rollback.
-		return nil, nil
+		acl = nil
 	}
-	return acl, nil
+	return aclSnapshot{dir: dir, acl: acl, sd: sd}, nil
+}
+
+func restoreDACL(snapshot aclSnapshot) {
+	_ = windows.SetNamedSecurityInfo(
+		snapshot.dir, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION,
+		nil, nil, snapshot.acl, nil,
+	)
+}
+
+func freeDACL(snapshot aclSnapshot) {
+	if snapshot.sd != nil {
+		windows.LocalFree(windows.Handle(unsafe.Pointer(snapshot.sd)))
+	}
 }

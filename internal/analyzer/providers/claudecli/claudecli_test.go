@@ -1,8 +1,12 @@
 package claudecli
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"dreamer/internal/analyzer"
+	"dreamer/internal/sandbox"
 )
 
 func TestDefaultCommandIncludesUnrestrictedFlags(t *testing.T) {
@@ -14,6 +18,16 @@ func TestDefaultCommandIncludesUnrestrictedFlags(t *testing.T) {
 
 	cmd := p.(*provider).command
 	got := strings.Join(cmd, " ")
+
+	if !sandbox.Available() {
+		if strings.Contains(got, "--dangerously-skip-permissions") {
+			t.Errorf("default command must not include unrestricted flags without native sandbox\ngot: %s", got)
+		}
+		if !strings.Contains(got, "--permission-mode plan") {
+			t.Errorf("default command missing policy fallback\ngot: %s", got)
+		}
+		return
+	}
 
 	requiredFlags := []string{
 		"--dangerously-skip-permissions",
@@ -53,4 +67,52 @@ func TestCustomCommandOverridesDefaults(t *testing.T) {
 	if len(cmd) != len(custom) {
 		t.Fatalf("custom command not applied: got %v, want %v", cmd, custom)
 	}
+}
+
+func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
+	p, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Close()
+
+	sess, err := p.NewSession(context.Background(), analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+		Sandbox:          "false",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	got := strings.Join(sess.(*session).command, " ")
+	if strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Fatalf("sandbox=false should use policy flags, got: %s", got)
+	}
+	if !strings.Contains(got, "--permission-mode plan") {
+		t.Fatalf("sandbox=false command missing policy mode, got: %s", got)
+	}
+}
+
+func TestWritableDirsHonorClaudeConfigDir(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
+
+	p, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Close()
+
+	sess, err := p.NewSession(context.Background(), analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	writable := sess.(*session).sandboxCfg.WritableDirs
+	for _, dir := range writable {
+		if dir == claudeConfigDir {
+			return
+		}
+	}
+	t.Fatalf("CLAUDE_CONFIG_DIR %q not found in writable dirs: %v", claudeConfigDir, writable)
 }

@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -102,7 +103,7 @@ func (p *provider) Start(ctx context.Context) error {
 	if p.started {
 		return nil
 	}
-	t, err := dialStdio(ctx, p.command, p.env, p.sandboxMode)
+	t, err := dialStdio(ctx, p.id, p.command, p.env, p.sandboxMode)
 	if err != nil {
 		return fmt.Errorf("acpcore: spawn %v: %w", p.command, err)
 	}
@@ -309,8 +310,8 @@ type transport struct {
 
 	streams sync.Map // map[string]*sessionStream — keyed by ACP sessionId
 
-	sandboxCleanup  func() // closes job handle after process exits
-	prepareCleanup  func() // closes restricted token after process exits
+	sandboxCleanup func() // closes job handle after process exits
+	prepareCleanup func() // closes restricted token after process exits
 }
 
 type sessionStream struct {
@@ -373,7 +374,7 @@ func (e *jsonrpcError) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
 
-func dialStdio(ctx context.Context, command []string, env map[string]string, sandboxMode string) (*transport, error) {
+func dialStdio(ctx context.Context, providerID string, command []string, env map[string]string, sandboxMode string) (*transport, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Env = transportutil.MergeWithProcessEnv(env)
 
@@ -390,9 +391,13 @@ func dialStdio(ctx context.Context, command []string, env map[string]string, san
 	// layer is bypassed, leaving project files unprotected from writes.
 	// Privilege stripping (WRITE_RESTRICTED token) and orphan cleanup
 	// (Job Object KILL_ON_JOB_CLOSE) are still applied.
+	writableDirs, err := acpWritableDirs(providerID, env)
+	if err != nil {
+		return nil, err
+	}
 	sbCfg := sandbox.Config{
 		ProjectDir:   "",
-		WritableDirs: []string{os.TempDir()},
+		WritableDirs: writableDirs,
 		Mode:         sbMode,
 	}
 	var prepareCleanup func()
@@ -431,6 +436,7 @@ func dialStdio(ctx context.Context, command []string, env map[string]string, san
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
+		_ = stderr.Close()
 		if prepareCleanup != nil {
 			prepareCleanup()
 		}
@@ -446,7 +452,12 @@ func dialStdio(ctx context.Context, command []string, env map[string]string, san
 		if err != nil {
 			_ = stdin.Close()
 			_ = stdout.Close()
+			_ = stderr.Close()
 			_ = cmd.Process.Kill()
+			go func() { _ = cmd.Wait() }()
+			if prepareCleanup != nil {
+				prepareCleanup()
+			}
 			return nil, fmt.Errorf("acpcore: sandbox post-start: %w", err)
 		}
 	}
@@ -461,6 +472,49 @@ func dialStdio(ctx context.Context, command []string, env map[string]string, san
 	go t.drainStderr(stderr)
 	go t.readLoop(nil)
 	return t, nil
+}
+
+// acpWritableDirs returns provider-specific state directories that ACP agents
+// need for auth, sessions, and caches while running under a restricted token.
+func acpWritableDirs(providerID string, env map[string]string) ([]string, error) {
+	dirs := []string{os.TempDir()}
+	switch analyzer.ProviderID(providerID) {
+	case analyzer.ProviderClaudeACP:
+		dir, err := resolveACPConfigDir(env, "CLAUDE_CONFIG_DIR", ".claude")
+		if err != nil {
+			return nil, fmt.Errorf("acpcore: resolve claude config dir for sandbox writable paths: %w", err)
+		}
+		dirs = append(dirs, dir)
+	case analyzer.ProviderGeminiACP:
+		dir, err := resolveACPConfigDir(env, "GEMINI_HOME", ".gemini")
+		if err != nil {
+			return nil, fmt.Errorf("acpcore: resolve gemini home for sandbox writable paths: %w", err)
+		}
+		dirs = append(dirs, dir)
+	case analyzer.ProviderCodexACP:
+		dir, err := resolveACPConfigDir(env, "CODEX_HOME", ".codex")
+		if err != nil {
+			return nil, fmt.Errorf("acpcore: resolve codex home for sandbox writable paths: %w", err)
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs, nil
+}
+
+// resolveACPConfigDir mirrors each provider's discovery environment variable
+// before falling back to the conventional directory under the user's home.
+func resolveACPConfigDir(env map[string]string, envName, fallbackName string) (string, error) {
+	if envValue := strings.TrimSpace(env[envName]); envValue != "" {
+		return envValue, nil
+	}
+	if envValue := strings.TrimSpace(os.Getenv(envName)); envValue != "" {
+		return envValue, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, fallbackName), nil
 }
 
 func (t *transport) call(ctx context.Context, method string, params any, onPermission permissionHandler) (json.RawMessage, error) {

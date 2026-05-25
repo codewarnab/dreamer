@@ -10,9 +10,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// setDefaultDACL sets a permissive default DACL on the token so the sandboxed
-// process can create pipes, IPC objects, and temp files. Without this, CLI
-// providers that use named pipes (PowerShell, Node.js) hit ACCESS_DENIED.
+// setDefaultDACL sets the token's default DACL so the sandboxed process can
+// create pipes, IPC objects, and temp files. Without this, CLI providers that
+// use named pipes (PowerShell, Node.js) hit ACCESS_DENIED.
 func setDefaultDACL(token windows.Token, sids ...*windows.SID) error {
 	entries := make([]windows.EXPLICIT_ACCESS, len(sids))
 	for i, sid := range sids {
@@ -59,8 +59,9 @@ func setDefaultDACL(token windows.Token, sids ...*windows.SID) error {
 // mention the capability SID, writes are blocked — no filesystem mutation
 // needed.
 //
-// Restricting SIDs: capability SID (workspace identity), logon SID (session
-// access), everyone SID (public objects).
+// Restricting SIDs: capability SID (workspace identity) and logon SID
+// (session access). Universal groups such as Everyone must not appear here:
+// WRITE_RESTRICTED permits writes when any restricting SID is granted access.
 func createRestrictedToken(capSID *windows.SID) (syscall.Token, error) {
 	currentProc, _ := windows.GetCurrentProcess()
 	var currentToken syscall.Token
@@ -79,16 +80,10 @@ func createRestrictedToken(capSID *windows.SID) (syscall.Token, error) {
 	if err != nil {
 		return 0, fmt.Errorf("sandbox: get logon SID: %w", err)
 	}
-	everyoneSID, err := windows.StringToSid("S-1-1-0")
-	if err != nil {
-		return 0, fmt.Errorf("sandbox: parse everyone SID: %w", err)
-	}
 
-	// Build restricting SIDs array: [capability, logon, everyone].
-	restricting := [3]sidAndAttrs{
+	restricting := [2]sidAndAttrs{
 		{Sid: capSID},
 		{Sid: logonSID},
-		{Sid: everyoneSID},
 	}
 
 	var restrictedToken syscall.Token
@@ -106,10 +101,11 @@ func createRestrictedToken(capSID *windows.SID) (syscall.Token, error) {
 		return 0, fmt.Errorf("sandbox: CreateRestrictedToken: %w", lastErr)
 	}
 
-	// Set permissive default DACL so the process can create pipes/IPC.
+	// Set a default DACL so the process can create pipes/IPC without making
+	// those objects writable by unrelated local users.
 	if err := setDefaultDACL(
 		windows.Token(restrictedToken),
-		logonSID, everyoneSID, capSID,
+		logonSID, capSID,
 	); err != nil {
 		restrictedToken.Close()
 		return 0, fmt.Errorf("sandbox: set default DACL: %w", err)

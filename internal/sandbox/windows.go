@@ -7,11 +7,12 @@
 // capability SID — no filesystem mutation required.
 //
 // File layout:
-//   windows.go       — Available(), prepare(), lazy DLL block, constants
-//   windows_sid.go   — capability SID, logon SID, sidAndAttrs
-//   windows_token.go — restricted token, default DACL
-//   windows_acl.go   — Allow-Write ACL on dirs, ACL rollback
-//   windows_job.go   — Job Object, KILL_ON_JOB_CLOSE
+//
+//	windows.go       — Available(), prepare(), lazy DLL block, constants
+//	windows_sid.go   — capability SID, logon SID, sidAndAttrs
+//	windows_token.go — restricted token, default DACL
+//	windows_acl.go   — Allow-Write ACL on dirs, ACL rollback
+//	windows_job.go   — Job Object, KILL_ON_JOB_CLOSE
 package sandbox
 
 import (
@@ -20,8 +21,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
-
-	"golang.org/x/sys/windows"
 )
 
 // Available reports whether the OS-level sandbox is supported.
@@ -37,6 +36,7 @@ var (
 	procCreateJobObjectW      = modkernel32.NewProc("CreateJobObjectW")
 	procSetInformationJobObj  = modkernel32.NewProc("SetInformationJobObject")
 	procAssignProcessToJob    = modkernel32.NewProc("AssignProcessToJobObject")
+	procGetExitCodeProcess    = modkernel32.NewProc("GetExitCodeProcess")
 )
 
 const (
@@ -59,6 +59,10 @@ const (
 	// SE_GROUP_MANDATORY | SE_GROUP_ENABLED_BY_DEFAULT | SE_GROUP_ENABLED.
 	// The mask check at getLogonSID matches when all four attributes are set.
 	seGroupLogonID = 0xC0000000
+
+	// stillActive is STILL_ACTIVE (259), returned by GetExitCodeProcess while
+	// the child is alive.
+	stillActive = 259
 )
 
 // prepare creates a restricted token with a capability SID and applies
@@ -83,24 +87,26 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create restricted token: %w", err)
 	}
+	tokenClosed := false
+	closeToken := func() {
+		if !tokenClosed {
+			token.Close()
+			tokenClosed = true
+		}
+	}
 
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Token = token
 
-	// Track applied ACLs for rollback on partial failure.
-	var applied []aclSnapshot
+	var writableReleases []func()
 	defer func() {
 		if err != nil {
-			for i := len(applied) - 1; i >= 0; i-- {
-				s := applied[i]
-				_ = windows.SetNamedSecurityInfo(
-					s.dir, windows.SE_FILE_OBJECT,
-					windows.DACL_SECURITY_INFORMATION,
-					nil, nil, s.acl, nil,
-				)
+			for i := len(writableReleases) - 1; i >= 0; i-- {
+				writableReleases[i]()
 			}
+			closeToken()
 		}
 	}()
 
@@ -108,25 +114,22 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	for _, wdir := range cfg.WritableDirs {
 		absDir, err := filepath.Abs(wdir)
 		if err != nil {
-			token.Close()
 			return nil, fmt.Errorf("sandbox: resolve writable dir: %w", err)
 		}
 		if err := os.MkdirAll(absDir, 0o755); err != nil {
-			token.Close()
 			return nil, fmt.Errorf("sandbox: create writable dir %s: %w", absDir, err)
 		}
-		// Snapshot existing DACL before mutation for rollback.
-		snapshot, snapErr := snapshotDACL(absDir)
-		if snapErr != nil {
-			token.Close()
-			return nil, snapErr
-		}
-		if err := setAllowWriteACL(absDir, capSID); err != nil {
-			token.Close()
+		release, err := acquireWritableACL(absDir, capSID)
+		if err != nil {
 			return nil, fmt.Errorf("sandbox: allow-write ACL on %s: %w", absDir, err)
 		}
-		applied = append(applied, aclSnapshot{dir: absDir, acl: snapshot})
+		writableReleases = append(writableReleases, release)
 	}
 
-	return func() { token.Close() }, nil
+	return func() {
+		for i := len(writableReleases) - 1; i >= 0; i-- {
+			writableReleases[i]()
+		}
+		closeToken()
+	}, nil
 }

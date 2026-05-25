@@ -34,27 +34,17 @@ type Options struct {
 // binary using the stream-json output format.
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
+	usesDefaultCommand := len(command) == 0
 	if len(command) == 0 {
-		// Unrestricted flags — the OS sandbox (ACLs + Job Objects) is the
-		// actual enforcement layer. Policy-only flags (--permission-mode plan,
-		// --tools read-only) are removed because the kernel blocks writes to
-		// the project directory regardless.
-		command = []string{
-			"openclaude",
-			"-p",
-			"--verbose",
-			"--output-format=stream-json",
-			"--dangerously-skip-permissions",
-			"--bare",
-			"--no-session-persistence",
-		}
+		command = defaultCommand(sandbox.Available())
 	}
-	return &provider{options: options, command: command}, nil
+	return &provider{options: options, command: command, usesDefaultCommand: usesDefaultCommand}, nil
 }
 
 type provider struct {
-	options Options
-	command []string
+	options            Options
+	command            []string
+	usesDefaultCommand bool
 }
 
 func (p *provider) ID() string { return ID }
@@ -82,7 +72,12 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 			return nil, fmt.Errorf("openclaude-cli: phase 2 config: %w", err)
 		}
 	}
-	command := append([]string(nil), p.command...)
+	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("openclaude-cli: %w", err)
+	}
+	useNativeSandbox := sandbox.ShouldUseNative(sbMode)
+	command := p.commandForMode(useNativeSandbox)
 	command = append(command, "--add-dir", wd)
 	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
@@ -101,17 +96,12 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		command, err = flagutil.InjectMCPFlags(command,
 			sessionConfig.Phase2.MCP.ToolNames,
 			sessionConfig.Phase2.MCP.ConfigFilePath,
+			useNativeSandbox,
 			nil, // already validated above
 		)
 		if err != nil {
 			return nil, fmt.Errorf("openclaude-cli: phase 2 config: %w", err)
 		}
-	}
-
-	// Resolve sandbox mode.
-	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("openclaude-cli: %w", err)
 	}
 
 	// WritableDirs: temp + openclaude config home so the CLI can write
@@ -134,6 +124,42 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 			Mode:         sbMode,
 		},
 	}, nil
+}
+
+func (p *provider) commandForMode(useNativeSandbox bool) []string {
+	if p.usesDefaultCommand ||
+		flagutil.EqualArgs(p.command, defaultCommand(true)) ||
+		flagutil.EqualArgs(p.command, defaultCommand(false)) {
+		return defaultCommand(useNativeSandbox)
+	}
+	return append([]string(nil), p.command...)
+}
+
+// defaultCommand returns the generated OpenClaude command for the current
+// safety boundary. Unrestricted mode is used only when the native sandbox is
+// active; otherwise the CLI's policy mode remains the write-protection layer.
+func defaultCommand(useNativeSandbox bool) []string {
+	if useNativeSandbox {
+		return []string{
+			"openclaude",
+			"-p",
+			"--verbose",
+			"--output-format=stream-json",
+			"--dangerously-skip-permissions",
+			"--bare",
+			"--no-session-persistence",
+		}
+	}
+	return []string{
+		"openclaude",
+		"-p",
+		"--verbose",
+		"--output-format=stream-json",
+		"--permission-mode",
+		"plan",
+		"--bare",
+		"--no-session-persistence",
+	}
 }
 
 func (p *provider) Close() error { return nil }

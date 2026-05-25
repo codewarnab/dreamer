@@ -84,34 +84,40 @@ providers:
 
   copilot-acp:
     # Copilot via Agent Client Protocol stdio transport (spec §4.4).
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep agent policy checks.
     model: {{provModel "copilot-acp" .UserProvider .UserModel}}   # "auto" = agent auto-select (default)
     command: ["copilot", "--acp"]
     # env: {}                   # extra environment variables for the subprocess
 
   claude-cli:
     # Claude CLI via stream-json. Flags validated upstream; do not strip --output-format.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep CLI policy flags.
     model: {{provModel "claude-cli" .UserProvider .UserModel}}  # default. Override: claude-sonnet-4-5-20250929 | claude-opus-4-7-20250917
-    command: ["claude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"]
+    command: ["claude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--bare", "--no-session-persistence"]
     # env: {}
 
   claude-acp:
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep agent policy checks.
     model: {{provModel "claude-acp" .UserProvider .UserModel}}  # default
     command: ["npx", "-y", "@zed-industries/claude-code-acp"]
     # env: {}
 
   gemini-cli:
     # Gemini CLI via stream-json in headless mode.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep CLI policy flags.
     model: {{provModel "gemini-cli" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
-    command: ["gemini", "-p", "--output-format=stream-json", "--yolo"]
+    command: ["gemini", "-p", "--output-format=stream-json", "--approval-mode=plan"]
     # env: {}
 
   gemini-acp:
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep agent policy checks.
     model: {{provModel "gemini-acp" .UserProvider .UserModel}}    # default. Fallback: gemini-2.5-flash
     command: ["gemini", "--acp"]
     # env: {}
 
   kiro-acp:
     # Kiro CLI via ACP.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep agent policy checks.
     model: {{provModel "kiro-acp" .UserProvider .UserModel}}  # default
     command: ["kiro-cli", "acp"]
     # env: {}
@@ -119,8 +125,9 @@ providers:
   codex-cli:
     # OpenAI Codex CLI via 'codex exec --json' (spec v1.1).
     # Override command to add flags like --model, --image, or to point at a wrapper.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep CLI policy flags.
     model: {{provModel "codex-cli" .UserProvider .UserModel}}              # default. Override: gpt-5.4-mini-2026-03-17 | gpt-5
-    command: ["codex", "exec", "--json", "--yolo"]
+    command: ["codex", "exec", "--json", "--sandbox", "read-only"]
     # env: {}                   # extra environment for the subprocess
 
   codex-acp:
@@ -128,6 +135,7 @@ providers:
     # OpenAI's 'codex' binary does not ship a native ACP server yet, so the
     # 'command' field must point at a third-party bridge that speaks
     # JSON-RPC 2.0 over stdio.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep agent policy checks.
     model: {{provModel "codex-acp" .UserProvider .UserModel}}              # default
     command: ["codex-acp"]
     # env: {}
@@ -140,8 +148,9 @@ providers:
     # placeholder value the gateway ignores. OPENAI_BASE_URL + OPENAI_MODEL
     # mirror ~/.openclaude/.openclaude-profile.json so the subprocess does
     # not have to inherit them from an interactive shell.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep CLI policy flags.
     model: {{provModel "openclaude-cli" .UserProvider .UserModel}}
-    command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"]
+    command: ["openclaude", "-p", "--verbose", "--output-format=stream-json", "--permission-mode", "plan", "--bare", "--no-session-persistence"]
     env:
       OPENAI_BASE_URL: "https://opengateway.gitlawb.com/v1"
       OPENAI_MODEL: "mimo-v2.5-pro"

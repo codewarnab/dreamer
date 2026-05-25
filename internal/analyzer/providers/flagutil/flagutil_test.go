@@ -161,7 +161,7 @@ func TestInjectMCPFlags(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := InjectMCPFlags(append([]string(nil), base...), c.toolNames, c.configPath, c.validateFn)
+			got, err := InjectMCPFlags(append([]string(nil), base...), c.toolNames, c.configPath, true, c.validateFn)
 			if c.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -178,65 +178,110 @@ func TestInjectMCPFlags(t *testing.T) {
 	}
 }
 
+func TestInjectMCPFlagsKeepsPolicyWhenUnrestrictedDisabled(t *testing.T) {
+	base := []string{"claude", "-p", "--permission-mode", "plan", "--bare"}
+	got, err := InjectMCPFlags(
+		append([]string(nil), base...),
+		[]string{"mcp__dreamer__record_finding"},
+		"config.json",
+		false,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("InjectMCPFlags: %v", err)
+	}
+	for _, arg := range got {
+		if arg == "--dangerously-skip-permissions" {
+			t.Fatalf("unrestricted flag should not be added when native sandbox is disabled: %v", got)
+		}
+	}
+	if !reflect.DeepEqual(got[:4], []string{"claude", "-p", "--permission-mode", "plan"}) {
+		t.Fatalf("policy flag should survive, got %v", got)
+	}
+}
+
 func TestRemoveFlag(t *testing.T) {
 	cases := []struct {
-		name string
-		args []string
-		flag string
-		want []string
+		name  string
+		args  []string
+		flag  string
+		arity FlagArity
+		want  []string
 	}{
 		{
-			name: "space form removed",
-			args: []string{"gemini", "--approval-mode", "plan", "--add-dir", "/x"},
-			flag: "--approval-mode",
-			want: []string{"gemini", "--add-dir", "/x"},
+			name:  "space form removed",
+			args:  []string{"gemini", "--approval-mode", "plan", "--add-dir", "/x"},
+			flag:  "--approval-mode",
+			arity: Valued,
+			want:  []string{"gemini", "--add-dir", "/x"},
 		},
 		{
-			name: "equals form removed",
-			args: []string{"gemini", "--approval-mode=plan", "--add-dir", "/x"},
-			flag: "--approval-mode",
-			want: []string{"gemini", "--add-dir", "/x"},
+			name:  "equals form removed",
+			args:  []string{"gemini", "--approval-mode=plan", "--add-dir", "/x"},
+			flag:  "--approval-mode",
+			arity: Valued,
+			want:  []string{"gemini", "--add-dir", "/x"},
 		},
 		{
-			name: "double occurrence removed",
-			args: []string{"gemini", "--approval-mode", "plan", "--approval-mode", "yolo"},
-			flag: "--approval-mode",
-			want: []string{"gemini"},
+			name:  "double occurrence removed",
+			args:  []string{"gemini", "--approval-mode", "plan", "--approval-mode", "yolo"},
+			flag:  "--approval-mode",
+			arity: Valued,
+			want:  []string{"gemini"},
 		},
 		{
-			name: "value starting with dash still consumed",
-			args: []string{"cmd", "--threshold", "-1", "--keep"},
-			flag: "--threshold",
-			want: []string{"cmd", "--keep"},
+			name:  "value starting with dash still consumed",
+			args:  []string{"cmd", "--threshold", "-1", "--keep"},
+			flag:  "--threshold",
+			arity: Valued,
+			want:  []string{"cmd", "--keep"},
 		},
 		{
-			name: "prefix-collision flag survives",
-			args: []string{"cmd", "--approval-mode-extra", "keep", "--approval-mode", "plan"},
-			flag: "--approval-mode",
-			want: []string{"cmd", "--approval-mode-extra", "keep"},
+			name:  "prefix-collision flag survives",
+			args:  []string{"cmd", "--approval-mode-extra", "keep", "--approval-mode", "plan"},
+			flag:  "--approval-mode",
+			arity: Valued,
+			want:  []string{"cmd", "--approval-mode-extra", "keep"},
 		},
 		{
-			name: "flag absent leaves args alone",
-			args: []string{"cmd", "--keep"},
-			flag: "--gone",
-			want: []string{"cmd", "--keep"},
+			name:  "flag absent leaves args alone",
+			args:  []string{"cmd", "--keep"},
+			flag:  "--gone",
+			arity: Valued,
+			want:  []string{"cmd", "--keep"},
 		},
 		{
-			name: "boolean flag does not consume next token",
-			args: []string{"claude", "--bare", "--no-session-persistence", "--verbose"},
-			flag: "--bare",
-			want: []string{"claude", "--no-session-persistence", "--verbose"},
+			name:  "boolean flag does not consume next token",
+			args:  []string{"claude", "--bare", "--no-session-persistence", "--verbose"},
+			flag:  "--bare",
+			arity: Boolean,
+			want:  []string{"claude", "--no-session-persistence", "--verbose"},
 		},
 		{
-			name: "boolean flag --no-session-persistence does not consume next",
-			args: []string{"claude", "--no-session-persistence", "--verbose", "-p"},
-			flag: "--no-session-persistence",
-			want: []string{"claude", "--verbose", "-p"},
+			name:  "boolean flag --no-session-persistence does not consume next",
+			args:  []string{"claude", "--no-session-persistence", "--verbose", "-p"},
+			flag:  "--no-session-persistence",
+			arity: Boolean,
+			want:  []string{"claude", "--verbose", "-p"},
+		},
+		{
+			name:  "boolean terminal token removed",
+			args:  []string{"claude", "--strict-mcp-config"},
+			flag:  "--strict-mcp-config",
+			arity: Boolean,
+			want:  []string{"claude"},
+		},
+		{
+			name:  "boolean followed by dash-prefixed token does not consume next",
+			args:  []string{"claude", "--strict-mcp-config", "--mcp-config", "config.json"},
+			flag:  "--strict-mcp-config",
+			arity: Boolean,
+			want:  []string{"claude", "--mcp-config", "config.json"},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := RemoveFlag(append([]string(nil), c.args...), c.flag)
+			got := RemoveFlag(append([]string(nil), c.args...), c.flag, c.arity)
 			if !reflect.DeepEqual(got, c.want) {
 				t.Fatalf("got %v, want %v", got, c.want)
 			}

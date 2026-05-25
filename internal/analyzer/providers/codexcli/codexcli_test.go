@@ -1,8 +1,12 @@
 package codexcli
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"dreamer/internal/analyzer"
+	"dreamer/internal/sandbox"
 )
 
 func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
@@ -14,6 +18,16 @@ func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
 
 	cmd := p.(*provider).command
 	got := strings.Join(cmd, " ")
+
+	if !sandbox.Available() {
+		if strings.Contains(got, "--yolo") {
+			t.Errorf("default command must not include --yolo without native sandbox\ngot: %s", got)
+		}
+		if !strings.Contains(got, "--sandbox read-only") {
+			t.Errorf("default command missing read-only sandbox fallback\ngot: %s", got)
+		}
+		return
+	}
 
 	if !strings.Contains(got, "--yolo") {
 		t.Errorf("default command missing --yolo\ngot: %s", got)
@@ -39,5 +53,28 @@ func TestCustomCommandOverridesDefaults(t *testing.T) {
 	cmd := p.(*provider).command
 	if len(cmd) != len(custom) {
 		t.Fatalf("custom command not applied: got %v, want %v", cmd, custom)
+	}
+}
+
+func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
+	p, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Close()
+
+	sess, err := p.NewSession(context.Background(), analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+		Sandbox:          "false",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	got := strings.Join(sess.(*session).command, " ")
+	if strings.Contains(got, "--yolo") {
+		t.Fatalf("sandbox=false should not use --yolo, got: %s", got)
+	}
+	if !strings.Contains(got, "--sandbox read-only") {
+		t.Fatalf("sandbox=false command missing read-only sandbox flag, got: %s", got)
 	}
 }

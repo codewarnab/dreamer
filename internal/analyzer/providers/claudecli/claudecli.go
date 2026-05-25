@@ -34,27 +34,17 @@ type Options struct {
 // using the stream-json output format (spec §18).
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
+	usesDefaultCommand := len(command) == 0
 	if len(command) == 0 {
-		// Unrestricted flags — the OS sandbox (ACLs + Job Objects) is the
-		// actual enforcement layer. Policy-only flags (--permission-mode plan,
-		// --tools read-only) are removed because the kernel blocks writes to
-		// the project directory regardless.
-		command = []string{
-			"claude",
-			"-p",
-			"--verbose",
-			"--output-format=stream-json",
-			"--dangerously-skip-permissions",
-			"--bare",
-			"--no-session-persistence",
-		}
+		command = defaultCommand(sandbox.Available())
 	}
-	return &provider{options: options, command: command}, nil
+	return &provider{options: options, command: command, usesDefaultCommand: usesDefaultCommand}, nil
 }
 
 type provider struct {
-	options Options
-	command []string
+	options            Options
+	command            []string
+	usesDefaultCommand bool
 }
 
 func (p *provider) ID() string { return ID }
@@ -81,7 +71,12 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 			return nil, fmt.Errorf("claude-cli: phase 2 config: %w", err)
 		}
 	}
-	command := append([]string(nil), p.command...)
+	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("claude-cli: %w", err)
+	}
+	useNativeSandbox := sandbox.ShouldUseNative(sbMode)
+	command := p.commandForMode(useNativeSandbox)
 	command = append(command, "--add-dir", wd)
 	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
@@ -97,6 +92,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		command, err = flagutil.InjectMCPFlags(command,
 			sessionConfig.Phase2.MCP.ToolNames,
 			sessionConfig.Phase2.MCP.ConfigFilePath,
+			useNativeSandbox,
 			nil, // already validated above
 		)
 		if err != nil {
@@ -104,19 +100,13 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 		}
 	}
 
-	// Resolve sandbox mode.
-	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("claude-cli: %w", err)
-	}
-
 	// WritableDirs: temp + claude config home so the CLI can write
 	// session state, auth tokens, and cached data.
-	home, err := os.UserHomeDir()
+	claudeConfigDir, err := resolveConfigDir(p.options.Env, "CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		return nil, fmt.Errorf("claude-cli: resolve home dir for sandbox writable paths: %w", err)
 	}
-	writable := []string{os.TempDir(), filepath.Join(home, ".claude")}
+	writable := []string{os.TempDir(), claudeConfigDir}
 
 	return &session{
 		command:    command,
@@ -130,6 +120,59 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 			Mode:         sbMode,
 		},
 	}, nil
+}
+
+func (p *provider) commandForMode(useNativeSandbox bool) []string {
+	if p.usesDefaultCommand ||
+		flagutil.EqualArgs(p.command, defaultCommand(true)) ||
+		flagutil.EqualArgs(p.command, defaultCommand(false)) {
+		return defaultCommand(useNativeSandbox)
+	}
+	return append([]string(nil), p.command...)
+}
+
+// defaultCommand returns the generated Claude command for the current safety
+// boundary. Unrestricted mode is used only when the native sandbox is active;
+// otherwise the CLI's policy mode remains the write-protection layer.
+func defaultCommand(useNativeSandbox bool) []string {
+	if useNativeSandbox {
+		return []string{
+			"claude",
+			"-p",
+			"--verbose",
+			"--output-format=stream-json",
+			"--dangerously-skip-permissions",
+			"--bare",
+			"--no-session-persistence",
+		}
+	}
+	return []string{
+		"claude",
+		"-p",
+		"--verbose",
+		"--output-format=stream-json",
+		"--permission-mode",
+		"plan",
+		"--bare",
+		"--no-session-persistence",
+	}
+}
+
+// resolveConfigDir mirrors the config directory that the subprocess will use,
+// including provider-specific environment overrides, so the Windows sandbox
+// grants write access to the real auth/session state directory.
+func resolveConfigDir(env map[string]string, envName, fallbackName string) (string, error) {
+	if envValue := strings.TrimSpace(env[envName]); envValue != "" {
+		return envValue, nil
+	}
+	if envValue := strings.TrimSpace(os.Getenv(envName)); envValue != "" {
+		return envValue, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, fallbackName), nil
 }
 
 func (p *provider) Close() error { return nil }

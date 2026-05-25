@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,34 +45,25 @@ func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
 		if sid, err := windows.StringToSid(strings.TrimSpace(string(data))); err == nil {
 			return sid, nil
 		}
-		// File exists but contents are corrupt — do NOT overwrite silently.
-		// Overwriting would orphan every prior ACE that referenced the old SID,
-		// locking folders permanently. Surface the error so the user can
-		// manually delete the file to regenerate.
-		return nil, fmt.Errorf("sandbox: SID file %s exists but is corrupt; delete it manually to regenerate", path)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("sandbox: remove corrupt SID file %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("sandbox: read SID file %s: %w", path, err)
 	}
 
-	// Atomically create a new SID file. O_CREATE|O_EXCL ensures only one
-	// process wins the race; losers re-read the winner's SID on retry.
-	// Trade-off: if the SID file becomes corrupt, dreamer stops instead of
-	// auto-fixing. This is intentional — auto-fixing would silently orphan
-	// all existing folder permissions that referenced the old SID.
-	sidStr := generateRandomSID()
-	// NOTE: 0o600 is a no-op on Windows (NTFS ACLs control access).
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if os.IsExist(err) {
-		// Another process created it between our ReadFile and OpenFile.
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return nil, fmt.Errorf("sandbox: re-read SID file: %w", readErr)
-		}
-		return windows.StringToSid(strings.TrimSpace(string(data)))
-	}
+	sidStr, err := generateRandomSID()
 	if err != nil {
-		return nil, fmt.Errorf("sandbox: create SID file: %w", err)
+		return nil, err
 	}
-	_, _ = f.WriteString(sidStr)
-	_ = f.Close()
+	if err := writeCapabilitySIDFile(path, sidStr); err != nil {
+		if data, readErr := os.ReadFile(path); readErr == nil {
+			if sid, parseErr := windows.StringToSid(strings.TrimSpace(string(data))); parseErr == nil {
+				return sid, nil
+			}
+		}
+		return nil, err
+	}
 
 	sid, err := windows.StringToSid(sidStr)
 	if err != nil {
@@ -82,15 +74,45 @@ func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
 
 // generateRandomSID creates a random SID string in the form S-1-5-21-a-b-c-d.
 // This mirrors the Codex approach (codex-rs/windows-sandbox-rs/src/cap.rs).
-func generateRandomSID() string {
+func generateRandomSID() (string, error) {
 	var b [16]byte
-	_, _ = rand.Read(b[:])
+	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
+		return "", fmt.Errorf("sandbox: generate random SID: %w", err)
+	}
 	return fmt.Sprintf("S-1-5-21-%d-%d-%d-%d",
 		binary.LittleEndian.Uint32(b[0:4]),
 		binary.LittleEndian.Uint32(b[4:8]),
 		binary.LittleEndian.Uint32(b[8:12]),
 		binary.LittleEndian.Uint32(b[12:16]),
-	)
+	), nil
+}
+
+// writeCapabilitySIDFile commits a generated SID through a synced temporary
+// file and atomic rename so crashes do not leave a truncated persistent SID.
+func writeCapabilitySIDFile(path, sidStr string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("sandbox: create temporary SID file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.WriteString(sidStr + "\n"); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sandbox: write temporary SID file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sandbox: sync temporary SID file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("sandbox: close temporary SID file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("sandbox: commit SID file: %w", err)
+	}
+	return nil
 }
 
 // getLogonSID extracts the logon SID from the token's group list. The logon

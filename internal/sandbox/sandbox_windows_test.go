@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && !arm64
 
 package sandbox
 
@@ -125,7 +125,10 @@ func TestCreateCapabilitySID_DifferentDirs(t *testing.T) {
 
 // TestGenerateRandomSID verifies the SID format.
 func TestGenerateRandomSID(t *testing.T) {
-	sid := generateRandomSID()
+	sid, err := generateRandomSID()
+	if err != nil {
+		t.Fatalf("generateRandomSID: %v", err)
+	}
 	if sid == "" {
 		t.Fatal("generateRandomSID returned empty string")
 	}

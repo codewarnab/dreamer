@@ -16,6 +16,7 @@ import (
 	"time"
 
 	analyzer "dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/flagutil"
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
@@ -51,23 +52,17 @@ func init() {
 // New returns a codex-cli Provider.
 func New(options Options) (analyzer.Provider, error) {
 	command := append([]string(nil), options.Command...)
+	usesDefaultCommand := len(command) == 0
 	if len(command) == 0 {
-		// Unrestricted flags — the OS sandbox (ACLs + Job Objects) is the
-		// actual enforcement layer. --yolo lets the model call tools freely;
-		// the kernel blocks writes to the project directory regardless.
-		command = []string{
-			"codex",
-			"exec",
-			"--json",
-			"--yolo",
-		}
+		command = defaultCommand(sandbox.Available())
 	}
-	return &provider{options: options, command: command}, nil
+	return &provider{options: options, command: command, usesDefaultCommand: usesDefaultCommand}, nil
 }
 
 type provider struct {
-	options Options
-	command []string
+	options            Options
+	command            []string
+	usesDefaultCommand bool
 }
 
 func (p *provider) ID() string { return ID }
@@ -86,7 +81,12 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	if wd == "" {
 		return nil, errors.New("codex-cli: SessionConfig.WorkingDirectory is required")
 	}
-	command := append([]string(nil), p.command...)
+	// Resolve sandbox mode.
+	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("codex-cli: %w", err)
+	}
+	command := p.commandForMode(sandbox.ShouldUseNative(sbMode))
 	command = append(command, "--cd", wd)
 	model := strings.TrimSpace(sessionConfig.Model)
 	if model == "" {
@@ -97,12 +97,6 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 	}
 	if model != "" {
 		command = append(command, "--model", model)
-	}
-
-	// Resolve sandbox mode.
-	sbMode, err := sandbox.ParseMode(sessionConfig.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("codex-cli: %w", err)
 	}
 
 	// WritableDirs: temp + codex config home so the CLI can write
@@ -125,6 +119,25 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 			Mode:         sbMode,
 		},
 	}, nil
+}
+
+func (p *provider) commandForMode(useNativeSandbox bool) []string {
+	if p.usesDefaultCommand ||
+		flagutil.EqualArgs(p.command, defaultCommand(true)) ||
+		flagutil.EqualArgs(p.command, defaultCommand(false)) {
+		return defaultCommand(useNativeSandbox)
+	}
+	return append([]string(nil), p.command...)
+}
+
+// defaultCommand returns the generated Codex command for the current safety
+// boundary. --yolo is used only when the native sandbox is active; otherwise
+// Codex CLI's read-only sandbox remains the write-protection layer.
+func defaultCommand(useNativeSandbox bool) []string {
+	if useNativeSandbox {
+		return []string{"codex", "exec", "--json", "--yolo"}
+	}
+	return []string{"codex", "exec", "--json", "--sandbox", "read-only"}
 }
 
 func (p *provider) Close() error { return nil }

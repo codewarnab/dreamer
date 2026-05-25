@@ -16,15 +16,18 @@ var Phase2MCPTools = []string{"Read", "Grep", "Glob", "Bash"}
 
 // InjectMCPFlags applies the standard MCP-mode mutation to a Claude-family
 // provider command slice: removes --bare (MCP auto-discovery must be active),
-// injects --dangerously-skip-permissions, --tools, --allowed-tools, and
-// --mcp-config. Returns the modified slice.
+// optionally injects --dangerously-skip-permissions, and adds --tools,
+// --allowed-tools, and --mcp-config. Returns the modified slice.
+//
+// useUnrestricted should be true only when the native sandbox is enforcing
+// filesystem writes. When false, existing provider policy flags are preserved.
 //
 // configFilePath is the path to a temp file containing the MCP server
 // configuration JSON (written by mcpserver.BuildClientLaunchSpec).
 // Both Claude-family CLIs support file-path mode — it's actually the
 // primary mode; inline JSON is the secondary "parse-first" path.
 // Using a file avoids Windows CreateProcess backslash-mangling.
-func InjectMCPFlags(command []string, toolNames []string, configFilePath string, validateFn func() error) ([]string, error) {
+func InjectMCPFlags(command []string, toolNames []string, configFilePath string, useUnrestricted bool, validateFn func() error) ([]string, error) {
 	if validateFn != nil {
 		if err := validateFn(); err != nil {
 			return nil, err
@@ -33,15 +36,16 @@ func InjectMCPFlags(command []string, toolNames []string, configFilePath string,
 	toolList := strings.Join(toolNames, ",")
 
 	// Remove --bare so MCP auto-discovery loads the configured servers.
-	command = RemoveFlag(command, "--bare")
+	command = RemoveFlag(command, "--bare", Boolean)
 	// Remove --strict-mcp-config if present (incompatible with file-based MCP).
-	command = RemoveFlag(command, "--strict-mcp-config")
-	// Remove --permission-mode if present (sandbox replaces policy flags).
-	command = RemoveFlag(command, "--permission-mode")
+	command = RemoveFlag(command, "--strict-mcp-config", Boolean)
 
-	// Add unrestricted mode + MCP tools.
-	if !HasFlag(command, "--dangerously-skip-permissions") {
-		command = append(command, "--dangerously-skip-permissions")
+	// Only relax provider policy when the native sandbox is enforcing writes.
+	if useUnrestricted {
+		command = RemoveFlag(command, "--permission-mode", Valued)
+		if !HasFlag(command, "--dangerously-skip-permissions") {
+			command = append(command, "--dangerously-skip-permissions")
+		}
 	}
 	if len(toolNames) > 0 {
 		command = append(command, "--tools", toolList)
@@ -72,32 +76,31 @@ func ReplaceFlag(command []string, flag, oldVal, newVal string) []string {
 	return out
 }
 
-// booleanFlags lists flags that never take a separate value argument.
-// RemoveFlag uses this to avoid consuming the next token as a value when
-// the flag is boolean. Trade-off: new boolean flags added to any CLI tool
-// must be added here or RemoveFlag will incorrectly consume the next token.
-var booleanFlags = map[string]bool{
-	"--bare":                        true,
-	"--no-session-persistence":      true,
-	"--verbose":                     true,
-	"--dangerously-skip-permissions": true,
-	"--yolo":                        true,
-	"--strict-mcp-config":           true,
-	"-p":                            true,
-}
+// FlagArity describes whether a CLI flag consumes a separate value token.
+// Callers pass it explicitly so RemoveFlag does not depend on a stale global
+// registry of every boolean flag supported by upstream tools.
+type FlagArity int
+
+const (
+	// Valued means the flag consumes the following token in "--flag value"
+	// form. The equals form ("--flag=value") is always removed as one token.
+	Valued FlagArity = iota
+	// Boolean means the flag is standalone and does not consume the next token.
+	Boolean
+)
 
 // RemoveFlag removes every occurrence of a flag and its value from command.
 // Handles both "--flag value" (space form) and "--flag=value" (equals form).
-// For non-value flags, the next token is consumed as the value. For known
-// boolean flags (see booleanFlags), only the flag itself is removed.
+// For Valued flags, the next token is consumed as the value. For Boolean
+// flags, only the flag itself is removed.
 // Leading-dash values like "-1" survive. Returns the (possibly unchanged) slice.
-func RemoveFlag(command []string, flag string) []string {
+func RemoveFlag(command []string, flag string, arity FlagArity) []string {
 	var out []string
 	for i := 0; i < len(command); i++ {
 		if command[i] == flag {
-			// Space form: skip the flag. Only consume the next token as
-			// a value if the flag is NOT a known boolean flag.
-			if i+1 < len(command) && !booleanFlags[flag] {
+			// Space form: skip the flag. Only valued flags consume the
+			// following token.
+			if i+1 < len(command) && arity == Valued {
 				i++
 			}
 			continue
@@ -119,4 +122,19 @@ func HasFlag(command []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+// EqualArgs reports whether two argv slices contain exactly the same tokens.
+// Providers use this to recognize old generated default commands while still
+// preserving genuinely custom user commands.
+func EqualArgs(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }

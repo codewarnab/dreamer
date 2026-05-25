@@ -76,7 +76,7 @@ func TestSessionRunFailsFastAfterTransportClose(t *testing.T) {
 	// `true` exits 0 immediately so its stdout closes within
 	// milliseconds. dialStdio spawns + starts the readLoop goroutine
 	// which will observe EOF and call markClosed().
-	transport, err := dialStdio(context.Background(), []string{"/usr/bin/true"}, nil, "false")
+	transport, err := dialStdio(context.Background(), "test-acp", []string{"/usr/bin/true"}, nil, "false")
 	if err != nil {
 		t.Fatalf("dialStdio: %v", err)
 	}
@@ -118,4 +118,20 @@ func TestTransportMarkClosedIsIdempotent(t *testing.T) {
 	if !transport.isClosed() {
 		t.Fatalf("second markClosed should remain closed")
 	}
+}
+
+func TestACPWritableDirsHonorProviderConfigEnv(t *testing.T) {
+	claudeConfigDir := t.TempDir()
+	dirs, err := acpWritableDirs(string(analyzer.ProviderClaudeACP), map[string]string{
+		"CLAUDE_CONFIG_DIR": claudeConfigDir,
+	})
+	if err != nil {
+		t.Fatalf("acpWritableDirs: %v", err)
+	}
+	for _, dir := range dirs {
+		if dir == claudeConfigDir {
+			return
+		}
+	}
+	t.Fatalf("CLAUDE_CONFIG_DIR %q not found in writable dirs: %v", claudeConfigDir, dirs)
 }
