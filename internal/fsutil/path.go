@@ -27,7 +27,7 @@ func ExpandUserHome(p string) (string, error) {
 
 // CanonicalPath resolves ~/ and relative paths to an absolute, cleaned path.
 // On Windows it lowercases the result so comparisons are case-insensitive.
-// Does NOT evaluate symlinks — use ResolveSymlinksAllowingMissing for that.
+// Does NOT evaluate symlinks — use ResolveSymlinks for that.
 func CanonicalPath(p string) string {
 	if p == "" {
 		return ""
