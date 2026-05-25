@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"dreamer/internal/chat"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 )
@@ -154,27 +154,10 @@ func findMappingChild(node *yaml.Node, key string) (k, v *yaml.Node) {
 	return nil, nil
 }
 
-// canonicalPath resolves ~/ and relative paths to an absolute, cleaned
-// path. On Windows it lowercases the result so comparisons are
-// case-insensitive (matching normalizeDiscoveryPathForComparison in
-// internal/chat/paths.go).
-func canonicalPath(p string) string {
-	resolved := p
-	if expanded, err := config.ExpandUserHome(p); err == nil {
-		if abs, err := filepath.Abs(expanded); err == nil {
-			resolved = abs
-		}
-	}
-	if runtime.GOOS == "windows" {
-		resolved = strings.ToLower(resolved)
-	}
-	return resolved
-}
-
 func findDuplicateProject(seq *yaml.Node, name, path string) string {
 	// Normalize the input path so ~/foo, /abs/x, and C:\abs\x all
 	// compare consistently regardless of how they were typed.
-	resolvedPath := canonicalPath(path)
+	resolvedPath := chat.CanonicalPath(path)
 	for _, item := range seq.Content {
 		if item.Kind != yaml.MappingNode {
 			continue
@@ -185,7 +168,7 @@ func findDuplicateProject(seq *yaml.Node, name, path string) string {
 			return fmt.Sprintf("name=%q", name)
 		}
 		if pathNode != nil {
-			if canonicalPath(pathNode.Value) == resolvedPath {
+			if chat.CanonicalPath(pathNode.Value) == resolvedPath {
 				return fmt.Sprintf("path=%q", path)
 			}
 		}
