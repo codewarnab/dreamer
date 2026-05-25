@@ -270,7 +270,7 @@ func readStreamJSON(r io.Reader) (string, error) {
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
-	if streamErr != "" && assembled.Len() == 0 {
+	if streamErr != "" {
 		return "", fmt.Errorf("codex stream error: %s", streamErr)
 	}
 	return strings.TrimSpace(assembled.String()), nil

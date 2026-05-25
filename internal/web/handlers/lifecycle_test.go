@@ -80,7 +80,7 @@ func TestApply_Happy(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	sub := bus.Subscribe(4)
 	defer bus.Unsubscribe(sub)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "aaaa111111111111111111111111111111111111111111111111111111111111"
 	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
@@ -133,7 +133,7 @@ func TestApply_Happy(t *testing.T) {
 
 func TestApply_IneligibleCategory(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "bbbb111111111111111111111111111111111111111111111111111111111111"
 	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "perf",
@@ -149,7 +149,7 @@ func TestApply_IneligibleCategory(t *testing.T) {
 
 func TestApply_Containment(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "cccc111111111111111111111111111111111111111111111111111111111111"
 	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
@@ -165,7 +165,7 @@ func TestApply_Containment(t *testing.T) {
 
 func TestApply_AnchorMissing(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "dddd111111111111111111111111111111111111111111111111111111111111"
 	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
@@ -187,7 +187,7 @@ func TestApply_OversizeTarget(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.Projects[0].Path, "CLAUDE.md"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "eeee111111111111111111111111111111111111111111111111111111111111"
 	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
 		Category:   "doc",
@@ -203,7 +203,7 @@ func TestApply_OversizeTarget(t *testing.T) {
 
 func TestApply_MethodNotAllowed(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-a/findings/ffff111111111111111111111111111111111111111111111111111111111111/apply", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -216,7 +216,7 @@ func TestApply_MethodNotAllowed(t *testing.T) {
 // outside the project) is ignored: the server uses the persisted spec.
 func TestApply_BodyIgnored_AttackerCannotRedirectWrite(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "b1aa111111111111111111111111111111111111111111111111111111111111"
 	// Server's recorded plan: a safe append to CLAUDE.md.
 	seedApplySpec(t, cfg, hash, state.FindingApplySpec{
@@ -259,7 +259,7 @@ func TestApply_BodyIgnored_AttackerCannotRedirectWrite(t *testing.T) {
 // handler refuses rather than falling back to the request body.
 func TestApply_MissingApplySpec_Returns404(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "b2aa111111111111111111111111111111111111111111111111111111111111"
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{
 		Category:   "doc",
@@ -274,7 +274,7 @@ func TestApply_MissingApplySpec_Returns404(t *testing.T) {
 
 func TestApply_UnknownProject(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "aaaa222222222222222222222222222222222222222222222222222222222222"
 	rec := postJSON(t, h, "/api/projects/nope/findings/"+hash+"/apply", applyRequest{Category: "doc"})
 	if rec.Code != http.StatusNotFound {
@@ -293,7 +293,7 @@ func applyOnce(t *testing.T, cfg *config.Config, bus *pipeline.EventBus, hash st
 		Anchor:     "Cache",
 		Snippet:    "Rules for cache.",
 	})
-	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Apply(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/apply", applyRequest{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("seed apply failed: %d %s", rec.Code, rec.Body.String())
@@ -314,7 +314,7 @@ func TestUndo_Happy(t *testing.T) {
 
 	sub := bus.Subscribe(4)
 	defer bus.Unsubscribe(sub)
-	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undo", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
@@ -346,7 +346,7 @@ func TestUndo_TargetChanged(t *testing.T) {
 	if err := os.WriteFile(target, []byte("tampered\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undo", nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status=%d want 409 body=%s", rec.Code, rec.Body.String())
@@ -360,7 +360,7 @@ func TestUndo_TargetChanged(t *testing.T) {
 
 func TestUndo_NotApplied(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
-	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Undo(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "33aa111111111111111111111111111111111111111111111111111111111111"
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undo", nil)
 	if rec.Code != http.StatusNotFound {
@@ -372,7 +372,7 @@ func TestDismiss_PersistsAndPublishes(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	sub := bus.Subscribe(4)
 	defer bus.Unsubscribe(sub)
-	h := Dismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Dismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "44aa111111111111111111111111111111111111111111111111111111111111"
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/dismiss", nil)
 	if rec.Code != http.StatusOK {
@@ -400,7 +400,7 @@ func TestResolve_PersistsAndPublishes(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	sub := bus.Subscribe(4)
 	defer bus.Unsubscribe(sub)
-	h := Resolve(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Resolve(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	hash := "55aa111111111111111111111111111111111111111111111111111111111111"
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/resolve", nil)
 	if rec.Code != http.StatusOK {
@@ -425,11 +425,11 @@ func TestUndismiss_DropsEntry(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	hash := "66aa111111111111111111111111111111111111111111111111111111111111"
 	// Seed: dismissed.
-	hDismiss := Dismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hDismiss := Dismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	if rec := postJSON(t, hDismiss, "/api/projects/proj-a/findings/"+hash+"/dismiss", nil); rec.Code != http.StatusOK {
 		t.Fatalf("seed dismiss failed: %d", rec.Code)
 	}
-	h := Undismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Undismiss(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/undismiss", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d", rec.Code)
@@ -443,11 +443,11 @@ func TestUndismiss_DropsEntry(t *testing.T) {
 func TestUnresolve_DropsEntry(t *testing.T) {
 	cfg, bus := seedApplyProject(t)
 	hash := "77aa111111111111111111111111111111111111111111111111111111111111"
-	hResolve := Resolve(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	hResolve := Resolve(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	if rec := postJSON(t, hResolve, "/api/projects/proj-a/findings/"+hash+"/resolve", nil); rec.Code != http.StatusOK {
 		t.Fatalf("seed resolve failed: %d", rec.Code)
 	}
-	h := Unresolve(Deps{Config: func() *config.Config { return cfg }, Events: bus})
+	h := Unresolve(Deps{Config: func() *config.Config { return cfg }, Events: bus, StateLock: NewProjectLock()})
 	rec := postJSON(t, h, "/api/projects/proj-a/findings/"+hash+"/unresolve", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d", rec.Code)

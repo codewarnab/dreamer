@@ -13,6 +13,8 @@ import (
 )
 
 func newStartCommand() *cobra.Command {
+	var flags analyzerFlagVars
+
 	command := &cobra.Command{
 		Use:   "start",
 		Short: "Start the daemon in the background.",
@@ -55,8 +57,18 @@ func newStartCommand() *cobra.Command {
 			}
 			defer logFile.Close()
 
-			// Build child command.
+			// Build child command. Forward analyzer flags so
+			// `dreamer start -p` reaches the daemon process.
 			daemonArgs := []string{"daemon", "--config", resolvedConfigPath}
+			if flags.parallel {
+				daemonArgs = append(daemonArgs, "--parallel")
+			}
+			if flags.jobs > 0 {
+				daemonArgs = append(daemonArgs, "--jobs", fmt.Sprintf("%d", flags.jobs))
+			}
+			if flags.chunkSize > 0 {
+				daemonArgs = append(daemonArgs, "--chunk-size", fmt.Sprintf("%d", flags.chunkSize))
+			}
 			daemonProcess := exec.Command(exePath, daemonArgs...)
 			daemonProcess.Stdout = logFile
 			daemonProcess.Stderr = logFile
@@ -77,6 +89,7 @@ func newStartCommand() *cobra.Command {
 		},
 	}
 
+	registerAnalyzerFlags(command.Flags(), &flags)
 	return command
 }
 

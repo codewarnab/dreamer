@@ -313,6 +313,8 @@ func dropChatHashEntries(deps Deps, projectName string, paths []string) {
 	if len(paths) == 0 {
 		return
 	}
+	unlock := deps.StateLock.Lock(projectName)
+	defer unlock()
 	cfg := deps.Config()
 	if cfg == nil {
 		return

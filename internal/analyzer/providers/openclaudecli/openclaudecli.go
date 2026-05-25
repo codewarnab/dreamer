@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -235,7 +234,6 @@ func readStreamJSON(r io.Reader) (string, error) {
 		}
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			log.Printf("openclaude-cli: malformed stream-json line: %v", err)
 			continue
 		}
 		switch event.Type {

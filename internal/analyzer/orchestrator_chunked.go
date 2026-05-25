@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"dreamer/internal/errs"
@@ -173,6 +174,9 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 		}
 		if chunkRes.parseErr != nil {
 			continue
+		}
+		if strings.TrimSpace(chunkRes.summary) == "" {
+			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d returned empty summary", chunkRes.index))
 		}
 		mergeMistakes(mistakes, chunkRes.mistakesByCat)
 		completed++

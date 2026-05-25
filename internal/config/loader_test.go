@@ -428,3 +428,68 @@ func TestConfigNotices_OverlayFieldsExist(t *testing.T) {
 		t.Fatalf("notice fields missing or wrong: %+v", n)
 	}
 }
+
+func TestValidateProjectName_AcceptsValid(t *testing.T) {
+	for _, name := range []string{"my-project", "alpha1", "hello_world"} {
+		if err := ValidateProjectName(name); err != nil {
+			t.Fatalf("ValidateProjectName(%q) = %v, want nil", name, err)
+		}
+	}
+}
+
+func TestValidateProjectName_RejectsEmpty(t *testing.T) {
+	if err := ValidateProjectName(""); err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestValidateProjectName_RejectsPathSeparators(t *testing.T) {
+	for _, name := range []string{"foo/bar", `foo\bar`} {
+		if err := ValidateProjectName(name); err == nil {
+			t.Fatalf("expected error for %q", name)
+		}
+	}
+}
+
+func TestValidateProjectName_RejectsDotDot(t *testing.T) {
+	for _, name := range []string{".", ".."} {
+		if err := ValidateProjectName(name); err == nil {
+			t.Fatalf("expected error for %q", name)
+		}
+	}
+}
+
+func TestValidateProjectName_RejectsWindowsReserved(t *testing.T) {
+	reserved := []string{
+		"CON", "con", "Con", "PRN", "prn", "AUX", "aux",
+		"NUL", "nul", "COM1", "com1", "LPT9", "lpt9",
+		"CON.txt", "COM3.log",
+	}
+	for _, name := range reserved {
+		if err := ValidateProjectName(name); err == nil {
+			t.Fatalf("expected error for Windows reserved name %q", name)
+		}
+	}
+}
+
+func TestIsWindowsReservedName(t *testing.T) {
+	reserved := []string{
+		"CON", "PRN", "AUX", "NUL",
+		"COM0", "COM9.txt", "LPT0", "LPT9.txt",
+		"CONIN$", "CONOUT$",
+		"CON..", "CON...", "CON. . ", // trailing-dot variants
+	}
+	for _, name := range reserved {
+		if !isWindowsReservedName(name) {
+			t.Errorf("%q should be reserved", name)
+		}
+	}
+	notReserved := []string{
+		"CONSOLE", "com10", "LPT10", "COM", "LPT", "hello",
+	}
+	for _, name := range notReserved {
+		if isWindowsReservedName(name) {
+			t.Errorf("%q should not be reserved", name)
+		}
+	}
+}

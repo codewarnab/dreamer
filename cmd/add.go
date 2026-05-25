@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"dreamer/internal/chat"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 )
@@ -154,6 +155,9 @@ func findMappingChild(node *yaml.Node, key string) (k, v *yaml.Node) {
 }
 
 func findDuplicateProject(seq *yaml.Node, name, path string) string {
+	// Normalize the input path so ~/foo, /abs/x, and C:\abs\x all
+	// compare consistently regardless of how they were typed.
+	resolvedPath := chat.CanonicalPath(path)
 	for _, item := range seq.Content {
 		if item.Kind != yaml.MappingNode {
 			continue
@@ -163,8 +167,10 @@ func findDuplicateProject(seq *yaml.Node, name, path string) string {
 		if nameNode != nil && nameNode.Value == name {
 			return fmt.Sprintf("name=%q", name)
 		}
-		if pathNode != nil && pathNode.Value == path {
-			return fmt.Sprintf("path=%q", path)
+		if pathNode != nil {
+			if chat.CanonicalPath(pathNode.Value) == resolvedPath {
+				return fmt.Sprintf("path=%q", path)
+			}
 		}
 	}
 	return ""

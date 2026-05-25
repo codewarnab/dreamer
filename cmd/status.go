@@ -26,7 +26,8 @@ func newStatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg, err := config.LoadConfig(resolvedConfigPath)
+			overlayPath, _ := config.GlobalOverlayPath()
+			cfg, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}
