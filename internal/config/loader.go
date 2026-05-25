@@ -560,5 +560,23 @@ func ValidateProjectName(projectName string) error {
 	if name == "." || name == ".." {
 		return fmt.Errorf("project name is invalid: %q", projectName)
 	}
+	if isWindowsReservedName(name) {
+		return fmt.Errorf("project name %q is a reserved name on Windows", projectName)
+	}
 	return nil
+}
+
+// isWindowsReservedName returns true for names that Windows reserves as
+// device files (CON, PRN, AUX, NUL, COM1-9, LPT1-9) regardless of
+// extension or case. Creating a directory with one of these names fails
+// silently or with an opaque error.
+func isWindowsReservedName(name string) bool {
+	upper := strings.ToUpper(strings.SplitN(name, ".", 2)[0])
+	switch upper {
+	case "CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return true
+	}
+	return false
 }
