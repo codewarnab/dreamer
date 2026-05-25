@@ -191,9 +191,7 @@ func vscodeResponseText(value any) string {
 }
 
 func collectVSCodeResponseText(value any, parts *[]string, depth int) {
-	const maxDepth = 8
-
-	if depth > maxDepth || value == nil {
+	if depth > MaxDepth || value == nil {
 		return
 	}
 
