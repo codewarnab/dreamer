@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Mode controls sandbox behavior.
@@ -147,7 +148,16 @@ func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, provide
 		_ = stdout.Close()
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
-			go func() { _ = cmd.Wait() }()
+			go func() {
+				done := make(chan error, 1)
+				go func() { done <- cmd.Wait() }()
+				select {
+				case <-done:
+				case <-time.After(10 * time.Second):
+					// Process didn't exit after Kill — abandon.
+					// KILL_ON_JOB_CLOSE from the Job Object will clean up.
+				}
+			}()
 		}
 		return nil, fmt.Errorf("%s: sandbox post-start: %w", providerID, err)
 	}
