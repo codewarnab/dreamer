@@ -25,7 +25,7 @@ const maxWritableDirs = 64
 func validateSBPLPath(path string) error {
 	for _, c := range path {
 		switch c {
-		case '(', ')', '"', '\\', '\n', '\r':
+		case '(', ')', '"', '\\', '\n', '\r', ';':
 			return fmt.Errorf("sandbox: path %q contains SBPL metacharacter %q", path, string(c))
 		}
 	}
@@ -40,6 +40,10 @@ func buildSeatbeltProfile(projectDir string, writableDirs []string) string {
 	var b strings.Builder
 
 	// Header and base policy.
+	// THREAT MODEL: This sandbox provides write-protection only, not
+	// full containment. Under (allow default), processes can read any
+	// file on the system (including secrets), use the network, and
+	// execute any binary. Network isolation is a future opt-in enhancement.
 	b.WriteString(`(version 1)
 (allow default)
 
@@ -83,23 +87,11 @@ func buildSeatbeltProfile(projectDir string, writableDirs []string) string {
   (literal "/dev/stdout")
   (literal "/dev/stderr"))
 
-;; Re-allow hard-link creation in writable dirs only (NOT project dir)
-(allow file-link
-`)
-
-	// file-link re-allow uses the same counter pattern.
-	idx2 := 0
-	for _, dir := range writableDirs {
-		if idx2 >= maxWritableDirs {
-			break
-		}
-		if dir == "" {
-			continue
-		}
-		fmt.Fprintf(&b, "  (subpath (param \"WRITABLE_%d\"))\n", idx2)
-		idx2++
-	}
-	b.WriteString(`  (subpath "/private/tmp"))
+;; Hard links denied entirely — no re-allow in writable dirs.
+;; SBPL's file-link checks the destination path, so re-allowing in
+;; writable dirs would let a process hard-link project files into
+;; writable dirs and bypass write protection. Chromium and Codex
+;; also deny file-link without re-allow.
 
 ;; Allow /dev/tty for interactive terminal support
 ;; NOTE: defensive — (allow default) already covers these.

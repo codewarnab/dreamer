@@ -64,7 +64,7 @@ func TestBuildSeatbeltProfile_NoNetworkDeny(t *testing.T) {
 	}
 }
 
-func TestBuildSeatbeltProfile_DynamicWritableDirs(t *testing.T) {
+func TestBuildSeatbeltProfile_ReferencesWritableDirParams(t *testing.T) {
 	dirs := []string{"/a", "/b", "/c", "/d", "/e"}
 	profile := buildSeatbeltProfile("/tmp/project", dirs)
 	for i := 0; i < 5; i++ {
@@ -88,10 +88,11 @@ func TestBuildSeatbeltProfile_CapsAtMax(t *testing.T) {
 		dirs[i] = "/tmp/dir" + string(rune('A'+i%26)) + string(rune('0'+i/26))
 	}
 	profile := buildSeatbeltProfile("/tmp/project", dirs)
-	// WRITABLE entries appear in two blocks (file-write* and file-link).
+	// WRITABLE entries appear in one block (file-write* re-allow only;
+	// file-link is denied entirely with no re-allow).
 	count := strings.Count(profile, "WRITABLE_")
-	if count != maxWritableDirs*2 {
-		t.Fatalf("profile has %d WRITABLE entries, want exactly %d (2 blocks × %d)", count, maxWritableDirs*2, maxWritableDirs)
+	if count != maxWritableDirs {
+		t.Fatalf("profile has %d WRITABLE entries, want exactly %d", count, maxWritableDirs)
 	}
 }
 
@@ -116,30 +117,14 @@ func TestBuildSeatbeltProfile_DeniesFileLink(t *testing.T) {
 	}
 }
 
-func TestBuildSeatbeltProfile_AllowsFileLinkWritableDirs(t *testing.T) {
+func TestBuildSeatbeltProfile_NoFileLinkReallow(t *testing.T) {
+	// Hard links are denied entirely — no re-allow in writable dirs.
+	// SBPL's file-link checks the destination path, so re-allowing
+	// would let processes hard-link project files into writable dirs.
 	dirs := []string{"/tmp/writable"}
 	profile := buildSeatbeltProfile("/tmp/project", dirs)
-	if !strings.Contains(profile, `(subpath (param "WRITABLE_0"))`) {
-		t.Fatal("profile missing WRITABLE_0 in file-link re-allow")
-	}
-}
-
-func TestBuildSeatbeltProfile_FileLinkNotAllowedProjectDir(t *testing.T) {
-	// The file-link allow block should NOT include PROJECT_DIR.
-	dirs := []string{"/tmp/writable"}
-	profile := buildSeatbeltProfile("/tmp/project", dirs)
-	// Find the file-link allow block.
-	idx := strings.Index(profile, "(allow file-link")
-	if idx < 0 {
-		t.Fatal("profile missing (allow file-link)")
-	}
-	block := profile[idx:]
-	// The file-link block should end before the next top-level rule.
-	if endIdx := strings.Index(block, ";; Allow /dev/tty"); endIdx > 0 {
-		block = block[:endIdx]
-	}
-	if strings.Contains(block, "PROJECT_DIR") {
-		t.Fatal("file-link re-allow should NOT include PROJECT_DIR")
+	if strings.Contains(profile, "(allow file-link") {
+		t.Fatal("profile should not re-allow file-link in writable dirs")
 	}
 }
 
@@ -547,6 +532,7 @@ func TestValidateSBPLPath_Metachars(t *testing.T) {
 		{"/tmp/proj\\ect", "backslash"},
 		{"/tmp/proj\nect", "newline"},
 		{"/tmp/proj\r\nect", "crlf"},
+		{"/tmp/proj;ect", "semicolon"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

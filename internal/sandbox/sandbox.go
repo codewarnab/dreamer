@@ -1,8 +1,10 @@
 // Package sandbox provides OS-level process sandboxing for child-process
 // providers. On Windows, it uses WRITE_RESTRICTED tokens with capability SIDs
 // and Job Objects. On Linux, it uses bubblewrap (bwrap) with user+PID
-// namespaces and read-only root mount. On other platforms, ModeAuto is a
-// no-op and providers are responsible for using policy-only flags.
+// namespaces and read-only root mount. On macOS, it uses Apple's Seatbelt
+// framework via sandbox-exec with (allow default) base policy and selective
+// write denial. On other platforms, ModeAuto is a no-op and providers are
+// responsible for using policy-only flags.
 //
 // The sandbox replaces provider-native policy flags (--permission-mode plan,
 // --yolo, --sandbox read-only) with kernel-enforced file access control.
