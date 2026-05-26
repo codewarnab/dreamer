@@ -72,7 +72,7 @@ provider ids the same way they do for the v1 ids.
 |----------|-----------------------|-----------------|
 | Copilot  | `copilot-sdk`         | `copilot-acp`   |
 | Claude   | `claude-cli`          | `claude-acp`    |
-| Gemini   | `gemini-sdk` → `gemini-cli` | `gemini-acp` |
+| Gemini   | `gemini-cli`             | `gemini-acp`   |
 | Kiro     | `kiro-acp`            | n/a             |
 | **Codex** | **`codex-cli`**      | **`codex-acp`** |
 

@@ -87,11 +87,8 @@ The redaction system is built around a list of regexes (`RedactionConfig.Pattern
 
 ## 5. Documentation drift
 
-- [CLAUDE.md:30](CLAUDE.md#L30) names `cmd/analyze_pipeline.go:executeAnalyze` as the analysis core. That file does not exist; the equivalent is `pipeline.Run` at [internal/pipeline/pipeline.go:140](internal/pipeline/pipeline.go#L140).
-- [CLAUDE.md:68](CLAUDE.md#L68) places `mergeRulePacks`/`applyRuleToggles` in `cmd/analyze_pipeline.go`. They are in `internal/pipeline/`.
-- [plan.md:30](plan.md#L30) describes line-number-pinned deletions ("delete `MergeRulePack` at line 99") that have already drifted; the plan reads as a snapshot from a different commit. Either freeze the doc as historical, or stop quoting line numbers in plans that outlive a single PR.
-- [plan.md:212-213](plan.md#L212-L213) promises tests in `logs_test.go`, `projectname_test.go`, `cache_test.go`. The first two exist; coverage there is light.
-- [todo.txt](todo.txt) is two stale lines. Delete or move into issue tracker.
+- **Fixed (2026-05-26):** CLAUDE.md now correctly references `internal/pipeline/pipeline.go:Run` as the analysis core. `plan.md` and `todo.txt` have been deleted. Bug entries B13 and B23 are resolved.
+- **Remaining:** CLAUDE.md still frames the analyzer around Copilot SDK when it now supports 13+ providers. Several internal packages (`jobqueue`, `sandbox`, `mcpserver`, `errs`, `fsutil`, `categories`) are undocumented. Commands `start`, `stop`, `status`, `mcp-server`, `record-finding` are undocumented. See CLAUDE.md for the authoritative architecture description.
 
 ---
 
@@ -145,11 +142,9 @@ A regression test for B1: build state with `ChatHashes = {a: keyA, b: keyB}`, ma
 
 If you can only address a handful before the next release, in order:
 
-1. **B1** (ChatHashes loss) and **B3** (todos.md atomicity) — both are silent data-integrity bugs in the happy path.
-2. **B2** (shell read-only depth-of-defense) and **B4** (project-name collision).
-3. **B5**, **B12** (config sentinels and state versioning) — wrong-by-default for legitimate config.
-4. **§2 duplication** (sanitizers, path-scoping) — pay off once, simplify every future provider.
-5. **§6 test gaps** — at minimum, write the regression test for B1 and a daemon signal-handling test.
-6. **§5 doc drift** — should be done in the same PR as anyone who touches `cmd/` or `internal/pipeline/`.
+1. **B1** (ChatHashes loss) — silent data-integrity bug in the happy path.
+2. **§2 duplication** (sanitizers, path-scoping) — pay off once, simplify every future provider.
+3. **§6 test gaps** — at minimum, write the regression test for B1.
+4. Doc drift is resolved: CLAUDE.md now references `internal/pipeline/`, and `plan.md`/`todo.txt` have been deleted.
 
 Everything else in this file is incremental.

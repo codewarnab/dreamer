@@ -130,8 +130,7 @@ listening, instructing the user to run `dreamer daemon` (or `systemctl
 
 ### 2.3 Other commands — unchanged
 
-`analyze`, `daemon`, `config init`, `ls-chats`, `startup` are unchanged
-from v1.2.
+`analyze`, `daemon`, `ls-chats`, `startup` are unchanged from v1.2.
 
 ---
 

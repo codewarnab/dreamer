@@ -31,11 +31,9 @@ go test -race ./...                                     # race detector
 
 **Important:** Always use `-trimpath` when building. It strips local filesystem paths from the binary so stack traces don't leak your directory structure and builds are reproducible. The binary warns at startup if built without it. Use `-tags notrimpath` to suppress the check (e.g. for CI fast-builds).
 
-No lint target is wired in; use `go vet ./...` and `gofmt -w .` directly.
-
 ## Architecture
 
-`dreamer` is a single-binary Go CLI (entry: `main.go` → `cmd.Execute`) that periodically scans local AI coding-assistant chat logs, runs them through Copilot SDK with rule-based prompts, and appends actionable findings to per-project `todos.md` files.
+`dreamer` is a single-binary Go CLI (entry: `main.go` → `cmd.Execute`) that periodically scans local AI coding-assistant chat logs, runs them through an LLM provider with rule-based prompts, and appends actionable findings to per-project `todos.md` files.
 
 ### Command layer (`cmd/`)
 

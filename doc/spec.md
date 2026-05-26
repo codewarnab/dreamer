@@ -33,10 +33,13 @@ dreamer analyze --path <abs project dir>
                 [--output-dir <dir>]
                 [--config <path>]
 
-dreamer daemon  [--config <path>]
+dreamer daemon   [--config <path>]
+dreamer setup    [--advanced]
+dreamer add      [<path>]
+dreamer web      [--open]
 dreamer ls-chats --project-path <dir>
-dreamer config init [--force]
-dreamer startup {install|status|uninstall} [--config <path>]   # Windows Task Scheduler (unchanged)
+dreamer start|stop|status
+dreamer startup  {install|status|uninstall} [--config <path>]
 ```
 
 Flag semantics:
@@ -44,7 +47,7 @@ Flag semantics:
 | Flag           | Effect                                                                                          |
 |----------------|-------------------------------------------------------------------------------------------------|
 | `--path`       | Required for `analyze`. Must be absolute; symlinks resolved before discovery comparisons.       |
-| `--provider`   | Runtime override. Beats project config beats global config. Values: `copilot-sdk`, `copilot-acp`, `claude-cli`, `claude-acp`, `gemini-sdk`, `gemini-cli`, `gemini-acp`, `kiro-acp`. |
+| `--provider`   | Runtime override. Beats project config beats global config. Values: `copilot-sdk`, `copilot-acp`, `claude-cli`, `claude-acp`, `codex-cli`, `codex-acp`, `gemini-cli`, `gemini-acp`, `kiro-acp`, `openclaude-cli`, `openclaude-acp`, `opencode-acp`, `opencode-http`, `codebuff-sdk`. |
 | `--force`      | Skip the incremental cache; re-analyze every discovered chat.                                   |
 | `--dry-run`    | Run phase 1 only (mistake extraction). Skip guardrail synthesis. Print mistake list; no write to `todos.md`. |
 | `--permissive` | Disable strict lint-rule allow-list. Emit unrecognised rule ids tagged `[unverified]`.          |
@@ -52,6 +55,8 @@ Flag semantics:
 | `--config`     | Override the global config path.                                                                |
 
 Exit codes: `0` success, `1` fatal (config missing, auth failure, all providers unreachable), `2` partial (some projects analyzed, some skipped — daemon only).
+
+> **Note:** `config init` was replaced by `dreamer setup` in v1.5. The hidden `mcp-server` and `record-finding` commands are internal/debug tools not listed here.
 
 ---
 
@@ -65,7 +70,7 @@ Highest precedence first:
 2. Per-project config: `<project>/.dreamer/config.yaml` field `provider`.
 3. Per-project rule overrides under `<project>/.dreamer/rules/<category>.yaml`.
 4. Global config: `<UserConfigDir>/dreamer/config.yaml` field `default_provider`.
-5. Built-in defaults: `default_provider: copilot-sdk`; default rule pack from `internal/analyzer/rules/`.
+5. Built-in defaults: `default_provider: openclaude-cli`; default rule pack from `internal/analyzer/rules/`.
 
 `<UserConfigDir>` is resolved via Go's `os.UserConfigDir()`:
 
@@ -77,7 +82,7 @@ Highest precedence first:
 
 ```yaml
 # <UserConfigDir>/dreamer/config.yaml
-default_provider: copilot-sdk
+default_provider: openclaude-cli
 
 projects:
   - name: dreamer
@@ -105,22 +110,34 @@ providers:
     command: ["copilot", "--acp"]
     env: {}
   claude-cli:
-    command: ["claude", "-p", "--output-format=stream-json", "--permission-mode", "plan"]
+    command: ["claude", "-p", "--output-format=stream-json", "--permission-mode", "plan", "--bare", "--tools", "Read,Grep,Glob"]
     env: {}
   claude-acp:
-    command: ["claude", "--acp"]   # confirm via context7 at impl time
+    command: ["claude", "--acp"]
     env: {}
-  gemini-sdk:
-    api_key_env: GEMINI_API_KEY
-    model: gemini-2.0-pro
+  codex-cli:
+    command: ["codex", "exec", "--json", "--sandbox", "read-only"]
+    env: {}
+  codex-acp:
+    command: ["codex-acp"]
+    env: {}
   gemini-cli:
-    command: ["gemini", "--headless"]     # confirm via context7
+    command: ["gemini", "--headless"]
     env: {}
   gemini-acp:
-    command: ["gemini", "--acp"]          # confirm via context7
+    command: ["gemini", "--acp"]
     env: {}
   kiro-acp:
-    command: ["kiro", "--acp"]            # uses Quorinex/Kiro-Goacp on the client side
+    command: ["kiro", "--acp"]
+    env: {}
+  openclaude-cli:
+    command: ["openclaude", "-p", "--output-format=stream-json", "--permission-mode", "plan", "--bare", "--tools", "Read,Grep,Glob"]
+    env: {}
+  opencode-acp:
+    command: ["opencode", "--acp"]
+    env: {}
+  codebuff-sdk:
+    # Codebuff HTTP API — text-only, no tools
     env: {}
 ```
 
@@ -200,12 +217,16 @@ The same shape exists per category, with `guardrail.kind` constrained to the mat
 
 Per `requirements.md` Q1 **[locked]**:
 
-| Platform | Primary (fast)         | Fallback (legal/standards) |
-|----------|------------------------|----------------------------|
-| Copilot  | `copilot-sdk` (Go SDK) | `copilot-acp`              |
-| Claude   | `claude-cli`           | `claude-acp`               |
-| Gemini   | `gemini-sdk` → `gemini-cli` | `gemini-acp`          |
-| Kiro     | `kiro-acp` (only path) | n/a (ACP is native)        |
+| Platform    | Primary (fast)           | Fallback (legal/standards) |
+|-------------|--------------------------|----------------------------|
+| Copilot     | `copilot-sdk` (Go SDK)   | `copilot-acp`              |
+| Claude      | `claude-cli`             | `claude-acp`               |
+| OpenClaude  | `openclaude-cli`         | n/a                        |
+| Codex       | `codex-cli`              | `codex-acp`                |
+| Gemini      | `gemini-cli`             | `gemini-acp`               |
+| Kiro        | `kiro-acp` (only path)   | n/a (ACP is native)        |
+| OpenCode    | `opencode-acp`/`opencode-http` | n/a                   |
+| Codebuff    | `codebuff-sdk` (HTTP)    | n/a                        |
 
 Rule: never scrape; never use third-party reverse-engineered clients. ACP is the legal fallback when a native SDK is missing or unstable.
 
@@ -517,7 +538,7 @@ A `## Warnings (Run <ts>)` section is appended whenever discovery or validation 
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "last_run_utc": "2026-05-15T13:42:00Z",
   "repo_head_sha": "c32ad17…",
   "chat_hashes": {
@@ -554,7 +575,8 @@ Before any provider call:
 
 - `copilot-sdk`: `Run 'copilot auth login' (GitHub Copilot CLI must be installed).`
 - `claude-cli`: `Run 'claude auth login'.`
-- `gemini-sdk`: `Export GEMINI_API_KEY in the environment.`
+- `openclaude-cli`: `Run 'openclaude auth login'.`
+- `codex-cli`: `Run 'codex auth login' (OpenAI Codex CLI must be installed).`
 - `gemini-cli`: `Run 'gemini auth login'.`
 - `kiro-acp`: `Install the Kiro CLI and ensure 'kiro --acp' starts cleanly.`
 - ACP variants: `Ensure '<command>' starts and emits an ACP initialize response.`
@@ -586,13 +608,13 @@ Windows-only `startup install` continues to point at the daemon binary.
 
 ## 15. Logging
 
-Single structured logger at `internal/logging/logger.go`. JSON lines:
+Single structured logger at `internal/logging/logger.go`. Key=value format via `log/slog`:
 
-```json
-{"ts":"2026-05-15T13:42:00Z","level":"info","msg":"analyze_started","project":"dreamer","provider":"copilot-sdk"}
+```
+time=2026-05-15T13:42:00Z level=INFO msg=analyze_started project=dreamer provider=openclaude-cli
 ```
 
-Default sink: `<UserConfigDir>/dreamer/logs/dreamer.log`. Rotation: 100 MB per file, retain 7 days. `--config logging.level` raises verbosity. Sensitive content (chat text, redaction matches) is never logged.
+Default sink: `<output_root>/dreamer.log`. Rotation: single backup file (`dreamer.log.1`) when primary exceeds `logging.max_size_mb` (default 100 MB). Sensitive content (chat text, redaction matches) is never logged.
 
 ---
 
@@ -603,19 +625,26 @@ Repo structure after v1 lands:
 ```
 main.go
 cmd/
+  root.go
   analyze.go
   daemon.go
-  config.go
+  setup.go
+  add.go
+  web.go
   ls_chats.go
-  lookback.go
   startup.go
-  root.go
-  runtime.go
+  start.go
+  stop.go
+  status.go
+  mcpserver.go               # hidden: MCP stdio server
+  recordfinding.go            # hidden: JSONL finding recorder
+  helpers.go
 internal/
   analyzer/
-    provider.go                # interfaces
-    orchestrator.go            # two-phase pipeline
-    redaction.go               # secret regex pass
+    provider.go               # interfaces (Provider, Session)
+    permission.go             # read-only permission handler
+    orchestrator.go           # two-phase pipeline
+    orchestrator_chunked.go   # chunked execution mode
     grounding/
       detect_files.go
       symbol_index.go
@@ -623,7 +652,7 @@ internal/
       golangci.go
       eslint.go
       ruff.go
-    rules/                     # embedded default rule packs (YAML)
+    rules/                    # embedded default rule packs (YAML)
       lint-rule.yaml
       test.yaml
       ci-check.yaml
@@ -632,41 +661,69 @@ internal/
       refactor-boundary.yaml
     toolchain/
       detect.go
+    transport/
+      scanner.go, env.go, inputcap.go, ratelimit.go, syncwriter.go
     providers/
-      copilotsdk/              # current SDK impl, refactored
+      acpcore/                # shared ACP stdio JSON-RPC client
+      copilotsdk/
       copilotacp/
       claudecli/
       claudeacp/
-      geminisdk/
+      codexcli/
+      codexacp/
       geminicli/
       geminiacp/
-      kiroacp/                 # uses Quorinex/Kiro-Goacp
-      acpcore/                 # shared ACP stdio JSON-RPC client
+      kiroacp/
+      openclaudecli/
+      opencodeacp/
+      opencodehttp/
+      codebuffsdk/
+      flagutil/
+  categories/                 # canonical RuleCategory types
   chat/
-    discovery.go               # extended for kiro /gemini-cli
-    readers/
-      jsonl.go
-      sqlite.go
-      vscode.go
-      antigravity.go
-      protobuf.go
-      kiro.go                  # new
-      geminicli.go             # new
-      claude_sanitizer.go
-      codex_sanitizer.go
-      copilot_sanitizer.go
-  config/
-    loader.go                  # extended with project-config + provider blocks
-    providers.go               # remediation messages
+    discovery.go
+    source_copilot.go
+    source_codex.go
+    source_vscode.go
+    source_claude.go
+    source_antigravity.go
+    source_gemini_cli.go
+    source_kiro.go
+    source_opencode.go
+    source_codebuff.go
+    paths.go
+    probe.go
+  errs/                       # shared error types
+  fsutil/                     # atomic writes, lock files, process management
+  jobqueue/                   # daemon job scheduler
   logging/
     logger.go
+  mcpserver/                  # MCP server implementation
   output/
-    generator.go               # extended with warnings section + evidence blocks
+    generator.go
+  pipeline/
+    pipeline.go               # Run — the analysis core
+    rules.go                  # mergeRulePacks, applyRuleToggles
+    cache.go
+    chunker.go
+    transcript.go
+    lookback.go
+    projectname.go
+  sandbox/                    # OS-level sandbox (Windows, Linux, macOS)
+    sandbox.go, none.go, windows.go, windows_*.go
   state/
-    tracker.go                 # extended with file hashes + HEAD sha
+    tracker.go
+    findings.go
+    history.go
+  web/
+    server.go, csrf.go, sse.go, activity.go, runner.go
+    apply/apply.go
+    handlers/
+    templates/
+    static/
 doc/
-  vision.md
-  discussion.md
+  vision.md, spec.md, spec.v1.1.md, spec.v1.2.md, spec.v1.5.md, bugs.md, code-review.md
+```
   questions.md
   requirements.md
   spec.md                      # this file
