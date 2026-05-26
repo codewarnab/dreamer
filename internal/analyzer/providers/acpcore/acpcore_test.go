@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"runtime"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -82,15 +82,16 @@ func TestDecidePermissionNilHandlerApproves(t *testing.T) {
 // transport directly, observe the readLoop reacting to stdout EOF, and
 // assert session.Run's liveness gate triggers.
 func TestSessionRunFailsFastAfterTransportClose(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses POSIX /usr/bin/true")
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("true binary not found in PATH")
 	}
 	repo := t.TempDir()
 
 	// `true` exits 0 immediately so its stdout closes within
 	// milliseconds. dialStdio spawns + starts the readLoop goroutine
 	// which will observe EOF and call markClosed().
-	transport, err := dialStdio(context.Background(), "test-acp", []string{"/usr/bin/true"}, nil, "false")
+	transport, err := dialStdio(context.Background(), "test-acp", []string{truePath}, nil, "false")
 	if err != nil {
 		t.Fatalf("dialStdio: %v", err)
 	}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,5 +106,16 @@ func TestLogDefaultedSinceNotices_WithNotices(t *testing.T) {
 
 	cfg := &config.Config{Notices: config.ConfigNotices{DefaultedSince: []string{"project1", "project2"}}}
 	logDefaultedSinceNotices(logger, cfg)
-	// Should not panic. Verifying log file contents is fragile, so just ensure no crash.
+
+	// Read log file and verify notice content was written.
+	logBytes, err := os.ReadFile(logger.Path())
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	logContent := string(logBytes)
+	for _, want := range []string{"since defaulted", "project1", "project2"} {
+		if !strings.Contains(logContent, want) {
+			t.Errorf("log missing %q; got:\n%s", want, logContent)
+		}
+	}
 }

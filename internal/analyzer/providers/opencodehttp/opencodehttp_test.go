@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -796,24 +798,16 @@ func TestNewSessionModelFallback(t *testing.T) {
 // with non-zero so detectPort fails. ---
 
 func TestAutoStartProcessExitBeforePort(t *testing.T) {
-	// Use a command that exits immediately (false/exits non-zero) so detectPort gets EOF.
-	// On Windows, "cmd /c exit 1" works; cross-platform test uses "go run" with a tiny program.
-	// Simpler: use the echo command which exits 0 but produces no port line.
-	// We need detectPort to return an error from reader EOF.
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not in PATH; cannot test auto-start process exit")
+	}
+	// "go run -" reads from stdin, gets EOF, and exits without printing a port.
 	p := &provider{
 		command: []string{"go", "run", "-"},
 	}
-	// Feed an empty main via stdin - this will fail but that's fine, we just need
-	// it to start, produce no port line on stderr, and exit.
-	// Actually this is hard to test cross-platform. Let's skip this and use
-	// a simpler approach: test that Start fails with a real but misconfigured command.
-	// We already test LookPath failure. For the detectPort failure path, we need
-	// a command that starts but doesn't print a port line.
-	// The safest approach is to use "go" which exists but with invalid args.
+	t.Cleanup(func() { p.Close() })
 	err := p.Start(context.Background())
 	if err == nil {
-		// If it somehow succeeds, clean up
-		p.Close()
 		t.Fatal("expected error for command that doesn't produce port")
 	}
 }
@@ -821,8 +815,15 @@ func TestAutoStartProcessExitBeforePort(t *testing.T) {
 // --- HealthCheck connection refused ---
 
 func TestHealthCheckConnectionRefused(t *testing.T) {
-	// Use a port that is very unlikely to be listening.
-	p, err := New(Options{BaseURL: "http://127.0.0.1:1"})
+	// Listen on a free port then immediately close — guaranteed no listener.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+
+	p, err := New(Options{BaseURL: "http://" + addr})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -873,6 +874,7 @@ func TestCreateSessionConnectionFailure(t *testing.T) {
 // --- Run with context cancellation ---
 
 func TestRunContextCancelled(t *testing.T) {
+	handlerDone := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/global/health" && r.Method == http.MethodGet:
@@ -880,18 +882,18 @@ func TestRunContextCancelled(t *testing.T) {
 		case r.URL.Path == "/session" && r.Method == http.MethodPost:
 			json.NewEncoder(w).Encode(map[string]string{"id": "sess-cancel"})
 		case r.URL.Path == "/session/sess-cancel/message" && r.Method == http.MethodPost:
-			// Block until client disconnects.
-			time.Sleep(5 * time.Second)
-			json.NewEncoder(w).Encode(messageResponse{
-				Parts: []messagePart{{Type: "text", Text: "late"}},
-			})
+			// Block until test teardown unblocks us. We can't use
+			// r.Context().Done() because httptest doesn't always propagate
+			// client disconnection to the request context.
+			<-handlerDone
+			return // client is gone; don't write response
 		case r.URL.Path == "/session/sess-cancel" && r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	defer srv.Close()
+	defer func() { close(handlerDone); srv.Close() }()
 
 	p, err := New(Options{BaseURL: srv.URL})
 	if err != nil {

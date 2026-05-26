@@ -122,9 +122,11 @@ func TestShouldUseNativeModeOff(t *testing.T) {
 }
 
 func TestShouldUseNativeModeOn(t *testing.T) {
-	// On non-Windows, Available() returns false, so ShouldUseNative is false.
-	// On Windows with admin, it would be true. Test the invariant:
-	// ShouldUseNative(ModeOn) == Available()
+	// MEDIUM #11: ShouldUseNative(ModeOn) and ShouldUseNative(ModeAuto) both
+	// collapse to Available() because the implementation is
+	// `mode != ModeOff && Available()`. Distinguishing ModeOn from ModeAuto
+	// requires platform-specific tests (Windows admin vs non-admin).
+	// Here we test the cross-platform invariant: ModeOn delegates to Available().
 	got := ShouldUseNative(ModeOn)
 	if got != Available() {
 		t.Fatalf("ShouldUseNative(ModeOn) = %v, want Available() = %v", got, Available())

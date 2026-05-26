@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"os/exec"
 	"syscall"
 	"testing"
 )
@@ -19,10 +20,15 @@ func TestDetachedProcessAttr(t *testing.T) {
 }
 
 func TestKillDaemon_ProcessNotRunning(t *testing.T) {
-	// killDaemon on a non-existent PID should not error on Windows because
-	// taskkill reports "not found" and we treat that as success.
-	err := killDaemon(9999999)
+	// Start a short-lived process, wait for it to exit, then use its
+	// guaranteed-defunct PID — avoids hardcoding a PID that might collide
+	// with a real process on long-running hosts.
+	cmd := exec.Command("cmd", "/c", "exit", "0")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("cmd.Run: %v", err)
+	}
+	err := killDaemon(cmd.Process.Pid)
 	if err != nil {
-		t.Fatalf("expected nil for non-existent PID, got: %v", err)
+		t.Fatalf("expected nil for defunct PID, got: %v", err)
 	}
 }

@@ -620,9 +620,15 @@ func setTestHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	// Clear all chat-discovery env vars so tests don't pick up the developer's
+	// real chat sources. cmd/commands_test.go:setTestHome mirrors this list.
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("GEMINI_HOME", "")
 	t.Setenv("OPENCODE_DB", "")
 	t.Setenv("KIRO_CLI_DB", "")
+	t.Setenv("CODEBUFF_CONFIG_DIR", "")
+	t.Setenv("XDG_DATA_HOME", "")
 }
 
 // ---------------------------------------------------------------------------
