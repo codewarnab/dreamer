@@ -136,3 +136,27 @@ Daemon and analysis emit structured-ish key=value lines via `logging.Logger` to 
 - Tests sit next to the code (`_test.go`) and use `testing` + `t.TempDir()` heavily; chat-source tests build fixtures on disk rather than mocking the FS.
 - Errors are wrapped with `fmt.Errorf("verb noun %q: %w", ...)` for operator-facing context.
 - Windows-only code paths (`cmd/startup.go`) gate on `runtime.GOOS`; do not assume POSIX path separators in discovery (`normalizeDiscoveryPathForComparison` handles both).
+
+### Test quality rules
+
+These patterns prevent "theatrical tests" — tests that pass even when the code under test is broken. Every test must **call the method/function it's named after** and assert its specific return value.
+
+1. **Assert the advertised behavior, not a structural invariant.** If the test is `TestProviderSupportsParallelSessions`, it must call `SupportsParallelSessions()` and assert `true` — not just check `p.ID()`. If the test passes when the target function is stubbed out, it's broken.
+
+2. **Verify config propagation end-to-end.** When passing `Command`/`Env`/`Model` to a provider constructor, assert the values reach the underlying implementation. Use `acpcore.InspectProvider(p)` to verify values on ACP-backed providers.
+
+3. **Use `reflect.ValueOf(f).Pointer()` for function identity.** When testing that a factory/option override returns the correct function (not just non-nil), compare function pointers. Example: `TestRunConfigPhase2FactoryOverride`.
+
+4. **Clear ALL relevant env vars in test helpers.** `setTestHome` must clear: `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `CLAUDE_CONFIG_DIR`, `GEMINI_HOME`, `OPENCODE_DB`, `KIRO_CLI_DB`, `CODEBUFF_CONFIG_DIR`, `XDG_DATA_HOME`. Mirror the canonical list in `cmd/commands_test.go:setTestHome`.
+
+5. **Don't hardcode ports, PIDs, or platform paths.** Use `net.Listen("tcp", "127.0.0.1:0")` for free ports, spawn+exit for defunct PIDs, `exec.LookPath` + `t.Skip` for platform binaries.
+
+6. **`defer p.Close()` immediately after acquisition.** Never place it after a `t.Fatal` path — if the fatal fires, the defer never registers.
+
+7. **Use `<-ctx.Done()` or `select` for cancellation, not `time.Sleep`.** For server handlers that need to block until test completion, use a `chan struct{}` signal rather than `time.Sleep(5s)`.
+
+8. **Test names must match assertions.** A test named `TestToMistakesFiltersEmpty` that asserts `len(out) != 2` (meaning "does NOT filter") is misleading. Rename to match actual behavior.
+
+9. **Don't use process-global state without documenting parallelization constraints.** If a package has a `var` that tests mutate (e.g., `SetSDKClientFactory`), add a comment forbidding `t.Parallel()` on that variable.
+
+10. **Don't ship plan docs alongside implementation.** `PLANS/*.md` describing completed work or speculative scope is instantly stale and scope creep in the same PR.
