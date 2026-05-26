@@ -1,11 +1,13 @@
 package readers
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func writeTempJSONL(t *testing.T, lines ...string) string {
@@ -259,5 +261,437 @@ func TestSanitizeClaudeMessagesSurvivesFolded(t *testing.T) {
 	sanitized := SanitizeClaudeMessages(msgs)
 	if len(sanitized) != len(msgs) {
 		t.Errorf("expected %d messages to survive sanitization, got %d", len(msgs), len(sanitized))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// serializeToolInput: additional edge cases
+// ---------------------------------------------------------------------------
+
+func TestSerializeToolInput_StringInputForKnownTool(t *testing.T) {
+	// When Bash receives a string instead of map, input["command"].(string) fails
+	// and it falls through to JSON fallback.
+	input := map[string]any{"command": 123}
+	got := serializeToolInput("Bash", input)
+	if got == "" {
+		t.Error("expected non-empty fallback for int command value")
+	}
+}
+
+func TestSerializeToolInput_EditWithOnlyPath(t *testing.T) {
+	input := map[string]any{"path": "handler.go", "old": "foo", "new": "bar"}
+	got := serializeToolInput("Edit", input)
+	if got != "handler.go" {
+		t.Errorf("expected path fallback, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_WriteWithFilePath(t *testing.T) {
+	input := map[string]any{"file_path": "output.txt", "content": "data"}
+	got := serializeToolInput("Write", input)
+	if got != "output.txt" {
+		t.Errorf("expected file_path extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_GrepLowercase(t *testing.T) {
+	input := map[string]any{"pattern": "TODO"}
+	got := serializeToolInput("grep", input)
+	if got != "TODO" {
+		t.Errorf("expected pattern extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_GlobLowercase(t *testing.T) {
+	input := map[string]any{"pattern": "*.go"}
+	got := serializeToolInput("glob", input)
+	if got != "*.go" {
+		t.Errorf("expected pattern extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_ReadLowercaseWithFilePath(t *testing.T) {
+	input := map[string]any{"file_path": "main.go"}
+	got := serializeToolInput("read", input)
+	if got != "main.go" {
+		t.Errorf("expected file_path extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_BashWithoutCommandKeyFallsBack(t *testing.T) {
+	input := map[string]any{"other": "value"}
+	got := serializeToolInput("Bash", input)
+	if got == "" {
+		t.Error("expected non-empty JSON fallback")
+	}
+	if !strings.Contains(got, "other") {
+		t.Errorf("expected JSON with 'other' key, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_EmptyMapFallback(t *testing.T) {
+	input := map[string]any{}
+	got := serializeToolInput("CustomTool", input)
+	if got != "{}" {
+		t.Errorf("expected empty JSON object, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// extractMessagePayload
+// ---------------------------------------------------------------------------
+
+func TestExtractMessagePayloadFromMessageKey(t *testing.T) {
+	record := map[string]any{
+		"message": map[string]any{
+			"role":    "user",
+			"content": "hello",
+		},
+		"type": "user",
+	}
+	got := extractMessagePayload(record)
+	if got == nil {
+		t.Fatal("expected non-nil payload from message key")
+	}
+	if got["role"] != "user" {
+		t.Errorf("role = %q, want user", got["role"])
+	}
+}
+
+func TestExtractMessagePayloadFromRecordItself(t *testing.T) {
+	record := map[string]any{
+		"role":    "assistant",
+		"content": "hi there",
+	}
+	got := extractMessagePayload(record)
+	if got == nil {
+		t.Fatal("expected non-nil payload from record itself")
+	}
+	if got["role"] != "assistant" {
+		t.Errorf("role = %q, want assistant", got["role"])
+	}
+}
+
+func TestExtractMessagePayloadReturnsNil(t *testing.T) {
+	record := map[string]any{
+		"type": "queue-operation",
+		"data": "some data",
+	}
+	got := extractMessagePayload(record)
+	if got != nil {
+		t.Errorf("expected nil payload, got %v", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// truncateToolOutput
+// ---------------------------------------------------------------------------
+
+func TestTruncateToolOutputShortString(t *testing.T) {
+	got := truncateToolOutput("short output")
+	if got != "short output" {
+		t.Errorf("got %q, want %q", got, "short output")
+	}
+}
+
+func TestTruncateToolOutputTrimsWhitespace(t *testing.T) {
+	got := truncateToolOutput("  \n  padded output  \n  ")
+	if got != "padded output" {
+		t.Errorf("got %q, want %q", got, "padded output")
+	}
+}
+
+func TestTruncateToolOutputTruncatesLong(t *testing.T) {
+	long := strings.Repeat("x", maxToolOutputChars+100)
+	got := truncateToolOutput(long)
+	if strings.HasSuffix(got, "...") {
+		t.Error("expected truncation with char count, not ...")
+	}
+	if !strings.Contains(got, "chars truncated") {
+		t.Errorf("expected 'chars truncated' in output, got %q", got)
+	}
+	// The prefix should be exactly maxToolOutputChars runes.
+	prefix := got[:strings.Index(got, "…")]
+	if utf8.RuneCountInString(prefix) != maxToolOutputChars {
+		t.Errorf("prefix rune count = %d, want %d", utf8.RuneCountInString(prefix), maxToolOutputChars)
+	}
+}
+
+func TestTruncateToolOutputExactlyAtLimit(t *testing.T) {
+	exact := strings.Repeat("a", maxToolOutputChars)
+	got := truncateToolOutput(exact)
+	if got != exact {
+		t.Errorf("expected no truncation for exactly %d chars", maxToolOutputChars)
+	}
+}
+
+func TestTruncateToolOutputUnicode(t *testing.T) {
+	// Use CJK characters (3 bytes each) to test rune boundary truncation.
+	long := strings.Repeat("界", maxToolOutputChars+50)
+	got := truncateToolOutput(long)
+	if !strings.Contains(got, "chars truncated") {
+		t.Errorf("expected truncation for long unicode, got %q", got)
+	}
+	prefix := got[:strings.Index(got, "…")]
+	if utf8.RuneCountInString(prefix) != maxToolOutputChars {
+		t.Errorf("prefix rune count = %d, want %d", utf8.RuneCountInString(prefix), maxToolOutputChars)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// formatToolCall: input+output branch
+// ---------------------------------------------------------------------------
+
+func TestFormatToolCallWithInputAndOutput(t *testing.T) {
+	got := formatToolCall("Bash", "go test ./...", "PASS")
+	expected := "[Bash] go test ./...\n→ PASS"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestFormatToolCallWithInputOnly(t *testing.T) {
+	got := formatToolCall("Read", "main.go", "")
+	expected := "[Read] main.go"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestFormatToolCallWithOutputOnly(t *testing.T) {
+	got := formatToolCall("Bash", "", "PASS")
+	expected := "[Bash]\n→ PASS"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestFormatToolCallNameOnly(t *testing.T) {
+	got := formatToolCall("Edit", "", "")
+	expected := "[Edit]"
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// processClaudeRecord: plain text fallback
+// ---------------------------------------------------------------------------
+
+func TestProcessClaudeRecordPlainTextFallback(t *testing.T) {
+	// Record where message.content is a plain string, not an array.
+	record := map[string]any{
+		"message": map[string]any{
+			"role":    "user",
+			"content": "just a plain string",
+		},
+		"timestamp": "2026-05-08T12:00:00Z",
+	}
+	pending := make(map[string]pendingToolCall)
+	msgs := processClaudeRecord(record, pending)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Content != "just a plain string" {
+		t.Errorf("content = %q, want %q", msgs[0].Content, "just a plain string")
+	}
+}
+
+func TestProcessClaudeRecordNoMessagePayload(t *testing.T) {
+	record := map[string]any{
+		"type": "queue-operation",
+	}
+	pending := make(map[string]pendingToolCall)
+	msgs := processClaudeRecord(record, pending)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages for non-message record, got %d", len(msgs))
+	}
+}
+
+func TestProcessClaudeRecordEmptyContent(t *testing.T) {
+	record := map[string]any{
+		"message": map[string]any{
+			"role":    "user",
+			"content": "",
+		},
+	}
+	pending := make(map[string]pendingToolCall)
+	msgs := processClaudeRecord(record, pending)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages for empty content, got %d", len(msgs))
+	}
+}
+
+func TestProcessClaudeRecordNoContentKey(t *testing.T) {
+	record := map[string]any{
+		"message": map[string]any{
+			"role": "user",
+		},
+	}
+	pending := make(map[string]pendingToolCall)
+	msgs := processClaudeRecord(record, pending)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages for missing content key, got %d", len(msgs))
+	}
+}
+
+func TestProcessClaudeRecordEmptyRole(t *testing.T) {
+	record := map[string]any{
+		"message": map[string]any{
+			"role":    "system",
+			"content": "system message",
+		},
+	}
+	pending := make(map[string]pendingToolCall)
+	msgs := processClaudeRecord(record, pending)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages for system role, got %d", len(msgs))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// processContentBlocks: orphaned tool_result with DropToolDetails=false
+// ---------------------------------------------------------------------------
+
+func TestProcessContentBlocksOrphanedResultWithDropDetails(t *testing.T) {
+	// DropToolDetails is const true; orphaned results (no matching
+	// pendingToolCall) are dropped.
+	blocks := []contentBlock{
+		{
+			blockType: "tool_result",
+			toolRes:   &toolResultBlock{toolUseID: "unknown_id", content: "orphan output", isError: false},
+		},
+	}
+	pending := make(map[string]pendingToolCall)
+	msgs := processContentBlocks("user", time.Now(), blocks, pending)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages for orphaned result with DropToolDetails=true, got %d", len(msgs))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadClaudeJSONLWithToolFolding: file open error
+// ---------------------------------------------------------------------------
+
+func TestReadClaudeJSONLWithToolFoldingOpenError(t *testing.T) {
+	_, err := ReadClaudeJSONLWithToolFolding(filepath.Join(t.TempDir(), "nonexistent.jsonl"))
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadClaudeJSONLWithToolFolding: scanner error (line too long)
+// ---------------------------------------------------------------------------
+
+func TestReadClaudeJSONLWithToolFoldingScannerError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "toolong.jsonl")
+	hugeContent := strings.Repeat("a", 9*1024*1024)
+	line := fmt.Sprintf(`{"type":"user","message":{"role":"user","content":%q}}`, hugeContent)
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	_, err := ReadClaudeJSONLWithToolFolding(path)
+	if err == nil {
+		t.Fatal("expected error for line exceeding scanner buffer")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseTextBlock / parseToolUseBlock / parseToolResultBlock / parseUnknownBlock
+// ---------------------------------------------------------------------------
+
+func TestParseTextBlockValid(t *testing.T) {
+	block := map[string]any{"type": "text", "text": "hello"}
+	b, ok := parseTextBlock(block)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if b.blockType != "text" || b.text != "hello" {
+		t.Errorf("got %+v", b)
+	}
+}
+
+func TestParseTextBlockEmpty(t *testing.T) {
+	block := map[string]any{"type": "text", "text": "   "}
+	_, ok := parseTextBlock(block)
+	if ok {
+		t.Error("expected !ok for whitespace-only text")
+	}
+}
+
+func TestParseToolUseBlockValid(t *testing.T) {
+	block := map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "ls"}}
+	b, ok := parseToolUseBlock(block)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if b.toolUse.name != "Bash" || b.toolUse.id != "tu1" {
+		t.Errorf("got %+v", b.toolUse)
+	}
+}
+
+func TestParseToolUseBlockMissingID(t *testing.T) {
+	block := map[string]any{"type": "tool_use", "name": "Bash"}
+	_, ok := parseToolUseBlock(block)
+	if ok {
+		t.Error("expected !ok for missing id")
+	}
+}
+
+func TestParseToolUseBlockMissingName(t *testing.T) {
+	block := map[string]any{"type": "tool_use", "id": "tu1"}
+	_, ok := parseToolUseBlock(block)
+	if ok {
+		t.Error("expected !ok for missing name")
+	}
+}
+
+func TestParseToolResultBlockValid(t *testing.T) {
+	block := map[string]any{"type": "tool_result", "tool_use_id": "tu1", "content": "ok", "is_error": false}
+	b, ok := parseToolResultBlock(block)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if b.toolRes.toolUseID != "tu1" || b.toolRes.content != "ok" || b.toolRes.isError {
+		t.Errorf("got %+v", b.toolRes)
+	}
+}
+
+func TestParseToolResultBlockMissingToolUseID(t *testing.T) {
+	block := map[string]any{"type": "tool_result", "content": "ok"}
+	_, ok := parseToolResultBlock(block)
+	if ok {
+		t.Error("expected !ok for missing tool_use_id")
+	}
+}
+
+func TestParseToolResultBlockIsError(t *testing.T) {
+	block := map[string]any{"type": "tool_result", "tool_use_id": "tu1", "content": "error msg", "is_error": true}
+	b, ok := parseToolResultBlock(block)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if !b.toolRes.isError {
+		t.Error("expected is_error=true")
+	}
+}
+
+func TestParseUnknownBlockWithText(t *testing.T) {
+	block := map[string]any{"type": "custom", "text": "some text"}
+	b, ok := parseUnknownBlock(block)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if b.text != "some text" {
+		t.Errorf("text = %q", b.text)
+	}
+}
+
+func TestParseUnknownBlockEmpty(t *testing.T) {
+	block := map[string]any{"type": "custom"}
+	_, ok := parseUnknownBlock(block)
+	if ok {
+		t.Error("expected !ok for block without extractable text")
 	}
 }

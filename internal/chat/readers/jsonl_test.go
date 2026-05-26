@@ -1,6 +1,7 @@
 package readers
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -362,5 +363,746 @@ func TestReadJSONLWithOptionsSanitizesCodexBootstrapMessages(t *testing.T) {
 	}
 	if got := messages[1].Content; got != "I found the scoring path and will keep the patch narrow." {
 		t.Fatalf("second message content = %q, want assistant message", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseTimestamp
+// ---------------------------------------------------------------------------
+
+func TestParseTimestamp(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  any
+		wantOK bool
+		wantTS string // empty means check !ok
+	}{
+		{"time.Time input", time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC), true, "2024-01-01T12:00:00Z"},
+		{"time.Time non-UTC converted", time.Date(2024, 1, 1, 12, 0, 0, 0, time.FixedZone("EST", -5*3600)), true, "2024-01-01T17:00:00Z"},
+		{"RFC3339 string", "2024-06-15T10:30:00Z", true, "2024-06-15T10:30:00Z"},
+		{"RFC3339Nano string", "2024-06-15T10:30:00.123456789Z", true, "2024-06-15T10:30:00.123456789Z"},
+		{"space-separated layout", "2024-06-15 10:30:00", true, "2024-06-15T10:30:00Z"},
+		{"T-separated no-zone layout", "2024-06-15T10:30:00", true, "2024-06-15T10:30:00Z"},
+		{"unix seconds string", "1704067200", true, "2024-01-01T00:00:00Z"},
+		{"unix milliseconds string", "1704067200000", true, "2024-01-01T00:00:00Z"},
+		{"unix microseconds string", "1704067200000000", true, "2024-01-01T00:00:00Z"},
+		{"unix nanoseconds string", "1704067200000000000", true, "2024-01-01T00:00:00Z"},
+		{"float string", "1704067200.5", true, "2024-01-01T00:00:00Z"},
+		{"empty string", "", false, ""},
+		{"whitespace string", "   ", false, ""},
+		{"non-numeric non-date string", "hello", false, ""},
+		{"float64 value", float64(1704067200), true, "2024-01-01T00:00:00Z"},
+		{"int64 value", int64(1704067200), true, "2024-01-01T00:00:00Z"},
+		{"int value", int(1704067200), true, "2024-01-01T00:00:00Z"},
+		{"uint64 value", uint64(1704067200), true, "2024-01-01T00:00:00Z"},
+		{"uint64 overflow", uint64(1<<63 + 1), false, ""},
+		{"[]byte value", []byte("1704067200"), true, "2024-01-01T00:00:00Z"},
+		{"nil value", nil, false, ""},
+		{"bool value", false, false, ""},
+		{"json.Number int64", json.Number("1704067200"), true, "2024-01-01T00:00:00Z"},
+		{"json.Number float64", json.Number("1704067200.5"), true, "2024-01-01T00:00:00Z"},
+		{"json.Number nanoseconds", json.Number("1704067200000000000"), true, "2024-01-01T00:00:00Z"},
+		{"json.Number unparseable", json.Number("not-a-number"), false, ""},
+		{"negative unix seconds", -100, true, "1969-12-31T23:58:20Z"},
+		{"zero int64", int64(0), true, "1970-01-01T00:00:00Z"},
+		{"zero int", int(0), true, "1970-01-01T00:00:00Z"},
+		{"zero float64", float64(0), true, "1970-01-01T00:00:00Z"},
+		{"uint64 zero", uint64(0), true, "1970-01-01T00:00:00Z"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseTimestamp(tt.value)
+			if ok != tt.wantOK {
+				t.Fatalf("parseTimestamp(%v) ok = %v, want %v", tt.value, ok, tt.wantOK)
+			}
+			if tt.wantOK && tt.wantTS != "" {
+				parsed, _ := time.Parse(time.RFC3339Nano, tt.wantTS)
+				if !got.Equal(parsed) {
+					t.Errorf("parseTimestamp(%v) = %v, want %v", tt.value, got, parsed)
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// normalizeRole
+// ---------------------------------------------------------------------------
+
+func TestNormalizeRole(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"user", "user"},
+		{"human", "user"},
+		{"prompt", "user"},
+		{"USER", "user"},
+		{" Human ", "user"},
+		{"assistant", "assistant"},
+		{"model", "assistant"},
+		{"ai", "assistant"},
+		{"copilot", "assistant"},
+		{"bot", "assistant"},
+		{"ASSISTANT", "assistant"},
+		{" Copilot ", "assistant"},
+		{"system", ""},
+		{"tool", ""},
+		{"foobar", ""},
+		{"", ""},
+		{"   ", ""},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("input=%q", tt.input), func(t *testing.T) {
+			got := normalizeRole(tt.input)
+			if got != tt.want {
+				t.Errorf("normalizeRole(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseContentArray
+// ---------------------------------------------------------------------------
+
+func TestParseContentArray(t *testing.T) {
+	t.Run("nil returns nil", func(t *testing.T) {
+		if got := parseContentArray(nil); got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
+
+	t.Run("empty array returns nil", func(t *testing.T) {
+		if got := parseContentArray([]any{}); got != nil {
+			t.Errorf("expected nil for empty array, got %v", got)
+		}
+	})
+
+	t.Run("string type returns nil", func(t *testing.T) {
+		if got := parseContentArray("plain text"); got != nil {
+			t.Errorf("expected nil for string input, got %v", got)
+		}
+	})
+
+	t.Run("string array elements treated as text blocks", func(t *testing.T) {
+		input := []any{"hello", "world"}
+		got := parseContentArray(input)
+		if got == nil {
+			t.Fatal("expected non-nil for string array")
+		}
+		if len(got) != 2 {
+			t.Fatalf("expected 2 blocks, got %d", len(got))
+		}
+		if got[0].blockType != "text" || got[0].text != "hello" {
+			t.Errorf("block 0 = %+v", got[0])
+		}
+		if got[1].blockType != "text" || got[1].text != "world" {
+			t.Errorf("block 1 = %+v", got[1])
+		}
+	})
+
+	t.Run("map array with text type", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "text", "text": "hello"},
+		}
+		got := parseContentArray(input)
+		if got == nil {
+			t.Fatal("expected non-nil")
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected 1 block, got %d", len(got))
+		}
+		if got[0].blockType != "text" || got[0].text != "hello" {
+			t.Errorf("block 0 = %+v", got[0])
+		}
+	})
+
+	t.Run("map array with tool_use type", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "ls"}},
+		}
+		got := parseContentArray(input)
+		if got == nil {
+			t.Fatal("expected non-nil")
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected 1 block, got %d", len(got))
+		}
+		if got[0].blockType != "tool_use" {
+			t.Errorf("expected tool_use type, got %q", got[0].blockType)
+		}
+		if got[0].toolUse == nil {
+			t.Fatal("expected non-nil toolUse")
+		}
+		if got[0].toolUse.name != "Bash" {
+			t.Errorf("tool name = %q, want Bash", got[0].toolUse.name)
+		}
+	})
+
+	t.Run("map array with tool_result type", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "tool_result", "tool_use_id": "tu1", "content": "ok", "is_error": false},
+		}
+		got := parseContentArray(input)
+		if got == nil {
+			t.Fatal("expected non-nil")
+		}
+		if got[0].blockType != "tool_result" {
+			t.Errorf("expected tool_result type, got %q", got[0].blockType)
+		}
+		if got[0].toolRes == nil {
+			t.Fatal("expected non-nil toolRes")
+		}
+		if got[0].toolRes.toolUseID != "tu1" {
+			t.Errorf("tool_use_id = %q, want tu1", got[0].toolRes.toolUseID)
+		}
+	})
+
+	t.Run("non-string elements skipped", func(t *testing.T) {
+		input := []any{42, true, nil}
+		got := parseContentArray(input)
+		// No structured blocks and no text blocks => nil
+		if got != nil {
+			t.Errorf("expected nil for non-string non-map elements, got %v", got)
+		}
+	})
+
+	t.Run("empty string elements skipped", func(t *testing.T) {
+		input := []any{"   "}
+		got := parseContentArray(input)
+		if got != nil {
+			t.Errorf("expected nil for whitespace-only strings, got %v", got)
+		}
+	})
+
+	t.Run("unknown block type extracts text via fallback", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "unknown_type", "text": "fallback text"},
+		}
+		got := parseContentArray(input)
+		if got == nil {
+			t.Fatal("expected non-nil for unknown block with text")
+		}
+		if got[0].blockType != "text" || got[0].text != "fallback text" {
+			t.Errorf("block 0 = %+v", got[0])
+		}
+	})
+
+	t.Run("mixed text and structured blocks", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "text", "text": "I'll check."},
+			map[string]any{"type": "tool_use", "id": "tu1", "name": "Read"},
+		}
+		got := parseContentArray(input)
+		if got == nil {
+			t.Fatal("expected non-nil")
+		}
+		if len(got) != 2 {
+			t.Fatalf("expected 2 blocks, got %d", len(got))
+		}
+		if got[0].blockType != "text" {
+			t.Errorf("expected text block, got %q", got[0].blockType)
+		}
+		if got[1].blockType != "tool_use" {
+			t.Errorf("expected tool_use block, got %q", got[1].blockType)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// serializeToolInput
+// ---------------------------------------------------------------------------
+
+func TestSerializeToolInput(t *testing.T) {
+	t.Run("nil input returns empty", func(t *testing.T) {
+		got := serializeToolInput("Bash", nil)
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("Bash extracts command", func(t *testing.T) {
+		input := map[string]any{"command": "go test ./..."}
+		got := serializeToolInput("Bash", input)
+		if got != "go test ./..." {
+			t.Errorf("got %q, want %q", got, "go test ./...")
+		}
+	})
+
+	t.Run("bash lowercase extracts command", func(t *testing.T) {
+		input := map[string]any{"command": "ls -la"}
+		got := serializeToolInput("bash", input)
+		if got != "ls -la" {
+			t.Errorf("got %q, want %q", got, "ls -la")
+		}
+	})
+
+	t.Run("Read extracts file_path", func(t *testing.T) {
+		input := map[string]any{"file_path": "main.go"}
+		got := serializeToolInput("Read", input)
+		if got != "main.go" {
+			t.Errorf("got %q, want %q", got, "main.go")
+		}
+	})
+
+	t.Run("Read extracts path fallback", func(t *testing.T) {
+		input := map[string]any{"path": "main.go"}
+		got := serializeToolInput("Read", input)
+		if got != "main.go" {
+			t.Errorf("got %q, want %q", got, "main.go")
+		}
+	})
+
+	t.Run("Edit extracts file_path", func(t *testing.T) {
+		input := map[string]any{"file_path": "handler.go"}
+		got := serializeToolInput("Edit", input)
+		if got != "handler.go" {
+			t.Errorf("got %q, want %q", got, "handler.go")
+		}
+	})
+
+	t.Run("write lowercase extracts path", func(t *testing.T) {
+		input := map[string]any{"path": "output.txt"}
+		got := serializeToolInput("write", input)
+		if got != "output.txt" {
+			t.Errorf("got %q, want %q", got, "output.txt")
+		}
+	})
+
+	t.Run("Grep extracts pattern", func(t *testing.T) {
+		input := map[string]any{"pattern": "TODO"}
+		got := serializeToolInput("Grep", input)
+		if got != "TODO" {
+			t.Errorf("got %q, want %q", got, "TODO")
+		}
+	})
+
+	t.Run("Glob extracts pattern", func(t *testing.T) {
+		input := map[string]any{"pattern": "**/*.go"}
+		got := serializeToolInput("Glob", input)
+		if got != "**/*.go" {
+			t.Errorf("got %q, want %q", got, "**/*.go")
+		}
+	})
+
+	t.Run("unknown tool falls back to JSON", func(t *testing.T) {
+		input := map[string]any{"foo": "bar", "count": 3}
+		got := serializeToolInput("CustomTool", input)
+		if got == "" {
+			t.Error("expected non-empty JSON fallback")
+		}
+		if !strings.Contains(got, "foo") || !strings.Contains(got, "bar") {
+			t.Errorf("expected JSON containing foo/bar, got %q", got)
+		}
+	})
+
+	t.Run("long input truncated", func(t *testing.T) {
+		longVal := strings.Repeat("x", 300)
+		input := map[string]any{"data": longVal}
+		got := serializeToolInput("CustomTool", input)
+		if len(got) <= maxToolInputChars+10 {
+			// The "..." suffix is 3 chars, so total should be maxToolInputChars+3
+		}
+		if !strings.HasSuffix(got, "...") {
+			t.Errorf("expected truncation suffix, got %q", got)
+		}
+	})
+
+	t.Run("Bash without command key falls back to JSON", func(t *testing.T) {
+		input := map[string]any{"other": "value"}
+		got := serializeToolInput("Bash", input)
+		if got == "" {
+			t.Error("expected non-empty JSON fallback")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// unixTimestamp (threshold boundaries)
+// ---------------------------------------------------------------------------
+
+func TestUnixTimestampThresholds(t *testing.T) {
+	tests := []struct {
+		name  string
+		input int64
+		want  string
+	}{
+		{"seconds", 1704067200, "2024-01-01T00:00:00Z"},
+		{"milliseconds", 1704067200000, "2024-01-01T00:00:00Z"},
+		{"microseconds", 1704067200000000, "2024-01-01T00:00:00Z"},
+		{"nanoseconds", 1704067200000000000, "2024-01-01T00:00:00Z"},
+		{"negative seconds", -86400, "1969-12-31T00:00:00Z"},
+		{"zero", 0, "1970-01-01T00:00:00Z"},
+		{"one", 1, "1970-01-01T00:00:01Z"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := unixTimestamp(tt.input)
+			parsed, _ := time.Parse(time.RFC3339, tt.want)
+			if !got.Equal(parsed) {
+				t.Errorf("unixTimestamp(%d) = %v, want %v", tt.input, got, parsed)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseTimestamp: json.Number branch coverage
+// ---------------------------------------------------------------------------
+
+func TestParseTimestamp_JSONNumberInt64(t *testing.T) {
+	got, ok := parseTimestamp(json.Number("1704067200"))
+	if !ok {
+		t.Fatal("expected ok for json.Number int64")
+	}
+	want := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestParseTimestamp_JSONNumberFloat64(t *testing.T) {
+	got, ok := parseTimestamp(json.Number("1704067200.5"))
+	if !ok {
+		t.Fatal("expected ok for json.Number float64")
+	}
+	want := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestParseTimestamp_JSONNumberUnparseable(t *testing.T) {
+	_, ok := parseTimestamp(json.Number("not-a-number"))
+	if ok {
+		t.Error("expected !ok for unparseable json.Number")
+	}
+}
+
+func TestParseTimestamp_JSONNumberNanoseconds(t *testing.T) {
+	got, ok := parseTimestamp(json.Number("1704067200000000000"))
+	if !ok {
+		t.Fatal("expected ok for json.Number nanoseconds")
+	}
+	want := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestParseTimestamp_ZeroValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+	}{
+		{"int64(0)", int64(0)},
+		{"int(0)", int(0)},
+		{"float64(0)", float64(0)},
+		{"uint64(0)", uint64(0)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseTimestamp(tt.value)
+			if !ok {
+				t.Fatalf("expected ok for %v", tt.value)
+			}
+			want := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+			if !got.Equal(want) {
+				t.Errorf("got %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// roleFromRecord: sender / author map branches
+// ---------------------------------------------------------------------------
+
+func TestRoleFromRecordSenderKey(t *testing.T) {
+	record := map[string]any{"sender": "human"}
+	got := roleFromRecord(record)
+	if got != "user" {
+		t.Errorf("roleFromRecord(sender=human) = %q, want user", got)
+	}
+}
+
+func TestRoleFromRecordAuthorKey(t *testing.T) {
+	record := map[string]any{"author": "copilot"}
+	got := roleFromRecord(record)
+	if got != "assistant" {
+		t.Errorf("roleFromRecord(author=copilot) = %q, want assistant", got)
+	}
+}
+
+func TestRoleFromRecordAuthorMapWithRole(t *testing.T) {
+	record := map[string]any{
+		"author": map[string]any{"role": "user"},
+	}
+	got := roleFromRecord(record)
+	if got != "user" {
+		t.Errorf("roleFromRecord(author map with role=user) = %q, want user", got)
+	}
+}
+
+func TestRoleFromRecordAuthorMapWithType(t *testing.T) {
+	record := map[string]any{
+		"author": map[string]any{"type": "assistant"},
+	}
+	got := roleFromRecord(record)
+	if got != "assistant" {
+		t.Errorf("roleFromRecord(author map with type=assistant) = %q, want assistant", got)
+	}
+}
+
+func TestRoleFromRecordAuthorMapWithKind(t *testing.T) {
+	record := map[string]any{
+		"author": map[string]any{"kind": "model"},
+	}
+	got := roleFromRecord(record)
+	if got != "assistant" {
+		t.Errorf("roleFromRecord(author map with kind=model) = %q, want assistant", got)
+	}
+}
+
+func TestRoleFromRecordEmptyReturnsEmpty(t *testing.T) {
+	record := map[string]any{"irrelevant": 42}
+	got := roleFromRecord(record)
+	if got != "" {
+		t.Errorf("roleFromRecord(irrelevant) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// rawRole: map branch
+// ---------------------------------------------------------------------------
+
+func TestRawRoleMapWithNestedRole(t *testing.T) {
+	input := map[string]any{"role": "assistant"}
+	got := rawRole(input)
+	if got != "assistant" {
+		t.Errorf("rawRole(map[role:assistant]) = %q, want assistant", got)
+	}
+}
+
+func TestRawRoleMapWithNestedType(t *testing.T) {
+	input := map[string]any{"type": "user"}
+	got := rawRole(input)
+	if got != "user" {
+		t.Errorf("rawRole(map[type:user]) = %q, want user", got)
+	}
+}
+
+func TestRawRoleMapEmpty(t *testing.T) {
+	input := map[string]any{}
+	got := rawRole(input)
+	if got != "" {
+		t.Errorf("rawRole(empty map) = %q, want empty", got)
+	}
+}
+
+func TestRawRoleNonStringNonMap(t *testing.T) {
+	got := rawRole(42)
+	if got != "" {
+		t.Errorf("rawRole(42) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// contentFromRecord: text / body / prompt branches
+// ---------------------------------------------------------------------------
+
+func TestContentFromRecordTextKey(t *testing.T) {
+	record := map[string]any{"text": "hello from text key"}
+	got := contentFromRecord(record)
+	if got != "hello from text key" {
+		t.Errorf("contentFromRecord(text) = %q, want %q", got, "hello from text key")
+	}
+}
+
+func TestContentFromRecordBodyKey(t *testing.T) {
+	record := map[string]any{"body": "hello from body key"}
+	got := contentFromRecord(record)
+	if got != "hello from body key" {
+		t.Errorf("contentFromRecord(body) = %q, want %q", got, "hello from body key")
+	}
+}
+
+func TestContentFromRecordPromptKey(t *testing.T) {
+	record := map[string]any{"prompt": "hello from prompt key"}
+	got := contentFromRecord(record)
+	if got != "hello from prompt key" {
+		t.Errorf("contentFromRecord(prompt) = %q, want %q", got, "hello from prompt key")
+	}
+}
+
+func TestContentFromRecordResponseKey(t *testing.T) {
+	record := map[string]any{"response": "hello from response key"}
+	got := contentFromRecord(record)
+	if got != "hello from response key" {
+		t.Errorf("contentFromRecord(response) = %q, want %q", got, "hello from response key")
+	}
+}
+
+func TestContentFromRecordEmptyReturnsEmpty(t *testing.T) {
+	record := map[string]any{"irrelevant": 42}
+	got := contentFromRecord(record)
+	if got != "" {
+		t.Errorf("contentFromRecord(irrelevant) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// messageFromMap: timestamp fallback from root
+// ---------------------------------------------------------------------------
+
+func TestMessageFromMapTimestampFallbackFromRoot(t *testing.T) {
+	// record has no timestamp; root does
+	record := map[string]any{
+		"role":    "user",
+		"content": "hello",
+	}
+	root := map[string]any{
+		"role":      "user",
+		"content":   "hello",
+		"timestamp": "2024-06-15T10:00:00Z",
+	}
+	msg, ok := messageFromMap(record, root)
+	if !ok {
+		t.Fatal("messageFromMap returned !ok")
+	}
+	expected := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
+	if !msg.Timestamp.Equal(expected) {
+		t.Errorf("timestamp = %v, want %v", msg.Timestamp, expected)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// nestedMessageCandidates
+// ---------------------------------------------------------------------------
+
+func TestNestedMessageCandidatesIncludesAllKeys(t *testing.T) {
+	record := map[string]any{
+		"message":  "m1",
+		"event":    "e1",
+		"data":     "d1",
+		"payload":  "p1",
+		"request":  "r1",
+		"response": "r2",
+		"messages": []any{"a", "b"},
+	}
+	candidates := nestedMessageCandidates(record)
+	// 6 individual keys + 2 from messages array = 8
+	if len(candidates) != 8 {
+		t.Errorf("expected 8 candidates, got %d", len(candidates))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// copilotSessionMessageFromRecord edge cases
+// ---------------------------------------------------------------------------
+
+func TestCopilotSessionMessageFromRecordNoType(t *testing.T) {
+	record := map[string]any{"data": map[string]any{"content": "hi"}}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for record without type")
+	}
+}
+
+func TestCopilotSessionMessageFromRecordUnknownType(t *testing.T) {
+	record := map[string]any{
+		"type": "session.end",
+		"data": map[string]any{"content": "bye"},
+	}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for unknown type")
+	}
+}
+
+func TestCopilotSessionMessageFromRecordNoData(t *testing.T) {
+	record := map[string]any{"type": "user.message"}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for record without data")
+	}
+}
+
+func TestCopilotSessionMessageFromRecordEmptyContent(t *testing.T) {
+	record := map[string]any{
+		"type": "user.message",
+		"data": map[string]any{"content": ""},
+	}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for empty content")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseJSONLRecordBytes: copilot session dispatch
+// ---------------------------------------------------------------------------
+
+func TestParseJSONLRecordBytesCopilotUserMessage(t *testing.T) {
+	raw := []byte(`{"type":"user.message","data":{"content":"test input"}}`)
+	msg, ok := parseJSONLRecordBytes(raw)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if msg.Role != "user" || msg.Content != "test input" {
+		t.Errorf("got role=%q content=%q", msg.Role, msg.Content)
+	}
+}
+
+func TestParseJSONLRecordBytesCopilotAssistantMessage(t *testing.T) {
+	raw := []byte(`{"type":"assistant.message","data":{"content":"test reply"}}`)
+	msg, ok := parseJSONLRecordBytes(raw)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if msg.Role != "assistant" || msg.Content != "test reply" {
+		t.Errorf("got role=%q content=%q", msg.Role, msg.Content)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadJSONL: scanner error path (excessively long line)
+// ---------------------------------------------------------------------------
+
+func TestReadJSONLReturnsErrorForExcessivelyLongLine(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "toolong.jsonl")
+	// Write a line that exceeds maxScannerBufferSize (8MB).
+	hugeContent := strings.Repeat("a", 9*1024*1024)
+	line := fmt.Sprintf(`{"role":"user","content":%q}`, hugeContent)
+	if err := os.WriteFile(filePath, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	_, err := ReadJSONL(filePath)
+	if err == nil {
+		t.Fatal("expected error for line exceeding scanner buffer")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadJSONLWithOptions: copilot sanitizer integration
+// ---------------------------------------------------------------------------
+
+func TestReadJSONLWithOptionsSanitizesCopilotDeduplication(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "copilot-dedup.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"user.message","data":{"content":"Fix the bug."}}`,
+		`{"type":"user.message","data":{"content":"Fix the bug."}}`,
+		`{"type":"assistant.message","data":{"content":"I'll look into it."}}`,
+	}, "\n")
+	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{Sanitizer: SanitizeCopilotSessionMessages})
+	if err != nil {
+		t.Fatalf("ReadJSONLWithOptions: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 after dedup, got %d", len(messages))
 	}
 }

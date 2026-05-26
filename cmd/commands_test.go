@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/config"
 	"dreamer/internal/errs"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/spf13/cobra"
 )
 
 // cmdTestFailProviderID is a test-only provider whose Start() always returns
@@ -272,4 +276,404 @@ func setTestHome(t *testing.T, home string) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// Clear chat-discovery env vars so tests don't pick up the developer's
+	// real chat sources. discovery_test.go:setTestHome mirrors this list.
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("GEMINI_HOME", "")
+	t.Setenv("OPENCODE_DB", "")
+	t.Setenv("KIRO_CLI_DB", "")
+	t.Setenv("CODEBUFF_CONFIG_DIR", "")
+	t.Setenv("XDG_DATA_HOME", "")
 }
+
+func TestCheckJobConflict_NoConflict(t *testing.T) {
+	projectDir := t.TempDir()
+	outputRoot := t.TempDir()
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
+		Projects: []config.ProjectConfig{
+			{Name: "myproject", Path: projectDir},
+		},
+	}
+
+	// No jobs.json on disk => no conflict.
+	got := checkJobConflict(cfg, projectDir)
+	if got != "" {
+		t.Fatalf("checkJobConflict returned %q, want empty (no conflict)", got)
+	}
+}
+
+func TestCheckJobConflict_ConflictingJobFound(t *testing.T) {
+	projectDir := t.TempDir()
+	outputRoot := t.TempDir()
+
+	absProject, err := filepath.Abs(projectDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	absProject = filepath.Clean(absProject)
+
+	// Write a jobs.json with a running job for the project.
+	jobsPath := filepath.Join(outputRoot, "jobs.json")
+	jobData := fmt.Sprintf(`{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "myproject-1234-abcd",
+      "project": "myproject",
+      "project_path": %q,
+      "status": "running",
+      "enqueued_at": "2026-01-01T00:00:00Z",
+      "provider": "test",
+      "since": "24h"
+    }
+  ]
+}`, absProject)
+	if err := os.WriteFile(jobsPath, []byte(jobData), 0o644); err != nil {
+		t.Fatalf("write jobs.json: %v", err)
+	}
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
+		Projects: []config.ProjectConfig{
+			{Name: "myproject", Path: absProject},
+		},
+	}
+
+	got := checkJobConflict(cfg, projectDir)
+	if got == "" {
+		t.Fatal("checkJobConflict returned empty, want conflict message")
+	}
+	if !strings.Contains(got, "already in progress") {
+		t.Fatalf("checkJobConflict = %q, want message containing 'already in progress'", got)
+	}
+}
+
+func TestCheckJobConflict_CompletedJobNoConflict(t *testing.T) {
+	projectDir := t.TempDir()
+	outputRoot := t.TempDir()
+
+	absProject, err := filepath.Abs(projectDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	absProject = filepath.Clean(absProject)
+
+	// Write a jobs.json with a completed job — should NOT conflict.
+	jobsPath := filepath.Join(outputRoot, "jobs.json")
+	jobData := fmt.Sprintf(`{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "myproject-5678-efgh",
+      "project": "myproject",
+      "project_path": %q,
+      "status": "completed",
+      "enqueued_at": "2026-01-01T00:00:00Z",
+      "provider": "test",
+      "since": "24h"
+    }
+  ]
+}`, absProject)
+	if err := os.WriteFile(jobsPath, []byte(jobData), 0o644); err != nil {
+		t.Fatalf("write jobs.json: %v", err)
+	}
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
+		Projects: []config.ProjectConfig{
+			{Name: "myproject", Path: absProject},
+		},
+	}
+
+	got := checkJobConflict(cfg, projectDir)
+	if got != "" {
+		t.Fatalf("checkJobConflict returned %q for completed job, want empty", got)
+	}
+}
+
+func TestPrintBox_EmptyLines(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printBox(cmd, []string{})
+
+	output := buf.String()
+	// Should have top and bottom borders with nothing between them.
+	if !strings.Contains(output, "╔") || !strings.Contains(output, "╚") {
+		t.Fatalf("printBox output missing box borders: %q", output)
+	}
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("printBox(empty) produced %d lines, want 2 (top + bottom borders)", len(lines))
+	}
+}
+
+func TestPrintBox_SingleLine(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printBox(cmd, []string{"hello"})
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("printBox(single) produced %d lines, want 3 (top + content + bottom)", len(lines))
+	}
+	if !strings.Contains(lines[1], "hello") {
+		t.Fatalf("content line missing 'hello': %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[1], "║") || !strings.HasSuffix(lines[1], "║") {
+		t.Fatalf("content line not wrapped in ║: %q", lines[1])
+	}
+}
+
+func TestPrintBox_MultipleLines(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printBox(cmd, []string{"short", "a longer line"})
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("printBox(multi) produced %d lines, want 4 (top + 2 content + bottom)", len(lines))
+	}
+	// Both content lines should have the same width (padded to the longest).
+	if len(lines[1]) != len(lines[2]) {
+		t.Fatalf("content lines differ in width: %d vs %d", len(lines[1]), len(lines[2]))
+	}
+	if !strings.Contains(lines[1], "short") {
+		t.Fatalf("first content line missing 'short': %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "a longer line") {
+		t.Fatalf("second content line missing 'a longer line': %q", lines[2])
+	}
+}
+
+func TestStyledHelp_IncludesBannerAndCommands(t *testing.T) {
+	root := newRootCommand()
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetArgs([]string{"--help"})
+
+	_ = root.Execute()
+	output := buf.String()
+
+	// Banner is rendered as Unicode block characters.
+	if !strings.Contains(output, "███╗") {
+		t.Fatalf("help output missing banner block chars: %q", output)
+	}
+	if !strings.Contains(output, "analyze") {
+		t.Fatalf("help output missing 'analyze' command: %q", output)
+	}
+	if !strings.Contains(output, "daemon") {
+		t.Fatalf("help output missing 'daemon' command: %q", output)
+	}
+	if !strings.Contains(output, "CORE") {
+		t.Fatalf("help output missing 'CORE' group: %q", output)
+	}
+	if !strings.Contains(output, "INSPECT") {
+		t.Fatalf("help output missing 'INSPECT' group: %q", output)
+	}
+}
+
+func TestRenderFlagSection_WithFlags(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().StringP("name", "n", "", "set name")
+	cmd.Flags().IntP("count", "c", 10, "set count")
+
+	var buf strings.Builder
+	style := lipgloss.NewStyle()
+	renderFlagSection(&buf, "Testing", cmd.Flags(), style, style, style, style, style)
+
+	output := buf.String()
+	if !strings.Contains(output, "Testing") {
+		t.Fatalf("expected section header 'Testing': %q", output)
+	}
+	if !strings.Contains(output, "--name") {
+		t.Fatalf("expected --name flag: %q", output)
+	}
+	if !strings.Contains(output, "--count") {
+		t.Fatalf("expected --count flag: %q", output)
+	}
+}
+
+func TestPrintAlreadyRunningBox(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	cfg := &config.Config{}
+	printAlreadyRunningBox(cmd, 12345, "/tmp/dreamer.log", cfg)
+
+	output := buf.String()
+	if !strings.Contains(output, "12345") {
+		t.Fatalf("expected PID 12345 in output: %q", output)
+	}
+	if !strings.Contains(output, "already running") {
+		t.Fatalf("expected 'already running' message: %q", output)
+	}
+}
+
+func TestPrintStartedBox(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{FrequencySeconds: 60},
+		Projects: []config.ProjectConfig{
+			{Name: "proj1", Path: "/tmp/proj1"},
+		},
+	}
+	printStartedBox(cmd, 12345, "/tmp/dreamer.log", cfg)
+
+	output := buf.String()
+	if !strings.Contains(output, "12345") {
+		t.Fatalf("expected PID 12345 in output: %q", output)
+	}
+	if !strings.Contains(output, "started") {
+		t.Fatalf("expected 'started' message: %q", output)
+	}
+}
+
+func TestWaitForLockfile_TimesOut(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// No lockfile will appear, should time out quickly.
+	pid := waitForLockfile(lockPath, 100*time.Millisecond)
+	if pid != 0 {
+		t.Fatalf("expected 0 (timeout), got %d", pid)
+	}
+}
+
+func TestWaitForLockfile_FindsPID(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// Write a valid lockfile with a PID.
+	if err := os.WriteFile(lockPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	pid := waitForLockfile(lockPath, 1*time.Second)
+	if pid != 42 {
+		t.Fatalf("expected PID 42, got %d", pid)
+	}
+}
+
+func TestWaitForLockfileRemoval_Removed(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// Create then immediately remove the lockfile.
+	if err := os.WriteFile(lockPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	_ = os.Remove(lockPath)
+
+	err := waitForLockfileRemoval(lockPath, 1*time.Second)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestWaitForLockfileRemoval_Timeout(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// Create a lockfile that stays around.
+	if err := os.WriteFile(lockPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	err := waitForLockfileRemoval(lockPath, 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestSweepStaleFindingsTempFiles_NoFiles(t *testing.T) {
+	// Global temp dir may already have stale files from other tests/daemons,
+	// so we just verify the function runs without panic and returns a count.
+	removed := sweepStaleFindingsTempFiles()
+	if removed < 0 {
+		t.Fatalf("expected non-negative count, got %d", removed)
+	}
+}
+
+func TestSweepStaleFindingsTempFiles_RemovesOldFiles(t *testing.T) {
+	tmpDir := os.TempDir()
+
+	// Create old temp files matching the expected patterns.
+	oldFile := filepath.Join(tmpDir, "dreamer-findings-stale-test.jsonl")
+	if err := os.WriteFile(oldFile, []byte("test"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+	defer os.Remove(oldFile)
+
+	// Set modification time to well before staleAge.
+	oldTime := time.Now().Add(-staleAge - time.Minute)
+	_ = os.Chtimes(oldFile, oldTime, oldTime)
+
+	removed := sweepStaleFindingsTempFiles()
+	if removed < 1 {
+		t.Fatalf("expected at least 1 removed, got %d", removed)
+	}
+
+	// Verify file was actually removed.
+	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
+		t.Fatalf("stale file should have been removed: %s", oldFile)
+	}
+}
+
+
+func TestRunExternalCommand_Echo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("echo is a shell built-in on Windows")
+	}
+	output, err := runExternalCommand("echo", "hello")
+	if err != nil {
+		t.Fatalf("runExternalCommand: %v", err)
+	}
+	if !strings.Contains(string(output), "hello") {
+		t.Fatalf("expected 'hello', got: %q", output)
+	}
+}
+
+func TestRunExternalCommand_FailingCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("'false' command not available on Windows")
+	}
+	// A command that should fail.
+	_, err := runExternalCommand("false")
+	if err == nil {
+		t.Fatal("expected error from 'false' command")
+	}
+}
+
+func TestFormatCommandOutput(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"  \n  ", ""},
+		{"hello", ": hello"},
+		{"  hello world  \n", ": hello world"},
+		{"error message\n", ": error message"},
+	}
+	for _, tt := range tests {
+		got := formatCommandOutput([]byte(tt.input))
+		if got != tt.want {
+			t.Errorf("formatCommandOutput(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+

@@ -216,3 +216,93 @@ func TestReadCodebuffMessagesAgentBlockExtraction(t *testing.T) {
 		t.Errorf("msgs[1].Content = %q, want %q", msgs[1].Content, want)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// parseCodebuffTimestamp: invalid string, empty string, RFC3339 fallback
+// ---------------------------------------------------------------------------
+
+func TestParseCodebuffTimestampInvalidString(t *testing.T) {
+	got := parseCodebuffTimestamp("not a timestamp")
+	if !got.IsZero() {
+		t.Errorf("expected zero time for invalid string, got %v", got)
+	}
+}
+
+func TestParseCodebuffTimestampEmpty(t *testing.T) {
+	got := parseCodebuffTimestamp("")
+	if !got.IsZero() {
+		t.Errorf("expected zero time for empty string, got %v", got)
+	}
+}
+
+func TestParseCodebuffTimestampRFC3339NoNanos(t *testing.T) {
+	got := parseCodebuffTimestamp("2026-05-19T10:00:00Z")
+	if got.IsZero() {
+		t.Error("expected non-zero time for valid RFC3339")
+	}
+	if got.Year() != 2026 {
+		t.Errorf("year = %d, want 2026", got.Year())
+	}
+}
+
+func TestParseCodebuffTimestampWhitespacePadded(t *testing.T) {
+	got := parseCodebuffTimestamp("  2026-05-19T10:00:00Z  ")
+	if got.IsZero() {
+		t.Error("expected non-zero time for whitespace-padded timestamp")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// codebuffRoleFromVariant: edge cases
+// ---------------------------------------------------------------------------
+
+func TestCodebuffRoleFromVariantUnknown(t *testing.T) {
+	if got := codebuffRoleFromVariant("system"); got != "" {
+		t.Errorf("got %q, want empty for system variant", got)
+	}
+	if got := codebuffRoleFromVariant(""); got != "" {
+		t.Errorf("got %q, want empty for empty variant", got)
+	}
+	if got := codebuffRoleFromVariant("  USER  "); got != "user" {
+		t.Errorf("got %q, want user for case-insensitive USER", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// extractCodebuffBlockText: unknown block types
+// ---------------------------------------------------------------------------
+
+func TestExtractCodebuffBlockTextUnknownTypes(t *testing.T) {
+	blocks := []codebuffRawBlock{
+		{Type: "unknown", Content: "should be ignored"},
+		{Type: "image", Content: "base64data"},
+	}
+	got := extractCodebuffBlockText(blocks)
+	if got != "" {
+		t.Errorf("got %q, want empty for unknown block types", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadCodebuffMessages: variant not user/ai/agent
+// ---------------------------------------------------------------------------
+
+func TestReadCodebuffMessagesSkipsUnknownVariant(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "chat-messages.json")
+	content := `[
+		{"id":"m1","variant":"user","content":"hello","timestamp":"2026-05-19T10:00:00Z"},
+		{"id":"m2","variant":"system","content":"internal notification","timestamp":"2026-05-19T10:00:01Z"},
+		{"id":"m3","variant":"ai","content":"response","timestamp":"2026-05-19T10:00:02Z"}
+	]`
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := ReadCodebuffMessages(file)
+	if err != nil {
+		t.Fatalf("ReadCodebuffMessages: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("got %d, want 2 (system variant should be skipped)", len(msgs))
+	}
+}

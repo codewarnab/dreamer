@@ -493,3 +493,564 @@ func TestIsWindowsReservedName(t *testing.T) {
 		}
 	}
 }
+
+func TestExpandUserHome_EmptyString(t *testing.T) {
+	got, err := ExpandUserHome("")
+	if err != nil {
+		t.Fatalf("ExpandUserHome(\"\"): %v", err)
+	}
+	if got != "" {
+		t.Fatalf("ExpandUserHome(\"\") = %q, want empty", got)
+	}
+}
+
+func TestExpandUserHome_PathWithoutTilde(t *testing.T) {
+	path := "/some/absolute/path"
+	got, err := ExpandUserHome(path)
+	if err != nil {
+		t.Fatalf("ExpandUserHome(%q): %v", path, err)
+	}
+	if got != path {
+		t.Fatalf("ExpandUserHome(%q) = %q, want unchanged", path, got)
+	}
+}
+
+func TestExpandUserHome_TildeOnly(t *testing.T) {
+	got, err := ExpandUserHome("~")
+	if err != nil {
+		t.Fatalf("ExpandUserHome(\"~\"): %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	if got != home {
+		t.Fatalf("ExpandUserHome(\"~\") = %q, want %q", got, home)
+	}
+}
+
+func TestExpandUserHome_TildeSlash(t *testing.T) {
+	got, err := ExpandUserHome("~/projects/foo")
+	if err != nil {
+		t.Fatalf("ExpandUserHome(\"~/projects/foo\"): %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	want := filepath.Join(home, "projects/foo")
+	if got != want {
+		t.Fatalf("ExpandUserHome(\"~/projects/foo\") = %q, want %q", got, want)
+	}
+}
+
+func TestExpandUserHome_TildeBackslash(t *testing.T) {
+	got, err := ExpandUserHome("~\\projects\\foo")
+	if err != nil {
+		t.Fatalf("ExpandUserHome(\"~\\\\projects\\\\foo\"): %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	want := filepath.Join(home, "projects\\foo")
+	if got != want {
+		t.Fatalf("ExpandUserHome = %q, want %q", got, want)
+	}
+}
+
+func TestProjectConfigPath(t *testing.T) {
+	got := ProjectConfigPath("/home/user/project")
+	want := filepath.Join("/home/user/project", ".dreamer", "config.yaml")
+	if got != want {
+		t.Fatalf("ProjectConfigPath = %q, want %q", got, want)
+	}
+}
+
+func TestProjectRulesPath(t *testing.T) {
+	got := ProjectRulesPath("/home/user/project", "lint-rule")
+	want := filepath.Join("/home/user/project", ".dreamer", "rules", "lint-rule.yaml")
+	if got != want {
+		t.Fatalf("ProjectRulesPath = %q, want %q", got, want)
+	}
+}
+
+func TestConfigDirBase_UsesXDGWhenSet(t *testing.T) {
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	got, err := ConfigDirBase()
+	if err != nil {
+		t.Fatalf("ConfigDirBase: %v", err)
+	}
+	if got != xdg {
+		t.Fatalf("ConfigDirBase = %q, want %q (XDG override)", got, xdg)
+	}
+}
+
+func TestUserConfigRoot_AppendsDreamer(t *testing.T) {
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	got, err := UserConfigRoot()
+	if err != nil {
+		t.Fatalf("UserConfigRoot: %v", err)
+	}
+	want := filepath.Join(xdg, "dreamer")
+	if got != want {
+		t.Fatalf("UserConfigRoot = %q, want %q", got, want)
+	}
+}
+
+func TestLoadConfig_EmptyPath(t *testing.T) {
+	_, err := LoadConfig("")
+	if err == nil {
+		t.Fatal("LoadConfig(\"\") expected error")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Fatalf("error = %q, want 'required'", err)
+	}
+}
+
+func TestLoadConfig_NonexistentFile(t *testing.T) {
+	_, err := LoadConfig(filepath.Join(t.TempDir(), "no-such-file.yaml"))
+	if err == nil {
+		t.Fatal("LoadConfig with missing file expected error")
+	}
+}
+
+func TestLoadProjectFileConfig_MissingFileReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	got, err := LoadProjectFileConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadProjectFileConfig: %v", err)
+	}
+	if got.Provider != "" {
+		t.Fatalf("Provider = %q, want empty for missing file", got.Provider)
+	}
+}
+
+func TestLoadProjectFileConfig_ValidFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".dreamer")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	content := "provider: claude-cli\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := LoadProjectFileConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadProjectFileConfig: %v", err)
+	}
+	if got.Provider != "claude-cli" {
+		t.Fatalf("Provider = %q, want claude-cli", got.Provider)
+	}
+}
+
+func TestResolveMaxDuration_ProjectOverride(t *testing.T) {
+	cfg := &Config{
+		Daemon:   DaemonConfig{MaxAnalysisDuration: "8h"},
+		Projects: []ProjectConfig{{Name: "fast", MaxAnalysisDuration: "30m"}},
+	}
+	d, err := cfg.ResolveMaxDuration("fast")
+	if err != nil {
+		t.Fatalf("ResolveMaxDuration: %v", err)
+	}
+	if d.Minutes() != 30 {
+		t.Fatalf("duration = %v, want 30m", d)
+	}
+}
+
+func TestResolveMaxDuration_DaemonDefault(t *testing.T) {
+	cfg := &Config{
+		Daemon:   DaemonConfig{MaxAnalysisDuration: "4h"},
+		Projects: []ProjectConfig{{Name: "normal"}},
+	}
+	d, err := cfg.ResolveMaxDuration("normal")
+	if err != nil {
+		t.Fatalf("ResolveMaxDuration: %v", err)
+	}
+	if d.Hours() != 4 {
+		t.Fatalf("duration = %v, want 4h", d)
+	}
+}
+
+func TestResolveMaxDuration_InvalidDuration(t *testing.T) {
+	cfg := &Config{
+		Daemon: DaemonConfig{MaxAnalysisDuration: "not-a-duration"},
+	}
+	_, err := cfg.ResolveMaxDuration("anything")
+	if err == nil {
+		t.Fatal("expected error for invalid duration")
+	}
+}
+
+func TestMergeProviderBlocks_OverlayWins(t *testing.T) {
+	base := ProviderBlock{
+		Model:       "gpt-5",
+		CopilotHome: "/base/home",
+	}
+	override := ProviderBlock{
+		Model: "claude-sonnet-4-5-20250929",
+		Env:   map[string]string{"FOO": "bar"},
+	}
+	got := mergeProviderBlocks(base, override)
+	if got.Model != "claude-sonnet-4-5-20250929" {
+		t.Fatalf("Model = %q, want claude-sonnet-4-5-20250929", got.Model)
+	}
+	if got.CopilotHome != "/base/home" {
+		t.Fatalf("CopilotHome = %q, want /base/home (preserved from base)", got.CopilotHome)
+	}
+	if got.Env["FOO"] != "bar" {
+		t.Fatalf("Env[FOO] = %q, want bar", got.Env["FOO"])
+	}
+}
+
+func TestMergeProviderBlocks_NilOverrideEnvPreservesBase(t *testing.T) {
+	base := ProviderBlock{
+		Model: "gpt-5",
+		Env:   map[string]string{"KEY": "val"},
+	}
+	override := ProviderBlock{
+		Model: "new-model",
+	}
+	got := mergeProviderBlocks(base, override)
+	if got.Env["KEY"] != "val" {
+		t.Fatalf("Env[KEY] = %q, want val (preserved from base)", got.Env["KEY"])
+	}
+}
+
+func TestMergeProviderBlocks_UseLoggedInUserOverride(t *testing.T) {
+	f := false
+	base := ProviderBlock{}
+	override := ProviderBlock{UseLoggedInUser: &f}
+	got := mergeProviderBlocks(base, override)
+	if got.UseLoggedInUser == nil || *got.UseLoggedInUser != false {
+		t.Fatalf("UseLoggedInUser = %v, want false", got.UseLoggedInUser)
+	}
+}
+
+func TestMergeProviderBlocks_AutoStartOverride(t *testing.T) {
+	tVal := true
+	base := ProviderBlock{}
+	override := ProviderBlock{AutoStart: &tVal}
+	got := mergeProviderBlocks(base, override)
+	if got.AutoStart == nil || *got.AutoStart != true {
+		t.Fatalf("AutoStart = %v, want true", got.AutoStart)
+	}
+}
+
+func TestMergeProviderBlocks_CopilotHomeOverride(t *testing.T) {
+	base := ProviderBlock{CopilotHome: "/old"}
+	override := ProviderBlock{CopilotHome: "/new"}
+	got := mergeProviderBlocks(base, override)
+	if got.CopilotHome != "/new" {
+		t.Fatalf("CopilotHome = %q, want /new", got.CopilotHome)
+	}
+}
+
+func TestMergeProviderBlocks_CLIURLOverride(t *testing.T) {
+	base := ProviderBlock{CLIURL: "http://old"}
+	override := ProviderBlock{CLIURL: "http://new"}
+	got := mergeProviderBlocks(base, override)
+	if got.CLIURL != "http://new" {
+		t.Fatalf("CLIURL = %q, want http://new", got.CLIURL)
+	}
+}
+
+func TestMergeProviderBlocks_CommandOverride(t *testing.T) {
+	base := ProviderBlock{Command: []string{"old"}}
+	override := ProviderBlock{Command: []string{"new", "cmd"}}
+	got := mergeProviderBlocks(base, override)
+	if len(got.Command) != 2 || got.Command[0] != "new" {
+		t.Fatalf("Command = %v, want [new cmd]", got.Command)
+	}
+}
+
+func TestMergeProviderBlocks_EnvMerge(t *testing.T) {
+	base := ProviderBlock{Env: map[string]string{"A": "1", "B": "2"}}
+	override := ProviderBlock{Env: map[string]string{"B": "override", "C": "3"}}
+	got := mergeProviderBlocks(base, override)
+	if got.Env["A"] != "1" || got.Env["B"] != "override" || got.Env["C"] != "3" {
+		t.Fatalf("Env = %v, want merged", got.Env)
+	}
+}
+
+func TestMergeProviderBlocks_APIKeyEnvOverride(t *testing.T) {
+	base := ProviderBlock{APIKeyEnv: "OLD_KEY"}
+	override := ProviderBlock{APIKeyEnv: "NEW_KEY"}
+	got := mergeProviderBlocks(base, override)
+	if got.APIKeyEnv != "NEW_KEY" {
+		t.Fatalf("APIKeyEnv = %q, want NEW_KEY", got.APIKeyEnv)
+	}
+}
+
+func TestMergeProviderBlocks_BaseURLOverride(t *testing.T) {
+	base := ProviderBlock{BaseURL: "http://old"}
+	override := ProviderBlock{BaseURL: "http://new"}
+	got := mergeProviderBlocks(base, override)
+	if got.BaseURL != "http://new" {
+		t.Fatalf("BaseURL = %q, want http://new", got.BaseURL)
+	}
+}
+
+func TestMergeProviderBlocks_PasswordOverride(t *testing.T) {
+	base := ProviderBlock{Password: "old"}
+	override := ProviderBlock{Password: "new"}
+	got := mergeProviderBlocks(base, override)
+	if got.Password != "new" {
+		t.Fatalf("Password = %q, want new", got.Password)
+	}
+}
+
+func TestMergeProviderBlocks_MaxInputTokensOverride(t *testing.T) {
+	base := ProviderBlock{MaxInputTokens: 100}
+	override := ProviderBlock{MaxInputTokens: 200}
+	got := mergeProviderBlocks(base, override)
+	if got.MaxInputTokens != 200 {
+		t.Fatalf("MaxInputTokens = %d, want 200", got.MaxInputTokens)
+	}
+}
+
+func TestMergeProviderBlocks_SandboxOverride(t *testing.T) {
+	mode := "true"
+	base := ProviderBlock{}
+	override := ProviderBlock{Sandbox: &mode}
+	got := mergeProviderBlocks(base, override)
+	if got.Sandbox == nil || *got.Sandbox != "true" {
+		t.Fatalf("Sandbox = %v, want true", got.Sandbox)
+	}
+}
+
+func TestMergeProviderBlocks_EmptyOverridePreservesBase(t *testing.T) {
+	base := ProviderBlock{
+		Model:       "model",
+		CopilotHome: "/home",
+		CLIURL:      "http://url",
+		APIKeyEnv:   "KEY",
+		BaseURL:     "http://base",
+		Password:    "pw",
+		MaxInputTokens: 500,
+		Command:     []string{"cmd"},
+	}
+	override := ProviderBlock{}
+	got := mergeProviderBlocks(base, override)
+	if got.Model != "model" || got.CopilotHome != "/home" || got.CLIURL != "http://url" {
+		t.Fatal("base fields not preserved")
+	}
+	if got.APIKeyEnv != "KEY" || got.BaseURL != "http://base" || got.Password != "pw" {
+		t.Fatal("base fields not preserved (2)")
+	}
+	if got.MaxInputTokens != 500 || len(got.Command) != 1 {
+		t.Fatal("base fields not preserved (3)")
+	}
+}
+
+func TestValidateWebHost_IPv6Loopback(t *testing.T) {
+	if err := validateWebHost("::1"); err != nil {
+		t.Fatalf("validateWebHost(\"::1\"): %v", err)
+	}
+}
+
+func TestValidateWebHost_Localhost(t *testing.T) {
+	if err := validateWebHost("localhost"); err != nil {
+		t.Fatalf("validateWebHost(\"localhost\"): %v", err)
+	}
+}
+
+func TestResolveProviderConfig_FallbackToDefault(t *testing.T) {
+	cfg := &Config{DefaultProvider: ""}
+	id, _ := cfg.ResolveProviderConfig(nil, "")
+	if id != DefaultProviderID {
+		t.Fatalf("id = %q, want %q (default fallback)", id, DefaultProviderID)
+	}
+}
+
+func TestLoadConfig_InvalidYAML(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := os.WriteFile(configPath, []byte("{{bad yaml"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadProjectFileConfig_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".dreamer")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("{{bad"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadProjectFileConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestValidateConfig_RejectsInvalidProjectDuration(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &Config{
+		Projects: []ProjectConfig{
+			{Name: "p", Path: projectDir, MaxAnalysisDuration: "bad"},
+		},
+		Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: projectDir, MaxAnalysisDuration: "8h", JobHistoryRetention: "720h"},
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected error for invalid project max_analysis_duration")
+	}
+}
+
+func TestValidateConfig_Valid(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &Config{
+		Projects: []ProjectConfig{
+			{Name: "p", Path: projectDir, MaxAnalysisDuration: "30m"},
+		},
+		Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: projectDir, MaxAnalysisDuration: "8h", JobHistoryRetention: "720h"},
+		Web:    WebConfig{Host: "127.0.0.1", Port: 7777, LogTailKB: 1},
+	}
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("validateConfig: %v", err)
+	}
+}
+
+func TestValidateConfig_RejectsEmptyProjectPath(t *testing.T) {
+	cfg := &Config{
+		Projects: []ProjectConfig{
+			{Name: "p", Path: ""},
+		},
+		Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir(), MaxAnalysisDuration: "8h", JobHistoryRetention: "720h"},
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected error for empty project path")
+	}
+}
+
+func TestValidateConfig_RejectsRelativeOutputRoot(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &Config{
+		Projects: []ProjectConfig{
+			{Name: "p", Path: projectDir},
+		},
+		Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: "relative/path", MaxAnalysisDuration: "8h", JobHistoryRetention: "720h"},
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected error for relative output root")
+	}
+}
+
+func TestValidateConfig_RejectsInvalidRetention(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &Config{
+		Projects: []ProjectConfig{
+			{Name: "p", Path: projectDir},
+		},
+		Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: projectDir, MaxAnalysisDuration: "8h", JobHistoryRetention: "bad"},
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected error for invalid job_history_retention")
+	}
+}
+
+func TestRemediationMessage_KnownProvider(t *testing.T) {
+	msg := RemediationMessage("copilot-sdk")
+	if msg == "" {
+		t.Fatal("expected non-empty remediation message")
+	}
+}
+
+func TestRemediationMessage_UnknownProvider(t *testing.T) {
+	msg := RemediationMessage("unknown-provider")
+	if !strings.Contains(msg, "unknown-provider") {
+		t.Fatalf("expected provider name in message: %q", msg)
+	}
+}
+
+func TestDefaultModelByProvider_AllProviders(t *testing.T) {
+	allIDs := []ProviderID{
+		ProviderCopilotSDK, ProviderCopilotACP,
+		ProviderClaudeCLI, ProviderClaudeACP,
+		ProviderGeminiCLI, ProviderGeminiACP,
+		ProviderKiroACP, ProviderCodexCLI, ProviderCodexACP,
+		ProviderOpenClaudeCLI, ProviderOpenCodeACP, ProviderOpenCodeServer,
+		ProviderCodebuffSDK,
+	}
+	for _, id := range allIDs {
+		if _, ok := DefaultModelByProvider[id]; !ok {
+			t.Errorf("DefaultModelByProvider missing entry for %q", id)
+		}
+	}
+}
+
+func TestDefaultSandboxByProvider_AllProviders(t *testing.T) {
+	allIDs := []ProviderID{
+		ProviderCopilotSDK, ProviderCopilotACP,
+		ProviderClaudeCLI, ProviderClaudeACP,
+		ProviderGeminiCLI, ProviderGeminiACP,
+		ProviderKiroACP, ProviderCodexCLI, ProviderCodexACP,
+		ProviderOpenClaudeCLI, ProviderOpenCodeACP, ProviderOpenCodeServer,
+		ProviderCodebuffSDK,
+	}
+	for _, id := range allIDs {
+		if _, ok := DefaultSandboxByProvider[id]; !ok {
+			t.Errorf("DefaultSandboxByProvider missing entry for %q", id)
+		}
+	}
+}
+
+func TestLoadConfig_RejectsInvalidMaxAnalysisDuration(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	yamlContent := `
+projects:
+  - name: example
+    path: ` + projectDir + `
+daemon:
+  frequency_seconds: 60
+  output_root: ` + projectDir + `
+  max_analysis_duration: "not-a-duration"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Fatal("expected error for invalid max_analysis_duration")
+	}
+	if !strings.Contains(err.Error(), "parse duration") {
+		t.Fatalf("error = %q, want 'parse duration'", err)
+	}
+}
+
+func TestLoadConfig_DefaultsNegativeFrequency(t *testing.T) {
+	projectDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	yamlContent := `
+projects:
+  - name: example
+    path: ` + projectDir + `
+daemon:
+  frequency_seconds: -1
+  output_root: ` + projectDir + `
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	// applyDefaults replaces negative frequency with the default
+	if got, want := cfg.Daemon.FrequencySeconds, DefaultFrequencySeconds; got != want {
+		t.Fatalf("FrequencySeconds = %d, want %d (should be defaulted from negative)", got, want)
+	}
+}
+
+func TestGlobalConfigPath(t *testing.T) {
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	got, err := GlobalConfigPath()
+	if err != nil {
+		t.Fatalf("GlobalConfigPath: %v", err)
+	}
+	want := filepath.Join(xdg, "dreamer", "config.yaml")
+	if got != want {
+		t.Fatalf("GlobalConfigPath = %q, want %q", got, want)
+	}
+}
