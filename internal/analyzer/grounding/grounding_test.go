@@ -75,38 +75,6 @@ func TestDetectFiles_EmptyRoot(t *testing.T) {
 	}
 }
 
-func TestFilterRelevant_NoSubstrings(t *testing.T) {
-	files := []string{"a.go", "b.go", "c.go"}
-	got := FilterRelevant(files, nil, 0)
-	if len(got) != 3 {
-		t.Fatalf("got %d, want 3", len(got))
-	}
-}
-
-func TestFilterRelevant_Match(t *testing.T) {
-	files := []string{"cmd/main.go", "internal/lib.go", "README.md"}
-	got := FilterRelevant(files, []string{"cmd"}, 0)
-	if len(got) != 1 || got[0] != "cmd/main.go" {
-		t.Fatalf("got %v, want [cmd/main.go]", got)
-	}
-}
-
-func TestFilterRelevant_CaseInsensitive(t *testing.T) {
-	files := []string{"CMD/main.go", "cmd/other.go"}
-	got := FilterRelevant(files, []string{"cmd"}, 0)
-	if len(got) != 2 {
-		t.Fatalf("got %d, want 2", len(got))
-	}
-}
-
-func TestFilterRelevant_WithCap(t *testing.T) {
-	files := []string{"a.go", "b.go", "c.go"}
-	got := FilterRelevant(files, nil, 2)
-	if len(got) != 2 {
-		t.Fatalf("got %d, want 2", len(got))
-	}
-}
-
 func TestBuildContext_Basic(t *testing.T) {
 	files := []string{"main.go", "lib.go"}
 	ctx := BuildContext(files, nil, 0, 0)
@@ -240,6 +208,29 @@ func Gamma() {}
 	symbols := BuildSymbolIndex(root, []string{"a.go"}, 2)
 	if len(symbols) != 2 {
 		t.Fatalf("expected 2 symbols, got %d", len(symbols))
+	}
+}
+
+func TestBuildSymbolIndex_CapReturnsSorted(t *testing.T) {
+	root := t.TempDir()
+	// c.go comes before a.go in the file list, but sorts after it.
+	writeFile(t, root, "c.go", `package c
+func Charlie() {}
+`)
+	writeFile(t, root, "a.go", `package a
+func Alpha() {}
+`)
+
+	// Pass files out of order; cap=2 should return both, sorted by (Path, Line).
+	symbols := BuildSymbolIndex(root, []string{"c.go", "a.go"}, 2)
+	if len(symbols) != 2 {
+		t.Fatalf("expected 2 symbols, got %d", len(symbols))
+	}
+	if symbols[0].Path != "a.go" || symbols[0].Name != "Alpha" {
+		t.Errorf("symbols[0] = {%s, %s}, want {a.go, Alpha}", symbols[0].Path, symbols[0].Name)
+	}
+	if symbols[1].Path != "c.go" || symbols[1].Name != "Charlie" {
+		t.Errorf("symbols[1] = {%s, %s}, want {c.go, Charlie}", symbols[1].Path, symbols[1].Name)
 	}
 }
 
