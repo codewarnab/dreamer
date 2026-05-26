@@ -1,4 +1,4 @@
-//go:build !windows && !linux
+//go:build !windows && !linux && !darwin
 
 // Package sandbox no-op fallback for platforms without a sandbox backend.
 // Linux uses bubblewrap (bwrap). Windows uses WRITE_RESTRICTED tokens.
