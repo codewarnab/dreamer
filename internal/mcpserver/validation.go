@@ -193,10 +193,14 @@ func ValidateFinding(f *FindingInput) error {
 
 // FindingRecorder accumulates validated findings into a JSONL file.
 // Thread-safe for concurrent writes within a single process. Cross-process
-// safety is not provided — the MCP server runs as a single child, and the
+// safety is NOT provided — the MCP server runs as a single child, and the
 // CLI tool path serializes calls via gemini-cli's sequential Bash
 // invocations. If a future use case introduces parallel writers from
 // separate processes, switch this to per-record files or add file locking.
+//
+// WARNING: Do not share a FindingRecorder across goroutines in separate
+// processes (e.g., if the MCP server is later refactored for concurrent
+// tool calls). The mutex protects in-process concurrency only.
 type FindingRecorder struct {
 	mu       sync.Mutex
 	path     string

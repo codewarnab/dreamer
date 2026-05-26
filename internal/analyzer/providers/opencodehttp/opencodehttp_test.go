@@ -169,7 +169,7 @@ func TestBasicAuth(t *testing.T) {
 // --- detectPort tests ---
 
 func TestDetectPortImmediateSuccess(t *testing.T) {
-	r := strings.NewReader("Listening on http://127.0.0.1:4096\n")
+	r := io.NopCloser(strings.NewReader("Listening on http://127.0.0.1:4096\n"))
 	port, err := detectPort(r, 5*time.Second)
 	if err != nil {
 		t.Fatalf("detectPort: %v", err)
@@ -195,7 +195,7 @@ func TestDetectPortTimeout(t *testing.T) {
 }
 
 func TestDetectPortReaderEOF(t *testing.T) {
-	r := strings.NewReader("some log line without port\n")
+	r := io.NopCloser(strings.NewReader("some log line without port\n"))
 	_, err := detectPort(r, 5*time.Second)
 	if err == nil {
 		t.Fatal("expected error on EOF without port")
@@ -225,7 +225,7 @@ func TestDetectPortPartialWrite(t *testing.T) {
 }
 
 func TestDetectPortIPv6(t *testing.T) {
-	r := strings.NewReader("listening on http://[::]:8080\n")
+	r := io.NopCloser(strings.NewReader("listening on http://[::]:8080\n"))
 	port, err := detectPort(r, 5*time.Second)
 	if err != nil {
 		t.Fatalf("detectPort: %v", err)
@@ -236,7 +236,7 @@ func TestDetectPortIPv6(t *testing.T) {
 }
 
 func TestDetectPortEmptyReader(t *testing.T) {
-	r := strings.NewReader("")
+	r := io.NopCloser(strings.NewReader(""))
 	_, err := detectPort(r, 50*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected error on empty reader")

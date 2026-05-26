@@ -227,7 +227,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	// Fail fast when readLoop already saw the child exit.
 	if s.transport.isClosed() {
-		return "", errors.Join(analyzer.ErrUnavailable, ErrTransportClosed)
+		return "", s.transport.closedErrorWithStderr(nil)
 	}
 
 	// Fresh ACP sessionId per Run keeps each rule's prompt context isolated.
@@ -324,6 +324,11 @@ type transport struct {
 
 	sandboxCleanup func() // closes job handle after process exits
 	prepareCleanup func() // closes restricted token after process exits
+
+	stderrPipe   io.ReadCloser  // stored for explicit closure in close()
+	goroutines   sync.WaitGroup // tracks drainStderr + readLoop
+	cleanupOnce  sync.Once      // ensures resource-release path runs exactly once
+	releaseErr   error          // error from the resource-release path
 }
 
 type sessionStream struct {
@@ -480,7 +485,9 @@ func dialStdio(ctx context.Context, providerID string, command []string, env map
 		stdout:         bufio.NewReader(stdout),
 		sandboxCleanup: postCleanup,
 		prepareCleanup: prepareCleanup,
+		stderrPipe:     stderr,
 	}
+	t.goroutines.Add(2)
 	go t.drainStderr(stderr)
 	go t.readLoop(nil)
 	return t, nil
@@ -560,13 +567,13 @@ func (t *transport) call(ctx context.Context, method string, params any, onPermi
 	select {
 	case <-ctx.Done():
 		if t.isClosed() {
-			return nil, errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, ctx.Err())
+			return nil, t.closedErrorWithStderr(ctx.Err())
 		}
 		return nil, ctx.Err()
 	case resp := <-respCh:
 		if resp.Error != nil {
 			if t.isClosed() {
-				return nil, errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, resp.Error)
+				return nil, t.closedErrorWithStderr(resp.Error)
 			}
 			return nil, resp.Error
 		}
@@ -591,6 +598,7 @@ func (t *transport) send(payload any) error {
 }
 
 func (t *transport) readLoop(initial *bytes.Buffer) {
+	defer t.goroutines.Done()
 	if initial != nil {
 		_ = initial // placeholder for future buffering
 	}
@@ -629,6 +637,35 @@ func (t *transport) isClosed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.closed
+}
+
+// StderrString returns accumulated stderr output. Safe for concurrent use.
+func (t *transport) StderrString() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.stderrBuf.String()
+}
+
+// closedErrorWithStderr builds the transport-closed error, attaching
+// the last maxStderrBytes of stderr when available. Stderr is trimmed
+// to prevent secret/URL leakage into dreamer.log.
+func (t *transport) closedErrorWithStderr(extra error) error {
+	stderr := t.StderrString()
+	if stderr != "" {
+		const maxStderrBytes = 512
+		trimmed := strings.TrimSpace(stderr)
+		if len(trimmed) > maxStderrBytes {
+			trimmed = "..." + trimmed[len(trimmed)-maxStderrBytes:]
+		}
+		if extra != nil {
+			return fmt.Errorf("%w: %w (stderr: %s)", analyzer.ErrUnavailable, errors.Join(ErrTransportClosed, extra), trimmed)
+		}
+		return fmt.Errorf("%w: %w (stderr: %s)", analyzer.ErrUnavailable, ErrTransportClosed, trimmed)
+	}
+	if extra != nil {
+		return errors.Join(analyzer.ErrUnavailable, ErrTransportClosed, extra)
+	}
+	return errors.Join(analyzer.ErrUnavailable, ErrTransportClosed)
 }
 
 // markClosed flips the closed flag and wakes pending calls. Idempotent.
@@ -782,6 +819,7 @@ func selectPermissionOptionID(params map[string]any, approved bool) string {
 }
 
 func (t *transport) drainStderr(r io.Reader) {
+	defer t.goroutines.Done()
 	if r == nil {
 		return
 	}
@@ -800,35 +838,58 @@ func (t *transport) drainStderr(r io.Reader) {
 }
 
 func (t *transport) close() error {
+	// Ensure the logical-closed flag is set so new calls are rejected.
+	// readLoop may have already flipped this via markClosed; that's fine.
 	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
-		return nil
-	}
 	t.closed = true
 	t.mu.Unlock()
 
-	_ = t.stdin.Close()
-	done := make(chan error, 1)
-	go func() { done <- t.cmd.Wait() }()
-	var waitErr error
-	select {
-	case <-time.After(5 * time.Second):
-		_ = t.cmd.Process.Kill()
-		<-done
-	case waitErr = <-done:
-	}
+	// Resource-release path runs exactly once regardless of whether
+	// readLoop (markClosed) or provider.Close (this method) observed
+	// the exit first.
+	t.cleanupOnce.Do(func() {
+		_ = t.stdin.Close()
+		done := make(chan error, 1)
+		go func() { done <- t.cmd.Wait() }()
+		var waitErr error
+		select {
+		// 5s hard-coded: close() implements Close() error with no context
+		// parameter, so there's no deadline to propagate. The timeout is
+		// intentionally long to give the agent time to flush; Kill() +
+		// KILL_ON_JOB_CLOSE from the sandbox always ensures the process exits.
+		case <-time.After(5 * time.Second):
+			_ = t.cmd.Process.Kill()
+			waitErr = <-done
+		case waitErr = <-done:
+		}
+		// Explicitly close pipes so goroutines exit even if process exit
+		// didn't trigger EOF (e.g., zombie process before KILL_ON_JOB_CLOSE).
+		if t.stderrPipe != nil {
+			_ = t.stderrPipe.Close()
+		}
 
-	// Release sandbox kernel handles after the process has exited.
-	// Order matters: post-start (Job Object) first, then prepare (token).
-	// Closing the job handle is safe here because cmd.Wait() returned.
-	if t.sandboxCleanup != nil {
-		t.sandboxCleanup()
-	}
-	if t.prepareCleanup != nil {
-		t.prepareCleanup()
-	}
-	return waitErr
+		// Wait for drainStderr + readLoop to finish. They exit when their
+		// input pipes close (from Kill, explicit Close, or process exit).
+		waitCh := make(chan struct{})
+		go func() { t.goroutines.Wait(); close(waitCh) }()
+		select {
+		case <-waitCh:
+		case <-time.After(5 * time.Second):
+			// Goroutines didn't exit — abandon. KILL_ON_JOB_CLOSE will clean up.
+		}
+
+		// Release sandbox kernel handles after the process has exited.
+		// Order matters: post-start (Job Object) first, then prepare (token).
+		// Closing the job handle is safe here because cmd.Wait() returned.
+		if t.sandboxCleanup != nil {
+			t.sandboxCleanup()
+		}
+		if t.prepareCleanup != nil {
+			t.prepareCleanup()
+		}
+		t.releaseErr = waitErr
+	})
+	return t.releaseErr
 }
 
 type rpcEnvelope struct {

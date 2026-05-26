@@ -23,6 +23,11 @@ import (
 
 const ID = "opencode-server"
 
+// closerFunc adapts a function into an io.Closer.
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
+
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderOpenCodeServer, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
 		model := providerConfig.Model
@@ -89,8 +94,9 @@ type provider struct {
 	mu        sync.Mutex
 	started   bool
 	closed    bool
-	autoStart bool      // true if we spawned the server ourselves
-	cmd       *exec.Cmd // non-nil when auto-started
+	autoStart bool          // true if we spawned the server ourselves
+	cmd       *exec.Cmd     // non-nil when auto-started
+	stderrDrainer io.Closer // non-nil: signals background drainer to exit
 }
 
 func (p *provider) ID() string { return ID }
@@ -144,12 +150,28 @@ func (p *provider) Start(ctx context.Context) error {
 		_ = cmd.Wait()
 		return fmt.Errorf("opencode-server: detect port: %w", err)
 	}
+	// Start a background drainer for the remaining server lifetime.
+	// The server keeps running and writing to stderr; closing the pipe
+	// now would cause EPIPE/SIGPIPE on the next stderr write, killing
+	// the server. The drainer copies to io.Discard until the pipe is
+	// closed from provider.Close() after cmd.Process.Kill().
+	drainerDone := make(chan struct{})
+	go func() {
+		defer close(drainerDone)
+		io.Copy(io.Discard, stderr)
+	}()
+	p.stderrDrainer = closerFunc(func() error {
+		_ = stderr.Close() // unblocks the drainer's Read
+		<-drainerDone       // wait for drainer goroutine to exit
+		return nil
+	})
 	p.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Health-check the newly started server.
 	if err := p.healthCheck(ctx); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
+		_ = p.stderrDrainer.Close() // clean up drainer goroutine
 		return fmt.Errorf("opencode-server: health check after start: %w", err)
 	}
 	p.started = true
@@ -189,6 +211,10 @@ func (p *provider) Close() error {
 	if p.cmd != nil && p.cmd.Process != nil {
 		_ = p.cmd.Process.Kill()
 		_ = p.cmd.Wait()
+	}
+	// Close the stderr pipe and wait for the drainer goroutine to exit.
+	if p.stderrDrainer != nil {
+		_ = p.stderrDrainer.Close()
 	}
 	return nil
 }
@@ -246,7 +272,15 @@ func (p *provider) buildEnv() []string {
 
 // detectPort reads stderr lines looking for the server's listen address.
 // OpenCode logs "Listening on http://127.0.0.1:<port>" or similar.
-func detectPort(r io.Reader, timeout time.Duration) (int, error) {
+// detectPort reads from r until it finds a port number or times out.
+//
+// Ownership: the caller owns r. On timeout, detectPort closes r to unblock
+// the background reader goroutine; after a timeout return the caller must
+// not close r again (os/exec also closes the pipe from cmd.Wait, but
+// double-Close on *os.File is harmless). On the normal (non-timeout) path
+// the reader goroutine exits naturally and r remains open — the caller's
+// background drainer is responsible for r's lifecycle.
+func detectPort(r io.ReadCloser, timeout time.Duration) (int, error) {
 	type result struct {
 		port int
 		err  error
@@ -280,6 +314,7 @@ func detectPort(r io.Reader, timeout time.Duration) (int, error) {
 	case r := <-ch:
 		return r.port, r.err
 	case <-time.After(timeout):
+		_ = r.Close() // unblocks the Read, goroutine exits
 		return 0, fmt.Errorf("timeout waiting for server port")
 	}
 }

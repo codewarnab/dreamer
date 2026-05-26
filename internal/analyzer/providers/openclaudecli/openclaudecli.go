@@ -204,7 +204,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		_ = stdin.Close()
 		return "", fmt.Errorf("openclaude-cli: open stdout: %w", err)
 	}
-	stderrBuf := new(strings.Builder)
+	stderrBuf := new(transport.SafeBuffer)
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {

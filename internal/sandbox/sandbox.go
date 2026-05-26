@@ -14,10 +14,12 @@ package sandbox
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Mode controls sandbox behavior.
@@ -147,7 +149,20 @@ func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, provide
 		_ = stdout.Close()
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
-			go func() { _ = cmd.Wait() }()
+			go func() {
+				done := make(chan error, 1)
+				go func() { done <- cmd.Wait() }()
+				select {
+				case <-done:
+				case <-time.After(10 * time.Second):
+					// Process didn't exit after Kill.
+					// On Windows, KILL_ON_JOB_CLOSE from the Job Object
+					// cleans up when the handle is released. On POSIX,
+					// a zombie or D-state child leaks the goroutine and
+					// a process slot for the lifetime of the daemon.
+					log.Printf("sandbox: %s: process did not exit after Kill within 10s; possible zombie (platform-dependent cleanup)", providerID)
+				}
+			}()
 		}
 		return nil, fmt.Errorf("%s: sandbox post-start: %w", providerID, err)
 	}
