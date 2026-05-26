@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -782,13 +783,13 @@ func TestLoadDefaultRulePacks(t *testing.T) {
 
 // --- toMistakes ---
 
-func TestToMistakesFiltersEmpty(t *testing.T) {
+func TestToMistakesDoesNotFilter(t *testing.T) {
 	raws := []rawMistake{
 		{Summary: "real", Confidence: 0.8},
 		{Summary: "", Confidence: 0.9},
 	}
 	out := toMistakes(raws, RuleCategoryTest)
-	// toMistakes does NOT filter — it appends all raws.
+	// toMistakes does NOT filter empty summaries — normalizeMistakes does.
 	if len(out) != 2 {
 		t.Fatalf("expected 2, got %d", len(out))
 	}
@@ -891,8 +892,15 @@ func TestRunConfigPhase2FactoryOverride(t *testing.T) {
 	f1 := func() (Session, error) { return nil, nil }
 	f2 := func() (Session, error) { return nil, nil }
 	rc := RunConfig{Phase1SessionFactory: f1, Phase2SessionFactory: f2}
-	if rc.Phase2Factory() == nil {
+	got := rc.Phase2Factory()
+	if got == nil {
 		t.Fatal("expected overridden Phase2Factory")
+	}
+	// Verify the override returns f2, not f1 (which would be the fallback).
+	gotPtr := reflect.ValueOf(got).Pointer()
+	f2Ptr := reflect.ValueOf(f2).Pointer()
+	if gotPtr != f2Ptr {
+		t.Fatal("Phase2Factory returned Phase1 fallback instead of Phase2 override")
 	}
 }
 
@@ -936,16 +944,6 @@ func TestLoggingSessionClose(t *testing.T) {
 	}
 }
 
-func TestPermissionDecisionApprovedDenied(t *testing.T) {
-	d := PermissionDecision{Approved: true}
-	if !d.Approved {
-		t.Fatal("expected Approved=true")
-	}
-	d = PermissionDecision{Approved: false, Reason: "denied"}
-	if d.Approved {
-		t.Fatal("expected Approved=false")
-	}
-	if d.Reason != "denied" {
-		t.Fatalf("Reason = %q, want %q", d.Reason, "denied")
-	}
-}
+// MEDIUM #9 removed: TestPermissionDecisionApprovedDenied tested struct field
+// access without exercising any production code. If PermissionDecision gains
+// behavior (validation, serialization), add tests that exercise that behavior.
