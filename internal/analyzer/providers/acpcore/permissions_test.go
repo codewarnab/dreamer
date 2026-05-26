@@ -324,6 +324,14 @@ func TestPickReadOnlyModeIDReadOnly(t *testing.T) {
 	}
 }
 
+func TestPickReadOnlyModeIDReadonlyNoHyphen(t *testing.T) {
+	raw := json.RawMessage(`{"modes":{"availableModes":[{"id":"readonly"}]}}`)
+	got, ok := pickReadOnlyModeID(raw)
+	if !ok || got != "readonly" {
+		t.Fatalf("got (%q, %v), want (readonly, true)", got, ok)
+	}
+}
+
 func TestPickReadOnlyModeIDNoMatch(t *testing.T) {
 	raw := json.RawMessage(`{"modes":{"availableModes":[{"id":"act"}]}}`)
 	_, ok := pickReadOnlyModeID(raw)

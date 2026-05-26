@@ -211,7 +211,7 @@ func TestTransportMarkClosedIsIdempotent(t *testing.T) {
 // TestCleanupRunsOnEOFBeforClose exercises the "EOF-first" ordering:
 // readLoop observes stdout EOF and flips closed=true; then provider.Close
 // is called. With the sync.Once fix, all cleanup hooks must still run.
-func TestCleanupRunsOnEOFBeforClose(t *testing.T) {
+func TestCleanupRunsOnEOFBeforeClose(t *testing.T) {
 	var sandboxCalls, prepareCalls atomic.Int32
 
 	cmd := exec.Command("go", "version")

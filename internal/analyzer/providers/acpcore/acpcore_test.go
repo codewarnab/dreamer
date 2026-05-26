@@ -34,9 +34,12 @@ func TestNewCopiesCommand(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	cmd[0] = "mutated"
-	// Provider should still report its ID correctly.
-	if p.ID() != "test" {
-		t.Fatalf("ID should be 'test'")
+	stored, _, ok := InspectProvider(p)
+	if !ok {
+		t.Fatalf("InspectProvider: not an acpcore provider")
+	}
+	if stored[0] != "original" {
+		t.Fatalf("command not copied: got %q, want %q", stored[0], "original")
 	}
 }
 
