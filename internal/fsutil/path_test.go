@@ -1,6 +1,7 @@
 package fsutil
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -8,17 +9,23 @@ import (
 )
 
 func TestExpandUserHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
 	tests := []struct {
 		name    string
 		input   string
+		want    string
 		wantErr bool
 	}{
-		{"empty", "", false},
-		{"relative", "foo/bar", false},
-		{"absolute", "/tmp/test", false},
-		{"tilde", "~", false},
-		{"tilde_slash", "~/foo", false},
-		{"tilde_backslash", "~\\foo", false},
+		{"empty", "", "", false},
+		{"relative", "foo/bar", "foo/bar", false},
+		{"absolute", "/tmp/test", "/tmp/test", false},
+		{"tilde", "~", home, false},
+		{"tilde_slash", "~/foo", filepath.Join(home, "foo"), false},
+		{"tilde_backslash", "~\\foo", filepath.Join(home, "foo"), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -26,14 +33,11 @@ func TestExpandUserHome(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("ExpandUserHome(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
-			if tt.input == "" && got != "" {
-				t.Fatalf("ExpandUserHome(%q) = %q, want empty", tt.input, got)
+			if err != nil {
+				return
 			}
-			if tt.input == "~" && err == nil && got == "" {
-				t.Fatalf("ExpandUserHome(%q) returned empty with no error", tt.input)
-			}
-			if strings.HasPrefix(tt.input, "~/") && err == nil && !filepath.IsAbs(got) {
-				t.Fatalf("ExpandUserHome(%q) = %q, want absolute", tt.input, got)
+			if got != tt.want {
+				t.Fatalf("ExpandUserHome(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -145,7 +149,7 @@ func TestPathWithinRoot(t *testing.T) {
 		want bool
 	}{
 		{"empty_path", "", root, false},
-		{"empty_root", child, "", true},
+		{"empty_root", child, "", false},
 		{"both_empty", "", "", false},
 		{"equal", root, root, true},
 		{"child", child, root, true},

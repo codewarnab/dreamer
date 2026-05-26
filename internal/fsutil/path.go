@@ -108,13 +108,11 @@ func ResolveSymlinks(abs string) (string, error) {
 
 // PathWithinRoot reports whether path is within root (or equal to it).
 // Case-insensitive on Windows via strings.EqualFold.
-// Returns false if path is empty. Returns true if root is empty (no restriction).
+// Returns false if either path or root is empty. Callers that intend
+// "no restriction" when root is unset should branch before calling.
 func PathWithinRoot(path, root string) bool {
-	if path == "" {
+	if path == "" || root == "" {
 		return false
-	}
-	if root == "" {
-		return true
 	}
 	sep := string(filepath.Separator)
 	if runtime.GOOS == "windows" {
