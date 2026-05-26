@@ -1,6 +1,7 @@
 package codexacp
 
 import (
+	"context"
 	"testing"
 
 	"dreamer/internal/analyzer"
@@ -26,6 +27,12 @@ func TestCustomCommand(t *testing.T) {
 	if p.ID() != ID {
 		t.Fatalf("ID = %q, want %q", p.ID(), ID)
 	}
+	// Verify the provider wired correctly: NewSession before Start must fail.
+	_, err = p.NewSession(context.Background(), analyzer.SessionConfig{WorkingDirectory: t.TempDir()})
+	if err == nil {
+		t.Fatal("expected error for NewSession before Start")
+	}
+	defer p.Close()
 }
 
 func TestEnvPassthrough(t *testing.T) {
@@ -38,4 +45,5 @@ func TestEnvPassthrough(t *testing.T) {
 	if p == nil {
 		t.Fatal("expected non-nil provider")
 	}
+	defer p.Close()
 }
