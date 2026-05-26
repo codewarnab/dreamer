@@ -55,41 +55,6 @@ func DetectFiles(projectRoot string, cap int) ([]string, error) {
 	return files, nil
 }
 
-// FilterRelevant returns the subset of files whose path contains any token
-// from the substrings list. Empty input returns the input unchanged.
-//
-// NOTE: currently unused in production — kept as a public utility for future
-// grounding strategies that need keyword-based file filtering.
-func FilterRelevant(files []string, substrings []string, cap int) []string {
-	if len(substrings) == 0 {
-		if cap > 0 && len(files) > cap {
-			return files[:cap]
-		}
-		return files
-	}
-	matches := make([]string, 0, len(files))
-	lowered := make([]string, len(substrings))
-	for i, s := range substrings {
-		lowered[i] = strings.ToLower(strings.TrimSpace(s))
-	}
-	for _, file := range files {
-		lower := strings.ToLower(file)
-		for _, token := range lowered {
-			if token == "" {
-				continue
-			}
-			if strings.Contains(lower, token) {
-				matches = append(matches, file)
-				break
-			}
-		}
-	}
-	if cap > 0 && len(matches) > cap {
-		matches = matches[:cap]
-	}
-	return matches
-}
-
 func shouldSkipDir(name string, isRoot bool) bool {
 	if isRoot {
 		return false

@@ -16,11 +16,9 @@ type Kind string
 
 const (
 	KindNotInstalled        Kind = "not_installed"
-	KindUnauthenticated     Kind = "unauthenticated"
 	KindRateLimit           Kind = "rate_limit"
 	KindProviderUnavailable Kind = "provider_unavailable"
 	KindConfigInvalid       Kind = "config_invalid"
-	KindCacheMiss           Kind = "cache_miss"
 )
 
 // Error is a structured dreamer error that carries a Kind, optional provider
@@ -33,7 +31,7 @@ type Error struct {
 	Message  string         // human-readable summary
 	Hint     string         // operator-facing remediation
 	Details  map[string]any // kind-specific structured context, never nil for tagged errors
-	Cause    error          // wrapped underlying error; nil only for informational errors like CacheMiss
+	Cause    error          // wrapped underlying error; nil only for informational errors
 }
 
 func (e *Error) Error() string {
@@ -99,19 +97,6 @@ func NotInstalled(provider, op, hint string, cause error) *Error {
 	)
 }
 
-// Unauthenticated indicates the provider CLI/SDK is installed but not
-// authenticated. provider is required; hint should be the login command.
-//
-// NOTE: currently unused in production — kept for future auth error handling.
-func Unauthenticated(provider, op, hint string, cause error) *Error {
-	return newErr(KindUnauthenticated, provider, op,
-		provider+" is not authenticated",
-		hint,
-		map[string]any{"login_command": hint},
-		cause,
-	)
-}
-
 // RateLimit indicates the provider returned a rate-limit or quota error.
 // provider is required. retryAfter may be 0 when not surfaced by the SDK.
 func RateLimit(provider, op string, retryAfter time.Duration, cause error) *Error {
@@ -143,19 +128,6 @@ func ConfigInvalid(field string, value any, cause error) *Error {
 		map[string]any{"field": field, "value": value},
 		cause,
 	)
-}
-
-// CacheMiss is an informational (non-fatal) error indicating a state cache miss.
-// reason should be one of "hash_mismatch", "head_sha_changed", "missing_state".
-//
-// NOTE: currently unused in production — kept for future cache diagnostics.
-func CacheMiss(reason string) *Error {
-	return &Error{
-		Kind:    KindCacheMiss,
-		Op:      "cache.check",
-		Message: "cache miss",
-		Details: map[string]any{"reason": reason},
-	}
 }
 
 // KindOf walks err's Unwrap chain and returns the Kind of the first *Error
