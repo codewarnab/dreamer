@@ -102,6 +102,9 @@ func TestIsAllowed_Ruff(t *testing.T) {
 		{"W503", true},
 		{"RUF001", true},
 		{"I001", true},
+		{"C901", true},
+		{"C902", true},
+		{"PLR2004", true},
 		{"XXX999", false},
 		{"not-a-code", false},
 	}
@@ -165,12 +168,18 @@ func TestRuffMatches(t *testing.T) {
 		{"PLR2004", true},
 		{"RUF001", true},
 		{"I001", true},
+		{"C901", true},   // C90 prefix + digit
+		{"C902", true},   // C90 prefix + digits
+		{"RUF100", true}, // RUF prefix + digits
+		{"W503", true},
 		{"", false},
 		{"ABC", false},
 		{"123", false},
-		{"F", false},      // prefix only, no digits
-		{"FABC", false},   // prefix + non-digits
-		{"C901", false},   // C90 prefix has digits — regex captures "C" only, not "C90"
+		{"F", false},    // prefix only, no digits
+		{"FABC", false}, // prefix + non-digits
+		{"C90", false},  // prefix only, no trailing digits
+		{"XXX999", false},
+		{"not-a-code", false},
 	}
 	for _, tt := range tests {
 		got := ruffMatches(tt.rule)
