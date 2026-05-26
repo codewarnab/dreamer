@@ -1,13 +1,13 @@
-//go:build !windows
+//go:build !windows && !linux
 
-// Package sandbox no-op fallback for non-Windows platforms.
-// Linux (bubblewrap) and macOS (Seatbelt) backends are planned for future PRs.
+// Package sandbox no-op fallback for platforms without a sandbox backend.
+// Linux uses bubblewrap (bwrap). Windows uses WRITE_RESTRICTED tokens.
 package sandbox
 
 import "os/exec"
 
 // Available reports whether the OS-level sandbox is supported.
-// Currently only Windows is implemented.
+// Returns false — this build tag only applies to platforms without a backend.
 func Available() bool { return false }
 
 func prepare(cmd *exec.Cmd, cfg Config) (func(), error) { return func() {}, nil }
