@@ -1,4 +1,4 @@
-package opencodeacp
+package codexacp
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestProviderRegistered(t *testing.T) {
-	p, err := analyzer.NewProvider(analyzer.ProviderOpenCodeACP, analyzer.ProviderConfig{})
+	p, err := analyzer.NewProvider(analyzer.ProviderCodexACP, analyzer.ProviderConfig{})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
@@ -19,8 +19,8 @@ func TestProviderRegistered(t *testing.T) {
 }
 
 func TestCustomCommand(t *testing.T) {
-	p, err := analyzer.NewProvider(analyzer.ProviderOpenCodeACP, analyzer.ProviderConfig{
-		Command: []string{"/custom/opencode", "acp", "--verbose"},
+	p, err := analyzer.NewProvider(analyzer.ProviderCodexACP, analyzer.ProviderConfig{
+		Command: []string{"/custom/codex-acp", "--verbose"},
 	})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
@@ -32,14 +32,14 @@ func TestCustomCommand(t *testing.T) {
 	if !ok {
 		t.Fatal("expected acpcore-backed provider")
 	}
-	if len(cmd) != 3 || cmd[0] != "/custom/opencode" || cmd[1] != "acp" || cmd[2] != "--verbose" {
-		t.Fatalf("Command = %v, want [/custom/opencode acp --verbose]", cmd)
+	if len(cmd) != 2 || cmd[0] != "/custom/codex-acp" || cmd[1] != "--verbose" {
+		t.Fatalf("Command = %v, want [/custom/codex-acp --verbose]", cmd)
 	}
 }
 
 func TestEnvPassthrough(t *testing.T) {
-	p, err := analyzer.NewProvider(analyzer.ProviderOpenCodeACP, analyzer.ProviderConfig{
-		Env: map[string]string{"OPENCODE_API_KEY": "test-key"},
+	p, err := analyzer.NewProvider(analyzer.ProviderCodexACP, analyzer.ProviderConfig{
+		Env: map[string]string{"OPENAI_API_KEY": "test-key"},
 	})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
@@ -51,7 +51,7 @@ func TestEnvPassthrough(t *testing.T) {
 	if !ok {
 		t.Fatal("expected acpcore-backed provider")
 	}
-	if env["OPENCODE_API_KEY"] != "test-key" {
-		t.Fatalf("OPENCODE_API_KEY = %q, want %q", env["OPENCODE_API_KEY"], "test-key")
+	if env["OPENAI_API_KEY"] != "test-key" {
+		t.Fatalf("OPENAI_API_KEY = %q, want %q", env["OPENAI_API_KEY"], "test-key")
 	}
 }

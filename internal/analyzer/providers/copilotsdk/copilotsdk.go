@@ -39,6 +39,8 @@ type sdkSession interface {
 
 type sdkClientFactory func(options *copilot.ClientOptions) sdkClient
 
+// WARNING: newSDKClient is process-global. Tests that call SetSDKClientFactory
+// must NOT use t.Parallel() — concurrent reads/writes race on this variable.
 var newSDKClient sdkClientFactory = func(options *copilot.ClientOptions) sdkClient {
 	return &sdkClientAdapter{client: copilot.NewClient(options)}
 }

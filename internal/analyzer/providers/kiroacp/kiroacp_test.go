@@ -1,4 +1,4 @@
-package opencodeacp
+package kiroacp
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestProviderRegistered(t *testing.T) {
-	p, err := analyzer.NewProvider(analyzer.ProviderOpenCodeACP, analyzer.ProviderConfig{})
+	p, err := analyzer.NewProvider(analyzer.ProviderKiroACP, analyzer.ProviderConfig{})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
@@ -19,8 +19,8 @@ func TestProviderRegistered(t *testing.T) {
 }
 
 func TestCustomCommand(t *testing.T) {
-	p, err := analyzer.NewProvider(analyzer.ProviderOpenCodeACP, analyzer.ProviderConfig{
-		Command: []string{"/custom/opencode", "acp", "--verbose"},
+	p, err := analyzer.NewProvider(analyzer.ProviderKiroACP, analyzer.ProviderConfig{
+		Command: []string{"/custom/kiro-cli", "acp", "--verbose"},
 	})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
@@ -32,14 +32,14 @@ func TestCustomCommand(t *testing.T) {
 	if !ok {
 		t.Fatal("expected acpcore-backed provider")
 	}
-	if len(cmd) != 3 || cmd[0] != "/custom/opencode" || cmd[1] != "acp" || cmd[2] != "--verbose" {
-		t.Fatalf("Command = %v, want [/custom/opencode acp --verbose]", cmd)
+	if len(cmd) != 3 || cmd[0] != "/custom/kiro-cli" || cmd[1] != "acp" || cmd[2] != "--verbose" {
+		t.Fatalf("Command = %v, want [/custom/kiro-cli acp --verbose]", cmd)
 	}
 }
 
 func TestEnvPassthrough(t *testing.T) {
-	p, err := analyzer.NewProvider(analyzer.ProviderOpenCodeACP, analyzer.ProviderConfig{
-		Env: map[string]string{"OPENCODE_API_KEY": "test-key"},
+	p, err := analyzer.NewProvider(analyzer.ProviderKiroACP, analyzer.ProviderConfig{
+		Env: map[string]string{"KIRO_API_KEY": "test-key"},
 	})
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
@@ -51,7 +51,7 @@ func TestEnvPassthrough(t *testing.T) {
 	if !ok {
 		t.Fatal("expected acpcore-backed provider")
 	}
-	if env["OPENCODE_API_KEY"] != "test-key" {
-		t.Fatalf("OPENCODE_API_KEY = %q, want %q", env["OPENCODE_API_KEY"], "test-key")
+	if env["KIRO_API_KEY"] != "test-key" {
+		t.Fatalf("KIRO_API_KEY = %q, want %q", env["KIRO_API_KEY"], "test-key")
 	}
 }
