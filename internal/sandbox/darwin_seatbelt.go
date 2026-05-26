@@ -25,7 +25,7 @@ const maxWritableDirs = 64
 func validateSBPLPath(path string) error {
 	for _, c := range path {
 		switch c {
-		case '(', ')', '"', '\\', '\n', '\r', ';':
+		case '(', ')', '"', '\\', '\n', '\r', ';', '\x00':
 			return fmt.Errorf("sandbox: path %q contains SBPL metacharacter %q", path, string(c))
 		}
 	}
@@ -36,7 +36,7 @@ func validateSBPLPath(path string) error {
 // The static base denies file writes and hard links, then re-allows them
 // for parameterized writable directories. Only rules NOT covered by
 // (allow default) are load-bearing; defensive rules are annotated.
-func buildSeatbeltProfile(projectDir string, writableDirs []string) string {
+func buildSeatbeltProfile(writableDirs []string) string {
 	var b strings.Builder
 
 	// Header and base policy.
@@ -57,15 +57,9 @@ func buildSeatbeltProfile(projectDir string, writableDirs []string) string {
 ;; Chromium and Codex also deny file-link separately.
 (deny file-link)
 
-;; Re-allow writes to parameterized writable directories
+;; Re-allow writes to parameterized writable directories (NOT project dir)
 (allow file-write*
 `)
-
-	// PROJECT_DIR subpath — only if present (ACP providers pass empty).
-	if projectDir != "" {
-		b.WriteString(`  (subpath (param "PROJECT_DIR"))
-`)
-	}
 
 	// Dynamic WRITABLE_N entries. Uses a separate counter so indices
 	// match buildSandboxArgs (which also deduplicates via a separate idx).
@@ -142,13 +136,8 @@ func buildSeatbeltProfile(projectDir string, writableDirs []string) string {
 //	/usr/bin/sandbox-exec -p <profile> -D KEY=VALUE ... -- <binary> <args...>
 //
 // Writable dirs are deduplicated after symlink resolution.
-func buildSandboxArgs(profile string, projectDir string, writableDirs []string, originalBinary string, originalArgs []string) []string {
+func buildSandboxArgs(profile string, writableDirs []string, originalBinary string, originalArgs []string) []string {
 	args := []string{sandboxExecPath, "-p", profile}
-
-	// Project dir param.
-	if projectDir != "" {
-		args = append(args, "-D", fmt.Sprintf("PROJECT_DIR=%s", projectDir))
-	}
 
 	// Writable dir params — deduplicate by resolved path.
 	seen := make(map[string]bool)

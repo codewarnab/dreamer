@@ -83,7 +83,7 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	}
 
 	// Build profile and args.
-	profile := buildSeatbeltProfile(projectDir, resolvedDirs)
+	profile := buildSeatbeltProfile(resolvedDirs)
 	originalBinary := cmd.Path
 	var originalArgs []string
 	if len(cmd.Args) > 1 {
@@ -91,7 +91,7 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	}
 
 	cmd.Path = sandboxExecPath
-	cmd.Args = buildSandboxArgs(profile, projectDir, resolvedDirs, originalBinary, originalArgs)
+	cmd.Args = buildSandboxArgs(profile, resolvedDirs, originalBinary, originalArgs)
 
 	return func() {}, nil
 }

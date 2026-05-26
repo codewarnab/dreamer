@@ -13,28 +13,30 @@ import (
 // --- Profile construction tests ---
 
 func TestBuildSeatbeltProfile_ContainsVersion1(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if !strings.Contains(profile, "(version 1)") {
 		t.Fatal("profile missing (version 1) header")
 	}
 }
 
 func TestBuildSeatbeltProfile_ContainsDenyWrite(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if !strings.Contains(profile, "(deny file-write*)") {
 		t.Fatal("profile missing (deny file-write*)")
 	}
 }
 
-func TestBuildSeatbeltProfile_AllowsProjectDir(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
-	if !strings.Contains(profile, `(subpath (param "PROJECT_DIR"))`) {
-		t.Fatal("profile missing PROJECT_DIR subpath")
+func TestBuildSeatbeltProfile_ProjectDirNotInWriteAllow(t *testing.T) {
+	// PROJECT_DIR must NOT be in the (allow file-write*) block.
+	// The (deny file-write*) protects it by default.
+	profile := buildSeatbeltProfile(nil)
+	if strings.Contains(profile, "PROJECT_DIR") {
+		t.Fatal("profile should not contain PROJECT_DIR in write-allow block")
 	}
 }
 
 func TestBuildSeatbeltProfile_AllowsPrivateTmp(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if !strings.Contains(profile, `(subpath "/private/tmp")`) {
 		t.Fatal("profile should use /private/tmp, not /tmp")
 	}
@@ -44,21 +46,21 @@ func TestBuildSeatbeltProfile_AllowsPrivateTmp(t *testing.T) {
 }
 
 func TestBuildSeatbeltProfile_AllowsDevNull(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if !strings.Contains(profile, `(literal "/dev/null")`) {
 		t.Fatal("profile missing /dev/null")
 	}
 }
 
 func TestBuildSeatbeltProfile_AllowsProcessExec(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if !strings.Contains(profile, "(allow process-exec)") {
 		t.Fatal("profile missing (allow process-exec)")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoNetworkDeny(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "(deny network") {
 		t.Fatal("profile should not deny network")
 	}
@@ -66,7 +68,7 @@ func TestBuildSeatbeltProfile_NoNetworkDeny(t *testing.T) {
 
 func TestBuildSeatbeltProfile_ReferencesWritableDirParams(t *testing.T) {
 	dirs := []string{"/a", "/b", "/c", "/d", "/e"}
-	profile := buildSeatbeltProfile("/tmp/project", dirs)
+	profile := buildSeatbeltProfile(dirs)
 	for i := 0; i < 5; i++ {
 		param := `(subpath (param "WRITABLE_` + string(rune('0'+i)) + `"))`
 		if !strings.Contains(profile, param) {
@@ -76,7 +78,7 @@ func TestBuildSeatbeltProfile_ReferencesWritableDirParams(t *testing.T) {
 }
 
 func TestBuildSeatbeltProfile_ZeroWritableDirs(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "WRITABLE_") {
 		t.Fatal("profile should have no WRITABLE entries when dirs is empty")
 	}
@@ -87,7 +89,7 @@ func TestBuildSeatbeltProfile_CapsAtMax(t *testing.T) {
 	for i := range dirs {
 		dirs[i] = "/tmp/dir" + string(rune('A'+i%26)) + string(rune('0'+i/26))
 	}
-	profile := buildSeatbeltProfile("/tmp/project", dirs)
+	profile := buildSeatbeltProfile(dirs)
 	// WRITABLE entries appear in one block (file-write* re-allow only;
 	// file-link is denied entirely with no re-allow).
 	count := strings.Count(profile, "WRITABLE_")
@@ -97,21 +99,21 @@ func TestBuildSeatbeltProfile_CapsAtMax(t *testing.T) {
 }
 
 func TestBuildSeatbeltProfile_NoRedundantMachLookup(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "(allow mach-lookup") {
 		t.Fatal("profile should not have redundant mach-lookup rules")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoIpcPosixSem(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "(allow ipc-posix-sem") {
 		t.Fatal("profile should not have ipc-posix-sem rules")
 	}
 }
 
 func TestBuildSeatbeltProfile_DeniesFileLink(t *testing.T) {
-	profile := buildSeatbeltProfile("/tmp/project", nil)
+	profile := buildSeatbeltProfile(nil)
 	if !strings.Contains(profile, "(deny file-link)") {
 		t.Fatal("profile missing (deny file-link)")
 	}
@@ -122,22 +124,22 @@ func TestBuildSeatbeltProfile_NoFileLinkReallow(t *testing.T) {
 	// SBPL's file-link checks the destination path, so re-allowing
 	// would let processes hard-link project files into writable dirs.
 	dirs := []string{"/tmp/writable"}
-	profile := buildSeatbeltProfile("/tmp/project", dirs)
+	profile := buildSeatbeltProfile(dirs)
 	if strings.Contains(profile, "(allow file-link") {
 		t.Fatal("profile should not re-allow file-link in writable dirs")
 	}
 }
 
 func TestBuildSeatbeltProfile_EmptyProjectDir(t *testing.T) {
-	profile := buildSeatbeltProfile("", nil)
+	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "PROJECT_DIR") {
-		t.Fatal("profile should omit PROJECT_DIR when projectDir is empty")
+		t.Fatal("profile should never contain PROJECT_DIR (protected by deny rule)")
 	}
 }
 
 func TestBuildSeatbeltProfile_MoreThan3WritableDirs(t *testing.T) {
 	dirs := []string{"/a", "/b", "/c", "/d"}
-	profile := buildSeatbeltProfile("/tmp/project", dirs)
+	profile := buildSeatbeltProfile(dirs)
 	for i := 0; i < 4; i++ {
 		param := `(subpath (param "WRITABLE_` + string(rune('0'+i)) + `"))`
 		if !strings.Contains(profile, param) {
@@ -149,38 +151,22 @@ func TestBuildSeatbeltProfile_MoreThan3WritableDirs(t *testing.T) {
 // --- Argument construction tests ---
 
 func TestBuildSandboxArgs_BinaryPath(t *testing.T) {
-	args := buildSandboxArgs("profile", "/proj", nil, "/bin/echo", nil)
+	args := buildSandboxArgs("profile", nil, "/bin/echo", nil)
 	if args[0] != sandboxExecPath {
 		t.Fatalf("first arg = %q, want %q", args[0], sandboxExecPath)
 	}
 }
 
 func TestBuildSandboxArgs_ProfileFlag(t *testing.T) {
-	args := buildSandboxArgs("myprofile", "/proj", nil, "/bin/echo", nil)
+	args := buildSandboxArgs("myprofile", nil, "/bin/echo", nil)
 	if args[1] != "-p" || args[2] != "myprofile" {
 		t.Fatalf("expected -p myprofile, got %q %q", args[1], args[2])
 	}
 }
 
-func TestBuildSandboxArgs_ProjectDirParam(t *testing.T) {
-	args := buildSandboxArgs("p", "/proj", nil, "/bin/echo", nil)
-	found := false
-	for i, a := range args {
-		if a == "-D" && i+1 < len(args) && strings.HasPrefix(args[i+1], "PROJECT_DIR=") {
-			found = true
-			if args[i+1] != "PROJECT_DIR=/proj" {
-				t.Fatalf("PROJECT_DIR = %q, want PROJECT_DIR=/proj", args[i+1])
-			}
-		}
-	}
-	if !found {
-		t.Fatal("missing -D PROJECT_DIR param")
-	}
-}
-
 func TestBuildSandboxArgs_WritableDirParams(t *testing.T) {
 	dirs := []string{"/tmp/w1", "/tmp/w2"}
-	args := buildSandboxArgs("p", "/proj", dirs, "/bin/echo", nil)
+	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	for i, d := range dirs {
 		param := "WRITABLE_" + string(rune('0'+i)) + "=" + d
 		found := false
@@ -196,7 +182,7 @@ func TestBuildSandboxArgs_WritableDirParams(t *testing.T) {
 }
 
 func TestBuildSandboxArgs_CommandSeparator(t *testing.T) {
-	args := buildSandboxArgs("p", "/proj", nil, "/bin/echo", []string{"hello"})
+	args := buildSandboxArgs("p", nil, "/bin/echo", []string{"hello"})
 	sepIdx := -1
 	for i, a := range args {
 		if a == "--" {
@@ -216,7 +202,7 @@ func TestBuildSandboxArgs_CommandSeparator(t *testing.T) {
 }
 
 func TestBuildSandboxArgs_NilOriginalArgs(t *testing.T) {
-	args := buildSandboxArgs("p", "/proj", nil, "/bin/echo", nil)
+	args := buildSandboxArgs("p", nil, "/bin/echo", nil)
 	sepIdx := -1
 	for i, a := range args {
 		if a == "--" {
@@ -233,7 +219,7 @@ func TestBuildSandboxArgs_NilOriginalArgs(t *testing.T) {
 }
 
 func TestBuildSandboxArgs_EmptyWritableDirs(t *testing.T) {
-	args := buildSandboxArgs("p", "/proj", nil, "/bin/echo", nil)
+	args := buildSandboxArgs("p", nil, "/bin/echo", nil)
 	for _, a := range args {
 		if strings.HasPrefix(a, "WRITABLE_") {
 			t.Fatal("should have no WRITABLE params when dirs is empty")
@@ -244,7 +230,7 @@ func TestBuildSandboxArgs_EmptyWritableDirs(t *testing.T) {
 func TestBuildSandboxArgs_DeduplicateWritableDirs(t *testing.T) {
 	// /tmp is a symlink to /private/tmp on macOS.
 	dirs := []string{"/tmp", "/private/tmp"}
-	args := buildSandboxArgs("p", "/proj", dirs, "/bin/echo", nil)
+	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	count := 0
 	for _, a := range args {
 		if strings.HasPrefix(a, "WRITABLE_") {
@@ -261,7 +247,7 @@ func TestBuildSandboxArgs_MaxWritableDirs(t *testing.T) {
 	for i := range dirs {
 		dirs[i] = filepath.Join(os.TempDir(), "dir"+string(rune('A'+i%26))+string(rune('0'+i/26)))
 	}
-	args := buildSandboxArgs("p", "/proj", dirs, "/bin/echo", nil)
+	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	count := 0
 	for _, a := range args {
 		if strings.HasPrefix(a, "WRITABLE_") {
@@ -275,7 +261,7 @@ func TestBuildSandboxArgs_MaxWritableDirs(t *testing.T) {
 
 func TestBuildSandboxArgs_EmptyStringSkipped(t *testing.T) {
 	dirs := []string{"", "/tmp/w", ""}
-	args := buildSandboxArgs("p", "/proj", dirs, "/bin/echo", nil)
+	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	count := 0
 	for _, a := range args {
 		if strings.HasPrefix(a, "WRITABLE_") {
@@ -409,10 +395,10 @@ func TestPrepare_EmptyProjectDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare with empty ProjectDir: %v", err)
 	}
-	// Verify no PROJECT_DIR param.
+	// Verify no PROJECT_DIR param (never used in profile).
 	for _, a := range cmd.Args {
 		if strings.HasPrefix(a, "PROJECT_DIR=") {
-			t.Fatal("should not have PROJECT_DIR param when ProjectDir is empty")
+			t.Fatal("should not have PROJECT_DIR param")
 		}
 	}
 }
@@ -447,14 +433,10 @@ func TestPrepare_ResolvesSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	// The -D PROJECT_DIR param should contain the resolved path.
-	for i, a := range cmd.Args {
-		if a == "-D" && i+1 < len(cmd.Args) && strings.HasPrefix(cmd.Args[i+1], "PROJECT_DIR=") {
-			val := strings.TrimPrefix(cmd.Args[i+1], "PROJECT_DIR=")
-			if val != real {
-				t.Fatalf("PROJECT_DIR = %q, want resolved %q", val, real)
-			}
-		}
+	// PROJECT_DIR is no longer passed as a param (project dir is protected
+	// by the (deny file-write*) rule). Verify the command was still wrapped.
+	if cmd.Path != sandboxExecPath {
+		t.Fatalf("cmd.Path = %q, want %q", cmd.Path, sandboxExecPath)
 	}
 }
 
