@@ -216,6 +216,10 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 	// Fail fast when readLoop already saw the child exit.
 	if s.transport.isClosed() {
+		stderr := s.transport.StderrString()
+		if stderr != "" {
+			return "", fmt.Errorf("%w: %w (stderr: %s)", analyzer.ErrUnavailable, ErrTransportClosed, strings.TrimSpace(stderr))
+		}
 		return "", errors.Join(analyzer.ErrUnavailable, ErrTransportClosed)
 	}
 
@@ -313,6 +317,9 @@ type transport struct {
 
 	sandboxCleanup func() // closes job handle after process exits
 	prepareCleanup func() // closes restricted token after process exits
+
+	stderrPipe  io.ReadCloser  // stored for explicit closure in close()
+	goroutines  sync.WaitGroup // tracks drainStderr + readLoop
 }
 
 type sessionStream struct {
@@ -469,7 +476,9 @@ func dialStdio(ctx context.Context, providerID string, command []string, env map
 		stdout:         bufio.NewReader(stdout),
 		sandboxCleanup: postCleanup,
 		prepareCleanup: prepareCleanup,
+		stderrPipe:     stderr,
 	}
+	t.goroutines.Add(2)
 	go t.drainStderr(stderr)
 	go t.readLoop(nil)
 	return t, nil
@@ -580,6 +589,7 @@ func (t *transport) send(payload any) error {
 }
 
 func (t *transport) readLoop(initial *bytes.Buffer) {
+	defer t.goroutines.Done()
 	if initial != nil {
 		_ = initial // placeholder for future buffering
 	}
@@ -618,6 +628,13 @@ func (t *transport) isClosed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.closed
+}
+
+// StderrString returns accumulated stderr output. Safe for concurrent use.
+func (t *transport) StderrString() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.stderrBuf.String()
 }
 
 // markClosed flips the closed flag and wakes pending calls. Idempotent.
@@ -771,6 +788,7 @@ func selectPermissionOptionID(params map[string]any, approved bool) string {
 }
 
 func (t *transport) drainStderr(r io.Reader) {
+	defer t.goroutines.Done()
 	if r == nil {
 		return
 	}
@@ -802,10 +820,29 @@ func (t *transport) close() error {
 	go func() { done <- t.cmd.Wait() }()
 	var waitErr error
 	select {
+	// 5s hard-coded: close() implements Close() error with no context
+	// parameter, so there's no deadline to propagate. The timeout is
+	// intentionally long to give the agent time to flush; Kill() +
+	// KILL_ON_JOB_CLOSE from the sandbox always ensures the process exits.
 	case <-time.After(5 * time.Second):
 		_ = t.cmd.Process.Kill()
-		<-done
+		waitErr = <-done
 	case waitErr = <-done:
+	}
+	// Explicitly close pipes so goroutines exit even if process exit
+	// didn't trigger EOF (e.g., zombie process before KILL_ON_JOB_CLOSE).
+	if t.stderrPipe != nil {
+		_ = t.stderrPipe.Close()
+	}
+
+	// Wait for drainStderr + readLoop to finish. They exit when their
+	// input pipes close (from Kill, explicit Close, or process exit).
+	waitCh := make(chan struct{})
+	go func() { t.goroutines.Wait(); close(waitCh) }()
+	select {
+	case <-waitCh:
+	case <-time.After(5 * time.Second):
+		// Goroutines didn't exit — abandon. KILL_ON_JOB_CLOSE will clean up.
 	}
 
 	// Release sandbox kernel handles after the process has exited.
