@@ -1,10 +1,10 @@
 package copilotacp
 
 import (
-	"context"
 	"testing"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/acpcore"
 )
 
 func TestProviderRegistered(t *testing.T) {
@@ -12,6 +12,7 @@ func TestProviderRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
+	defer p.Close()
 	if p.ID() != ID {
 		t.Fatalf("ID = %q, want %q", p.ID(), ID)
 	}
@@ -24,15 +25,16 @@ func TestCustomCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
-	if p.ID() != ID {
-		t.Fatalf("ID = %q, want %q", p.ID(), ID)
-	}
-	// Verify the provider wired correctly: NewSession before Start must fail.
-	_, err = p.NewSession(context.Background(), analyzer.SessionConfig{WorkingDirectory: t.TempDir()})
-	if err == nil {
-		t.Fatal("expected error for NewSession before Start")
-	}
 	defer p.Close()
+
+	// Verify the custom command actually reached the underlying acpcore provider.
+	cmd, _, ok := acpcore.InspectProvider(p)
+	if !ok {
+		t.Fatal("expected acpcore-backed provider")
+	}
+	if len(cmd) != 3 || cmd[0] != "/custom/copilot" || cmd[1] != "acp" || cmd[2] != "--verbose" {
+		t.Fatalf("Command = %v, want [/custom/copilot acp --verbose]", cmd)
+	}
 }
 
 func TestEnvPassthrough(t *testing.T) {
@@ -42,8 +44,14 @@ func TestEnvPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
-	if p == nil {
-		t.Fatal("expected non-nil provider")
-	}
 	defer p.Close()
+
+	// Verify the env vars reached the underlying acpcore provider.
+	_, env, ok := acpcore.InspectProvider(p)
+	if !ok {
+		t.Fatal("expected acpcore-backed provider")
+	}
+	if env["COPILOT_TOKEN"] != "test-token" {
+		t.Fatalf("COPILOT_TOKEN = %q, want %q", env["COPILOT_TOKEN"], "test-token")
+	}
 }

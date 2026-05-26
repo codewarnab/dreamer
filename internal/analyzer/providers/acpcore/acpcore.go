@@ -98,6 +98,17 @@ type provider struct {
 
 func (p *provider) ID() string { return p.id }
 
+// InspectProvider extracts the stored Command and Env from an acpcore-backed
+// analyzer.Provider. Returns ok=false if p is not an acpcore provider.
+// Intended for test verification that config values propagated correctly.
+func InspectProvider(p analyzer.Provider) (command []string, env map[string]string, ok bool) {
+	prov, ok := p.(*provider)
+	if !ok {
+		return nil, nil, false
+	}
+	return prov.command, prov.env, true
+}
+
 func (p *provider) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

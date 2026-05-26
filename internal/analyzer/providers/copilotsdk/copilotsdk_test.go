@@ -12,6 +12,10 @@ import (
 	"dreamer/internal/analyzer"
 )
 
+// MEDIUM #15: SetSDKClientFactory mutates a process-global variable. Adding
+// t.Parallel() to any test in this package causes a data race on the global
+// factory. Thread the factory through Options to fix, or keep tests serial.
+
 type fakeSDKClient struct {
 	startErr   error
 	sessionErr error
@@ -124,8 +128,9 @@ func TestProviderSupportsParallelSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if p.ID() != "copilot-sdk" {
-		t.Fatalf("ID = %q, want copilot-sdk", p.ID())
+	defer p.Close()
+	if !analyzer.ProviderSupportsParallel(p) {
+		t.Fatal("copilot-sdk should report SupportsParallelSessions = true")
 	}
 }
 
