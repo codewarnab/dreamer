@@ -8,6 +8,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/jobqueue"
+	"github.com/spf13/cobra"
 )
 
 func TestFilterStatus(t *testing.T) {
@@ -152,5 +153,178 @@ func TestPrintBoxEmpty(t *testing.T) {
 	// Should still render box borders.
 	if !strings.Contains(output, "╔") {
 		t.Fatalf("output missing top border: %s", output)
+	}
+}
+
+func TestPrintStatusTable_EmptyQueue(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printStatusTable(cmd, jobqueue.QueueStatus{})
+
+	output := buf.String()
+	if !strings.Contains(output, "No jobs in queue.") {
+		t.Fatalf("expected 'No jobs in queue.', got: %q", output)
+	}
+}
+
+func TestPrintStatusTable_WithJobs(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	now := time.Now().UTC()
+	started := now.Add(-5 * time.Minute)
+	status := jobqueue.QueueStatus{
+		Running:   1,
+		Pending:   1,
+		Completed: 1,
+		Failed:    1,
+		Jobs: []*jobqueue.Job{
+			{Project: "projA", Status: jobqueue.StatusRunning, Provider: "test", StartedAt: &started},
+			{Project: "projB", Status: jobqueue.StatusPending, Provider: "test", EnqueuedAt: now},
+			{Project: "projC", Status: jobqueue.StatusCompleted, Provider: "test", FinishedAt: &now, Duration: 3 * time.Minute, FindingsAdded: 5},
+			{Project: "projD", Status: jobqueue.StatusFailed, Provider: "test", FinishedAt: &now, Duration: 1 * time.Minute, Error: "something broke"},
+		},
+	}
+
+	printStatusTable(cmd, status)
+	output := buf.String()
+
+	if !strings.Contains(output, "RUNNING") {
+		t.Fatalf("output missing RUNNING section: %q", output)
+	}
+	if !strings.Contains(output, "PENDING") {
+		t.Fatalf("output missing PENDING section: %q", output)
+	}
+	if !strings.Contains(output, "COMPLETED") {
+		t.Fatalf("output missing COMPLETED section: %q", output)
+	}
+	if !strings.Contains(output, "projA") {
+		t.Fatalf("output missing projA: %q", output)
+	}
+	if !strings.Contains(output, "projD") {
+		t.Fatalf("output missing projD: %q", output)
+	}
+	if !strings.Contains(output, "something broke") {
+		t.Fatalf("output missing error message: %q", output)
+	}
+}
+
+func TestPrintStatusTable_RunningJobNoStartedAt(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	status := jobqueue.QueueStatus{
+		Running: 1,
+		Jobs: []*jobqueue.Job{
+			{Project: "projA", Status: jobqueue.StatusRunning, Provider: "test", StartedAt: nil},
+		},
+	}
+
+	printStatusTable(cmd, status)
+	output := buf.String()
+	if !strings.Contains(output, "-") {
+		t.Fatalf("running job with nil StartedAt should show '-', got: %q", output)
+	}
+}
+
+func TestPrintStatusJSON_EmptyQueue(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	err := printStatusJSON(cmd, jobqueue.QueueStatus{})
+	if err != nil {
+		t.Fatalf("printStatusJSON: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"running": 0`) {
+		t.Fatalf("expected running:0, got: %q", output)
+	}
+	if !strings.Contains(output, `"jobs": []`) {
+		t.Fatalf("expected empty jobs array, got: %q", output)
+	}
+}
+
+func TestPrintStatusJSON_WithJobs(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	now := time.Now().UTC()
+	status := jobqueue.QueueStatus{
+		Running:   1,
+		Completed: 1,
+		Failed:    1,
+		TimedOut:  1,
+		Cancelled: 1,
+		Jobs: []*jobqueue.Job{
+			{
+				ID:            "proj-001",
+				Project:       "proj",
+				Status:        jobqueue.StatusRunning,
+				EnqueuedAt:    now,
+				StartedAt:     &now,
+				Provider:      "test",
+				MessagesRead:  10,
+				SourcesCount:  2,
+			},
+			{
+				ID:            "proj-002",
+				Project:       "proj",
+				Status:        jobqueue.StatusCompleted,
+				EnqueuedAt:    now,
+				FinishedAt:    &now,
+				Duration:      5 * time.Minute,
+				FindingsAdded: 3,
+				Provider:      "test",
+			},
+			{
+				ID:            "proj-003",
+				Project:       "proj",
+				Status:        jobqueue.StatusFailed,
+				EnqueuedAt:    now,
+				FinishedAt:    &now,
+				Error:         "analysis error",
+				Provider:      "test",
+			},
+			{
+				ID:       "proj-004",
+				Project:  "proj",
+				Status:   jobqueue.StatusTimedOut,
+				EnqueuedAt: now,
+				Provider: "test",
+			},
+			{
+				ID:       "proj-005",
+				Project:  "proj",
+				Status:   jobqueue.StatusCancelled,
+				EnqueuedAt: now,
+				Provider: "test",
+			},
+		},
+	}
+
+	err := printStatusJSON(cmd, status)
+	if err != nil {
+		t.Fatalf("printStatusJSON: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"timed_out": 1`) {
+		t.Fatalf("expected timed_out:1, got: %q", output)
+	}
+	if !strings.Contains(output, `"cancelled": 1`) {
+		t.Fatalf("expected cancelled:1, got: %q", output)
+	}
+	if !strings.Contains(output, `"findings_added": 3`) {
+		t.Fatalf("expected findings_added:3, got: %q", output)
+	}
+	if !strings.Contains(output, `"error": "analysis error"`) {
+		t.Fatalf("expected error field, got: %q", output)
 	}
 }

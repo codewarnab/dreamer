@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/config"
 	"dreamer/internal/errs"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -444,3 +447,245 @@ func TestPrintBox_MultipleLines(t *testing.T) {
 		t.Fatalf("second content line missing 'a longer line': %q", lines[2])
 	}
 }
+
+func TestStyledHelp_IncludesBannerAndCommands(t *testing.T) {
+	root := newRootCommand()
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetArgs([]string{"--help"})
+
+	_ = root.Execute()
+	output := buf.String()
+
+	// Banner is rendered as Unicode block characters.
+	if !strings.Contains(output, "███╗") {
+		t.Fatalf("help output missing banner block chars: %q", output)
+	}
+	if !strings.Contains(output, "analyze") {
+		t.Fatalf("help output missing 'analyze' command: %q", output)
+	}
+	if !strings.Contains(output, "daemon") {
+		t.Fatalf("help output missing 'daemon' command: %q", output)
+	}
+	if !strings.Contains(output, "CORE") {
+		t.Fatalf("help output missing 'CORE' group: %q", output)
+	}
+	if !strings.Contains(output, "INSPECT") {
+		t.Fatalf("help output missing 'INSPECT' group: %q", output)
+	}
+}
+
+func TestRenderFlagSection_WithFlags(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().StringP("name", "n", "", "set name")
+	cmd.Flags().IntP("count", "c", 10, "set count")
+
+	var buf strings.Builder
+	style := lipgloss.NewStyle()
+	renderFlagSection(&buf, "Testing", cmd.Flags(), style, style, style, style, style)
+
+	output := buf.String()
+	if !strings.Contains(output, "Testing") {
+		t.Fatalf("expected section header 'Testing': %q", output)
+	}
+	if !strings.Contains(output, "--name") {
+		t.Fatalf("expected --name flag: %q", output)
+	}
+	if !strings.Contains(output, "--count") {
+		t.Fatalf("expected --count flag: %q", output)
+	}
+}
+
+func TestPrintAlreadyRunningBox(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	cfg := &config.Config{}
+	printAlreadyRunningBox(cmd, 12345, "/tmp/dreamer.log", cfg)
+
+	output := buf.String()
+	if !strings.Contains(output, "12345") {
+		t.Fatalf("expected PID 12345 in output: %q", output)
+	}
+	if !strings.Contains(output, "already running") {
+		t.Fatalf("expected 'already running' message: %q", output)
+	}
+}
+
+func TestPrintStartedBox(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{FrequencySeconds: 60},
+		Projects: []config.ProjectConfig{
+			{Name: "proj1", Path: "/tmp/proj1"},
+		},
+	}
+	printStartedBox(cmd, 12345, "/tmp/dreamer.log", cfg)
+
+	output := buf.String()
+	if !strings.Contains(output, "12345") {
+		t.Fatalf("expected PID 12345 in output: %q", output)
+	}
+	if !strings.Contains(output, "started") {
+		t.Fatalf("expected 'started' message: %q", output)
+	}
+}
+
+func TestWaitForLockfile_TimesOut(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// No lockfile will appear, should time out quickly.
+	pid := waitForLockfile(lockPath, 100*time.Millisecond)
+	if pid != 0 {
+		t.Fatalf("expected 0 (timeout), got %d", pid)
+	}
+}
+
+func TestWaitForLockfile_FindsPID(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// Write a valid lockfile with a PID.
+	if err := os.WriteFile(lockPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	pid := waitForLockfile(lockPath, 1*time.Second)
+	if pid != 42 {
+		t.Fatalf("expected PID 42, got %d", pid)
+	}
+}
+
+func TestWaitForLockfileRemoval_Removed(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// Create then immediately remove the lockfile.
+	if err := os.WriteFile(lockPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	_ = os.Remove(lockPath)
+
+	err := waitForLockfileRemoval(lockPath, 1*time.Second)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestWaitForLockfileRemoval_Timeout(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+
+	// Create a lockfile that stays around.
+	if err := os.WriteFile(lockPath, []byte("42\n"), 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	err := waitForLockfileRemoval(lockPath, 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestSweepStaleFindingsTempFiles_NoFiles(t *testing.T) {
+	// Global temp dir may already have stale files from other tests/daemons,
+	// so we just verify the function runs without panic and returns a count.
+	removed := sweepStaleFindingsTempFiles()
+	if removed < 0 {
+		t.Fatalf("expected non-negative count, got %d", removed)
+	}
+}
+
+func TestSweepStaleFindingsTempFiles_RemovesOldFiles(t *testing.T) {
+	tmpDir := os.TempDir()
+
+	// Create old temp files matching the expected patterns.
+	oldFile := filepath.Join(tmpDir, "dreamer-findings-stale-test.jsonl")
+	if err := os.WriteFile(oldFile, []byte("test"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+	defer os.Remove(oldFile)
+
+	// Set modification time to well before staleAge.
+	oldTime := time.Now().Add(-staleAge - time.Minute)
+	_ = os.Chtimes(oldFile, oldTime, oldTime)
+
+	removed := sweepStaleFindingsTempFiles()
+	if removed < 1 {
+		t.Fatalf("expected at least 1 removed, got %d", removed)
+	}
+
+	// Verify file was actually removed.
+	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
+		t.Fatalf("stale file should have been removed: %s", oldFile)
+	}
+}
+
+func TestDetachedProcessAttr(t *testing.T) {
+	attr := detachedProcessAttr()
+	if attr == nil {
+		t.Fatal("detachedProcessAttr returned nil")
+	}
+	expected := syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008 // DETACHED_PROCESS
+	if attr.CreationFlags != uint32(expected) {
+		t.Fatalf("CreationFlags = 0x%x, want 0x%x", attr.CreationFlags, expected)
+	}
+}
+
+func TestKillDaemon_ProcessNotRunning(t *testing.T) {
+	// killDaemon on a non-existent PID should not error on Windows because
+	// taskkill reports "not found" and we treat that as success.
+	err := killDaemon(9999999)
+	if err != nil {
+		t.Fatalf("expected nil for non-existent PID, got: %v", err)
+	}
+}
+
+func TestRunExternalCommand_Echo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("echo is a shell built-in on Windows")
+	}
+	output, err := runExternalCommand("echo", "hello")
+	if err != nil {
+		t.Fatalf("runExternalCommand: %v", err)
+	}
+	if !strings.Contains(string(output), "hello") {
+		t.Fatalf("expected 'hello', got: %q", output)
+	}
+}
+
+func TestRunExternalCommand_FailingCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("'false' command not available on Windows")
+	}
+	// A command that should fail.
+	_, err := runExternalCommand("false")
+	if err == nil {
+		t.Fatal("expected error from 'false' command")
+	}
+}
+
+func TestFormatCommandOutput(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"  \n  ", ""},
+		{"hello", ": hello"},
+		{"  hello world  \n", ": hello world"},
+		{"error message\n", ": error message"},
+	}
+	for _, tt := range tests {
+		got := formatCommandOutput([]byte(tt.input))
+		if got != tt.want {
+			t.Errorf("formatCommandOutput(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+

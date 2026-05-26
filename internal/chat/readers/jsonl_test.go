@@ -814,3 +814,295 @@ func TestParseTimestamp_ZeroValues(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// roleFromRecord: sender / author map branches
+// ---------------------------------------------------------------------------
+
+func TestRoleFromRecordSenderKey(t *testing.T) {
+	record := map[string]any{"sender": "human"}
+	got := roleFromRecord(record)
+	if got != "user" {
+		t.Errorf("roleFromRecord(sender=human) = %q, want user", got)
+	}
+}
+
+func TestRoleFromRecordAuthorKey(t *testing.T) {
+	record := map[string]any{"author": "copilot"}
+	got := roleFromRecord(record)
+	if got != "assistant" {
+		t.Errorf("roleFromRecord(author=copilot) = %q, want assistant", got)
+	}
+}
+
+func TestRoleFromRecordAuthorMapWithRole(t *testing.T) {
+	record := map[string]any{
+		"author": map[string]any{"role": "user"},
+	}
+	got := roleFromRecord(record)
+	if got != "user" {
+		t.Errorf("roleFromRecord(author map with role=user) = %q, want user", got)
+	}
+}
+
+func TestRoleFromRecordAuthorMapWithType(t *testing.T) {
+	record := map[string]any{
+		"author": map[string]any{"type": "assistant"},
+	}
+	got := roleFromRecord(record)
+	if got != "assistant" {
+		t.Errorf("roleFromRecord(author map with type=assistant) = %q, want assistant", got)
+	}
+}
+
+func TestRoleFromRecordAuthorMapWithKind(t *testing.T) {
+	record := map[string]any{
+		"author": map[string]any{"kind": "model"},
+	}
+	got := roleFromRecord(record)
+	if got != "assistant" {
+		t.Errorf("roleFromRecord(author map with kind=model) = %q, want assistant", got)
+	}
+}
+
+func TestRoleFromRecordEmptyReturnsEmpty(t *testing.T) {
+	record := map[string]any{"irrelevant": 42}
+	got := roleFromRecord(record)
+	if got != "" {
+		t.Errorf("roleFromRecord(irrelevant) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// rawRole: map branch
+// ---------------------------------------------------------------------------
+
+func TestRawRoleMapWithNestedRole(t *testing.T) {
+	input := map[string]any{"role": "assistant"}
+	got := rawRole(input)
+	if got != "assistant" {
+		t.Errorf("rawRole(map[role:assistant]) = %q, want assistant", got)
+	}
+}
+
+func TestRawRoleMapWithNestedType(t *testing.T) {
+	input := map[string]any{"type": "user"}
+	got := rawRole(input)
+	if got != "user" {
+		t.Errorf("rawRole(map[type:user]) = %q, want user", got)
+	}
+}
+
+func TestRawRoleMapEmpty(t *testing.T) {
+	input := map[string]any{}
+	got := rawRole(input)
+	if got != "" {
+		t.Errorf("rawRole(empty map) = %q, want empty", got)
+	}
+}
+
+func TestRawRoleNonStringNonMap(t *testing.T) {
+	got := rawRole(42)
+	if got != "" {
+		t.Errorf("rawRole(42) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// contentFromRecord: text / body / prompt branches
+// ---------------------------------------------------------------------------
+
+func TestContentFromRecordTextKey(t *testing.T) {
+	record := map[string]any{"text": "hello from text key"}
+	got := contentFromRecord(record)
+	if got != "hello from text key" {
+		t.Errorf("contentFromRecord(text) = %q, want %q", got, "hello from text key")
+	}
+}
+
+func TestContentFromRecordBodyKey(t *testing.T) {
+	record := map[string]any{"body": "hello from body key"}
+	got := contentFromRecord(record)
+	if got != "hello from body key" {
+		t.Errorf("contentFromRecord(body) = %q, want %q", got, "hello from body key")
+	}
+}
+
+func TestContentFromRecordPromptKey(t *testing.T) {
+	record := map[string]any{"prompt": "hello from prompt key"}
+	got := contentFromRecord(record)
+	if got != "hello from prompt key" {
+		t.Errorf("contentFromRecord(prompt) = %q, want %q", got, "hello from prompt key")
+	}
+}
+
+func TestContentFromRecordResponseKey(t *testing.T) {
+	record := map[string]any{"response": "hello from response key"}
+	got := contentFromRecord(record)
+	if got != "hello from response key" {
+		t.Errorf("contentFromRecord(response) = %q, want %q", got, "hello from response key")
+	}
+}
+
+func TestContentFromRecordEmptyReturnsEmpty(t *testing.T) {
+	record := map[string]any{"irrelevant": 42}
+	got := contentFromRecord(record)
+	if got != "" {
+		t.Errorf("contentFromRecord(irrelevant) = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// messageFromMap: timestamp fallback from root
+// ---------------------------------------------------------------------------
+
+func TestMessageFromMapTimestampFallbackFromRoot(t *testing.T) {
+	// record has no timestamp; root does
+	record := map[string]any{
+		"role":    "user",
+		"content": "hello",
+	}
+	root := map[string]any{
+		"role":      "user",
+		"content":   "hello",
+		"timestamp": "2024-06-15T10:00:00Z",
+	}
+	msg, ok := messageFromMap(record, root)
+	if !ok {
+		t.Fatal("messageFromMap returned !ok")
+	}
+	expected := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
+	if !msg.Timestamp.Equal(expected) {
+		t.Errorf("timestamp = %v, want %v", msg.Timestamp, expected)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// nestedMessageCandidates
+// ---------------------------------------------------------------------------
+
+func TestNestedMessageCandidatesIncludesAllKeys(t *testing.T) {
+	record := map[string]any{
+		"message":  "m1",
+		"event":    "e1",
+		"data":     "d1",
+		"payload":  "p1",
+		"request":  "r1",
+		"response": "r2",
+		"messages": []any{"a", "b"},
+	}
+	candidates := nestedMessageCandidates(record)
+	// 6 individual keys + 2 from messages array = 8
+	if len(candidates) != 8 {
+		t.Errorf("expected 8 candidates, got %d", len(candidates))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// copilotSessionMessageFromRecord edge cases
+// ---------------------------------------------------------------------------
+
+func TestCopilotSessionMessageFromRecordNoType(t *testing.T) {
+	record := map[string]any{"data": map[string]any{"content": "hi"}}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for record without type")
+	}
+}
+
+func TestCopilotSessionMessageFromRecordUnknownType(t *testing.T) {
+	record := map[string]any{
+		"type": "session.end",
+		"data": map[string]any{"content": "bye"},
+	}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for unknown type")
+	}
+}
+
+func TestCopilotSessionMessageFromRecordNoData(t *testing.T) {
+	record := map[string]any{"type": "user.message"}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for record without data")
+	}
+}
+
+func TestCopilotSessionMessageFromRecordEmptyContent(t *testing.T) {
+	record := map[string]any{
+		"type": "user.message",
+		"data": map[string]any{"content": ""},
+	}
+	_, ok := copilotSessionMessageFromRecord(record)
+	if ok {
+		t.Error("expected !ok for empty content")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseJSONLRecordBytes: copilot session dispatch
+// ---------------------------------------------------------------------------
+
+func TestParseJSONLRecordBytesCopilotUserMessage(t *testing.T) {
+	raw := []byte(`{"type":"user.message","data":{"content":"test input"}}`)
+	msg, ok := parseJSONLRecordBytes(raw)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if msg.Role != "user" || msg.Content != "test input" {
+		t.Errorf("got role=%q content=%q", msg.Role, msg.Content)
+	}
+}
+
+func TestParseJSONLRecordBytesCopilotAssistantMessage(t *testing.T) {
+	raw := []byte(`{"type":"assistant.message","data":{"content":"test reply"}}`)
+	msg, ok := parseJSONLRecordBytes(raw)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if msg.Role != "assistant" || msg.Content != "test reply" {
+		t.Errorf("got role=%q content=%q", msg.Role, msg.Content)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadJSONL: scanner error path (excessively long line)
+// ---------------------------------------------------------------------------
+
+func TestReadJSONLReturnsErrorForExcessivelyLongLine(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "toolong.jsonl")
+	// Write a line that exceeds maxScannerBufferSize (8MB).
+	hugeContent := strings.Repeat("a", 9*1024*1024)
+	line := fmt.Sprintf(`{"role":"user","content":%q}`, hugeContent)
+	if err := os.WriteFile(filePath, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	_, err := ReadJSONL(filePath)
+	if err == nil {
+		t.Fatal("expected error for line exceeding scanner buffer")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReadJSONLWithOptions: copilot sanitizer integration
+// ---------------------------------------------------------------------------
+
+func TestReadJSONLWithOptionsSanitizesCopilotDeduplication(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "copilot-dedup.jsonl")
+	contents := strings.Join([]string{
+		`{"type":"user.message","data":{"content":"Fix the bug."}}`,
+		`{"type":"user.message","data":{"content":"Fix the bug."}}`,
+		`{"type":"assistant.message","data":{"content":"I'll look into it."}}`,
+	}, "\n")
+	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	messages, err := ReadJSONLWithOptions(filePath, JSONLReadOptions{Sanitizer: SanitizeCopilotSessionMessages})
+	if err != nil {
+		t.Fatalf("ReadJSONLWithOptions: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 after dedup, got %d", len(messages))
+	}
+}
