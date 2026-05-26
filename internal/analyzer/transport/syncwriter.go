@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"io"
 	"strings"
 	"sync"
 )
@@ -11,6 +12,8 @@ type SafeBuffer struct {
 	mu  sync.Mutex
 	buf strings.Builder
 }
+
+var _ io.Writer = (*SafeBuffer)(nil)
 
 // Write implements io.Writer. Safe for concurrent use.
 func (b *SafeBuffer) Write(p []byte) (int, error) {
@@ -31,4 +34,18 @@ func (b *SafeBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// Len returns the number of accumulated bytes. Safe for concurrent use.
+func (b *SafeBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+// Reset resets the buffer to empty. Safe for concurrent use.
+func (b *SafeBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }

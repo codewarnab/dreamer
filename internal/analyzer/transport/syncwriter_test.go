@@ -100,3 +100,47 @@ func TestSafeBuffer_EmptyString(t *testing.T) {
 		t.Fatalf("empty buffer: got %q, want %q", got, "")
 	}
 }
+
+func TestSafeBuffer_Len(t *testing.T) {
+	var b SafeBuffer
+	if got := b.Len(); got != 0 {
+		t.Fatalf("empty Len = %d, want 0", got)
+	}
+	b.WriteString("hello")
+	if got := b.Len(); got != 5 {
+		t.Fatalf("Len after Write = %d, want 5", got)
+	}
+}
+
+func TestSafeBuffer_Reset(t *testing.T) {
+	var b SafeBuffer
+	b.WriteString("hello")
+	b.Reset()
+	if got := b.Len(); got != 0 {
+		t.Fatalf("Len after Reset = %d, want 0", got)
+	}
+	if got := b.String(); got != "" {
+		t.Fatalf("String after Reset = %q, want empty", got)
+	}
+}
+
+func TestSafeBuffer_LenConcurrent(t *testing.T) {
+	var b SafeBuffer
+	var wg sync.WaitGroup
+	const goroutines = 100
+	wg.Add(goroutines * 2)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			b.WriteString("x")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = b.Len()
+		}()
+	}
+	wg.Wait()
+	if got := b.Len(); got != goroutines {
+		t.Fatalf("Len = %d, want %d", got, goroutines)
+	}
+}
