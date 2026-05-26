@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -45,8 +44,7 @@ func ProjectsList(deps Deps) http.HandlerFunc {
 		for _, p := range cfg.Projects {
 			out.Projects = append(out.Projects, projectRollup(cfg, p))
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -81,8 +79,7 @@ func ProjectDetail(deps Deps) http.HandlerFunc {
 		for _, p := range cfg.Projects {
 			if p.Name == tail {
 				rollup := projectRollup(cfg, p)
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(rollup)
+				writeJSON(w, http.StatusOK, rollup)
 				return
 			}
 		}

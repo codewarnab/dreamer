@@ -43,9 +43,6 @@ func BuildSymbolIndex(projectRoot string, files []string, cap int) []Symbol {
 		path := filepath.Join(projectRoot, rel)
 		fileSymbols := scanGoFile(path, rel)
 		symbols = append(symbols, fileSymbols...)
-		if cap > 0 && len(symbols) >= cap {
-			return symbols[:cap]
-		}
 	}
 	sort.Slice(symbols, func(i, j int) bool {
 		if symbols[i].Path == symbols[j].Path {

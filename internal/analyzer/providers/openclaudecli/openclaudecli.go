@@ -269,13 +269,16 @@ func readStreamJSON(r io.Reader) (string, error) {
 	var assistantText strings.Builder
 	var resultText string
 	var resultErr string
+	var totalLines, parseErrors int
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
+		totalLines++
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			parseErrors++
 			continue
 		}
 		switch event.Type {
@@ -310,6 +313,9 @@ func readStreamJSON(r io.Reader) (string, error) {
 	}
 	if resultErr != "" {
 		return "", fmt.Errorf("openclaude-cli: %s", resultErr)
+	}
+	if assistantText.Len() == 0 && resultText == "" && totalLines > 0 && parseErrors == totalLines {
+		return "", fmt.Errorf("openclaude-cli: all %d output lines failed to parse (provider schema change?)", totalLines)
 	}
 	// Prefer the result event's text (complete, post-processing); fall back
 	// to concatenated assistant messages for providers that omit result events.

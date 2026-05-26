@@ -227,10 +227,13 @@ func contentFromRecord(record map[string]any) string {
 	return ""
 }
 
-func textFromValue(value any, depth int) string {
-	const maxDepth = 8
+// MaxDepth is the recursion limit for JSON value extraction functions that
+// walk nested structures looking for text content. Also used by the parent
+// chat package for probe-style evidence extraction.
+const MaxDepth = 8
 
-	if depth > maxDepth || value == nil {
+func textFromValue(value any, depth int) string {
+	if depth > MaxDepth || value == nil {
 		return ""
 	}
 

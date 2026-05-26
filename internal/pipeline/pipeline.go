@@ -33,6 +33,10 @@ const FindingsTempFilePattern = "dreamer-findings-*.jsonl"
 // within a single daemon lifetime, short enough to not bloat prompts.
 const runIDLength = 8
 
+// providerStartTimeout is the maximum time to wait for a provider process
+// to start before giving up.
+const providerStartTimeout = 30 * time.Second
+
 // generateRunID returns a random 8-character hex string for correlating
 // all prompts and outputs from a single analysis run.
 func generateRunID() string {
@@ -204,17 +208,17 @@ type discoveryResult struct {
 // runDiscovery resolves paths, loads project config, discovers chat sources,
 // and applies lookback filtering.
 func runDiscovery(opts Options, appConfig *config.Config, logger *logging.Logger) (discoveryResult, error) {
-	var dr discoveryResult
-	dr.appConfig = appConfig
+	var discovery discoveryResult
+	discovery.appConfig = appConfig
 
 	projectPath, err := resolveAbsoluteProjectPath(opts.ProjectPath)
 	if err != nil {
-		return dr, err
+		return discovery, err
 	}
-	dr.projectPath = projectPath
+	discovery.projectPath = projectPath
 
-	dr.projectName = strings.TrimSpace(opts.ProjectName)
-	if dr.projectName == "" {
+	discovery.projectName = strings.TrimSpace(opts.ProjectName)
+	if discovery.projectName == "" {
 		// Build collision map from configured projects so two projects
 		// with the same basename get distinct directory names.
 		usedNames := make(map[string]string, len(appConfig.Projects)*2)
@@ -229,50 +233,50 @@ func runDiscovery(opts Options, appConfig *config.Config, logger *logging.Logger
 				usedNames[p.Name] = p.Path
 			}
 		}
-		dr.projectName = DeriveProjectName(projectPath, usedNames)
+		discovery.projectName = DeriveProjectName(projectPath, usedNames)
 	}
-	logger.Info("analyze begin", logging.Any("project", dr.projectName), logging.Any("path", projectPath))
+	logger.Info("analyze begin", logging.Any("project", discovery.projectName), logging.Any("path", projectPath))
 
 	projectFile, err := config.LoadProjectFileConfig(projectPath)
 	if err != nil {
-		return dr, fmt.Errorf("load project config: %w", err)
+		return discovery, fmt.Errorf("load project config: %w", err)
 	}
-	dr.projectFile = projectFile
+	discovery.projectFile = projectFile
 
-	dr.providerID, dr.providerBlock = appConfig.ResolveProviderConfig(projectFile, opts.ProviderID)
-	logger.Info("provider resolved", logging.Any("id", dr.providerID))
+	discovery.providerID, discovery.providerBlock = appConfig.ResolveProviderConfig(projectFile, opts.ProviderID)
+	logger.Info("provider resolved", logging.Any("id", discovery.providerID))
 
-	dr.outputRoot = strings.TrimSpace(opts.OutputDir)
-	if dr.outputRoot == "" {
-		dr.outputRoot = appConfig.Daemon.OutputRoot
+	discovery.outputRoot = strings.TrimSpace(opts.OutputDir)
+	if discovery.outputRoot == "" {
+		discovery.outputRoot = appConfig.Daemon.OutputRoot
 	}
 
 	discoverEnv, err := chat.DefaultDiscoveryEnvironment()
 	if err != nil {
-		return dr, fmt.Errorf("resolve discovery environment: %w", err)
+		return discovery, fmt.Errorf("resolve discovery environment: %w", err)
 	}
-	if copilotHome := strings.TrimSpace(dr.providerBlock.CopilotHome); copilotHome != "" {
+	if copilotHome := strings.TrimSpace(discovery.providerBlock.CopilotHome); copilotHome != "" {
 		discoverEnv.CopilotHome = copilotHome
-	} else if isCopilotProvider(config.ProviderID(dr.providerID)) && dr.outputRoot != "" {
-		discoverEnv.CopilotHome = filepath.Join(dr.outputRoot, ".copilot-state")
+	} else if isCopilotProvider(config.ProviderID(discovery.providerID)) && discovery.outputRoot != "" {
+		discoverEnv.CopilotHome = filepath.Join(discovery.outputRoot, ".copilot-state")
 	}
 	sources, err := chat.DiscoverChatsWithEnvironment(discoverEnv, projectPath)
 	if err != nil {
-		return dr, fmt.Errorf("discover chats: %w", err)
+		return discovery, fmt.Errorf("discover chats: %w", err)
 	}
 	logDiscoveredSources(logger, sources)
 
 	if strings.TrimSpace(opts.Since) != "" {
 		lookback, enabled, err := parseLookbackWindow(opts.Since)
 		if err != nil {
-			return dr, fmt.Errorf("parse --since: %w", err)
+			return discovery, fmt.Errorf("parse --since: %w", err)
 		}
 		before := len(sources)
 		sources = filterSourcesByLookback(sources, time.Now().UTC(), lookback, enabled)
 		logger.Info("lookback filter", logging.Any("since", opts.Since), logging.Any("kept", len(sources)), logging.Any("total", before))
 	}
-	dr.sources = sources
-	return dr, nil
+	discovery.sources = sources
+	return discovery, nil
 }
 
 // cachingResult holds the output of the caching stage.
@@ -283,18 +287,18 @@ type cachingResult struct {
 
 // runCaching checks the discovery cache, computes per-source cache keys,
 // and determines whether the run can be skipped.
-func runCaching(opts Options, dr discoveryResult, currentState *state.State, repoHeadSHA string, logger *logging.Logger) (cachingResult, error) {
+func runCaching(opts Options, discovery discoveryResult, currentState *state.State, repoHeadSHA string, logger *logging.Logger) (cachingResult, error) {
 	if !opts.Force && opts.DiscoveryCache != nil {
-		if opts.DiscoveryCache.Check(dr.projectPath, dr.sources, repoHeadSHA) {
-			logger.Info("discovery cache hit", logging.Any("project", dr.projectName), logging.Any("sources", len(dr.sources)))
-			publishRunDone(opts.Events, dr.projectName, "", 0, 0, 0)
+		if opts.DiscoveryCache.Check(discovery.projectPath, discovery.sources, repoHeadSHA) {
+			logger.Info("discovery cache hit", logging.Any("project", discovery.projectName), logging.Any("sources", len(discovery.sources)))
+			publishRunDone(opts.Events, discovery.projectName, "", 0, 0, 0)
 			return cachingResult{cacheHit: true}, nil
 		}
 	}
 
-	cacheKeys, cacheStats := computeCacheKeys(dr.sources, currentState.ChatHashes, repoHeadSHA, logger)
+	cacheKeys, cacheStats := computeCacheKeys(discovery.sources, currentState.ChatHashes, repoHeadSHA, logger)
 	logger.Info("chat cache summary",
-		logging.Any("total", len(dr.sources)),
+		logging.Any("total", len(discovery.sources)),
 		logging.Any("cached", cacheStats.Cached),
 		logging.Any("changed", cacheStats.Changed),
 		logging.Any("new", cacheStats.Fresh),
@@ -304,11 +308,11 @@ func runCaching(opts Options, dr discoveryResult, currentState *state.State, rep
 	)
 
 	if !opts.Force && cacheUnchanged(currentState, cacheKeys, repoHeadSHA) {
-		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(dr.sources)), logging.Any("reason", "all cached, head unchanged"))
-		publishRunDone(opts.Events, dr.projectName, "", 0, 0, 0)
+		logger.Info("cache hit", logging.Any("analyzing", 0), logging.Any("skipping", len(discovery.sources)), logging.Any("reason", "all cached, head unchanged"))
+		publishRunDone(opts.Events, discovery.projectName, "", 0, 0, 0)
 		return cachingResult{cacheHit: true}, nil
 	}
-	logger.Info("cache miss", logging.Any("analyzing", len(dr.sources)), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("cached", cacheStats.Cached))
+	logger.Info("cache miss", logging.Any("analyzing", len(discovery.sources)), logging.Any("changed", cacheStats.Changed), logging.Any("new", cacheStats.Fresh), logging.Any("cached", cacheStats.Cached))
 	return cachingResult{cacheKeys: cacheKeys}, nil
 }
 
@@ -331,23 +335,23 @@ type transcriptResult struct {
 // runTranscriptPrep loads rule packs, builds redacted transcripts, and packs
 // chunks. Returns zeroMessages=true when the preflight check finds no readable
 // messages (caller should save state and return early).
-func runTranscriptPrep(opts Options, dr discoveryResult, sources []chat.ChatSource, logger *logging.Logger) (transcriptResult, bool, error) {
-	var tr transcriptResult
+func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.ChatSource, logger *logging.Logger) (transcriptResult, bool, error) {
+	var transcript transcriptResult
 
-	rulePacks := mergeRulePacks(dr.appConfig, dr.projectFile)
+	rulePacks := mergeRulePacks(discovery.appConfig, discovery.projectFile)
 	if !anyEnabled(rulePacks) {
-		return tr, false, fmt.Errorf("all rule packs disabled; nothing to analyze")
+		return transcript, false, fmt.Errorf("all rule packs disabled; nothing to analyze")
 	}
 
-	redactor, err := buildRedactor(dr.appConfig, dr.projectFile)
+	redactor, err := buildRedactor(discovery.appConfig, discovery.projectFile)
 	if err != nil {
-		return tr, false, err
+		return transcript, false, err
 	}
 
-	includeSubagents := dr.appConfig.Analyzer.IncludeSubagentTranscripts != nil && *dr.appConfig.Analyzer.IncludeSubagentTranscripts
+	includeSubagents := discovery.appConfig.Analyzer.IncludeSubagentTranscripts != nil && *discovery.appConfig.Analyzer.IncludeSubagentTranscripts
 	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger, includeSubagents)
 	if err != nil {
-		return tr, false, err
+		return transcript, false, err
 	}
 	transcriptBytes := 0
 	for _, b := range blocks {
@@ -369,13 +373,13 @@ func runTranscriptPrep(opts Options, dr discoveryResult, sources []chat.ChatSour
 		}, true, nil
 	}
 
-	chunkCfg := dr.appConfig.Analyzer.Chunking
+	chunkCfg := discovery.appConfig.Analyzer.Chunking
 	if opts.MaxChunkBytesOverrideSet {
 		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
 	}
 	chunks, chunkWarnings := PackChunks(blocks, chunkCfg, opts.Since)
 	if len(chunks) == 0 {
-		return tr, false, fmt.Errorf("chunker produced zero chunks despite non-empty transcript")
+		return transcript, false, fmt.Errorf("chunker produced zero chunks despite non-empty transcript")
 	}
 	totalSplits := 0
 	for _, c := range chunks {
@@ -411,171 +415,201 @@ type analysisResult struct {
 	mode     analyzer.ExecutionMode
 }
 
-// runAnalysis instantiates the provider, detects the toolchain, and runs the
-// orchestrator. The caller must close the returned provider.
-func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr transcriptResult, rctx *runCtx, currentState *state.State, runID string, logger *logging.Logger) (analysisResult, error) {
-	var ar analysisResult
+// phase2Setup bundles the resolved Phase 2 transport state and its cleanup.
+type phase2Setup struct {
+	mode             analyzer.Phase2Mode
+	config           *analyzer.Phase2Config
+	findingsFilePath string
+	binaryPath       string
+}
 
-	providerCfg := buildProviderConfig(dr.providerID, dr.providerBlock)
-	provider, err := analyzer.NewProvider(analyzer.ProviderID(dr.providerID), providerCfg)
-	if err != nil {
-		return ar, fmt.Errorf("instantiate provider %q: %w (%s)", dr.providerID, err, config.RemediationMessage(dr.providerID))
-	}
-
-	logger.Info("provider starting", logging.Any("id", dr.providerID))
-	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
-	if err := provider.Start(startCtx); err != nil {
-		startCancel()
-		_ = provider.Close()
-		recordProviderFailure(currentState, dr.providerID, err)
-		rctx.persistFailureState(err, logger)
-		return ar, fmt.Errorf("start provider %q: %w (%s)", dr.providerID, err, config.RemediationMessage(dr.providerID))
-	}
-	startCancel()
-	logger.Info("provider ready", logging.Any("id", dr.providerID))
-
-	mode := resolveExecutionMode(dr.appConfig, opts, provider, logger)
-
-	tc := toolchain.Detect(dr.projectPath)
-	logger.Info("toolchain detected", logging.Any("summary", tc.String()))
-
-	codebaseContext, err := analyzer.BuildCodebaseContext(dr.projectPath)
-	if err != nil {
-		logger.Warn("codebase context build failed", logging.Any("err", err))
-	}
-	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
-
-	// Resolve Phase 2 transport. Dry runs always use the legacy JSON
-	// transport because they short-circuit before Phase 2 anyway and we
-	// don't want them touching disk.
-	phase2Mode := analyzer.LookupPhase2Mode(analyzer.ProviderID(dr.providerID))
+// setupPhase2Transport resolves the Phase 2 transport mode, builds the
+// config, and returns a cleanup function that removes any temp files.
+// The caller must defer the returned cleanup.
+func setupPhase2Transport(ctx context.Context, opts Options, providerID string, events *EventBus, logger *logging.Logger) (phase2Setup, func()) {
+	mode := analyzer.LookupPhase2Mode(analyzer.ProviderID(providerID))
 	if opts.DryRun {
-		phase2Mode = analyzer.Phase2ModeNone
+		mode = analyzer.Phase2ModeNone
 	}
 
-	phase2Config, findingsOutputPath, dreamerBinaryPath, phase2Err := buildPhase2Config(phase2Mode)
-	if phase2Err != nil {
-		// Phase 2 mode was requested but setup failed. Log a warning and
-		// fall back to legacy JSON transport — the run will still produce
-		// findings via inline JSON, just fewer (no tool-verified ones).
-		// Surface through the event bus so operators can see the failure
-		// instead of silently degrading.
+	cfg, findingsPath, binaryPath, buildErr := buildPhase2Config(mode)
+	if buildErr != nil {
 		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
-			logging.Any("mode", string(phase2Mode)),
-			logging.Any("err", phase2Err),
+			logging.Any("mode", string(mode)),
+			logging.Any("err", buildErr),
 		)
-		if opts.Events != nil {
-			opts.Events.Publish(Event{
+		if events != nil {
+			events.Publish(Event{
 				Type:    "phase2.fallback",
-				Payload: map[string]any{"mode": string(phase2Mode), "error": phase2Err.Error()},
+				Payload: map[string]any{"mode": string(mode), "error": buildErr.Error()},
 			})
 		}
-		phase2Mode = analyzer.Phase2ModeNone
-		phase2Config = nil
+		mode = analyzer.Phase2ModeNone
+		cfg = nil
 	}
-	defer func() {
-		if findingsOutputPath != "" {
-			if err := os.Remove(findingsOutputPath); err != nil && !os.IsNotExist(err) {
+	if mode != analyzer.Phase2ModeNone {
+		logger.Info("phase2 tool mode",
+			logging.Any("mode", string(mode)),
+			logging.Any("output", findingsPath),
+		)
+	}
+
+	cleanup := func() {
+		if findingsPath != "" {
+			if err := os.Remove(findingsPath); err != nil && !os.IsNotExist(err) {
 				logger.Warn("remove findings temp file failed", logging.Any("err", err))
 			}
 		}
-		if phase2Config != nil && phase2Config.MCP != nil && phase2Config.MCP.ConfigFilePath != "" {
-			if err := os.Remove(phase2Config.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
+		if cfg != nil && cfg.MCP != nil && cfg.MCP.ConfigFilePath != "" {
+			if err := os.Remove(cfg.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
 				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
 			}
 		}
-	}()
-	if phase2Mode != analyzer.Phase2ModeNone {
-		logger.Info("phase2 tool mode",
-			logging.Any("mode", string(phase2Mode)),
-			logging.Any("output", findingsOutputPath),
-		)
 	}
 
-	// Two factories: Phase 1 sessions never see MCP / CLI tool wiring, so a
-	// rogue Phase 1 model cannot pollute the findings file.
-	systemMsg := analyzer.BuildReadOnlySystemMessage(dr.projectPath, runID)
-	sandboxMode := providerCfg.Sandbox
-	phase1Factory := func() (analyzer.Session, error) {
-		raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
-			WorkingDirectory: dr.projectPath,
-			Model:            dr.providerBlock.Model,
+	return phase2Setup{
+		mode:             mode,
+		config:           cfg,
+		findingsFilePath: findingsPath,
+		binaryPath:       binaryPath,
+	}, cleanup
+}
+
+// buildSessionFactories creates the Phase 1 and Phase 2 session factory
+// functions. Phase 1 sessions never see MCP/CLI tool wiring so a rogue
+// Phase 1 model cannot pollute the findings file.
+func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger) (phase1, phase2 func() (analyzer.Session, error)) {
+	systemMsg := analyzer.BuildReadOnlySystemMessage(discovery.projectPath, runID)
+	phase1 = func() (analyzer.Session, error) {
+		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
+			WorkingDirectory: discovery.projectPath,
+			Model:            discovery.providerBlock.Model,
 			ReadOnly:         true,
 			SystemMessage:    systemMsg,
 			RunID:            runID,
 			Sandbox:          sandboxMode,
 		})
-		if factoryErr != nil {
-			return nil, factoryErr
+		if err != nil {
+			return nil, err
 		}
-		return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
+		return analyzer.NewLoggingSession(raw, logger, discovery.providerID), nil
 	}
-	phase2Factory := phase1Factory
-	if phase2Config != nil {
-		phase2Factory = func() (analyzer.Session, error) {
-			raw, factoryErr := provider.NewSession(ctx, analyzer.SessionConfig{
-				WorkingDirectory: dr.projectPath,
-				Model:            dr.providerBlock.Model,
-				ReadOnly:         true,
-				SystemMessage:    systemMsg,
-				RunID:            runID,
-				Phase2:           phase2Config,
-				Sandbox:          sandboxMode,
-			})
-			if factoryErr != nil {
-				return nil, factoryErr
-			}
-			return analyzer.NewLoggingSession(raw, logger, dr.providerID), nil
+	if phase2Cfg == nil {
+		return phase1, phase1
+	}
+	phase2 = func() (analyzer.Session, error) {
+		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
+			WorkingDirectory: discovery.projectPath,
+			Model:            discovery.providerBlock.Model,
+			ReadOnly:         true,
+			SystemMessage:    systemMsg,
+			RunID:            runID,
+			Phase2:           phase2Cfg,
+			Sandbox:          sandboxMode,
+		})
+		if err != nil {
+			return nil, err
 		}
+		return analyzer.NewLoggingSession(raw, logger, discovery.providerID), nil
+	}
+	return phase1, phase2
+}
+
+// collectDismissedHashes builds a set of finding hashes that includes both
+// persisted hashes and any that have been dismissed via the UI. Dismissed
+// hashes are folded into the dedup set so the analyzer never re-emits them.
+func collectDismissedHashes(currentState *state.State) map[string]struct{} {
+	if currentState == nil {
+		return nil
+	}
+	hashes := stringSliceToSet(currentState.FindingHashes)
+	for hash, findingState := range currentState.Findings {
+		if findingState.Status == state.FindingStatusDismissed {
+			if hashes == nil {
+				hashes = map[string]struct{}{}
+			}
+			hashes[hash] = struct{}{}
+		}
+	}
+	return hashes
+}
+
+// runAnalysis instantiates the provider, detects the toolchain, and runs the
+// orchestrator. The caller must close the returned provider.
+func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, transcript transcriptResult, runContext *runCtx, currentState *state.State, runID string, logger *logging.Logger) (analysisResult, error) {
+	var analysis analysisResult
+
+	providerCfg := buildProviderConfig(discovery.providerID, discovery.providerBlock)
+	provider, err := analyzer.NewProvider(analyzer.ProviderID(discovery.providerID), providerCfg)
+	if err != nil {
+		return analysis, fmt.Errorf("instantiate provider %q: %w (%s)", discovery.providerID, err, config.RemediationMessage(discovery.providerID))
 	}
 
-	existingFindingHashes := stringSliceToSet(currentState.FindingHashes)
-	if currentState != nil {
-		for hash, findingState := range currentState.Findings {
-			if findingState.Status == state.FindingStatusDismissed {
-				if existingFindingHashes == nil {
-					existingFindingHashes = map[string]struct{}{}
-				}
-				existingFindingHashes[hash] = struct{}{}
-			}
-		}
+	logger.Info("provider starting", logging.Any("id", discovery.providerID))
+	startCtx, startCancel := context.WithTimeout(ctx, providerStartTimeout)
+	if err := provider.Start(startCtx); err != nil {
+		startCancel()
+		_ = provider.Close()
+		recordProviderFailure(currentState, discovery.providerID, err)
+		runContext.persistFailureState(err, logger)
+		return analysis, fmt.Errorf("start provider %q: %w (%s)", discovery.providerID, err, config.RemediationMessage(discovery.providerID))
 	}
+	startCancel()
+	logger.Info("provider ready", logging.Any("id", discovery.providerID))
+
+	mode := resolveExecutionMode(discovery.appConfig, opts, provider, logger)
+
+	detectedToolchain := toolchain.Detect(discovery.projectPath)
+	logger.Info("toolchain detected", logging.Any("summary", detectedToolchain.String()))
+
+	codebaseContext, err := analyzer.BuildCodebaseContext(discovery.projectPath)
+	if err != nil {
+		logger.Warn("codebase context build failed", logging.Any("err", err))
+	}
+	logger.Info("codebase context", logging.Any("bytes", len(codebaseContext)))
+
+	p2, p2Cleanup := setupPhase2Transport(ctx, opts, discovery.providerID, opts.Events, logger)
+	defer p2Cleanup()
+
+	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, providerCfg.Sandbox, runID, logger)
+
+	existingFindingHashes := collectDismissedHashes(currentState)
 	phaseReq := analyzer.PhaseRequest{
-		ProjectRoot:        dr.projectPath,
-		ToolchainSummary:   tc.Summary(),
-		PrimaryLinter:      tc.PrimaryLinter(),
-		TestFramework:      tc.PrimaryTestFramework(),
+		ProjectRoot:        discovery.projectPath,
+		ToolchainSummary:   detectedToolchain.Summary(),
+		PrimaryLinter:      detectedToolchain.PrimaryLinter(),
+		TestFramework:      detectedToolchain.PrimaryTestFramework(),
 		CodebaseContext:    codebaseContext,
 		RunID:              runID,
 		DryRun:             opts.DryRun,
 		StrictLintRules:    !opts.Permissive,
 		LintRuleValidator:  lintrules.NewValidator(),
 		ExistingHashes:     existingFindingHashes,
-		Phase2Mode:         phase2Mode,
-		FindingsOutputPath: findingsOutputPath,
-		CLIBinaryPath:      dreamerBinaryPath,
-		FindingRedactor:    findingRedactorFunc(tr.redactor),
+		Phase2Mode:         p2.mode,
+		FindingsOutputPath: p2.findingsFilePath,
+		CLIBinaryPath:      p2.binaryPath,
+		FindingRedactor:    findingRedactorFunc(transcript.redactor),
 	}
 
-	logEnabledRulePacks(logger, rctx.packs)
-	orchestrator := analyzer.NewOrchestrator(rctx.packs)
+	logEnabledRulePacks(logger, runContext.packs)
+	orchestrator := analyzer.NewOrchestrator(runContext.packs)
 	rc := analyzer.RunConfig{
 		Phase1SessionFactory: phase1Factory,
 		Phase2SessionFactory: phase2Factory,
 		Mode:                 mode,
-		MaxConcurrency:       resolveMaxConcurrency(dr.appConfig, opts),
+		MaxConcurrency:       resolveMaxConcurrency(discovery.appConfig, opts),
 	}
 	chunkInputs := analyzer.ChunkInputs{
-		Chunks:          tr.chunks,
-		RuleTimeoutSecs: dr.appConfig.Analyzer.RuleTimeoutSeconds,
+		Chunks:          transcript.chunks,
+		RuleTimeoutSecs: discovery.appConfig.Analyzer.RuleTimeoutSeconds,
 	}
-	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(tr.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
+	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(transcript.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
 	pipelineResult, err := orchestrator.RunChunks(ctx, rc, chunkInputs, phaseReq)
 	if err != nil {
 		_ = provider.Close()
-		recordProviderFailure(currentState, dr.providerID, err)
-		rctx.persistFailureState(err, logger)
-		return ar, fmt.Errorf("run analyzer: %w", err)
+		recordProviderFailure(currentState, discovery.providerID, err)
+		runContext.persistFailureState(err, logger)
+		return analysis, fmt.Errorf("run analyzer: %w", err)
 	}
 	logger.Info("orchestrator done", logging.Any("mistakes", len(pipelineResult.Mistakes)), logging.Any("findings", len(pipelineResult.Findings)), logging.Any("warnings", len(pipelineResult.Warnings)))
 	for _, w := range pipelineResult.Warnings {
@@ -587,34 +621,34 @@ func runAnalysis(ctx context.Context, opts Options, dr discoveryResult, tr trans
 
 // runOutputAndPersist generates todos, updates state, saves, updates the
 // discovery cache, and records history.
-func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr transcriptResult, rctx *runCtx, cacheKeys map[string]string, repoHeadSHA string, runStart time.Time, runID string, logger *logging.Logger) (Result, error) {
-	currentState := rctx.state
-	warnings := tr.warnings
-	warnings = append(warnings, ar.result.Warnings...)
+func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analysisResult, transcript transcriptResult, runContext *runCtx, cacheKeys map[string]string, repoHeadSHA string, runStart time.Time, runID string, logger *logging.Logger) (Result, error) {
+	currentState := runContext.state
+	warnings := transcript.warnings
+	warnings = append(warnings, analysis.result.Warnings...)
 
 	pipelineResult := Result{
-		ProviderID:      dr.providerID,
-		Findings:        len(ar.result.Findings),
-		Mistakes:        len(ar.result.Mistakes),
+		ProviderID:      discovery.providerID,
+		Findings:        len(analysis.result.Findings),
+		Mistakes:        len(analysis.result.Mistakes),
 		Warnings:        len(warnings),
-		SourcesAnalyzed: len(tr.sourcesUsed),
-		MessagesRead:    tr.messageCount,
+		SourcesAnalyzed: len(transcript.sourcesUsed),
+		MessagesRead:    transcript.messageCount,
 	}
 
 	if opts.DryRun {
-		pipelineResult.TodosPath = todosOutputPath(dr.outputRoot, dr.projectName)
-		publishRunDone(opts.Events, dr.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
+		pipelineResult.TodosPath = todosOutputPath(discovery.outputRoot, discovery.projectName)
+		publishRunDone(opts.Events, discovery.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
 		return pipelineResult, nil
 	}
 
-	if len(ar.result.Mistakes) == 0 {
+	if len(analysis.result.Mistakes) == 0 {
 		warnings = append(warnings, "no recurring mistakes found")
 		pipelineResult.NoMistakes = true
 	}
 
-	generateResult, err := output.GenerateTodos(dr.projectName, ar.result.Findings, output.GenerateOptions{
-		OutputRoot:   dr.outputRoot,
-		ProjectTitle: dr.projectName,
+	generateResult, err := output.GenerateTodos(discovery.projectName, analysis.result.Findings, output.GenerateOptions{
+		OutputRoot:   discovery.outputRoot,
+		ProjectTitle: discovery.projectName,
 		Warnings:     warnings,
 		RunID:        runID,
 	})
@@ -628,30 +662,30 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	currentState.LastRunUTC = now
 	currentState.RepoHeadSHA = repoHeadSHA
 	currentState.ChatHashes = cacheKeys
-	currentState.FindingHashes = mergeHashLists(currentState.FindingHashes, collectFindingHashes(ar.result.Findings))
-	recordFindingApplySpecs(currentState, ar.result.Findings, dr.projectName)
+	currentState.FindingHashes = mergeHashLists(currentState.FindingHashes, collectFindingHashes(analysis.result.Findings))
+	recordFindingApplySpecs(currentState, analysis.result.Findings, discovery.projectName)
 	if currentState.LastRunPerCategory == nil {
 		currentState.LastRunPerCategory = map[string]time.Time{}
 	}
-	for _, cat := range ar.result.CompletedCategories {
+	for _, cat := range analysis.result.CompletedCategories {
 		currentState.LastRunPerCategory[cat] = now
 	}
-	recordProviderSuccess(currentState, dr.providerID, 0)
+	recordProviderSuccess(currentState, discovery.providerID, 0)
 
 	if currentState.UsageStats == nil {
 		currentState.UsageStats = map[string]int64{}
 	}
-	currentState.UsageStats["sources_analyzed"] += int64(len(tr.sourcesUsed))
-	currentState.UsageStats["messages_analyzed"] += int64(tr.messageCount)
-	currentState.UsageStats["mistakes_found"] += int64(len(ar.result.Mistakes))
+	currentState.UsageStats["sources_analyzed"] += int64(len(transcript.sourcesUsed))
+	currentState.UsageStats["messages_analyzed"] += int64(transcript.messageCount)
+	currentState.UsageStats["mistakes_found"] += int64(len(analysis.result.Mistakes))
 	currentState.UsageStats["findings_added"] += int64(generateResult.AddedFindings)
-	currentState.UsageStats["redaction_hits"] += int64(tr.redactionTotal)
+	currentState.UsageStats["redaction_hits"] += int64(transcript.redactionTotal)
 
-	if err := rctx.savePrunedState(); err != nil {
+	if err := runContext.savePrunedState(); err != nil {
 		if logger != nil {
 			logger.Warn("state save failed after todos were written — next run may re-analyze",
 				logging.Any("err", err),
-				logging.Any("project", dr.projectName),
+				logging.Any("project", discovery.projectName),
 				logging.Any("todos_path", generateResult.Path),
 			)
 		}
@@ -659,15 +693,15 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 	}
 
 	if opts.DiscoveryCache != nil {
-		opts.DiscoveryCache.Update(dr.projectPath, dr.sources, repoHeadSHA)
+		opts.DiscoveryCache.Update(discovery.projectPath, discovery.sources, repoHeadSHA)
 	}
 
 	perCategory := map[string]int{}
-	for _, f := range ar.result.Findings {
+	for _, f := range analysis.result.Findings {
 		perCategory[string(f.Category)]++
 	}
 	today := time.Now().UTC().Format("2006-01-02")
-	if err := state.UpdateHistoryToday(dr.outputRoot, dr.projectName, today, state.DaySummaryDelta{
+	if err := state.UpdateHistoryToday(discovery.outputRoot, discovery.projectName, today, state.DaySummaryDelta{
 		Runs:          1,
 		FindingsNew:   pipelineResult.Findings,
 		FindingsTotal: len(currentState.FindingHashes),
@@ -678,7 +712,7 @@ func runOutputAndPersist(opts Options, dr discoveryResult, ar analysisResult, tr
 		logger.Warn("history update failed", logging.Any("err", err))
 	}
 
-	publishRunDone(opts.Events, dr.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
+	publishRunDone(opts.Events, discovery.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
 	return pipelineResult, nil
 }
 
@@ -706,13 +740,13 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	// Stage 1: Discovery — paths, project config, chat sources.
-	dr, err := runDiscovery(opts, appConfig, logger)
+	discovery, err := runDiscovery(opts, appConfig, logger)
 	if err != nil {
 		return Result{}, err
 	}
 
 	// Load state and repo HEAD for caching decisions.
-	loadResult, err := state.LoadWithResult(dr.outputRoot, dr.projectName)
+	loadResult, err := state.LoadWithResult(discovery.outputRoot, discovery.projectName)
 	if err != nil {
 		return Result{}, fmt.Errorf("load state: %w", err)
 	}
@@ -724,63 +758,63 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			logging.Any("note", "v1 ChatHashes invalidated by length-prefix change (B21); prior file backed up as state.json.v<old>.bak; this run will re-analyze all chats"),
 		)
 	}
-	repoHeadSHA := state.RepoHeadSHA(dr.projectPath, logger)
+	repoHeadSHA := state.RepoHeadSHA(discovery.projectPath, logger)
 	logger.Info("repo state", logging.Any("head_sha", repoHeadSHA), logging.Any("prior_run", currentState.LastRunUTC.Format(time.RFC3339)), logging.Any("prior_chats", len(currentState.ChatHashes)))
 
 	// Stage 2: Caching — skip if nothing changed.
-	cr, err := runCaching(opts, dr, currentState, repoHeadSHA, logger)
+	cachingOutcome, err := runCaching(opts, discovery, currentState, repoHeadSHA, logger)
 	if err != nil {
 		return Result{}, err
 	}
-	if cr.cacheHit {
+	if cachingOutcome.cacheHit {
 		return Result{
-			ProviderID: dr.providerID,
+			ProviderID: discovery.providerID,
 			CacheHit:   true,
-			TodosPath:  todosOutputPath(dr.outputRoot, dr.projectName),
+			TodosPath:  todosOutputPath(discovery.outputRoot, discovery.projectName),
 		}, nil
 	}
 
 	// Stage 3: Transcript preparation — rule packs, redaction, chunking.
-	tr, zeroMessages, err := runTranscriptPrep(opts, dr, dr.sources, logger)
+	transcript, zeroMessages, err := runTranscriptPrep(opts, discovery, discovery.sources, logger)
 	if err != nil {
 		return Result{}, err
 	}
 
-	rctx := &runCtx{
-		outputRoot: dr.outputRoot,
-		project:    dr.projectName,
+	runContext := &runCtx{
+		outputRoot: discovery.outputRoot,
+		project:    discovery.projectName,
 		state:      currentState,
-		packs:      tr.rulePacks,
-		providerID: dr.providerID,
+		packs:      transcript.rulePacks,
+		providerID: discovery.providerID,
 	}
 
 	if zeroMessages {
 		currentState.LastRunUTC = time.Now().UTC()
 		currentState.RepoHeadSHA = repoHeadSHA
-		currentState.ChatHashes = cr.cacheKeys
-		if saveErr := rctx.savePrunedState(); saveErr != nil {
+		currentState.ChatHashes = cachingOutcome.cacheKeys
+		if saveErr := runContext.savePrunedState(); saveErr != nil {
 			logger.Warn("preflight state save failed", logging.Any("err", saveErr))
 		}
-		publishRunDone(opts.Events, dr.projectName, runID, 0, 0, 0)
+		publishRunDone(opts.Events, discovery.projectName, runID, 0, 0, 0)
 		return Result{
-			ProviderID:      dr.providerID,
+			ProviderID:      discovery.providerID,
 			SourcesAnalyzed: 0,
 			MessagesRead:    0,
-			Warnings:        len(tr.warnings),
-			TodosPath:       todosOutputPath(dr.outputRoot, dr.projectName),
+			Warnings:        len(transcript.warnings),
+			TodosPath:       todosOutputPath(discovery.outputRoot, discovery.projectName),
 			NoMistakes:      true,
 		}, nil
 	}
 
 	// Stage 4: Analysis — provider, toolchain, orchestrator.
-	ar, err := runAnalysis(ctx, opts, dr, tr, rctx, currentState, runID, logger)
+	analysis, err := runAnalysis(ctx, opts, discovery, transcript, runContext, currentState, runID, logger)
 	if err != nil {
 		return Result{}, err
 	}
-	defer func() { _ = ar.provider.Close() }()
+	defer func() { _ = analysis.provider.Close() }()
 
 	// Stage 5: Output and persistence.
-	return runOutputAndPersist(opts, dr, ar, tr, rctx, cr.cacheKeys, repoHeadSHA, runStart, runID, logger)
+	return runOutputAndPersist(opts, discovery, analysis, transcript, runContext, cachingOutcome.cacheKeys, repoHeadSHA, runStart, runID, logger)
 }
 
 // publishRunDone is a nil-safe helper for the run.done event payload.

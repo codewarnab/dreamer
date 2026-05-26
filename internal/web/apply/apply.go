@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"dreamer/internal/analyzer"
+	"dreamer/internal/categories"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/state"
 )
@@ -19,14 +19,14 @@ import (
 // per spec.v1.5 §6.5.
 const MaxApplyTargetBytes = 4 << 20
 
-// EligibleCategories lists the analyzer rule categories whose findings
-// the UI is allowed to apply automatically (spec.v1.5 §6.4).
-// Keys derived from analyzer.RuleCategory constants; keep in sync.
+// EligibleCategories lists the rule categories whose findings the UI is
+// allowed to apply automatically (spec.v1.5 §6.4). Uses the canonical
+// category constants from the categories package.
 var EligibleCategories = map[string]bool{
-	string(analyzer.RuleCategoryDoc):      true,
-	string(analyzer.RuleCategoryLintRule): true,
-	string(analyzer.RuleCategoryCICheck):  true,
-	string(analyzer.RuleCategoryConfig):   true,
+	string(categories.CategoryDoc):      true,
+	string(categories.CategoryLintRule): true,
+	string(categories.CategoryCICheck):  true,
+	string(categories.CategoryConfig):   true,
 }
 
 var (
@@ -153,7 +153,7 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	if resolved, resolveErr := filepath.EvalSymlinks(rev.Path); resolveErr == nil {
 		cleanPath = resolved
 	}
-	if !strings.HasPrefix(cleanPath, absRoot+string(filepath.Separator)) && cleanPath != absRoot {
+	if !fsutil.PathWithinRoot(cleanPath, absRoot) {
 		return fmt.Errorf("%w: reversal path %s", ErrContainment, rev.Path)
 	}
 	current, err := os.ReadFile(rev.Path)
@@ -223,34 +223,14 @@ func resolveTargetUnderRoot(absRoot, targetFile string) (string, error) {
 		return "", fmt.Errorf("%w: target_file must be repo-relative, got %q", ErrContainment, targetFile)
 	}
 	abs := filepath.Join(absRoot, rel)
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	} else if !errors.Is(err, os.ErrNotExist) {
+	resolved, err := fsutil.ResolveSymlinks(abs)
+	if err != nil {
 		return "", fmt.Errorf("resolve target %q: %w", abs, err)
-	} else {
-		// Target file missing: resolve the deepest existing ancestor and
-		// re-join the remainder so a symlinked parent escape is caught.
-		parent := abs
-		var trail []string
-		for {
-			next := filepath.Dir(parent)
-			if next == parent {
-				break
-			}
-			if resolved, resolveErr := filepath.EvalSymlinks(parent); resolveErr == nil {
-				abs = filepath.Join(resolved, filepath.Join(trail...))
-				break
-			} else if !errors.Is(resolveErr, os.ErrNotExist) {
-				return "", fmt.Errorf("resolve target ancestor %q: %w", parent, resolveErr)
-			}
-			trail = append([]string{filepath.Base(parent)}, trail...)
-			parent = next
-		}
 	}
-	if !strings.HasPrefix(abs, absRoot+string(filepath.Separator)) && abs != absRoot {
-		return "", fmt.Errorf("%w: %s", ErrContainment, abs)
+	if !fsutil.PathWithinRoot(resolved, absRoot) {
+		return "", fmt.Errorf("%w: %s", ErrContainment, resolved)
 	}
-	return abs, nil
+	return resolved, nil
 }
 
 func insertAfter(pre, anchor, snippet string) (string, error) {

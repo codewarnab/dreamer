@@ -1,7 +1,6 @@
 package lintrules
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -43,20 +42,25 @@ func (v *Validator) IsAllowed(tool, rule string) (allowed, known bool) {
 	return false, false
 }
 
-var ruffCodeRe = regexp.MustCompile(`^([A-Z]+)[0-9]+$`)
-
 func ruffMatches(rule string) bool {
-	match := ruffCodeRe.FindStringSubmatch(rule)
-	if len(match) < 2 {
-		return false
-	}
-	prefix := match[1]
-	for _, candidate := range RuffRulePrefixes {
-		if candidate == prefix {
-			return true
+	for _, prefix := range RuffRulePrefixes {
+		if strings.HasPrefix(rule, prefix) {
+			suffix := rule[len(prefix):]
+			if len(suffix) > 0 && allDigits(suffix) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func allDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func contains(set map[string]struct{}, value string) bool {

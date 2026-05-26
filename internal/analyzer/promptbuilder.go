@@ -175,11 +175,11 @@ func (b *PromptBuilder) BuildPhase2(mistakesByCategory map[RuleCategory][]Mistak
 func orderMistakesByCategory(in map[RuleCategory][]Mistake, order []RuleCategory) map[string][]Mistake {
 	out := map[string][]Mistake{}
 	for _, c := range order {
-		ms := in[c]
-		if len(ms) == 0 {
+		mistakes := in[c]
+		if len(mistakes) == 0 {
 			continue
 		}
-		out[string(c)] = ms
+		out[string(c)] = mistakes
 	}
 	return out
 }

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -74,8 +73,7 @@ func ProjectHistory(deps Deps) http.HandlerFunc {
 			out.Days = tail
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 

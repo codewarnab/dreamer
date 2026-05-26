@@ -6,13 +6,15 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"dreamer/internal/fsutil"
 )
 
 func TestDecidePermissionApprovesAllowedRequests(t *testing.T) {
 	repo := t.TempDir()
-	root, err := NormalizeRootPath(repo)
+	root, err := fsutil.NormalizeRootPath(repo)
 	if err != nil {
-		t.Fatalf("NormalizeRootPath: %v", err)
+		t.Fatalf("fsutil.NormalizeRootPath: %v", err)
 	}
 
 	readPath := filepath.Join(repo, "README.md")
@@ -44,9 +46,9 @@ func TestDecidePermissionApprovesAllowedRequests(t *testing.T) {
 
 func TestDecidePermissionRejectsOutOfRootAndWrites(t *testing.T) {
 	repo := t.TempDir()
-	root, err := NormalizeRootPath(repo)
+	root, err := fsutil.NormalizeRootPath(repo)
 	if err != nil {
-		t.Fatalf("NormalizeRootPath: %v", err)
+		t.Fatalf("fsutil.NormalizeRootPath: %v", err)
 	}
 
 	cases := []struct {
@@ -209,9 +211,9 @@ func TestDecidePermissionSymlinkEscapeIsRejected(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	root, err := NormalizeRootPath(repo)
+	root, err := fsutil.NormalizeRootPath(repo)
 	if err != nil {
-		t.Fatalf("NormalizeRootPath: %v", err)
+		t.Fatalf("fsutil.NormalizeRootPath: %v", err)
 	}
 
 	decision := DecidePermission(PermissionRequest{
@@ -242,9 +244,9 @@ func TestDecidePermissionSymlinkInPrefixIsRejected(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	root, err := NormalizeRootPath(repo)
+	root, err := fsutil.NormalizeRootPath(repo)
 	if err != nil {
-		t.Fatalf("NormalizeRootPath: %v", err)
+		t.Fatalf("fsutil.NormalizeRootPath: %v", err)
 	}
 
 	decision := DecidePermission(PermissionRequest{
@@ -261,8 +263,8 @@ func TestDecidePermissionSymlinkInPrefixIsRejected(t *testing.T) {
 
 func TestNormalizeRootPathErrorsWhenRootMissing(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	if _, err := NormalizeRootPath(missing); err == nil {
-		t.Fatalf("NormalizeRootPath(%q) expected error for missing dir", missing)
+	if _, err := fsutil.NormalizeRootPath(missing); err == nil {
+		t.Fatalf("fsutil.NormalizeRootPath(%q) expected error for missing dir", missing)
 	}
 }
 

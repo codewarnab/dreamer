@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"dreamer/internal/chat/readers"
 )
 
-// probeMaxDepth is the default recursion limit for recursiveExtract when
-// scanning nested JSON/JSONL records for evidence keys. Most providers need
-// to dig 6-8 levels deep (root → session_meta → payload → cwd etc.).
-const probeMaxDepth = 8
+// probeMaxDepth is re-exported from readers.MaxDepth — the recursion limit
+// for recursiveExtract when scanning nested JSON/JSONL records for evidence
+// keys. Most providers need to dig 6-8 levels deep
+// (root → session_meta → payload → cwd etc.).
+const probeMaxDepth = readers.MaxDepth
 
 // vscodeProbeMaxDepth is the shallower limit for VS Code workspace probing.
 // VS Code workspace.json is flatter than other formats, so fewer levels suffice.

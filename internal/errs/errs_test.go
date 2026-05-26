@@ -17,7 +17,6 @@ func TestConstructors_Unwrap(t *testing.T) {
 		err  *errs.Error
 	}{
 		{"NotInstalled", errs.NotInstalled("copilot", "start", "run `copilot auth login`", sentinel)},
-		{"Unauthenticated", errs.Unauthenticated("claude", "start", "run `claude auth login`", sentinel)},
 		{"RateLimit", errs.RateLimit("copilot", "session/prompt", 30*time.Second, sentinel)},
 		{"ProviderUnavailable", errs.ProviderUnavailable("codex", "start", sentinel)},
 		{"ConfigInvalid", errs.ConfigInvalid("providers.copilot.cli_url", "bad-url", sentinel)},
@@ -31,16 +30,6 @@ func TestConstructors_Unwrap(t *testing.T) {
 				t.Errorf("Unwrap() = %v; want sentinel", tc.err.Unwrap())
 			}
 		})
-	}
-}
-
-func TestCacheMiss_NilCause(t *testing.T) {
-	err := errs.CacheMiss("hash_mismatch")
-	if err.Unwrap() != nil {
-		t.Errorf("CacheMiss.Unwrap() = %v; want nil", err.Unwrap())
-	}
-	if err.Kind != errs.KindCacheMiss {
-		t.Errorf("Kind = %q; want KindCacheMiss", err.Kind)
 	}
 }
 

@@ -10,6 +10,10 @@ import (
 const (
 	antigravityMaxCharsPerMessage   = 4000
 	antigravityMaxMessagesPerSource = 250
+
+	// minVectorPayloadCommas is the minimum number of commas required for
+	// a JSON array to qualify as a likely vector embedding payload.
+	minVectorPayloadCommas = 20
 )
 
 type antigravityDropRule struct {
@@ -210,5 +214,5 @@ func looksLikeVectorPayload(content string) bool {
 		return false
 	}
 	commas := strings.Count(content, ",")
-	return commas >= 20 && !strings.Contains(content, " ")
+	return commas >= minVectorPayloadCommas && !strings.Contains(content, " ")
 }

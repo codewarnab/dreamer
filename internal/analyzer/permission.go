@@ -1,13 +1,13 @@
 package analyzer
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+
+	"dreamer/internal/fsutil"
 )
 
 // shellWriteIdiomRE matches common shell write idioms that the upstream
@@ -70,7 +70,7 @@ func decideFilesystem(req PermissionRequest, normalizedRoot string) PermissionDe
 		if err != nil {
 			return PermissionDecision{Reason: fmt.Sprintf("filesystem path %q is invalid or ambiguous after symlink resolution: %v", candidate, err)}
 		}
-		if !pathWithinRoot(normalized, normalizedRoot) {
+		if !fsutil.PathWithinRoot(normalized, normalizedRoot) {
 			return PermissionDecision{Reason: fmt.Sprintf("filesystem path %q resolves outside project root %q after symlink resolution (resolved to %q)", candidate, normalizedRoot, normalized)}
 		}
 	}
@@ -111,32 +111,10 @@ func shellRequestReadOnly(req PermissionRequest) bool {
 	return true
 }
 
-// NormalizeRootPath returns the absolute, symlink-resolved, cleaned path; "" for blank.
-// Root must exist; resolver errors are returned to the caller.
-func NormalizeRootPath(root string) (string, error) {
-	trimmed := strings.TrimSpace(root)
-	if trimmed == "" {
-		return "", nil
-	}
-	if strings.ContainsRune(trimmed, '\x00') {
-		return "", fmt.Errorf("project root contains null byte")
-	}
-	abs, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", err
-	}
-	abs = filepath.Clean(abs)
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("resolve symlinks for project root %q: %w", abs, err)
-	}
-	return filepath.Clean(resolved), nil
-}
-
 // normalizeCandidatePath returns the absolute, symlink-resolved candidate path.
 // Non-existent leaves resolve via the deepest existing ancestor; resolver errors deny.
-func normalizeCandidatePath(path string, normalizedRoot string) (string, error) {
-	trimmed := strings.TrimSpace(path)
+func normalizeCandidatePath(candidate string, normalizedRoot string) (string, error) {
+	trimmed := strings.TrimSpace(candidate)
 	if trimmed == "" {
 		return "", fmt.Errorf("path is empty")
 	}
@@ -146,7 +124,7 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 	if looksLikeNonFilesystemPath(trimmed) {
 		return "", fmt.Errorf("path appears to be non-filesystem")
 	}
-	candidate := trimmed
+	candidate = trimmed
 	if isVolumeRelativeRootedPath(candidate) {
 		candidate = filepath.VolumeName(normalizedRoot) + candidate
 	}
@@ -158,73 +136,20 @@ func normalizeCandidatePath(path string, normalizedRoot string) (string, error) 
 		return "", err
 	}
 	abs = filepath.Clean(abs)
-	return resolveSymlinksAllowingMissing(abs)
+	return fsutil.ResolveSymlinks(abs)
 }
 
-// resolveSymlinksAllowingMissing resolves `abs`, walking up to the deepest
-// existing ancestor when the leaf does not exist; non-ENOENT errors return.
-func resolveSymlinksAllowingMissing(abs string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err == nil {
-		return filepath.Clean(resolved), nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("resolve symlinks for %q: %w", abs, err)
-	}
 
-	tail := []string{}
-	currentPath := abs
-	for {
-		parent := filepath.Dir(currentPath)
-		if parent == currentPath {
-			return abs, nil
-		}
-		base := filepath.Base(currentPath)
-		tail = append([]string{base}, tail...)
-		resolvedParent, err := filepath.EvalSymlinks(parent)
-		if err == nil {
-			out := resolvedParent
-			for _, seg := range tail {
-				out = filepath.Join(out, seg)
-			}
-			return filepath.Clean(out), nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("resolve symlinks for ancestor %q of %q: %w", parent, abs, err)
-		}
-		currentPath = parent
-	}
-}
-
-func looksLikeNonFilesystemPath(path string) bool {
-	lower := strings.ToLower(path)
+func looksLikeNonFilesystemPath(candidate string) bool {
+	lower := strings.ToLower(candidate)
 	return strings.Contains(lower, "://") || strings.HasPrefix(lower, "file:")
 }
 
-func isVolumeRelativeRootedPath(path string) bool {
+func isVolumeRelativeRootedPath(candidate string) bool {
 	if runtime.GOOS != "windows" {
 		return false
 	}
-	return filepath.VolumeName(path) == "" && strings.HasPrefix(filepath.Clean(path), string(filepath.Separator))
+	return filepath.VolumeName(candidate) == "" && strings.HasPrefix(filepath.Clean(candidate), string(filepath.Separator))
 }
 
-func pathWithinRoot(path string, root string) bool {
-	if root == "" {
-		return true
-	}
-	if pathsEqual(path, root) {
-		return true
-	}
-	prefix := root + string(filepath.Separator)
-	if runtime.GOOS == "windows" {
-		return strings.HasPrefix(strings.ToLower(path), strings.ToLower(prefix))
-	}
-	return strings.HasPrefix(path, prefix)
-}
 
-func pathsEqual(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}

@@ -276,13 +276,16 @@ func readStreamJSON(r io.Reader) (string, error) {
 	var assistantText strings.Builder
 	var resultText string
 	var resultErr string
+	var totalLines, parseErrors int
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
+		totalLines++
 		var event geminiStreamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			parseErrors++
 			continue
 		}
 		switch event.Type {
@@ -305,6 +308,9 @@ func readStreamJSON(r io.Reader) (string, error) {
 	}
 	if resultErr != "" {
 		return "", fmt.Errorf("gemini-cli: %s", resultErr)
+	}
+	if assistantText.Len() == 0 && resultText == "" && totalLines > 0 && parseErrors == totalLines {
+		return "", fmt.Errorf("gemini-cli: all %d output lines failed to parse (provider schema change?)", totalLines)
 	}
 	if resultText != "" {
 		return strings.TrimSpace(resultText), nil

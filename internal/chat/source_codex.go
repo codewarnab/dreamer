@@ -92,9 +92,7 @@ func extractCodexCWD(record map[string]any) string {
 }
 
 func walkCodexForCWD(value any, depth int) string {
-	const maxDepth = 8
-
-	if depth > maxDepth || value == nil {
+	if depth > readers.MaxDepth || value == nil {
 		return ""
 	}
 
@@ -131,9 +129,7 @@ func walkCodexForCWD(value any, depth int) string {
 }
 
 func extractCodexPayloadCWD(value any, depth int) string {
-	const maxDepth = 8
-
-	if depth > maxDepth || value == nil {
+	if depth > readers.MaxDepth || value == nil {
 		return ""
 	}
 

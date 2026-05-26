@@ -9,6 +9,23 @@ import (
 	"dreamer/internal/sandbox"
 )
 
+func TestReadStreamJSON_SchemaChange(t *testing.T) {
+	input := strings.NewReader("{\"bad\"}\nnope\n")
+	text, err := readStreamJSON(input)
+	if err == nil {
+		t.Fatal("expected error for all lines failing to parse")
+	}
+	if text != "" {
+		t.Errorf("expected empty text, got %q", text)
+	}
+	if !strings.Contains(err.Error(), "all 2 output lines failed to parse") {
+		t.Errorf("error missing line count: %v", err)
+	}
+	if !strings.Contains(err.Error(), "provider schema change?") {
+		t.Errorf("error missing schema change hint: %v", err)
+	}
+}
+
 func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
 	p, err := New(Options{})
 	if err != nil {

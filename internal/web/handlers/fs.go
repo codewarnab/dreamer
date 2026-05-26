@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -18,28 +17,25 @@ func FSExists(_ Deps) http.HandlerFunc {
 			return
 		}
 		path := r.URL.Query().Get("path")
-		w.Header().Set("Content-Type", "application/json")
 		if !filepath.IsAbs(path) {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": "path must be absolute"})
+			writeJSONError(w, http.StatusBadRequest, "path must be absolute")
 			return
 		}
 		abs := filepath.Clean(path)
 		fi, err := os.Stat(abs)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				_ = json.NewEncoder(w).Encode(map[string]any{
+				writeJSON(w, http.StatusOK, map[string]any{
 					"exists":   false,
 					"is_dir":   false,
 					"absolute": abs,
 				})
 				return
 			}
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusOK, map[string]any{
 			"exists":   true,
 			"is_dir":   fi.IsDir(),
 			"absolute": abs,

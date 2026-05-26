@@ -135,9 +135,7 @@ func geminiContentFromRecord(record map[string]any) string {
 }
 
 func geminiTextFromValue(value any, depth int) string {
-	const maxDepth = 8
-
-	if depth > maxDepth || value == nil {
+	if depth > MaxDepth || value == nil {
 		return ""
 	}
 

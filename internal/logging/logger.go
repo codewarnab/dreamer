@@ -177,9 +177,13 @@ func (logger *Logger) rotateIfNeededLocked() bool {
 	}
 
 	backupPath := filepath.Join(filepath.Dir(logger.path), backupLogFileName)
-	_ = logger.file.Close()
-	_ = os.Remove(backupPath)
-	_ = os.Rename(logger.path, backupPath)
+	if err := logger.file.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "log rotation: close current log failed: %v\n", err)
+	}
+	_ = os.Remove(backupPath) // ignore "not exist"; permission errors are non-fatal
+	if err := os.Rename(logger.path, backupPath); err != nil {
+		fmt.Fprintf(os.Stderr, "log rotation: rename %s -> %s failed: %v\n", logger.path, backupPath, err)
+	}
 
 	file, openErr := os.OpenFile(logger.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if openErr != nil {

@@ -12,6 +12,7 @@ import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/fsutil"
 )
 
 const ID = "copilot-sdk"
@@ -238,7 +239,7 @@ func buildSessionConfig(model string, sessionConfig analyzer.SessionConfig) *cop
 }
 
 func buildPermissionHandler(workingDirectory string) copilot.PermissionHandlerFunc {
-	normalizedRoot, rootErr := analyzer.NormalizeRootPath(workingDirectory)
+	normalizedRoot, rootErr := fsutil.NormalizeRootPath(workingDirectory)
 	return func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
 		if rootErr != nil {
 			return permissionRejected(fmt.Sprintf("invalid project root %q: %v", workingDirectory, rootErr)), nil
