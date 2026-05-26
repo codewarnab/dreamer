@@ -862,7 +862,6 @@ func TestExecutionModeString(t *testing.T) {
 // --- ProviderSupportsParallel ---
 
 func TestProviderSupportsParallel(t *testing.T) {
-	type parallelProvider struct{ supports bool }
 	// Doesn't implement ParallelCapable
 	if ProviderSupportsParallel(nil) {
 		t.Fatal("nil should return false")

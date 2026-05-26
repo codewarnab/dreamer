@@ -3,6 +3,7 @@ package toolchain
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -268,7 +269,7 @@ func TestSummaryAllFieldsPopulated(t *testing.T) {
 	}
 	got := tc.Summary()
 	for _, want := range []string{"languages: go", "linters: golangci-lint", "tests: go test"} {
-		if !containsSubstr(got, want) {
+		if !strings.Contains(got, want) {
 			t.Errorf("Summary = %q, want it to contain %q", got, want)
 		}
 	}
@@ -286,7 +287,7 @@ func TestSummaryLintersOnly(t *testing.T) {
 	tc := Toolchain{Linters: []LinterConfig{{Tool: "eslint"}, {Tool: "prettier"}}}
 	got := tc.Summary()
 	for _, want := range []string{"linters:", "eslint", "prettier"} {
-		if !containsSubstr(got, want) {
+		if !strings.Contains(got, want) {
 			t.Errorf("Summary = %q, want it to contain %q", got, want)
 		}
 	}
@@ -301,7 +302,7 @@ func TestSummaryDeduplicatesLinterNames(t *testing.T) {
 		},
 	}
 	got := tc.Summary()
-	if !containsSubstr(got, "eslint") || !containsSubstr(got, "biome") {
+	if !strings.Contains(got, "eslint") || !strings.Contains(got, "biome") {
 		t.Errorf("Summary = %q, expected deduplicated linter names", got)
 	}
 }
@@ -327,13 +328,13 @@ func TestStringPopulated(t *testing.T) {
 		ConfigFiles:    []string{".golangci.yml"},
 	}
 	got := tc.String()
-	if !containsSubstr(got, "languages=[go]") {
+	if !strings.Contains(got, "languages=[go]") {
 		t.Errorf("String = %q, want it to contain 'languages=[go]'", got)
 	}
-	if !containsSubstr(got, "linters=2") {
+	if !strings.Contains(got, "linters=2") {
 		t.Errorf("String = %q, want it to contain 'linters=2'", got)
 	}
-	if !containsSubstr(got, "configs=1") {
+	if !strings.Contains(got, "configs=1") {
 		t.Errorf("String = %q, want it to contain 'configs=1'", got)
 	}
 }
@@ -444,13 +445,4 @@ func TestAppendUnique(t *testing.T) {
 			t.Errorf("got %v, want [x]", got)
 		}
 	})
-}
-
-func containsSubstr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

@@ -553,12 +553,9 @@ func TestProcessClaudeRecordEmptyRole(t *testing.T) {
 // processContentBlocks: orphaned tool_result with DropToolDetails=false
 // ---------------------------------------------------------------------------
 
-func TestProcessContentBlocksOrphanedResultWithDropDetailsFalse(t *testing.T) {
-	// Save and restore global
-	orig := DropToolDetails
-	// Can't modify const, but we can test the orphaned result path that
-	// is active when DropToolDetails=true (it drops orphaned results).
-	// Test with DropToolDetails=true (default), orphaned result is dropped.
+func TestProcessContentBlocksOrphanedResultWithDropDetails(t *testing.T) {
+	// DropToolDetails is const true; orphaned results (no matching
+	// pendingToolCall) are dropped.
 	blocks := []contentBlock{
 		{
 			blockType: "tool_result",
@@ -567,11 +564,9 @@ func TestProcessContentBlocksOrphanedResultWithDropDetailsFalse(t *testing.T) {
 	}
 	pending := make(map[string]pendingToolCall)
 	msgs := processContentBlocks("user", time.Now(), blocks, pending)
-	// DropToolDetails is const true, so orphaned results are dropped.
 	if len(msgs) != 0 {
 		t.Errorf("expected 0 messages for orphaned result with DropToolDetails=true, got %d", len(msgs))
 	}
-	_ = orig
 }
 
 // ---------------------------------------------------------------------------

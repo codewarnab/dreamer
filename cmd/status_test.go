@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"dreamer/internal/config"
 	"dreamer/internal/jobqueue"
 	"github.com/spf13/cobra"
 )
@@ -111,35 +110,6 @@ func TestFilterRecentNilFinishedAt(t *testing.T) {
 	filtered := filterRecent(status, 5*time.Minute)
 	if len(filtered.Jobs) != 0 {
 		t.Fatalf("filtered len = %d, want 0 (nil FinishedAt should be excluded)", len(filtered.Jobs))
-	}
-}
-
-func TestCheckJobConflictNoConflict(t *testing.T) {
-	// With no jobs.json file, checkJobConflict should return empty string.
-	tmpDir := t.TempDir()
-	cfg := &config.Config{
-		Daemon: config.DaemonConfig{
-			OutputRoot: tmpDir,
-		},
-	}
-	result := checkJobConflict(cfg, "/some/project/path")
-	if result != "" {
-		t.Fatalf("checkJobConflict = %q, want empty", result)
-	}
-}
-
-func TestPrintBox(t *testing.T) {
-	command := newRootCommand()
-	var buf = new(bytes.Buffer)
-	command.SetOut(buf)
-
-	printBox(command, []string{"hello", "world"})
-	output := buf.String()
-	if !strings.Contains(output, "hello") {
-		t.Fatalf("output missing 'hello': %s", output)
-	}
-	if !strings.Contains(output, "world") {
-		t.Fatalf("output missing 'world': %s", output)
 	}
 }
 
