@@ -261,3 +261,53 @@ func TestRoundtrip(t *testing.T) {
 		t.Errorf("evidence symbol: got %q, want CreateUser", got.CodebaseEvidence[0].Symbol)
 	}
 }
+
+func TestValidateOutputPath_RelativePathRejected(t *testing.T) {
+	if err := ValidateOutputPath("relative/path.jsonl"); err == nil {
+		t.Fatal("expected error for relative path")
+	}
+}
+
+func TestValidateOutputPath_OutsideTempRejected(t *testing.T) {
+	// Use a path that is definitely outside os.TempDir().
+	outside := filepath.Join(string(os.PathSeparator)+"dreamer-validate-test-outside", "findings.jsonl")
+	if err := ValidateOutputPath(outside); err == nil {
+		t.Fatal("expected error for path outside temp dir")
+	}
+}
+
+func TestValidateOutputPath_ValidTempPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "findings.jsonl")
+	if err := ValidateOutputPath(path); err != nil {
+		t.Fatalf("expected no error for valid temp path, got: %v", err)
+	}
+}
+
+func TestValidateOutputPath_SymlinkLeafToOutsideRejected(t *testing.T) {
+	// Create a real target file outside os.TempDir().
+	outside := filepath.Join(string(os.PathSeparator)+"dreamer-validate-symlink-outside", t.Name())
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outside)
+	target := filepath.Join(outside, "target.jsonl")
+	if err := os.WriteFile(target, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside os.TempDir() that points to the outside target.
+	linkDir := filepath.Join(os.TempDir(), "dreamer-test-symlink-"+t.Name())
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(linkDir)
+
+	link := filepath.Join(linkDir, "link.jsonl")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	if err := ValidateOutputPath(link); err == nil {
+		t.Fatal("expected error for symlink pointing outside temp")
+	}
+}
