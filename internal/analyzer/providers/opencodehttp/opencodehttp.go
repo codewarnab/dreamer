@@ -144,6 +144,7 @@ func (p *provider) Start(ctx context.Context) error {
 		_ = cmd.Wait()
 		return fmt.Errorf("opencode-server: detect port: %w", err)
 	}
+	defer stderr.Close() // pipe no longer needed after port detected
 	p.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Health-check the newly started server.
@@ -246,7 +247,9 @@ func (p *provider) buildEnv() []string {
 
 // detectPort reads stderr lines looking for the server's listen address.
 // OpenCode logs "Listening on http://127.0.0.1:<port>" or similar.
-func detectPort(r io.Reader, timeout time.Duration) (int, error) {
+// r must be an io.ReadCloser (e.g. from cmd.StderrPipe); it is closed on
+// timeout to unblock the reader goroutine.
+func detectPort(r io.ReadCloser, timeout time.Duration) (int, error) {
 	type result struct {
 		port int
 		err  error
@@ -280,6 +283,7 @@ func detectPort(r io.Reader, timeout time.Duration) (int, error) {
 	case r := <-ch:
 		return r.port, r.err
 	case <-time.After(timeout):
+		_ = r.Close() // unblocks the Read, goroutine exits
 		return 0, fmt.Errorf("timeout waiting for server port")
 	}
 }
