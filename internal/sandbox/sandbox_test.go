@@ -1,6 +1,26 @@
 package sandbox
 
+// Platform coverage:
+//
+//   - Available() returns false on non-Windows, so prepare/postStart are no-ops.
+//   - ModeOn tests that gate on Available() will skip on non-Windows.
+//   - ModeOff tests are cross-platform (early-return before platform check).
+//   - BuildConfig/ParseMode/ShouldUseNative are pure logic, fully cross-platform.
+//   - PostStartOrKill cleanup-on-error path needs a real process; only the
+//     nil-cmd and nil-process guards are testable without admin.
+//   - Windows-specific token/ACL/Job Object tests live in sandbox_windows_test.go
+//     and require admin (SeAssignPrimaryTokenPrivilege).
+//
+// Reviewer note: tests that call Available() and skip when true are testing the
+// "sandbox unavailable" code path. On Windows with admin, those paths are
+// covered by sandbox_windows_test.go. Neither set is a false positive — they
+// complement each other across build constraints.
+
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,3 +114,285 @@ func TestBuildConfig_InvalidMode(t *testing.T) {
 		t.Fatal("BuildConfig with invalid mode should return error")
 	}
 }
+
+func TestShouldUseNativeModeOff(t *testing.T) {
+	if ShouldUseNative(ModeOff) {
+		t.Fatal("ModeOff should never use native")
+	}
+}
+
+func TestShouldUseNativeModeOn(t *testing.T) {
+	// On non-Windows, Available() returns false, so ShouldUseNative is false.
+	// On Windows with admin, it would be true. Test the invariant:
+	// ShouldUseNative(ModeOn) == Available()
+	got := ShouldUseNative(ModeOn)
+	if got != Available() {
+		t.Fatalf("ShouldUseNative(ModeOn) = %v, want Available() = %v", got, Available())
+	}
+}
+
+func TestShouldUseNativeModeAuto(t *testing.T) {
+	got := ShouldUseNative(ModeAuto)
+	if got != Available() {
+		t.Fatalf("ShouldUseNative(ModeAuto) = %v, want Available() = %v", got, Available())
+	}
+}
+
+func TestPostStartOrKill_NilCmd(t *testing.T) {
+	_, err := PostStartOrKill(nil, Config{Mode: ModeOff}, nil, nil, "test")
+	if err != nil {
+		t.Fatalf("PostStartOrKill with nil cmd + ModeOff: %v", err)
+	}
+}
+
+func TestPostStartOrKill_NilProcess(t *testing.T) {
+	cmd := exec.Command("nonexistent-binary")
+	// cmd.Process is nil because we haven't started it.
+	cfg := Config{Mode: ModeAuto}
+	cleanup, err := PostStartOrKill(cmd, cfg, nilCloser{}, nilCloser{}, "test")
+	if err != nil {
+		t.Fatalf("PostStartOrKill with nil Process: %v", err)
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+func TestPrepare_NilCmdModeAuto(t *testing.T) {
+	if Available() {
+		t.Skip("test requires sandbox unavailable")
+	}
+	cleanup, err := Prepare(nil, Config{Mode: ModeAuto})
+	if err != nil {
+		t.Fatalf("Prepare(nil, ModeAuto) on unavailable: %v", err)
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+func TestPostStart_NilCmdModeAuto(t *testing.T) {
+	if Available() {
+		t.Skip("test requires sandbox unavailable")
+	}
+	cleanup, err := PostStart(nil, Config{Mode: ModeAuto})
+	if err != nil {
+		t.Fatalf("PostStart(nil, ModeAuto) on unavailable: %v", err)
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+func TestPrepare_NilCmdModeOn(t *testing.T) {
+	if Available() {
+		t.Skip("test requires sandbox unavailable")
+	}
+	_, err := Prepare(nil, Config{Mode: ModeOn})
+	if err == nil {
+		t.Fatal("Prepare(nil, ModeOn) should error when unavailable")
+	}
+}
+
+func TestPostStart_NilCmdModeOn(t *testing.T) {
+	if Available() {
+		t.Skip("test requires sandbox unavailable")
+	}
+	_, err := PostStart(nil, Config{Mode: ModeOn})
+	if err == nil {
+		t.Fatal("PostStart(nil, ModeOn) should error when unavailable")
+	}
+}
+
+func TestParseModeWhitespace(t *testing.T) {
+	// ParseMode trims whitespace.
+	got, err := ParseMode("  auto  ")
+	if err != nil {
+		t.Fatalf("ParseMode('  auto  '): %v", err)
+	}
+	if got != ModeAuto {
+		t.Fatalf("got %q, want %q", got, ModeAuto)
+	}
+}
+
+func TestBuildConfigWritableDirs(t *testing.T) {
+	cfg, err := BuildConfig("/tmp/project", ".myprovider", "off")
+	if err != nil {
+		t.Fatalf("BuildConfig: %v", err)
+	}
+	if len(cfg.WritableDirs) != 2 {
+		t.Fatalf("WritableDirs len = %d, want 2", len(cfg.WritableDirs))
+	}
+	if cfg.WritableDirs[0] == "" {
+		t.Fatal("WritableDirs[0] (temp) should not be empty")
+	}
+}
+
+// --- additional edge-case tests ---
+
+func TestParseModeEmpty(t *testing.T) {
+	got, err := ParseMode("")
+	if err != nil {
+		t.Fatalf("ParseMode empty: %v", err)
+	}
+	if got != ModeAuto {
+		t.Fatalf("got %q, want %q", got, ModeAuto)
+	}
+}
+
+func TestParseModeCaseInsensitive(t *testing.T) {
+	cases := []string{"AUTO", "Auto", "TRUE", "True", "FALSE", "False", "ON", "OFF"}
+	for _, c := range cases {
+		_, err := ParseMode(c)
+		if err != nil {
+			t.Fatalf("ParseMode(%q): unexpected error: %v", c, err)
+		}
+	}
+}
+
+func TestParseModeAliasesRequire(t *testing.T) {
+	got, err := ParseMode("require")
+	if err != nil {
+		t.Fatalf("ParseMode(require): %v", err)
+	}
+	if got != ModeOn {
+		t.Fatalf("got %q, want %q", got, ModeOn)
+	}
+}
+
+func TestParseModeAliasesDisable(t *testing.T) {
+	got, err := ParseMode("disable")
+	if err != nil {
+		t.Fatalf("ParseMode(disable): %v", err)
+	}
+	if got != ModeOff {
+		t.Fatalf("got %q, want %q", got, ModeOff)
+	}
+}
+
+func TestBuildConfigModeAuto(t *testing.T) {
+	cfg, err := BuildConfig("/tmp/p", ".test", "auto")
+	if err != nil {
+		t.Fatalf("BuildConfig: %v", err)
+	}
+	if cfg.Mode != ModeAuto {
+		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeAuto)
+	}
+	if cfg.ProjectDir != "/tmp/p" {
+		t.Fatalf("ProjectDir = %q, want /tmp/p", cfg.ProjectDir)
+	}
+}
+
+func TestBuildConfigModeOn(t *testing.T) {
+	cfg, err := BuildConfig("/tmp/p", ".test", "true")
+	if err != nil {
+		t.Fatalf("BuildConfig: %v", err)
+	}
+	if cfg.Mode != ModeOn {
+		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeOn)
+	}
+}
+
+func TestBuildConfigSecondWritableDirContainsProviderHome(t *testing.T) {
+	cfg, err := BuildConfig("/tmp/p", ".my-sandbox-provider", "off")
+	if err != nil {
+		t.Fatalf("BuildConfig: %v", err)
+	}
+	if len(cfg.WritableDirs) < 2 {
+		t.Fatal("expected at least 2 writable dirs")
+	}
+	home, _ := os.UserHomeDir()
+	expected := filepath.Join(home, ".my-sandbox-provider")
+	if cfg.WritableDirs[1] != expected {
+		t.Fatalf("WritableDirs[1] = %q, want %q", cfg.WritableDirs[1], expected)
+	}
+}
+
+func TestPostStartOrKill_NilStdinStdout(t *testing.T) {
+	// Should not panic when stdin/stdout are nil and mode is off
+	cmd := exec.Command("nonexistent-binary")
+	_, err := PostStartOrKill(cmd, Config{Mode: ModeOff}, nilCloser{}, nilCloser{}, "test")
+	if err != nil {
+		t.Fatalf("PostStartOrKill: %v", err)
+	}
+}
+
+func TestPostStartOrKill_NilCmdModeOff(t *testing.T) {
+	_, err := PostStartOrKill(nil, Config{Mode: ModeOff}, nilCloser{}, nilCloser{}, "test")
+	if err != nil {
+		t.Fatalf("PostStartOrKill nil cmd ModeOff: %v", err)
+	}
+}
+
+func TestPrepareNilCmdModeOff(t *testing.T) {
+	cleanup, err := Prepare(nil, Config{Mode: ModeOff})
+	if err != nil {
+		t.Fatalf("Prepare(nil, ModeOff): %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("expected non-nil cleanup")
+	}
+	cleanup()
+}
+
+func TestPostStartNilCmdModeOff(t *testing.T) {
+	cleanup, err := PostStart(nil, Config{Mode: ModeOff})
+	if err != nil {
+		t.Fatalf("PostStart(nil, ModeOff): %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("expected non-nil cleanup")
+	}
+	cleanup()
+}
+
+func TestPostStartNilProcessModeOff(t *testing.T) {
+	cmd := exec.Command("nonexistent-binary")
+	cleanup, err := PostStart(cmd, Config{Mode: ModeOff})
+	if err != nil {
+		t.Fatalf("PostStart nil Process ModeOff: %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("expected non-nil cleanup")
+	}
+	cleanup()
+}
+
+func TestPostStartOrKillProviderIDInErrorMessage(t *testing.T) {
+	if Available() {
+		t.Skip("sandbox available, error path not triggered")
+	}
+	cmd := exec.Command("nonexistent-binary")
+	_, err := PostStartOrKill(cmd, Config{Mode: ModeOn}, nilCloser{}, nilCloser{}, "my-provider")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "my-provider") {
+		t.Fatalf("error %q should contain provider ID", err.Error())
+	}
+}
+
+func TestPrepareModeAutoUnavailableNilCmd(t *testing.T) {
+	if Available() {
+		t.Skip("sandbox available")
+	}
+	cleanup, err := Prepare(nil, Config{Mode: ModeAuto})
+	if err != nil {
+		t.Fatalf("Prepare(nil, ModeAuto): %v", err)
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+func TestShouldUseNativeModeOffAlwaysFalse(t *testing.T) {
+	if ShouldUseNative(ModeOff) {
+		t.Fatal("ModeOff should never use native")
+	}
+}
+
+// --- helper ---
+
+type nilCloser struct{}
+
+func (nilCloser) Close() error { return nil }

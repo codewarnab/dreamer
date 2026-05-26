@@ -261,3 +261,76 @@ func TestSanitizeClaudeMessagesSurvivesFolded(t *testing.T) {
 		t.Errorf("expected %d messages to survive sanitization, got %d", len(msgs), len(sanitized))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// serializeToolInput: additional edge cases
+// ---------------------------------------------------------------------------
+
+func TestSerializeToolInput_StringInputForKnownTool(t *testing.T) {
+	// When Bash receives a string instead of map, input["command"].(string) fails
+	// and it falls through to JSON fallback.
+	input := map[string]any{"command": 123}
+	got := serializeToolInput("Bash", input)
+	if got == "" {
+		t.Error("expected non-empty fallback for int command value")
+	}
+}
+
+func TestSerializeToolInput_EditWithOnlyPath(t *testing.T) {
+	input := map[string]any{"path": "handler.go", "old": "foo", "new": "bar"}
+	got := serializeToolInput("Edit", input)
+	if got != "handler.go" {
+		t.Errorf("expected path fallback, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_WriteWithFilePath(t *testing.T) {
+	input := map[string]any{"file_path": "output.txt", "content": "data"}
+	got := serializeToolInput("Write", input)
+	if got != "output.txt" {
+		t.Errorf("expected file_path extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_GrepLowercase(t *testing.T) {
+	input := map[string]any{"pattern": "TODO"}
+	got := serializeToolInput("grep", input)
+	if got != "TODO" {
+		t.Errorf("expected pattern extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_GlobLowercase(t *testing.T) {
+	input := map[string]any{"pattern": "*.go"}
+	got := serializeToolInput("glob", input)
+	if got != "*.go" {
+		t.Errorf("expected pattern extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_ReadLowercaseWithFilePath(t *testing.T) {
+	input := map[string]any{"file_path": "main.go"}
+	got := serializeToolInput("read", input)
+	if got != "main.go" {
+		t.Errorf("expected file_path extraction, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_BashWithoutCommandKeyFallsBack(t *testing.T) {
+	input := map[string]any{"other": "value"}
+	got := serializeToolInput("Bash", input)
+	if got == "" {
+		t.Error("expected non-empty JSON fallback")
+	}
+	if !strings.Contains(got, "other") {
+		t.Errorf("expected JSON with 'other' key, got %q", got)
+	}
+}
+
+func TestSerializeToolInput_EmptyMapFallback(t *testing.T) {
+	input := map[string]any{}
+	got := serializeToolInput("CustomTool", input)
+	if got != "{}" {
+		t.Errorf("expected empty JSON object, got %q", got)
+	}
+}

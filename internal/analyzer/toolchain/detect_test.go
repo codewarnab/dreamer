@@ -184,3 +184,273 @@ func assertNotLinterTool(t *testing.T, linters []LinterConfig, want string) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// PrimaryLinter
+// ---------------------------------------------------------------------------
+
+func TestPrimaryLinterEmpty(t *testing.T) {
+	tc := Toolchain{}
+	if got := tc.PrimaryLinter(); got != "" {
+		t.Errorf("PrimaryLinter on empty toolchain = %q, want empty", got)
+	}
+}
+
+func TestPrimaryLinterReturnsFirst(t *testing.T) {
+	tc := Toolchain{
+		Linters: []LinterConfig{{Tool: "golangci-lint"}, {Tool: "staticcheck"}},
+	}
+	if got := tc.PrimaryLinter(); got != "golangci-lint" {
+		t.Errorf("PrimaryLinter = %q, want golangci-lint", got)
+	}
+}
+
+func TestPrimaryLinterSkipsBlankTool(t *testing.T) {
+	tc := Toolchain{
+		Linters: []LinterConfig{{Tool: "  "}, {Tool: "ruff"}},
+	}
+	if got := tc.PrimaryLinter(); got != "ruff" {
+		t.Errorf("PrimaryLinter = %q, want ruff", got)
+	}
+}
+
+func TestPrimaryLinterAllBlankTools(t *testing.T) {
+	tc := Toolchain{
+		Linters: []LinterConfig{{Tool: ""}, {Tool: "  "}},
+	}
+	if got := tc.PrimaryLinter(); got != "" {
+		t.Errorf("PrimaryLinter = %q, want empty", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PrimaryTestFramework
+// ---------------------------------------------------------------------------
+
+func TestPrimaryTestFrameworkEmpty(t *testing.T) {
+	tc := Toolchain{}
+	if got := tc.PrimaryTestFramework(); got != "" {
+		t.Errorf("PrimaryTestFramework on empty toolchain = %q, want empty", got)
+	}
+}
+
+func TestPrimaryTestFrameworkReturnsFirst(t *testing.T) {
+	tc := Toolchain{TestFrameworks: []string{"vitest", "jest"}}
+	if got := tc.PrimaryTestFramework(); got != "vitest" {
+		t.Errorf("PrimaryTestFramework = %q, want vitest", got)
+	}
+}
+
+func TestPrimaryTestFrameworkSkipsBlank(t *testing.T) {
+	tc := Toolchain{TestFrameworks: []string{"  ", "go test"}}
+	if got := tc.PrimaryTestFramework(); got != "go test" {
+		t.Errorf("PrimaryTestFramework = %q, want go test", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+func TestSummaryEmptyToolchain(t *testing.T) {
+	tc := Toolchain{}
+	if got := tc.Summary(); got != "no toolchain detected" {
+		t.Errorf("Summary = %q, want %q", got, "no toolchain detected")
+	}
+}
+
+func TestSummaryAllFieldsPopulated(t *testing.T) {
+	tc := Toolchain{
+		Languages:      []string{"go"},
+		Linters:        []LinterConfig{{Tool: "golangci-lint"}},
+		TestFrameworks: []string{"go test"},
+		ConfigFiles:    []string{"/root/.golangci.yml"},
+	}
+	got := tc.Summary()
+	for _, want := range []string{"languages: go", "linters: golangci-lint", "tests: go test"} {
+		if !containsSubstr(got, want) {
+			t.Errorf("Summary = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+func TestSummaryLanguagesOnly(t *testing.T) {
+	tc := Toolchain{Languages: []string{"go", "javascript"}}
+	got := tc.Summary()
+	if got != "languages: go, javascript" {
+		t.Errorf("Summary = %q, want %q", got, "languages: go, javascript")
+	}
+}
+
+func TestSummaryLintersOnly(t *testing.T) {
+	tc := Toolchain{Linters: []LinterConfig{{Tool: "eslint"}, {Tool: "prettier"}}}
+	got := tc.Summary()
+	for _, want := range []string{"linters:", "eslint", "prettier"} {
+		if !containsSubstr(got, want) {
+			t.Errorf("Summary = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+func TestSummaryDeduplicatesLinterNames(t *testing.T) {
+	tc := Toolchain{
+		Linters: []LinterConfig{
+			{Tool: "eslint"},
+			{Tool: "eslint"},
+			{Tool: "biome"},
+		},
+	}
+	got := tc.Summary()
+	if !containsSubstr(got, "eslint") || !containsSubstr(got, "biome") {
+		t.Errorf("Summary = %q, expected deduplicated linter names", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// String
+// ---------------------------------------------------------------------------
+
+func TestStringEmpty(t *testing.T) {
+	tc := Toolchain{}
+	got := tc.String()
+	want := "languages=[] linters=0 tests=[] configs=0"
+	if got != want {
+		t.Errorf("String = %q, want %q", got, want)
+	}
+}
+
+func TestStringPopulated(t *testing.T) {
+	tc := Toolchain{
+		Languages:      []string{"go"},
+		Linters:        []LinterConfig{{Tool: "golangci-lint"}, {Tool: "staticcheck"}},
+		TestFrameworks: []string{"go test"},
+		ConfigFiles:    []string{".golangci.yml"},
+	}
+	got := tc.String()
+	if !containsSubstr(got, "languages=[go]") {
+		t.Errorf("String = %q, want it to contain 'languages=[go]'", got)
+	}
+	if !containsSubstr(got, "linters=2") {
+		t.Errorf("String = %q, want it to contain 'linters=2'", got)
+	}
+	if !containsSubstr(got, "configs=1") {
+		t.Errorf("String = %q, want it to contain 'configs=1'", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// deriveJSTestFramework
+// ---------------------------------------------------------------------------
+
+func TestDeriveJSTestFrameworkVitest(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"devDependencies":{"vitest":"^1.0.0"}}`)
+	if got := deriveJSTestFramework(root); got != "vitest" {
+		t.Errorf("deriveJSTestFramework = %q, want vitest", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkJest(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"devDependencies":{"jest":"^29.0.0"}}`)
+	if got := deriveJSTestFramework(root); got != "jest" {
+		t.Errorf("deriveJSTestFramework = %q, want jest", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkPlaywright(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"devDependencies":{"@playwright/test":"^1.0.0"}}`)
+	if got := deriveJSTestFramework(root); got != "playwright" {
+		t.Errorf("deriveJSTestFramework = %q, want playwright", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkMocha(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"devDependencies":{"mocha":"^10.0.0"}}`)
+	if got := deriveJSTestFramework(root); got != "mocha" {
+		t.Errorf("deriveJSTestFramework = %q, want mocha", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkDefaultNpmTest(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"scripts":{"test":"echo ok"}}`)
+	if got := deriveJSTestFramework(root); got != "npm test" {
+		t.Errorf("deriveJSTestFramework = %q, want npm test", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkMissingPackageJSON(t *testing.T) {
+	root := t.TempDir()
+	if got := deriveJSTestFramework(root); got != "npm test" {
+		t.Errorf("deriveJSTestFramework = %q, want npm test (missing package.json)", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkPriorityVitestOverJest(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"devDependencies":{"vitest":"^1","jest":"^29"}}`)
+	if got := deriveJSTestFramework(root); got != "vitest" {
+		t.Errorf("deriveJSTestFramework = %q, want vitest (priority over jest)", got)
+	}
+}
+
+func TestDeriveJSTestFrameworkPriorityJestOverPlaywright(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "package.json"), `{"devDependencies":{"jest":"^29","playwright":"^1"}}`)
+	if got := deriveJSTestFramework(root); got != "jest" {
+		t.Errorf("deriveJSTestFramework = %q, want jest (priority over playwright)", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// appendUnique
+// ---------------------------------------------------------------------------
+
+func TestAppendUnique(t *testing.T) {
+	t.Run("adds new value", func(t *testing.T) {
+		got := appendUnique([]string{"a"}, "b")
+		if len(got) != 2 || got[1] != "b" {
+			t.Errorf("got %v, want [a b]", got)
+		}
+	})
+
+	t.Run("skips duplicate", func(t *testing.T) {
+		got := appendUnique([]string{"a", "b"}, "a")
+		if len(got) != 2 {
+			t.Errorf("got %v, want [a b] (no duplicate)", got)
+		}
+	})
+
+	t.Run("skips blank value", func(t *testing.T) {
+		got := appendUnique([]string{"a"}, "  ")
+		if len(got) != 1 {
+			t.Errorf("got %v, want [a] (blank skipped)", got)
+		}
+	})
+
+	t.Run("trims value before comparing", func(t *testing.T) {
+		got := appendUnique([]string{"a"}, " a ")
+		if len(got) != 1 {
+			t.Errorf("got %v, want [a] (trimmed match)", got)
+		}
+	})
+
+	t.Run("nil slice with valid value", func(t *testing.T) {
+		got := appendUnique(nil, "x")
+		if len(got) != 1 || got[0] != "x" {
+			t.Errorf("got %v, want [x]", got)
+		}
+	})
+}
+
+func containsSubstr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

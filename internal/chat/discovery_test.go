@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -622,4 +623,1129 @@ func setTestHome(t *testing.T, home string) {
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("OPENCODE_DB", "")
 	t.Setenv("KIRO_CLI_DB", "")
+}
+
+// ---------------------------------------------------------------------------
+// PrependMarker
+// ---------------------------------------------------------------------------
+
+func TestPrependMarkerWithoutRunID(t *testing.T) {
+	got := PrependMarker("hello world", "")
+	want := "<!-- dreamer-analysis-marker --> hello world"
+	if got != want {
+		t.Errorf("PrependMarker(%q, %q) = %q, want %q", "hello world", "", got, want)
+	}
+}
+
+func TestPrependMarkerWithRunID(t *testing.T) {
+	got := PrependMarker("analyze this", "abc123")
+	want := "<!-- dreamer-analysis-marker run=abc123 --> analyze this"
+	if got != want {
+		t.Errorf("PrependMarker(%q, %q) = %q, want %q", "analyze this", "abc123", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// normalizeDiscoveryKey
+// ---------------------------------------------------------------------------
+
+func TestNormalizeDiscoveryKey(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"plain lowercase", "cwd", "cwd"},
+		{"mixed case", "CWD", "cwd"},
+		{"with underscores", "working_directory", "workingdirectory"},
+		{"with hyphens", "working-directory", "workingdirectory"},
+		{"with spaces and underscores", " Working_Directory ", "workingdirectory"},
+		{"empty", "", ""},
+		{"only whitespace", "   ", ""},
+		{"CamelCase with underscores", "Current_Working_Directory", "currentworkingdirectory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeDiscoveryKey(tt.raw)
+			if got != tt.want {
+				t.Errorf("normalizeDiscoveryKey(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// valueForNormalizedKey
+// ---------------------------------------------------------------------------
+
+func TestValueForNormalizedKey(t *testing.T) {
+	record := map[string]any{
+		"Working_Directory": "/home/user/project",
+		"CWD":               "/tmp",
+		"count":             42,
+	}
+
+	t.Run("case and underscore insensitive match", func(t *testing.T) {
+		val, ok := valueForNormalizedKey(record, "workingdirectory")
+		if !ok {
+			t.Fatal("expected match for workingdirectory")
+		}
+		if val != "/home/user/project" {
+			t.Errorf("got %v, want /home/user/project", val)
+		}
+	})
+
+	t.Run("plain key", func(t *testing.T) {
+		val, ok := valueForNormalizedKey(record, "cwd")
+		if !ok {
+			t.Fatal("expected match for cwd")
+		}
+		if val != "/tmp" {
+			t.Errorf("got %v, want /tmp", val)
+		}
+	})
+
+	t.Run("non-existent key", func(t *testing.T) {
+		_, ok := valueForNormalizedKey(record, "notfound")
+		if ok {
+			t.Error("expected no match for notfound")
+		}
+	})
+
+	t.Run("non-string value found", func(t *testing.T) {
+		val, ok := valueForNormalizedKey(record, "count")
+		if !ok {
+			t.Fatal("expected match for count")
+		}
+		if val != 42 {
+			t.Errorf("got %v, want 42", val)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// stringValueForNormalizedKey
+// ---------------------------------------------------------------------------
+
+func TestStringValueForNormalizedKey(t *testing.T) {
+	record := map[string]any{
+		"Working_Directory": "/home/user/project",
+		"count":             42,
+		"empty_field":       "   ",
+	}
+
+	t.Run("string value", func(t *testing.T) {
+		val, ok := stringValueForNormalizedKey(record, "workingdirectory")
+		if !ok {
+			t.Fatal("expected match")
+		}
+		if val != "/home/user/project" {
+			t.Errorf("got %q, want /home/user/project", val)
+		}
+	})
+
+	t.Run("non-string value returns false", func(t *testing.T) {
+		_, ok := stringValueForNormalizedKey(record, "count")
+		if ok {
+			t.Error("expected false for non-string value")
+		}
+	})
+
+	t.Run("whitespace-only string returns false", func(t *testing.T) {
+		_, ok := stringValueForNormalizedKey(record, "emptyfield")
+		if ok {
+			t.Error("expected false for whitespace-only value")
+		}
+	})
+
+	t.Run("missing key returns false", func(t *testing.T) {
+		_, ok := stringValueForNormalizedKey(record, "notfound")
+		if ok {
+			t.Error("expected false for missing key")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// extractPathValue
+// ---------------------------------------------------------------------------
+
+func TestExtractPathValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		depth int
+		want  string
+	}{
+		{"nil value", nil, 0, ""},
+		{"empty string", "", 0, ""},
+		{"whitespace-only string", "   ", 0, ""},
+		{"plain string", "/home/user/project", 0, "/home/user/project"},
+		{"string with leading/trailing spaces", "  /tmp  ", 0, "/tmp"},
+		{"[]byte value", []byte("/bytes/path"), 0, "/bytes/path"},
+		{"[]byte with spaces", []byte("  /bytes  "), 0, "/bytes"},
+		{"map with path key", map[string]any{"path": "/map/path"}, 0, "/map/path"},
+		{"map with cwd key", map[string]any{"cwd": "/map/cwd"}, 0, "/map/cwd"},
+		{"map with value key", map[string]any{"value": "/map/value"}, 0, "/map/value"},
+		{"map with root key", map[string]any{"root": "/map/root"}, 0, "/map/root"},
+		{"map with workingDirectory key", map[string]any{"workingDirectory": "/map/wd"}, 0, "/map/wd"},
+		{"map with projectPath key", map[string]any{"projectPath": "/map/pp"}, 0, "/map/pp"},
+		{"map with workspacePath key", map[string]any{"workspacePath": "/map/wp"}, 0, "/map/wp"},
+		{"map with currentWorkingDirectory key", map[string]any{"currentWorkingDirectory": "/map/cwd"}, 0, "/map/cwd"},
+		{"map with nested path", map[string]any{"path": map[string]any{"path": "/nested"}}, 0, "/nested"},
+		{"map with no matching keys", map[string]any{"foo": "bar"}, 0, ""},
+		{"array with string element", []any{"/arr/first", "/arr/second"}, 0, "/arr/first"},
+		{"array with nil element", []any{nil, "/arr/second"}, 0, "/arr/second"},
+		{"empty array", []any{}, 0, ""},
+		{"depth exceeded", "/path", 7, ""},
+		{"integer value (unsupported type)", 42, 0, ""},
+		{"bool value (unsupported type)", true, 0, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractPathValue(tt.value, tt.depth)
+			if got != tt.want {
+				t.Errorf("extractPathValue(%v, %d) = %q, want %q", tt.value, tt.depth, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// recursiveExtract
+// ---------------------------------------------------------------------------
+
+func TestRecursiveExtract(t *testing.T) {
+	evidenceKeys := map[string]struct{}{
+		"cwd":              {},
+		"workingdirectory": {},
+		"workspacepath":    {},
+	}
+
+	t.Run("flat map with matching key", func(t *testing.T) {
+		value := map[string]any{"cwd": "/project/root"}
+		got := recursiveExtract(value, evidenceKeys, 10)
+		if got != "/project/root" {
+			t.Errorf("got %q, want /project/root", got)
+		}
+	})
+
+	t.Run("nested map finds evidence key", func(t *testing.T) {
+		value := map[string]any{
+			"session_meta": map[string]any{
+				"payload": map[string]any{
+					"cwd": "/nested/path",
+				},
+			},
+		}
+		got := recursiveExtract(value, evidenceKeys, 10)
+		if got != "/nested/path" {
+			t.Errorf("got %q, want /nested/path", got)
+		}
+	})
+
+	t.Run("array containing matching map", func(t *testing.T) {
+		value := []any{
+			map[string]any{"cwd": "/array/path"},
+		}
+		got := recursiveExtract(value, evidenceKeys, 10)
+		if got != "/array/path" {
+			t.Errorf("got %q, want /array/path", got)
+		}
+	})
+
+	t.Run("nil returns empty", func(t *testing.T) {
+		got := recursiveExtract(nil, evidenceKeys, 10)
+		if got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("no matching keys returns empty", func(t *testing.T) {
+		value := map[string]any{"foo": "bar", "baz": 42}
+		got := recursiveExtract(value, evidenceKeys, 10)
+		if got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
+
+	t.Run("max depth exceeded returns empty", func(t *testing.T) {
+		value := map[string]any{
+			"level1": map[string]any{
+				"cwd": "/deep/path",
+			},
+		}
+		got := recursiveExtract(value, evidenceKeys, 0)
+		if got != "" {
+			t.Errorf("got %q, want empty (depth exceeded)", got)
+		}
+	})
+
+	t.Run("key normalization matches underscores and hyphens", func(t *testing.T) {
+		value := map[string]any{
+			"working_directory": "/normalized/path",
+		}
+		got := recursiveExtract(value, evidenceKeys, 10)
+		if got != "/normalized/path" {
+			t.Errorf("got %q, want /normalized/path", got)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// containsDreamerMarker
+// ---------------------------------------------------------------------------
+
+func TestContainsDreamerMarker(t *testing.T) {
+	t.Run("file with marker in first lines", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "marked.jsonl")
+		content := `{"role":"user","content":"<!-- dreamer-analysis-marker --> analyze this"}
+{"role":"assistant","content":"result"}`
+		writeFixtureFile(t, path, content)
+
+		if !containsDreamerMarker(path) {
+			t.Error("expected true for file containing DreamerMarker")
+		}
+	})
+
+	t.Run("file without marker", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "clean.jsonl")
+		content := `{"role":"user","content":"hello"}
+{"role":"assistant","content":"hi"}`
+		writeFixtureFile(t, path, content)
+
+		if containsDreamerMarker(path) {
+			t.Error("expected false for file not containing DreamerMarker")
+		}
+	})
+
+	t.Run("non-existent file returns false", func(t *testing.T) {
+		if containsDreamerMarker(filepath.Join(t.TempDir(), "missing.jsonl")) {
+			t.Error("expected false for missing file")
+		}
+	})
+
+	t.Run("empty file returns false", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "empty.jsonl")
+		writeFixtureFile(t, path, "")
+		if containsDreamerMarker(path) {
+			t.Error("expected false for empty file")
+		}
+	})
+
+	t.Run("marker on line 10 is found", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "late-marker.jsonl")
+		lines := ""
+		for i := 0; i < 9; i++ {
+			lines += `{"line":` + string(rune('0'+i)) + "}\n"
+		}
+		lines += `{"content":"<!-- dreamer-analysis-marker -->"}`
+		writeFixtureFile(t, path, lines)
+		if !containsDreamerMarker(path) {
+			t.Error("expected true when marker is on line 10")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// isJSONLExtension
+// ---------------------------------------------------------------------------
+
+func TestIsJSONLExtension(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"session.jsonl", true},
+		{"session.JSONL", true},
+		{"session.json", false},
+		{"session.txt", false},
+		{"session", false},
+		{"/full/path/to/session.jsonl", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := isJSONLExtension(tt.path)
+			if got != tt.want {
+				t.Errorf("isJSONLExtension(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// splitDiscoveryField
+// ---------------------------------------------------------------------------
+
+func TestSplitDiscoveryField(t *testing.T) {
+	tests := []struct {
+		name    string
+		line    string
+		wantKey string
+		wantVal string
+		wantOk  bool
+	}{
+		{"simple kv", "workspacePath: /home/user/project", "workspacePath", "/home/user/project", true},
+		{"quoted value", `role: "user"`, "role", "user", true},
+		{"no colon", "nocolon", "", "", false},
+		{"empty key", ": value", "", "", false},
+		{"empty value", "key: ", "", "", false},
+		{"colon at start", ":value", "", "", false},
+		{"spaces around", "  key  :  value  ", "key", "value", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, val, ok := splitDiscoveryField(tt.line)
+			if ok != tt.wantOk {
+				t.Fatalf("splitDiscoveryField(%q) ok = %v, want %v", tt.line, ok, tt.wantOk)
+			}
+			if ok {
+				if key != tt.wantKey || val != tt.wantVal {
+					t.Errorf("splitDiscoveryField(%q) = (%q, %q), want (%q, %q)", tt.line, key, val, tt.wantKey, tt.wantVal)
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// probeJSONLForCWD
+// ---------------------------------------------------------------------------
+
+func TestProbeJSONLForCWD(t *testing.T) {
+	t.Run("extracts from first matching line", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "probe.jsonl")
+		content := `{"other":"data"}
+{"cwd":"/found/path"}
+{"cwd":"/ignored/path"}`
+		writeFixtureFile(t, path, content)
+
+		extract := func(record map[string]any) string {
+			if v, ok := record["cwd"].(string); ok {
+				return v
+			}
+			return ""
+		}
+		got, ok := probeJSONLForCWD(path, 200, extract)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if got != "/found/path" {
+			t.Errorf("got %q, want /found/path", got)
+		}
+	})
+
+	t.Run("respects maxLines", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "probe-limit.jsonl")
+		content := `{"other":"data"}
+{"other":"data"}
+{"cwd":"/beyond/limit"}`
+		writeFixtureFile(t, path, content)
+
+		extract := func(record map[string]any) string {
+			if v, ok := record["cwd"].(string); ok {
+				return v
+			}
+			return ""
+		}
+		_, ok := probeJSONLForCWD(path, 2, extract)
+		if ok {
+			t.Error("expected ok=false when cwd is beyond maxLines")
+		}
+	})
+
+	t.Run("non-existent file returns false", func(t *testing.T) {
+		extract := func(record map[string]any) string { return "" }
+		_, ok := probeJSONLForCWD(filepath.Join(t.TempDir(), "missing.jsonl"), 100, extract)
+		if ok {
+			t.Error("expected ok=false for missing file")
+		}
+	})
+
+	t.Run("invalid JSON lines are skipped", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "probe-bad.jsonl")
+		content := `not json
+also not json
+{"cwd":"/valid/path"}`
+		writeFixtureFile(t, path, content)
+
+		extract := func(record map[string]any) string {
+			if v, ok := record["cwd"].(string); ok {
+				return v
+			}
+			return ""
+		}
+		got, ok := probeJSONLForCWD(path, 100, extract)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if got != "/valid/path" {
+			t.Errorf("got %q, want /valid/path", got)
+		}
+	})
+
+	t.Run("extractor returns empty for all lines", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "probe-no-match.jsonl")
+		writeFixtureFile(t, path, `{"key":"val"}`)
+
+		extract := func(record map[string]any) string { return "" }
+		_, ok := probeJSONLForCWD(path, 100, extract)
+		if ok {
+			t.Error("expected ok=false when extractor never returns a value")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// walkChatFiles
+// ---------------------------------------------------------------------------
+
+func TestWalkChatFiles(t *testing.T) {
+	t.Run("empty root returns nil", func(t *testing.T) {
+		sources, err := walkChatFiles("", SourceTypeCopilotSessionJSONL, map[string]struct{}{".jsonl": {}}, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sources != nil {
+			t.Errorf("expected nil, got %v", sources)
+		}
+	})
+
+	t.Run("non-existent root returns nil", func(t *testing.T) {
+		sources, err := walkChatFiles(filepath.Join(t.TempDir(), "nope"), SourceTypeCopilotSessionJSONL, map[string]struct{}{".jsonl": {}}, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sources != nil {
+			t.Errorf("expected nil, got %v", sources)
+		}
+	})
+
+	t.Run("finds matching extensions", func(t *testing.T) {
+		root := t.TempDir()
+		writeFixtureFile(t, filepath.Join(root, "a.jsonl"), "content")
+		writeFixtureFile(t, filepath.Join(root, "b.txt"), "content")
+		writeFixtureFile(t, filepath.Join(root, "c.jsonl"), "content")
+
+		sources, err := walkChatFiles(root, SourceTypeCopilotSessionJSONL, map[string]struct{}{".jsonl": {}}, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(sources) != 2 {
+			t.Fatalf("expected 2 sources, got %d", len(sources))
+		}
+	})
+
+	t.Run("skip filter excludes files", func(t *testing.T) {
+		root := t.TempDir()
+		writeFixtureFile(t, filepath.Join(root, "keep.jsonl"), "content")
+		writeFixtureFile(t, filepath.Join(root, "skip.jsonl"), "content")
+
+		skip := func(path string) bool {
+			return filepath.Base(path) == "skip.jsonl"
+		}
+		sources, err := walkChatFiles(root, SourceTypeCopilotSessionJSONL, map[string]struct{}{".jsonl": {}}, skip)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(sources) != 1 {
+			t.Fatalf("expected 1 source, got %d", len(sources))
+		}
+		if filepath.Base(sources[0].Path) != "keep.jsonl" {
+			t.Errorf("expected keep.jsonl, got %s", sources[0].Path)
+		}
+	})
+
+	t.Run("whitespace-only root returns nil", func(t *testing.T) {
+		sources, err := walkChatFiles("   ", SourceTypeCopilotSessionJSONL, map[string]struct{}{".jsonl": {}}, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sources != nil {
+			t.Errorf("expected nil, got %v", sources)
+		}
+	})
+
+	t.Run("root is a file, not a directory", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "file.txt")
+		writeFixtureFile(t, file, "content")
+		sources, err := walkChatFiles(file, SourceTypeCopilotSessionJSONL, map[string]struct{}{".jsonl": {}}, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sources != nil {
+			t.Errorf("expected nil, got %v", sources)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// skipDreamerMarkedFiles
+// ---------------------------------------------------------------------------
+
+func TestSkipDreamerMarkedFiles(t *testing.T) {
+	t.Run("skips jsonl with marker", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "marked.jsonl")
+		writeFixtureFile(t, path, `{"content":"<!-- dreamer-analysis-marker -->"}`)
+		if !skipDreamerMarkedFiles(path) {
+			t.Error("expected true for jsonl with marker")
+		}
+	})
+
+	t.Run("does not skip jsonl without marker", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "clean.jsonl")
+		writeFixtureFile(t, path, `{"content":"hello"}`)
+		if skipDreamerMarkedFiles(path) {
+			t.Error("expected false for jsonl without marker")
+		}
+	})
+
+	t.Run("does not skip non-jsonl file with marker", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "marked.json")
+		writeFixtureFile(t, path, `{"content":"<!-- dreamer-analysis-marker -->"}`)
+		if skipDreamerMarkedFiles(path) {
+			t.Error("expected false for non-jsonl file")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// pathWithinNormalizedRoot
+// ---------------------------------------------------------------------------
+
+func TestPathWithinNormalizedRoot(t *testing.T) {
+	t.Run("path inside root", func(t *testing.T) {
+		root := t.TempDir()
+		child := filepath.Join(root, "subdir", "file.txt")
+		if !pathWithinNormalizedRoot(child, root) {
+			t.Error("expected true for path inside root")
+		}
+	})
+
+	t.Run("path outside root", func(t *testing.T) {
+		root := t.TempDir()
+		other := filepath.Join(t.TempDir(), "other", "file.txt")
+		if pathWithinNormalizedRoot(other, root) {
+			t.Error("expected false for path outside root")
+		}
+	})
+
+	t.Run("path equals root returns true", func(t *testing.T) {
+		root := t.TempDir()
+		if !pathWithinNormalizedRoot(root, root) {
+			t.Error("expected true when path equals root")
+		}
+	})
+
+	t.Run("case mismatch on Windows", func(t *testing.T) {
+		if runtime.GOOS != "windows" {
+			t.Skip("windows-specific case test")
+		}
+		root := t.TempDir()
+		upper := strings.ToUpper(root)
+		lower := strings.ToLower(root)
+		if upper == lower {
+			t.Skip("filesystem is case-insensitive and paths are already same")
+		}
+		child := filepath.Join(upper, "subdir", "file.txt")
+		if !pathWithinNormalizedRoot(child, lower) {
+			t.Error("expected true for case-mismatched path inside root on Windows")
+		}
+	})
+
+	t.Run("empty path returns false", func(t *testing.T) {
+		root := t.TempDir()
+		if pathWithinNormalizedRoot("", root) {
+			t.Error("expected false for empty path")
+		}
+	})
+
+	t.Run("empty root returns false", func(t *testing.T) {
+		root := t.TempDir()
+		child := filepath.Join(root, "file.txt")
+		if pathWithinNormalizedRoot(child, "") {
+			t.Error("expected false for empty root")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// deleteSourceFile
+// ---------------------------------------------------------------------------
+
+func TestDeleteSourceFile(t *testing.T) {
+	t.Run("deletes existing file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "to-delete.jsonl")
+		writeFixtureFile(t, path, "content")
+		if err := deleteSourceFile(path); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Error("expected file to be deleted")
+		}
+	})
+
+	t.Run("missing file is idempotent", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing.jsonl")
+		if err := deleteSourceFile(path); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty path returns error", func(t *testing.T) {
+		if err := deleteSourceFile(""); err == nil {
+			t.Error("expected error for empty path")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// statSourceSize
+// ---------------------------------------------------------------------------
+
+func TestStatSourceSize(t *testing.T) {
+	t.Run("existing file returns size", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "size-test.jsonl")
+		writeFixtureFile(t, path, "hello world")
+		size, err := statSourceSize(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if size != 11 {
+			t.Errorf("size = %d, want 11", size)
+		}
+	})
+
+	t.Run("missing file returns 0, nil", func(t *testing.T) {
+		size, err := statSourceSize(filepath.Join(t.TempDir(), "missing.jsonl"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if size != 0 {
+			t.Errorf("size = %d, want 0", size)
+		}
+	})
+
+	t.Run("empty path returns 0, nil", func(t *testing.T) {
+		size, err := statSourceSize("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if size != 0 {
+			t.Errorf("size = %d, want 0", size)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// SplitSQLiteSourcePath
+// ---------------------------------------------------------------------------
+
+func TestSplitSQLiteSourcePath(t *testing.T) {
+	t.Run("path with separator", func(t *testing.T) {
+		dbPath, sessionID := SplitSQLiteSourcePath("/data/db.sqlite#sess-123")
+		if dbPath != "/data/db.sqlite" {
+			t.Errorf("dbPath = %q, want /data/db.sqlite", dbPath)
+		}
+		if sessionID != "sess-123" {
+			t.Errorf("sessionID = %q, want sess-123", sessionID)
+		}
+	})
+
+	t.Run("path without separator", func(t *testing.T) {
+		dbPath, sessionID := SplitSQLiteSourcePath("/data/db.sqlite")
+		if dbPath != "/data/db.sqlite" {
+			t.Errorf("dbPath = %q, want /data/db.sqlite", dbPath)
+		}
+		if sessionID != "" {
+			t.Errorf("sessionID = %q, want empty", sessionID)
+		}
+	})
+
+	t.Run("empty path", func(t *testing.T) {
+		dbPath, sessionID := SplitSQLiteSourcePath("")
+		if dbPath != "" || sessionID != "" {
+			t.Errorf("got (%q, %q), want empty", dbPath, sessionID)
+		}
+	})
+
+	t.Run("path with multiple separators splits on last", func(t *testing.T) {
+		dbPath, sessionID := SplitSQLiteSourcePath("/data#db#sess")
+		if dbPath != "/data#db" {
+			t.Errorf("dbPath = %q, want /data#db", dbPath)
+		}
+		if sessionID != "sess" {
+			t.Errorf("sessionID = %q, want sess", sessionID)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// ProviderFor
+// ---------------------------------------------------------------------------
+
+func TestProviderFor(t *testing.T) {
+	t.Run("known source type returns provider", func(t *testing.T) {
+		provider, ok := ProviderFor(SourceTypeCopilotSessionJSONL)
+		if !ok {
+			t.Fatal("expected copilot provider to be registered")
+		}
+		if provider.Type() != SourceTypeCopilotSessionJSONL {
+			t.Errorf("provider type = %q, want %q", provider.Type(), SourceTypeCopilotSessionJSONL)
+		}
+	})
+
+	t.Run("unknown source type returns false", func(t *testing.T) {
+		_, ok := ProviderFor(SourceType("nonexistent-type"))
+		if ok {
+			t.Error("expected false for unknown source type")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+
+func TestProvidersReturnsRegisteredProviders(t *testing.T) {
+	providers := Providers()
+	if len(providers) == 0 {
+		t.Fatal("expected at least one registered provider")
+	}
+
+	seen := make(map[SourceType]bool)
+	for _, p := range providers {
+		seen[p.Type()] = true
+	}
+	for _, expected := range []SourceType{
+		SourceTypeCopilotSessionJSONL,
+		SourceTypeCodexSessionJSONL,
+		SourceTypeVSCodeChatSession,
+		SourceTypeClaudeCodeSession,
+		SourceTypeAntigravityGemini,
+		SourceTypeGeminiCLISession,
+	} {
+		if !seen[expected] {
+			t.Errorf("expected provider for %q to be registered", expected)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// codebuffProjectMatches
+// ---------------------------------------------------------------------------
+
+func TestCodebuffProjectMatches(t *testing.T) {
+	tests := []struct {
+		name       string
+		dirName    string
+		projectBase string
+		want       bool
+	}{
+		{"exact match", "myproject", "myproject", true},
+		{"case insensitive", "MyProject", "myproject", true},
+		{"trimmed spaces", " myproject ", "myproject", true},
+		{"mismatch", "other", "myproject", false},
+		{"empty both", "", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := codebuffProjectMatches(tt.dirName, tt.projectBase)
+			if got != tt.want {
+				t.Errorf("codebuffProjectMatches(%q, %q) = %v, want %v", tt.dirName, tt.projectBase, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DiscoverChatsWithEnvironment
+// ---------------------------------------------------------------------------
+
+func TestDiscoverChatsWithEnvironmentReturnsSorted(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	copilotFile := filepath.Join(homeDir, ".copilot", "session-state", "chat.jsonl")
+	writeFixtureFile(t, copilotFile, "copilot")
+
+	olderTime := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	setModTime(t, copilotFile, olderTime)
+
+	sources, err := DiscoverChatsWithEnvironment(DiscoveryEnvironment{
+		HomeDir: homeDir,
+	}, projectDir)
+	if err != nil {
+		t.Fatalf("DiscoverChatsWithEnvironment returned error: %v", err)
+	}
+	// Copilot is always included (no project scoping), so at least 1.
+	if len(sources) < 1 {
+		t.Fatalf("expected at least 1 source, got %d", len(sources))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// normalizeDiscoveryPathWithOptions (requireAbsolute=true path)
+// ---------------------------------------------------------------------------
+
+func TestNormalizeDiscoveryEvidencePathRejectsRelative(t *testing.T) {
+	got, ok := normalizeDiscoveryEvidencePath("relative/path")
+	if ok {
+		t.Errorf("expected ok=false for relative path, got ok=true path=%q", got)
+	}
+}
+
+func TestNormalizeDiscoveryEvidencePathAcceptsAbsolute(t *testing.T) {
+	root := t.TempDir()
+	got, ok := normalizeDiscoveryEvidencePath(root)
+	if !ok {
+		t.Fatal("expected ok=true for absolute path")
+	}
+	if got == "" {
+		t.Error("expected non-empty path")
+	}
+}
+
+func TestNormalizeDiscoveryPathEmptyReturnsFalse(t *testing.T) {
+	_, ok := normalizeDiscoveryPath("")
+	if ok {
+		t.Error("expected false for empty path")
+	}
+}
+
+func TestNormalizeDiscoveryPathWhitespaceReturnsFalse(t *testing.T) {
+	_, ok := normalizeDiscoveryPath("   ")
+	if ok {
+		t.Error("expected false for whitespace-only path")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// sqliteReaderAvailable
+// ---------------------------------------------------------------------------
+
+func TestSqliteReaderAvailable(t *testing.T) {
+	t.Run("non-nil open hook returns true", func(t *testing.T) {
+		hook := func(string, string) (*sql.DB, error) { return nil, nil }
+		if !sqliteReaderAvailable("", hook) {
+			t.Error("expected true when openHook is non-nil")
+		}
+	})
+
+	t.Run("custom driver name returns true", func(t *testing.T) {
+		if !sqliteReaderAvailable("custom-driver", nil) {
+			t.Error("expected true for non-default driver name")
+		}
+	})
+
+	t.Run("default driver name without hook depends on sql.Drivers", func(t *testing.T) {
+		// This test verifies it doesn't panic; result depends on whether
+		// the sqlite driver is registered in this test binary.
+		_ = sqliteReaderAvailable("sqlite", nil)
+	})
+
+	t.Run("empty driver name without hook depends on sql.Drivers", func(t *testing.T) {
+		_ = sqliteReaderAvailable("", nil)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Provider Type() methods - exercised through ProviderFor
+// ---------------------------------------------------------------------------
+
+func TestAllProviderTypesRegistered(t *testing.T) {
+	expectedTypes := []SourceType{
+		SourceTypeCopilotSessionJSONL,
+		SourceTypeCodexSessionJSONL,
+		SourceTypeVSCodeChatSession,
+		SourceTypeClaudeCodeSession,
+		SourceTypeAntigravityGemini,
+		SourceTypeGeminiCLISession,
+		SourceTypeOpenCodeSession,
+		SourceTypeKiroCLISession,
+		SourceTypeCodebuffSession,
+	}
+	for _, st := range expectedTypes {
+		provider, ok := ProviderFor(st)
+		if !ok {
+			t.Errorf("ProviderFor(%q) not found", st)
+			continue
+		}
+		if provider.Type() != st {
+			t.Errorf("provider.Type() = %q, want %q", provider.Type(), st)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// discoverCodebuffSessions
+// ---------------------------------------------------------------------------
+
+func TestDiscoverCodebuffSessionsFindsChat(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	projectBase := filepath.Base(projectDir)
+
+	// Build the codebuff project structure: projects/<name>/chats/<id>/chat-messages.json
+	chatDir := filepath.Join(homeDir, ".config", "manicode", "projects", projectBase, "chats", "chat-1")
+	writeFixtureFile(t, filepath.Join(chatDir, "chat-messages.json"), `[{"role":"user","content":"hi"}]`)
+
+	sources, err := discoverCodebuffSessions(homeDir, "", projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(sources))
+	}
+	if sources[0].Tool != SourceTypeCodebuffSession {
+		t.Errorf("tool = %q, want %q", sources[0].Tool, SourceTypeCodebuffSession)
+	}
+}
+
+func TestDiscoverCodebuffSessionsUsesConfigDirOverride(t *testing.T) {
+	projectDir := t.TempDir()
+	projectBase := filepath.Base(projectDir)
+
+	configDir := t.TempDir()
+	chatDir := filepath.Join(configDir, "projects", projectBase, "chats", "chat-1")
+	writeFixtureFile(t, filepath.Join(chatDir, "chat-messages.json"), `[]`)
+
+	sources, err := discoverCodebuffSessions("/no/home", configDir, projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(sources))
+	}
+}
+
+func TestDiscoverCodebuffSessionsNoProjectsDir(t *testing.T) {
+	sources, err := discoverCodebuffSessions(t.TempDir(), "", t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Errorf("expected 0 sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverCodebuffSessionsSkipsNonDirEntries(t *testing.T) {
+	projectDir := t.TempDir()
+	projectBase := filepath.Base(projectDir)
+
+	homeDir := t.TempDir()
+	projectsDir := filepath.Join(homeDir, ".config", "manicode", "projects", projectBase)
+	// Put a regular file (not dir) at the project level
+	writeFixtureFile(t, filepath.Join(projectsDir, "not-a-dir.txt"), "")
+
+	sources, err := discoverCodebuffSessions(homeDir, "", projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Errorf("expected 0 sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverCodebuffSessionsSkipsProjectMismatch(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+
+	// Create a different project name
+	chatDir := filepath.Join(homeDir, ".config", "manicode", "projects", "otherproject", "chats", "chat-1")
+	writeFixtureFile(t, filepath.Join(chatDir, "chat-messages.json"), `[]`)
+
+	sources, err := discoverCodebuffSessions(homeDir, "", projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Errorf("expected 0 sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverCodebuffSessionsSkipsNonDirChats(t *testing.T) {
+	projectDir := t.TempDir()
+	projectBase := filepath.Base(projectDir)
+	homeDir := t.TempDir()
+
+	chatDir := filepath.Join(homeDir, ".config", "manicode", "projects", projectBase, "chats")
+	writeFixtureFile(t, filepath.Join(chatDir, "chat-1"), "not-a-dir")
+
+	sources, err := discoverCodebuffSessions(homeDir, "", projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sources) != 0 {
+		t.Errorf("expected 0 sources, got %d", len(sources))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Provider SizeBytes and DeleteSource via file-backed providers
+// ---------------------------------------------------------------------------
+
+func TestCopilotProviderSizeBytes(t *testing.T) {
+	provider, _ := ProviderFor(SourceTypeCopilotSessionJSONL)
+	path := filepath.Join(t.TempDir(), "test.jsonl")
+	writeFixtureFile(t, path, "hello")
+	size, err := provider.SizeBytes(ChatSource{Path: path, Tool: SourceTypeCopilotSessionJSONL})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if size != 5 {
+		t.Errorf("size = %d, want 5", size)
+	}
+}
+
+func TestCopilotProviderDeleteSource(t *testing.T) {
+	provider, _ := ProviderFor(SourceTypeCopilotSessionJSONL)
+	path := filepath.Join(t.TempDir(), "to-delete.jsonl")
+	writeFixtureFile(t, path, "content")
+	err := provider.DeleteSource(ChatSource{Path: path, Tool: SourceTypeCopilotSessionJSONL})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("expected file to be deleted")
+	}
+}
+
+func TestClaudeProviderDeleteSource(t *testing.T) {
+	provider, _ := ProviderFor(SourceTypeClaudeCodeSession)
+	path := filepath.Join(t.TempDir(), "to-delete.jsonl")
+	writeFixtureFile(t, path, "content")
+	err := provider.DeleteSource(ChatSource{Path: path, Tool: SourceTypeClaudeCodeSession})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("expected file to be deleted")
+	}
+}
+
+func TestCodebuffProviderSizeBytes(t *testing.T) {
+	provider, _ := ProviderFor(SourceTypeCodebuffSession)
+	path := filepath.Join(t.TempDir(), "test.json")
+	writeFixtureFile(t, path, `[]`)
+	size, err := provider.SizeBytes(ChatSource{Path: path, Tool: SourceTypeCodebuffSession})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if size != 2 {
+		t.Errorf("size = %d, want 2", size)
+	}
+}
+
+func TestCodebuffProviderDeleteSource(t *testing.T) {
+	provider, _ := ProviderFor(SourceTypeCodebuffSession)
+	path := filepath.Join(t.TempDir(), "to-delete.json")
+	writeFixtureFile(t, path, `[]`)
+	err := provider.DeleteSource(ChatSource{Path: path, Tool: SourceTypeCodebuffSession})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("expected file to be deleted")
+	}
 }

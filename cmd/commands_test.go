@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/config"
 	"dreamer/internal/errs"
+	"github.com/spf13/cobra"
 )
 
 // cmdTestFailProviderID is a test-only provider whose Start() always returns
@@ -272,4 +274,173 @@ func setTestHome(t *testing.T, home string) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+}
+
+func TestCheckJobConflict_NoConflict(t *testing.T) {
+	projectDir := t.TempDir()
+	outputRoot := t.TempDir()
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
+		Projects: []config.ProjectConfig{
+			{Name: "myproject", Path: projectDir},
+		},
+	}
+
+	// No jobs.json on disk => no conflict.
+	got := checkJobConflict(cfg, projectDir)
+	if got != "" {
+		t.Fatalf("checkJobConflict returned %q, want empty (no conflict)", got)
+	}
+}
+
+func TestCheckJobConflict_ConflictingJobFound(t *testing.T) {
+	projectDir := t.TempDir()
+	outputRoot := t.TempDir()
+
+	absProject, err := filepath.Abs(projectDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	absProject = filepath.Clean(absProject)
+
+	// Write a jobs.json with a running job for the project.
+	jobsPath := filepath.Join(outputRoot, "jobs.json")
+	jobData := fmt.Sprintf(`{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "myproject-1234-abcd",
+      "project": "myproject",
+      "project_path": %q,
+      "status": "running",
+      "enqueued_at": "2026-01-01T00:00:00Z",
+      "provider": "test",
+      "since": "24h"
+    }
+  ]
+}`, absProject)
+	if err := os.WriteFile(jobsPath, []byte(jobData), 0o644); err != nil {
+		t.Fatalf("write jobs.json: %v", err)
+	}
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
+		Projects: []config.ProjectConfig{
+			{Name: "myproject", Path: absProject},
+		},
+	}
+
+	got := checkJobConflict(cfg, projectDir)
+	if got == "" {
+		t.Fatal("checkJobConflict returned empty, want conflict message")
+	}
+	if !strings.Contains(got, "already in progress") {
+		t.Fatalf("checkJobConflict = %q, want message containing 'already in progress'", got)
+	}
+}
+
+func TestCheckJobConflict_CompletedJobNoConflict(t *testing.T) {
+	projectDir := t.TempDir()
+	outputRoot := t.TempDir()
+
+	absProject, err := filepath.Abs(projectDir)
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	absProject = filepath.Clean(absProject)
+
+	// Write a jobs.json with a completed job — should NOT conflict.
+	jobsPath := filepath.Join(outputRoot, "jobs.json")
+	jobData := fmt.Sprintf(`{
+  "version": 1,
+  "jobs": [
+    {
+      "id": "myproject-5678-efgh",
+      "project": "myproject",
+      "project_path": %q,
+      "status": "completed",
+      "enqueued_at": "2026-01-01T00:00:00Z",
+      "provider": "test",
+      "since": "24h"
+    }
+  ]
+}`, absProject)
+	if err := os.WriteFile(jobsPath, []byte(jobData), 0o644); err != nil {
+		t.Fatalf("write jobs.json: %v", err)
+	}
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
+		Projects: []config.ProjectConfig{
+			{Name: "myproject", Path: absProject},
+		},
+	}
+
+	got := checkJobConflict(cfg, projectDir)
+	if got != "" {
+		t.Fatalf("checkJobConflict returned %q for completed job, want empty", got)
+	}
+}
+
+func TestPrintBox_EmptyLines(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printBox(cmd, []string{})
+
+	output := buf.String()
+	// Should have top and bottom borders with nothing between them.
+	if !strings.Contains(output, "╔") || !strings.Contains(output, "╚") {
+		t.Fatalf("printBox output missing box borders: %q", output)
+	}
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("printBox(empty) produced %d lines, want 2 (top + bottom borders)", len(lines))
+	}
+}
+
+func TestPrintBox_SingleLine(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printBox(cmd, []string{"hello"})
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("printBox(single) produced %d lines, want 3 (top + content + bottom)", len(lines))
+	}
+	if !strings.Contains(lines[1], "hello") {
+		t.Fatalf("content line missing 'hello': %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[1], "║") || !strings.HasSuffix(lines[1], "║") {
+		t.Fatalf("content line not wrapped in ║: %q", lines[1])
+	}
+}
+
+func TestPrintBox_MultipleLines(t *testing.T) {
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	printBox(cmd, []string{"short", "a longer line"})
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("printBox(multi) produced %d lines, want 4 (top + 2 content + bottom)", len(lines))
+	}
+	// Both content lines should have the same width (padded to the longest).
+	if len(lines[1]) != len(lines[2]) {
+		t.Fatalf("content lines differ in width: %d vs %d", len(lines[1]), len(lines[2]))
+	}
+	if !strings.Contains(lines[1], "short") {
+		t.Fatalf("first content line missing 'short': %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "a longer line") {
+		t.Fatalf("second content line missing 'a longer line': %q", lines[2])
+	}
 }
