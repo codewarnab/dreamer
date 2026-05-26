@@ -341,16 +341,11 @@ func TestPrepare_WrapsCommand(t *testing.T) {
 	if cmd.Args[0] != bwrapPath() {
 		t.Errorf("cmd.Args[0] = %q, want %q", cmd.Args[0], bwrapPath())
 	}
-	// Original binary should appear after -- separator.
-	found := false
-	for _, a := range cmd.Args {
-		if a == "echo" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("original binary 'echo' not found in args: %v", cmd.Args)
+	// Original binary (resolved by exec.Command via LookPath) should
+	// appear after the -- separator in bwrap args.
+	resolvedBin, _ := exec.LookPath("echo")
+	if !containsSequence(cmd.Args, "--", resolvedBin) {
+		t.Errorf("original binary %q not found after -- in args: %v", resolvedBin, cmd.Args)
 	}
 }
 
