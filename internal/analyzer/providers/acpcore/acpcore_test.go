@@ -1,10 +1,15 @@
 package acpcore
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"os/exec"
 	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,4 +139,163 @@ func TestACPWritableDirsHonorProviderConfigEnv(t *testing.T) {
 		}
 	}
 	t.Fatalf("CLAUDE_CONFIG_DIR %q not found in writable dirs: %v", claudeConfigDir, dirs)
+}
+
+// TestCleanupRunsOnEOFBeforClose exercises the "EOF-first" ordering:
+// readLoop observes stdout EOF and flips closed=true; then provider.Close
+// is called. With the sync.Once fix, all cleanup hooks must still run.
+func TestCleanupRunsOnEOFBeforClose(t *testing.T) {
+	var sandboxCalls, prepareCalls atomic.Int32
+
+	cmd := exec.Command("go", "version")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	tt := &transport{
+		cmd:            cmd,
+		stdin:          stdin,
+		stdout:         bufio.NewReader(stdout),
+		stderrPipe:     stderr,
+		sandboxCleanup: func() { sandboxCalls.Add(1) },
+		prepareCleanup: func() { prepareCalls.Add(1) },
+	}
+	tt.goroutines.Add(2)
+	go tt.drainStderr(stderr)
+	go tt.readLoop(nil)
+
+	// Wait for readLoop to observe EOF and flip closed.
+	deadline := time.After(2 * time.Second)
+	for !tt.isClosed() {
+		select {
+		case <-deadline:
+			t.Fatal("readLoop did not flip closed within 2s")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Now call close() — EOF was first. cleanupOnce must still run.
+	if err := tt.close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if got := sandboxCalls.Load(); got != 1 {
+		t.Errorf("sandboxCleanup calls = %d, want 1", got)
+	}
+	if got := prepareCalls.Load(); got != 1 {
+		t.Errorf("prepareCleanup calls = %d, want 1", got)
+	}
+}
+
+// TestCleanupRunsOnCloseBeforeEOF exercises the "Close-first" ordering:
+// provider.Close() is called before readLoop sees EOF. cleanupOnce must
+// run exactly once, and the subsequent markClosed from readLoop must be
+// a no-op for resources.
+func TestCleanupRunsOnCloseBeforeEOF(t *testing.T) {
+	var sandboxCalls, prepareCalls atomic.Int32
+
+	// Build a transport with pipes we control (not connected to a real
+	// process) so we can sequence Close-before-EOF manually.
+	_, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+
+	// Use a fake cmd. We can't call cmd.Wait() on it, so we'll
+	// skip the cmd.Wait portion of close() by directly testing
+	// the cleanupOnce mechanics.
+	tt := &transport{
+		stdin:          stdinW,
+		sandboxCleanup: func() { sandboxCalls.Add(1) },
+		prepareCleanup: func() { prepareCalls.Add(1) },
+	}
+	// Use a real cmd that exits immediately so cmd.Wait() returns fast.
+	cmd := exec.Command("go", "version")
+	if err := cmd.Start(); err != nil {
+		t.Skip("go not available")
+	}
+	tt.cmd = cmd
+	tt.stdout = bufio.NewReader(stdoutR)
+	tt.stderrPipe = stderrR
+
+	// Close the fake pipes' read ends so drainStderr and readLoop exit.
+	go func() {
+		// Let close() run first.
+		time.Sleep(50 * time.Millisecond)
+		stdoutW.Close()
+		stderrW.Close()
+	}()
+
+	// Close before readLoop sees EOF.
+	tt.goroutines.Add(2)
+	go tt.drainStderr(stderrR)
+	go tt.readLoop(nil)
+	if err := tt.close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if got := sandboxCalls.Load(); got != 1 {
+		t.Errorf("sandboxCleanup calls = %d, want 1", got)
+	}
+	if got := prepareCalls.Load(); got != 1 {
+		t.Errorf("prepareCleanup calls = %d, want 1", got)
+	}
+}
+
+// TestCloseIsIdempotent verifies calling close() multiple times doesn't
+// re-run cleanup hooks or panic.
+func TestCloseIsIdempotent(t *testing.T) {
+	var sandboxCalls, prepareCalls atomic.Int32
+
+	cmd := exec.Command("go", "version")
+	if err := cmd.Start(); err != nil {
+		t.Skip("go not available")
+	}
+
+	stdinR, stdinW := io.Pipe()
+	stdoutR, _ := io.Pipe()
+	stderrR, _ := io.Pipe()
+
+	tt := &transport{
+		cmd:            cmd,
+		stdin:          stdinW,
+		stdout:         bufio.NewReader(stdoutR),
+		stderrPipe:     stderrR,
+		sandboxCleanup: func() { sandboxCalls.Add(1) },
+		prepareCleanup: func() { prepareCalls.Add(1) },
+	}
+	// Close pipes so goroutines exit quickly.
+	stdinR.Close()
+	stdoutR.Close()
+	stderrR.Close()
+
+	tt.goroutines.Add(2)
+	go tt.drainStderr(io.NopCloser(strings.NewReader("")))
+	go tt.readLoop(nil)
+
+	// Call close three times.
+	for i := 0; i < 3; i++ {
+		if err := tt.close(); err != nil {
+			t.Fatalf("close call %d: %v", i+1, err)
+		}
+	}
+
+	if got := sandboxCalls.Load(); got != 1 {
+		t.Errorf("sandboxCleanup calls = %d after 3 closes, want 1", got)
+	}
+	if got := prepareCalls.Load(); got != 1 {
+		t.Errorf("prepareCleanup calls = %d after 3 closes, want 1", got)
+	}
 }
