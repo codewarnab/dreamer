@@ -24,7 +24,7 @@ const (
 type windowsScheduler struct {
 	cfg    SchedulerConfig
 	logger *logging.Logger
-	runCmd func(name string, args ...string) ([]byte, error)
+	runCmd func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 func newPlatformScheduler(cfg SchedulerConfig, logger *logging.Logger) Scheduler {
@@ -73,9 +73,12 @@ func (s *windowsScheduler) Update(ctx context.Context, params ScheduleParams) (O
 }
 
 // Remove deletes the Task Scheduler entry for the job.
-func (s *windowsScheduler) Remove(_ context.Context, jobID string) error {
+func (s *windowsScheduler) Remove(ctx context.Context, jobID string) error {
+	if err := ValidateJobID(jobID); err != nil {
+		return fmt.Errorf("remove: %w", err)
+	}
 	taskPath := taskFolderPrefix + jobID
-	_, err := s.runCmd(schtasksExe, "/Delete", "/TN", taskPath, "/F")
+	_, err := s.runCmd(ctx, schtasksExe, "/Delete", "/TN", taskPath, "/F")
 	if err != nil {
 		if classifyScheduleError(err) == scheduleErrNotFound {
 			return nil // already gone — idempotent
@@ -86,9 +89,9 @@ func (s *windowsScheduler) Remove(_ context.Context, jobID string) error {
 }
 
 // Inspect returns the OS-level health for a job's schedule.
-func (s *windowsScheduler) Inspect(_ context.Context, jobID string) (ScheduleHealth, error) {
+func (s *windowsScheduler) Inspect(ctx context.Context, jobID string) (ScheduleHealth, error) {
 	taskPath := taskFolderPrefix + jobID
-	output, err := s.runCmd(schtasksExe, "/Query", "/TN", taskPath, "/XML")
+	output, err := s.runCmd(ctx, schtasksExe, "/Query", "/TN", taskPath, "/XML")
 	if err != nil {
 		cat := classifyScheduleError(err)
 		if cat == scheduleErrNotFound {
@@ -122,23 +125,35 @@ func (s *windowsScheduler) Inspect(_ context.Context, jobID string) (ScheduleHea
 }
 
 // ListOwn returns job IDs of schedules owned by this Dreamer installation.
-func (s *windowsScheduler) ListOwn(_ context.Context) ([]string, error) {
-	output, err := s.runCmd(schtasksExe, "/Query", "/TN", `\Dreamer\BackgroundJobs`, "/FO", "LIST")
+func (s *windowsScheduler) ListOwn(ctx context.Context) ([]string, error) {
+	// Use /XML to avoid localized "TaskName:" field labels on non-English Windows (B16).
+	output, err := s.runCmd(ctx, schtasksExe, "/Query", "/TN", `\Dreamer\BackgroundJobs`, "/XML")
 	if err != nil {
 		return nil, nil // folder doesn't exist
 	}
 
 	var jobIDs []string
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "TaskName:") {
-			name := strings.TrimSpace(strings.TrimPrefix(line, "TaskName:"))
-			if strings.HasPrefix(name, `\Dreamer\BackgroundJobs\`) {
-				jobID := strings.TrimPrefix(name, `\Dreamer\BackgroundJobs\`)
-				if jobID != "" {
-					jobIDs = append(jobIDs, jobID)
-				}
+	seen := make(map[string]bool)
+	xmlStr := string(output)
+	prefix := `\Dreamer\BackgroundJobs\`
+	for {
+		idx := strings.Index(xmlStr, "<URI>")
+		if idx == -1 {
+			break
+		}
+		xmlStr = xmlStr[idx+5:]
+		endIdx := strings.Index(xmlStr, "</URI>")
+		if endIdx == -1 {
+			break
+		}
+		uri := xmlStr[:endIdx]
+		xmlStr = xmlStr[endIdx:]
+		if strings.HasPrefix(uri, prefix) {
+			jobID := strings.TrimPrefix(uri, prefix)
+			// B15: Validate to prevent path traversal via crafted task names.
+			if jobID != "" && !seen[jobID] && ValidateJobID(jobID) == nil {
+				jobIDs = append(jobIDs, jobID)
+				seen[jobID] = true
 			}
 		}
 	}
@@ -164,7 +179,7 @@ func (s *windowsScheduler) writeTask(ctx context.Context, taskPath string, xmlBy
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	_, err = s.runCmd(schtasksExe, "/Create", "/TN", taskPath, "/XML", tmpFile.Name(), "/F")
+	_, err = s.runCmd(ctx, schtasksExe, "/Create", "/TN", taskPath, "/XML", tmpFile.Name(), "/F")
 	if err != nil {
 		return fmt.Errorf("schtasks /Create: %w", classifyScheduleError(err))
 	}
@@ -185,13 +200,13 @@ type taskXMLData struct {
 // buildTaskXML generates Windows Task Scheduler XML for a job.
 func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 	specHash := specHashOrEmpty(params.Schedule)
-	description := fmt.Sprintf("dreamer:job_id=%s;install_id=%s;config_hash=%s;spec_hash=%s;exec_hash=%s",
+	description := xmlEscapeText(fmt.Sprintf("dreamer:job_id=%s;install_id=%s;config_hash=%s;spec_hash=%s;exec_hash=%s",
 		stripControlChars(params.JobID),
 		stripControlChars(s.cfg.InstallID),
 		stripControlChars(s.cfg.ConfigHash),
 		stripControlChars(specHash),
 		stripControlChars(s.cfg.ExecHash),
-	)
+	))
 
 	enabledStr := "true"
 	if !params.Enabled {
