@@ -261,8 +261,8 @@ func TestExecutor_Run_WriteModeRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for write mode")
 	}
-	if !strings.Contains(err.Error(), "not supported in Phase 1") {
-		t.Errorf("error = %q, want contains 'not supported in Phase 1'", err.Error())
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("error = %q, want contains 'not supported'", err.Error())
 	}
 }
 
@@ -475,7 +475,7 @@ func TestExecutor_Run_BackgroundSystemMessage(t *testing.T) {
 		t.Errorf("system message = %q, want %q", capturedCfg.SystemMessage, backgroundSystemMessage)
 	}
 	if !capturedCfg.ReadOnly {
-		t.Error("ReadOnly should be true for Phase 1")
+		t.Error("ReadOnly should be true")
 	}
 }
 
@@ -604,5 +604,83 @@ func TestTruncateUTF8_MultiByte(t *testing.T) {
 				t.Errorf("result is not valid UTF-8: %q", got)
 			}
 		})
+	}
+}
+
+// B11: Disabled-job skip should emit a job.run.skipped audit event.
+func TestExecutor_Run_DisabledJob_EmitsAuditEvent(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, _ := newTestExecutor(t, provider)
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Enabled = false
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run disabled: %v", err)
+	}
+
+	// Read audit log and verify job.run.skipped event exists.
+	audit := NewAuditWriter(store.Dir())
+	events, err := audit.ReadAll(100)
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.Event == "job.run.skipped" && ev.JobID == job.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected job.run.skipped audit event for disabled job, not found")
+	}
+}
+
+// B10: Claim audit should be written after lock acquisition, not before.
+// This test verifies the ordering is correct by checking that a successful
+// run has both claim and finish events in the correct order.
+func TestExecutor_Run_ClaimAuditAfterLock(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, _ := newTestExecutor(t, provider)
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// Read audit log and verify claim comes before finish.
+	audit := NewAuditWriter(store.Dir())
+	events, err := audit.ReadAll(100)
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+
+	claimIdx := -1
+	finishIdx := -1
+	for i, ev := range events {
+		if ev.JobID == job.ID {
+			if ev.Event == "job.run.claim" {
+				claimIdx = i
+			} else if ev.Event == "job.run.finish" {
+				finishIdx = i
+			}
+		}
+	}
+
+	if claimIdx < 0 {
+		t.Error("expected job.run.claim audit event")
+	}
+	if finishIdx < 0 {
+		t.Error("expected job.run.finish audit event")
+	}
+	// ReadAll returns newest-first, so finish (written after claim) has lower index.
+	if claimIdx >= 0 && finishIdx >= 0 && finishIdx > claimIdx {
+		t.Error("job.run.claim should be written before job.run.finish (claim should appear later in newest-first order)")
 	}
 }

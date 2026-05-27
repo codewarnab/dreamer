@@ -378,3 +378,51 @@ func TestReconcileSchedules_DisabledJobRemovesSchedule(t *testing.T) {
 		t.Errorf("removed ID = %q, want job1", sched.removed[0])
 	}
 }
+
+// B15: Orphaned OS schedules with invalid IDs should be skipped by computeReconcileActions.
+// The real ListOwn validates IDs, but if an invalid ID slips through,
+// computeReconcileActions should still skip it safely.
+func TestComputeReconcileActions_OrphanWithInvalidIDSkipped(t *testing.T) {
+	sched := newMockScheduler()
+	// Simulate an OS schedule with a non-hex ID that fails ValidateJobID.
+	sched.ownIDs = []string{"not-a-valid-id"}
+	store := newTestStore(t)
+	r := &Reconciler{
+		Scheduler: sched,
+		Store:     store,
+		Logger:    newTestLogger(t),
+	}
+
+	state, _ := store.Load()
+	actions, _ := r.computeReconcileActions(context.Background(), state)
+
+	// The invalid ID should not produce a ReconcileRemove action.
+	for _, a := range actions {
+		if a.JobID == "not-a-valid-id" && a.Kind == ReconcileRemove {
+			t.Error("invalid ID should not produce ReconcileRemove action")
+		}
+	}
+}
+
+// B15: Valid orphaned OS schedules should be cleaned up.
+func TestComputeReconcileActions_ValidOrphanRemoved(t *testing.T) {
+	sched := newMockScheduler()
+	// Valid hex job ID that doesn't exist in the store.
+	sched.ownIDs = []string{"aabbccdd11223344"}
+	store := newTestStore(t)
+	r := &Reconciler{
+		Scheduler: sched,
+		Store:     store,
+		Logger:    newTestLogger(t),
+	}
+
+	state, _ := store.Load()
+	actions, _ := r.computeReconcileActions(context.Background(), state)
+
+	if len(actions) != 1 {
+		t.Fatalf("got %d actions, want 1", len(actions))
+	}
+	if actions[0].Kind != ReconcileRemove {
+		t.Errorf("kind = %q, want ReconcileRemove", actions[0].Kind)
+	}
+}

@@ -4,7 +4,10 @@ package backgroundjobs
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"dreamer/internal/logging"
 )
 
 func TestStripControlChars(t *testing.T) {
@@ -161,5 +164,45 @@ func TestWeekdayToXMLElement(t *testing.T) {
 				t.Errorf("weekdayToXMLElement(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// B14: Description with special XML characters should be properly escaped.
+func TestBuildTaskXML_DescriptionEscaped(t *testing.T) {
+	s := &windowsScheduler{
+		cfg: SchedulerConfig{
+			StoreDir:       t.TempDir(),
+			ExecutablePath: `C:\Program Files\dreamer.exe`,
+			ConfigPath:     `C:\Users\test\.config\dreamer\config.yaml`,
+			InstallID:      "test-install",
+			ConfigHash:     "abc123",
+			ExecHash:       "def456",
+		},
+		logger: logging.Silent(),
+	}
+
+	params := ScheduleParams{
+		JobID:    "aabbccdd11223344",
+		Schedule: ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "09:00", Timezone: "UTC"},
+		Name:     "Test <script>alert('xss')</script>",
+		Enabled:  true,
+	}
+
+	xmlBytes, err := s.buildTaskXML(params)
+	if err != nil {
+		t.Fatalf("buildTaskXML error: %v", err)
+	}
+
+	xmlStr := string(xmlBytes)
+
+	// The Description field should contain XML-escaped content.
+	// Description is built from hex hashes (job ID, install ID, config hash, spec hash, exec hash),
+	// so it should not contain any XML-special characters.
+	if strings.Contains(xmlStr, "<script>") {
+		t.Error("Description contains unescaped <script> tag")
+	}
+	// Verify the description contains the job ID.
+	if !strings.Contains(xmlStr, "dreamer:job_id=aabbccdd11223344") {
+		t.Error("Description should contain the job ID")
 	}
 }

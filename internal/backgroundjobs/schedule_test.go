@@ -263,3 +263,92 @@ func TestNextRun_CaseInsensitiveDayOfWeek(t *testing.T) {
 		t.Errorf("NextRun(weekly lowercase) = %v, want %v", next, want)
 	}
 }
+
+// B5: parseTimeOfDay should reject malformed input.
+func TestParseTimeOfDay_RejectsMalformed(t *testing.T) {
+	tests := []struct {
+		input string
+		desc  string
+	}{
+		{"9:5", "single-digit minute"},
+		{"9:5:30", "trailing seconds"},
+		{"99:99", "out-of-range"},
+		{"14:30 garbage", "trailing garbage"},
+		{"", "empty string"},
+		{"noon", "text"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, _, err := parseTimeOfDay(tt.input)
+			if err == nil {
+				t.Errorf("parseTimeOfDay(%q) expected error, got nil", tt.input)
+			}
+		})
+	}
+}
+
+// B5: parseTimeOfDay should accept valid HH:MM.
+func TestParseTimeOfDay_AcceptsValid(t *testing.T) {
+	tests := []struct {
+		input string
+		wantH int
+		wantM int
+	}{
+		{"00:00", 0, 0},
+		{"09:05", 9, 5},
+		{"14:30", 14, 30},
+		{"23:59", 23, 59},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			h, m, err := parseTimeOfDay(tt.input)
+			if err != nil {
+				t.Fatalf("parseTimeOfDay(%q) error: %v", tt.input, err)
+			}
+			if h != tt.wantH || m != tt.wantM {
+				t.Errorf("parseTimeOfDay(%q) = %d:%d, want %d:%d", tt.input, h, m, tt.wantH, tt.wantM)
+			}
+		})
+	}
+}
+
+// B6: parseCronInt should reject trailing junk.
+func TestParseCronInt_RejectsTrailingJunk(t *testing.T) {
+	tests := []struct {
+		input string
+		desc  string
+	}{
+		{"5xxx", "trailing letters"},
+		{"5.5", "decimal"},
+		{"", "empty"},
+		{"abc", "non-numeric"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, err := parseCronInt(tt.input)
+			if err == nil {
+				t.Errorf("parseCronInt(%q) expected error, got nil", tt.input)
+			}
+		})
+	}
+}
+
+// B6: parseCron should reject trailing junk in fields.
+func TestParseCron_RejectsTrailingJunk(t *testing.T) {
+	tests := []struct {
+		expr  string
+		desc  string
+	}{
+		{"5xxx * * * *", "minute field junk"},
+		{"* 5xxx * * *", "hour field junk"},
+		{"5.5 * * * *", "minute decimal"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, err := parseCron(tt.expr)
+			if err == nil {
+				t.Errorf("parseCron(%q) expected error, got nil", tt.expr)
+			}
+		})
+	}
+}
