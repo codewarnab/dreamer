@@ -211,12 +211,43 @@ func TestNextRun_WeeklySameDay(t *testing.T) {
 	}
 }
 
-func TestNextRun_CronNotImplemented(t *testing.T) {
-	now := time.Now().UTC()
+func TestNextRun_CronEveryFiveMinutes(t *testing.T) {
+	now := time.Date(2026, 5, 26, 14, 3, 0, 0, time.UTC)
 	s := ScheduleSpec{Kind: ScheduleCron, Cron: "*/5 * * * *", Timezone: "UTC"}
-	_, err := NextRun(s, now)
-	if err == nil {
-		t.Error("NextRun(cron) expected 'not yet implemented' error")
+	next, err := NextRun(s, now)
+	if err != nil {
+		t.Fatalf("NextRun(cron */5) error: %v", err)
+	}
+	want := time.Date(2026, 5, 26, 14, 5, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("NextRun(cron */5) = %v, want %v", next, want)
+	}
+}
+
+func TestNextRun_CronDaily(t *testing.T) {
+	now := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	s := ScheduleSpec{Kind: ScheduleCron, Cron: "0 9 * * *", Timezone: "UTC"}
+	next, err := NextRun(s, now)
+	if err != nil {
+		t.Fatalf("NextRun(cron daily 09:00) error: %v", err)
+	}
+	want := time.Date(2026, 5, 27, 9, 0, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("NextRun(cron daily 09:00) = %v, want %v", next, want)
+	}
+}
+
+func TestNextRun_CronWeekly(t *testing.T) {
+	// Tuesday 2026-05-26, want Monday at 09:00 (next Monday is June 1)
+	now := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	s := ScheduleSpec{Kind: ScheduleCron, Cron: "0 9 * * 1", Timezone: "UTC"}
+	next, err := NextRun(s, now)
+	if err != nil {
+		t.Fatalf("NextRun(cron weekly Monday) error: %v", err)
+	}
+	want := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("NextRun(cron weekly Monday) = %v, want %v", next, want)
 	}
 }
 
