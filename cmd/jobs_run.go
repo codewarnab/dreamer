@@ -31,6 +31,12 @@ func newJobsRunCommand() *cobra.Command {
 				return err
 			}
 
+			// Require DREAMER_RUN_TOKEN to prevent intra-user side-channel triggers.
+			// OS scheduler entries set this; direct CLI invocations without it are rejected.
+			if os.Getenv("DREAMER_RUN_TOKEN") == "" {
+				return fmt.Errorf("DREAMER_RUN_TOKEN not set; this command is intended for use from OS schedulers (cron, Task Scheduler, launchd)")
+			}
+
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err

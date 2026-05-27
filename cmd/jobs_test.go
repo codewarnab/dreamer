@@ -267,6 +267,7 @@ func TestJobsRun_NotFound(t *testing.T) {
 	setTestHome(t, homeDir)
 	outputRoot := t.TempDir()
 	cfgPath := writeJobsConfig(t, outputRoot)
+	t.Setenv("DREAMER_RUN_TOKEN", "test-token")
 
 	_, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath)
 	if err == nil {
@@ -275,6 +276,7 @@ func TestJobsRun_NotFound(t *testing.T) {
 }
 
 func TestJobsRun_DisabledJob(t *testing.T) {
+	t.Setenv("DREAMER_RUN_TOKEN", "test-token")
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)
 	outputRoot := t.TempDir()
@@ -316,6 +318,9 @@ func TestJobsRun_WriteModeRejected(t *testing.T) {
 	setTestHome(t, homeDir)
 	outputRoot := t.TempDir()
 	cfgPath := writeJobsConfig(t, outputRoot)
+
+	// Set DREAMER_RUN_TOKEN to allow CLI invocation.
+	t.Setenv("DREAMER_RUN_TOKEN", "test-token")
 
 	lg := logging.Silent()
 	store := backgroundjobs.NewStore(outputRoot, lg)
