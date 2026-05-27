@@ -12,7 +12,6 @@ package sandbox
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 )
@@ -28,6 +27,10 @@ func Available() bool {
 // binary and args are preserved after the "--" separator in the bwrap
 // argument list. cmd.Path and cmd.Args are modified in-place.
 //
+// Writable dirs are resolved once here (Abs + EvalSymlinks + MkdirAll +
+// containment validation) and passed as pre-resolved paths to
+// buildBwrapArgs, which becomes a pure string-assembly function.
+//
 // Returns a no-op cleanup — bwrap handles its own lifecycle via
 // --die-with-parent and --unshare-pid.
 func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
@@ -40,15 +43,11 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		return nil, fmt.Errorf("sandbox: resolve symlinks in project dir: %w", err)
 	}
 
-	// Ensure each writable directory exists before bwrap bind-mounts it.
-	for _, wdir := range cfg.WritableDirs {
-		absDir, err := filepath.Abs(wdir)
-		if err != nil {
-			return nil, fmt.Errorf("sandbox: resolve writable dir: %w", err)
-		}
-		if err := os.MkdirAll(absDir, 0o755); err != nil {
-			return nil, fmt.Errorf("sandbox: create writable dir %s: %w", absDir, err)
-		}
+	// Resolve and validate writable dirs once. buildBwrapArgs receives
+	// pre-resolved paths and is a pure string-assembly function.
+	resolvedDirs, err := resolveAndValidateWritableDirs(cfg.WritableDirs, projectDir)
+	if err != nil {
+		return nil, err
 	}
 
 	bwrapBinPath := bwrapPath()
@@ -61,7 +60,7 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	cmd.Path = bwrapBinPath
 	cmd.Args = append(
 		[]string{bwrapBinPath},
-		buildBwrapArgs(cfg, projectDir, originalBinary, originalArgs)...,
+		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs)...,
 	)
 
 	return func() {}, nil

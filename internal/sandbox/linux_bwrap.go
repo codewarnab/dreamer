@@ -3,19 +3,22 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"sync"
 )
 
 // bwrapBin is the bubblewrap binary name looked up in PATH.
 const bwrapBin = "bwrap"
 
-// tmpfsSize limits /tmp inside the sandbox to prevent runaway processes
-// from exhausting host memory.
-const tmpfsSize = "512M"
+// tmpfsSizeBytes limits /tmp inside the sandbox to prevent runaway
+// processes from exhausting host memory. bwrap's --size flag requires
+// a raw byte count parsed by strtoull — suffixes like "M" or "G" are
+// rejected. 512 MiB = 536870912.
+const tmpfsSizeBytes = 512 * 1024 * 1024
 
 // maxWritableDirs caps the number of --bind flags to prevent argument
 // list explosion from a misconfigured or adversarial config.
@@ -31,53 +34,41 @@ var maxUserNamespacesPath = "/proc/sys/user/max_user_namespaces"
 // procVersionPath exists as a var so tests can inject a temp file.
 var procVersionPath = "/proc/version"
 
-var (
-	bwrapPathOnce   sync.Once
-	bwrapPathCached string
-
-	userNSOnce   sync.Once
-	userNSCached bool
-
-	wsl1Once   sync.Once
-	wsl1Cached bool
-)
+// tmpPaths lists paths that are already covered by --tmpfs /tmp or
+// --symlink /tmp /var/tmp inside the sandbox. A --bind on any of
+// these would override the tmpfs/symlink and expose the host filesystem.
+var tmpPaths = []string{"/tmp", "/var/tmp"}
 
 // bwrapPath returns the absolute path to the bwrap binary, or "" if not
-// found. Cached via sync.Once for the process lifetime. Tests that need
-// to exercise detection logic should call checkUserNamespacesEnabled /
-// checkWSL1 (which read var-injectable paths directly) instead.
+// found. Reads exec.LookPath each call — the OS page cache absorbs the
+// cost. This avoids sync.Once which makes detection logic untestable
+// from the public API (the cached value from the first test that runs
+// silently determines outcomes for all subsequent tests).
 func bwrapPath() string {
-	bwrapPathOnce.Do(func() {
-		p, err := exec.LookPath(bwrapBin)
-		if err != nil {
-			bwrapPathCached = ""
-			return
-		}
-		bwrapPathCached = p
-	})
-	return bwrapPathCached
+	p, err := exec.LookPath(bwrapBin)
+	if err != nil {
+		return ""
+	}
+	return p
 }
 
 // userNamespacesEnabled checks whether unprivileged user namespaces are
 // available. Returns true if both sysctl files are absent or non-zero
 // (the kernel >= 5.x default).
 func userNamespacesEnabled() bool {
-	userNSOnce.Do(func() {
-		userNSCached = checkUserNamespacesEnabled()
-	})
-	return userNSCached
+	return checkUserNamespacesEnabled()
 }
 
 func checkUserNamespacesEnabled() bool {
 	// Debian/Ubuntu: /proc/sys/kernel/unprivileged_user_ns_clone
-	if data, err := os.ReadFile(usernsClonePath); err == nil {
-		if strings.TrimSpace(string(data)) == "0" {
+	if data, err := readFileVar(usernsClonePath); err == nil {
+		if strings.TrimSpace(data) == "0" {
 			return false
 		}
 	}
 	// General: /proc/sys/user/max_user_namespaces
-	if data, err := os.ReadFile(maxUserNamespacesPath); err == nil {
-		if strings.TrimSpace(string(data)) == "0" {
+	if data, err := readFileVar(maxUserNamespacesPath); err == nil {
+		if strings.TrimSpace(data) == "0" {
 			return false
 		}
 	}
@@ -88,31 +79,54 @@ func checkUserNamespacesEnabled() bool {
 // WSL1 reports "Microsoft" without "microsoft-standard" (the WSL2 marker).
 // WSL1 cannot create user namespaces even when sysctl reports enabled.
 func isWSL1() bool {
-	wsl1Once.Do(func() {
-		wsl1Cached = checkWSL1()
-	})
-	return wsl1Cached
+	return checkWSL1()
 }
 
 func checkWSL1() bool {
-	data, err := os.ReadFile(procVersionPath)
+	data, err := readFileVar(procVersionPath)
 	if err != nil {
 		return false
 	}
-	content := string(data)
 	// WSL2 includes "microsoft-standard" in the version string.
-	if strings.Contains(strings.ToLower(content), "microsoft-standard") {
+	if strings.Contains(strings.ToLower(data), "microsoft-standard") {
 		return false
 	}
 	// WSL1 has "Microsoft" (capital M) without the WSL2 marker.
-	return strings.Contains(content, "Microsoft")
+	return strings.Contains(data, "Microsoft")
+}
+
+// readFileVar is a thin wrapper over os.ReadFile to allow test injection
+// via the exported package-level vars (usernsClonePath, etc.).
+func readFileVar(path string) (string, error) {
+	data, err := readFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// readFile is the actual file reader; separated so tests can stub it
+// without touching os.ReadFile directly. Tests that mutate this var
+// must NOT use t.Parallel() — it shares process-global state.
+var readFile = func(path string) ([]byte, error) {
+	return os.ReadFile(path)
 }
 
 // buildBwrapArgs constructs the bwrap argument list for sandboxing a
-// child process. The strategy mirrors Codex's proven approach:
+// child process. resolvedDirs must already be absolute, symlink-resolved
+// paths (resolved in prepare()). The builder skips any path already
+// covered by --tmpfs /tmp or --symlink /var/tmp.
 //
-//	--ro-bind / / (entire host FS read-only) + selective --bind for writable dirs.
-func buildBwrapArgs(cfg Config, projectDir string, originalBinary string, originalArgs []string) []string {
+// bwrap applies setup operations in order:
+//   - --size sets next_size_arg consumed by the following --tmpfs
+//   - --tmpfs /tmp creates an in-memory filesystem at /tmp
+//   - --symlink /tmp /var/tmp redirects /var/tmp into the tmpfs
+//   - --bind /foo /foo would replace whatever was at /foo
+//
+// So --size must precede --tmpfs, and we must NOT emit a --bind for
+// paths under /tmp or /var/tmp (which would replace the tmpfs with
+// the host path).
+func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, originalBinary string, originalArgs []string) []string {
 	args := []string{
 		// Prevent TIOCSTI terminal injection.
 		"--new-session",
@@ -128,32 +142,25 @@ func buildBwrapArgs(cfg Config, projectDir string, originalBinary string, origin
 		"--dev", "/dev",
 		// /proc for PID namespace.
 		"--proc", "/proc",
-		// Writable temp, size-limited.
-		"--tmpfs", "/tmp", "--size", tmpfsSize,
+		// Writable temp, size-limited. --size must precede --tmpfs
+		// (bwrap consumes next_size_arg from --size when it hits --tmpfs).
+		"--size", strconv.Itoa(tmpfsSizeBytes), "--tmpfs", "/tmp",
 		// Redirect /var/tmp into sandbox tmpfs.
 		"--symlink", "/tmp", "/var/tmp",
 	}
 
-	// Deduplicate and bind-mount writable directories.
+	// Deduplicate and bind-mount writable directories. resolvedDirs
+	// are already absolute + EvalSymlinks'd by prepare().
 	seen := make(map[string]bool)
-	for _, wdir := range cfg.WritableDirs {
-		if wdir == "" {
+	for _, resolved := range resolvedDirs {
+		if isTmpfsPath(resolved) {
 			continue
-		}
-		absDir, err := filepath.Abs(wdir)
-		if err != nil {
-			continue
-		}
-		// Deduplicate by resolved path.
-		resolved, err := filepath.EvalSymlinks(absDir)
-		if err != nil {
-			resolved = absDir
 		}
 		if seen[resolved] {
 			continue
 		}
 		seen[resolved] = true
-		args = append(args, "--bind", absDir, absDir)
+		args = append(args, "--bind", resolved, resolved)
 		if len(seen) >= maxWritableDirs {
 			break
 		}
@@ -166,4 +173,121 @@ func buildBwrapArgs(cfg Config, projectDir string, originalBinary string, origin
 	args = append(args, "--", originalBinary)
 	args = append(args, originalArgs...)
 	return args
+}
+
+// isTmpfsPath reports whether p is a path already covered by the tmpfs
+// at /tmp or the /var/tmp -> /tmp symlink. A --bind on such a path
+// would override the tmpfs and expose the host filesystem.
+func isTmpfsPath(p string) bool {
+	for _, tp := range tmpPaths {
+		if p == tp || strings.HasPrefix(p, tp+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// validateWritableDir checks that a writable directory is safe to mount
+// inside the sandbox. It rejects paths that are "/" (entire host FS),
+// ancestors of or equal to projectDir, or outside the allowed roots.
+//
+// The ".." check is defense-in-depth: callers should already resolve
+// via filepath.Abs (which normalizes ".."), but we reject it explicitly
+// in case a caller passes an unresolved path.
+func validateWritableDir(dir, projectDir string, allowedRoots []string) error {
+	if dir == "/" {
+		return fmt.Errorf("sandbox: refusing to mount entire host filesystem as writable")
+	}
+	// Defense-in-depth: reject unresolved ".." components.
+	if strings.Contains(dir, "..") {
+		return fmt.Errorf("sandbox: writable dir %q contains '..'", dir)
+	}
+	// The dir must not be projectDir itself or an ancestor of projectDir.
+	// Either would make the project tree writable, defeating the
+	// deny-write ACL that the sandbox is designed to enforce.
+	if dir == projectDir || isAncestor(dir, projectDir) {
+		return fmt.Errorf("sandbox: writable dir %q overlaps with project dir %s (project must remain read-only)", dir, projectDir)
+	}
+	// The dir must be under one of the allowed roots.
+	for _, root := range allowedRoots {
+		if isSubpath(dir, root) {
+			return nil
+		}
+	}
+	return fmt.Errorf("sandbox: writable dir %q is not under any allowed root (project dir, home, or temp)", dir)
+}
+
+// isSubpath reports whether child is equal to or under parent.
+// Both arguments are cleaned via filepath.Clean to normalize trailing
+// slashes and redundant separators before comparison.
+func isSubpath(child, parent string) bool {
+	child = filepath.Clean(child)
+	parent = filepath.Clean(parent)
+	if child == parent {
+		return true
+	}
+	return strings.HasPrefix(child, parent+"/")
+}
+
+// isAncestor reports whether ancestor is a strict ancestor of path.
+// Both arguments are cleaned via filepath.Clean to normalize trailing
+// slashes and redundant separators before comparison.
+func isAncestor(ancestor, path string) bool {
+	ancestor = filepath.Clean(ancestor)
+	path = filepath.Clean(path)
+	if ancestor == path {
+		return false
+	}
+	return strings.HasPrefix(path, ancestor+"/")
+}
+
+// resolveAndValidateWritableDirs resolves each writable dir to absolute
+// + EvalSymlinks, validates containment, and creates it if needed.
+// Returns the resolved paths for buildBwrapArgs.
+func resolveAndValidateWritableDirs(writableDirs []string, projectDir string) ([]string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = ""
+	}
+	if homeDir != "" {
+		if resolved, err := filepath.EvalSymlinks(homeDir); err == nil {
+			homeDir = resolved
+		}
+	}
+
+	tmpDir, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		tmpDir = "/tmp"
+	}
+	if resolved, err := filepath.EvalSymlinks(tmpDir); err == nil {
+		tmpDir = resolved
+	}
+
+	allowedRoots := []string{tmpDir, projectDir}
+	if homeDir != "" {
+		allowedRoots = append(allowedRoots, homeDir)
+	}
+
+	var resolved []string
+	for _, wdir := range writableDirs {
+		if wdir == "" {
+			continue
+		}
+		absDir, err := filepath.Abs(wdir)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: resolve writable dir %q: %w", wdir, err)
+		}
+		resolvedDir, err := filepath.EvalSymlinks(absDir)
+		if err != nil {
+			resolvedDir = absDir
+		}
+		if err := validateWritableDir(resolvedDir, projectDir, allowedRoots); err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(resolvedDir, 0o755); err != nil {
+			return nil, fmt.Errorf("sandbox: create writable dir %s: %w", resolvedDir, err)
+		}
+		resolved = append(resolved, resolvedDir)
+	}
+	return resolved, nil
 }

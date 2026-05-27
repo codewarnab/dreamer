@@ -1,13 +1,15 @@
 //go:build linux
 
 // Tests that mutate package-level vars (usernsClonePath, maxUserNamespacesPath,
-// procVersionPath) must NOT use t.Parallel() — they share process-global state.
+// procVersionPath, readFile) must NOT use t.Parallel() — they share
+// process-global state.
 package sandbox
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,88 +17,96 @@ import (
 // --- buildBwrapArgs tests ---
 
 func TestBuildBwrapArgs_ReadOnlyRoot(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--ro-bind", "/", "/") {
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	if !containsContiguousSequence(args, "--ro-bind", "/", "/") {
 		t.Errorf("expected --ro-bind / / in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_DevMount(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--dev", "/dev") {
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	if !containsContiguousSequence(args, "--dev", "/dev") {
 		t.Errorf("expected --dev /dev in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_ProcMount(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--proc", "/proc") {
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	if !containsContiguousSequence(args, "--proc", "/proc") {
 		t.Errorf("expected --proc /proc in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_TmpfsWithSize(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--tmpfs", "/tmp", "--size", "512M") {
-		t.Errorf("expected --tmpfs /tmp --size 512M in args: %v", args)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	// --size <bytes> must immediately precede --tmpfs /tmp.
+	// bwrap consumes next_size_arg from --size when it hits --tmpfs.
+	expectedBytes := strconv.Itoa(tmpfsSizeBytes)
+	if !containsContiguousSequence(args, "--size", expectedBytes, "--tmpfs", "/tmp") {
+		t.Errorf("expected --size %s --tmpfs /tmp (contiguous) in args: %v", expectedBytes, args)
+	}
+}
+
+func TestBuildBwrapArgs_TmpfsSizeBytesValue(t *testing.T) {
+	// Guard against someone accidentally changing the value to bytes
+	// instead of MiB (e.g. 512 instead of 536870912).
+	if tmpfsSizeBytes != 536870912 {
+		t.Errorf("tmpfsSizeBytes = %d, want 536870912 (512 MiB)", tmpfsSizeBytes)
 	}
 }
 
 func TestBuildBwrapArgs_VarTmpSymlink(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--symlink", "/tmp", "/var/tmp") {
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	if !containsContiguousSequence(args, "--symlink", "/tmp", "/var/tmp") {
 		t.Errorf("expected --symlink /tmp /var/tmp in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_NewSession(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
 	if !containsFlag(args, "--new-session") {
 		t.Errorf("expected --new-session in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_DieWithParent(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
 	if !containsFlag(args, "--die-with-parent") {
 		t.Errorf("expected --die-with-parent in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_UnshareUser(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
 	if !containsFlag(args, "--unshare-user") {
 		t.Errorf("expected --unshare-user in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_UnsharePid(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
 	if !containsFlag(args, "--unshare-pid") {
 		t.Errorf("expected --unshare-pid in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_NoNetworkIsolation(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
 	if containsFlag(args, "--unshare-net") {
 		t.Errorf("--unshare-net should not be present (breaks CLI providers): %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_WritableDirs(t *testing.T) {
-	cfg := Config{WritableDirs: []string{"/tmp/out", "/home/user/.provider"}}
-	args := buildBwrapArgs(cfg, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--bind", "/tmp/out", "/tmp/out") {
-		t.Errorf("expected --bind /tmp/out in args: %v", args)
-	}
-	if !containsSequence(args, "--bind", "/home/user/.provider", "/home/user/.provider") {
+	resolved := []string{"/home/user/.provider"}
+	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil)
+	if !containsContiguousSequence(args, "--bind", "/home/user/.provider", "/home/user/.provider") {
 		t.Errorf("expected --bind /home/user/.provider in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_EmptyWritableDirs(t *testing.T) {
-	args := buildBwrapArgs(Config{WritableDirs: nil}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{WritableDirs: nil}, "/project", nil, "/bin/ls", nil)
 	for i, a := range args {
 		if a == "--bind" {
 			t.Errorf("unexpected --bind at index %d with empty writable dirs: %v", i, args)
@@ -107,8 +117,8 @@ func TestBuildBwrapArgs_EmptyWritableDirs(t *testing.T) {
 func TestBuildBwrapArgs_DeduplicateWritableDirs(t *testing.T) {
 	dir := t.TempDir()
 	// Both entries resolve to the same directory.
-	cfg := Config{WritableDirs: []string{dir, dir + "/"}}
-	args := buildBwrapArgs(cfg, "/project", "/bin/ls", nil)
+	resolved := []string{dir, dir}
+	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil)
 	bindCount := 0
 	for _, a := range args {
 		if a == "--bind" {
@@ -121,15 +131,14 @@ func TestBuildBwrapArgs_DeduplicateWritableDirs(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_Chdir(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/resolved/project", "/bin/ls", nil)
-	if !containsSequence(args, "--chdir", "/resolved/project") {
+	args := buildBwrapArgs(Config{}, "/resolved/project", nil, "/bin/ls", nil)
+	if !containsContiguousSequence(args, "--chdir", "/resolved/project") {
 		t.Errorf("expected --chdir /resolved/project in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_CommandSeparator(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/usr/bin/claude", []string{"--flag", "val"})
-	// Find the -- separator.
+	args := buildBwrapArgs(Config{}, "/project", nil, "/usr/bin/claude", []string{"--flag", "val"})
 	sepIdx := -1
 	for i, a := range args {
 		if a == "--" {
@@ -140,7 +149,6 @@ func TestBuildBwrapArgs_CommandSeparator(t *testing.T) {
 	if sepIdx < 0 {
 		t.Fatalf("expected -- separator in args: %v", args)
 	}
-	// After --: original binary + original args.
 	rest := args[sepIdx+1:]
 	if len(rest) != 3 || rest[0] != "/usr/bin/claude" || rest[1] != "--flag" || rest[2] != "val" {
 		t.Errorf("after --: got %v, want [/usr/bin/claude --flag val]", rest)
@@ -148,7 +156,7 @@ func TestBuildBwrapArgs_CommandSeparator(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_NilOriginalArgs(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
 	sepIdx := -1
 	for i, a := range args {
 		if a == "--" {
@@ -165,34 +173,12 @@ func TestBuildBwrapArgs_NilOriginalArgs(t *testing.T) {
 	}
 }
 
-func TestBuildBwrapArgs_EmptyStringSkipped(t *testing.T) {
-	// Empty string in WritableDirs must be skipped — it would otherwise
-	// silently resolve to CWD via filepath.Abs, making the entire
-	// working directory writable inside the sandbox.
-	cfg := Config{WritableDirs: []string{"", "/valid"}}
-	args := buildBwrapArgs(cfg, "/project", "/bin/ls", nil)
-	if !containsSequence(args, "--bind", "/valid", "/valid") {
-		t.Errorf("expected --bind /valid for resolvable dir: %v", args)
-	}
-	// Count --bind flags — should be exactly 1 (for /valid), not 2.
-	bindCount := 0
-	for _, a := range args {
-		if a == "--bind" {
-			bindCount++
-		}
-	}
-	if bindCount != 1 {
-		t.Errorf("expected 1 --bind (empty string should be skipped), got %d: %v", bindCount, args)
-	}
-}
-
 func TestBuildBwrapArgs_MaxWritableDirs(t *testing.T) {
 	dirs := make([]string, maxWritableDirs+10)
 	for i := range dirs {
-		dirs[i] = filepath.Join(os.TempDir(), "bwrap-test-dirs", string(rune('a'+i%26))+string(rune('0'+i/26)))
+		dirs[i] = filepath.Join("/home/user", "bwrap-test-dirs", string(rune('a'+i%26))+string(rune('0'+i/26)))
 	}
-	cfg := Config{WritableDirs: dirs}
-	args := buildBwrapArgs(cfg, "/project", "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
 	bindCount := 0
 	for _, a := range args {
 		if a == "--bind" {
@@ -204,10 +190,231 @@ func TestBuildBwrapArgs_MaxWritableDirs(t *testing.T) {
 	}
 }
 
+// --- /tmp and /var/tmp skip tests ---
+
+func TestBuildBwrapArgs_SkipsTmpBind(t *testing.T) {
+	// /tmp in resolvedDirs should be skipped since --tmpfs /tmp covers it.
+	dirs := []string{"/tmp", "/home/user/.provider"}
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	bindCount := 0
+	for _, a := range args {
+		if a == "--bind" {
+			bindCount++
+		}
+	}
+	if bindCount != 1 {
+		t.Errorf("expected 1 --bind (/tmp should be skipped), got %d: %v", bindCount, args)
+	}
+}
+
+func TestBuildBwrapArgs_SkipsTmpSubdirBind(t *testing.T) {
+	dirs := []string{"/tmp/some-provider-cache"}
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	for i, a := range args {
+		if a == "--bind" {
+			t.Errorf("unexpected --bind at index %d (path under /tmp should be skipped): %v", i, args)
+		}
+	}
+}
+
+func TestBuildBwrapArgs_SkipsVarTmpBind(t *testing.T) {
+	// /var/tmp is covered by --symlink /tmp /var/tmp, so it must be skipped.
+	dirs := []string{"/var/tmp", "/home/user/.provider"}
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	for i, a := range args {
+		if a == "--bind" && i+1 < len(args) && (args[i+1] == "/var/tmp" || strings.HasPrefix(args[i+1], "/var/tmp/")) {
+			t.Errorf("unexpected --bind for /var/tmp at index %d: %v", i, args)
+		}
+	}
+}
+
+// --- isSubpath tests ---
+
+func TestIsSubpath_Equal(t *testing.T) {
+	if !isSubpath("/a/b", "/a/b") {
+		t.Error("expected true for equal paths")
+	}
+}
+
+func TestIsSubpath_Child(t *testing.T) {
+	if !isSubpath("/a/b/c", "/a/b") {
+		t.Error("expected true for child path")
+	}
+}
+
+func TestIsSubpath_NotChild(t *testing.T) {
+	if isSubpath("/a/x", "/a/b") {
+		t.Error("expected false for non-child path")
+	}
+}
+
+func TestIsSubpath_PrefixCollision(t *testing.T) {
+	// /a/bc should NOT be a child of /a/b
+	if isSubpath("/a/bc", "/a/b") {
+		t.Error("expected false for prefix collision")
+	}
+}
+
+func TestIsSubpath_TrailingSlash(t *testing.T) {
+	// filepath.Clean normalizes trailing slashes.
+	if !isSubpath("/a/b", "/a/b/") {
+		t.Error("expected true when parent has trailing slash")
+	}
+	if !isSubpath("/a/b/", "/a/b") {
+		t.Error("expected true when child has trailing slash")
+	}
+}
+
+func TestIsSubpath_RedundantSeparator(t *testing.T) {
+	if !isSubpath("/a//b/c", "/a/b") {
+		t.Error("expected true for child with double slash (normalized by Clean)")
+	}
+}
+
+// --- isAncestor tests ---
+
+func TestIsAncestor_Strict(t *testing.T) {
+	if !isAncestor("/a", "/a/b") {
+		t.Error("expected true for strict ancestor")
+	}
+}
+
+func TestIsAncestor_Equal(t *testing.T) {
+	if isAncestor("/a/b", "/a/b") {
+		t.Error("expected false for equal paths (not a strict ancestor)")
+	}
+}
+
+func TestIsAncestor_NotAncestor(t *testing.T) {
+	if isAncestor("/a/b", "/a/x") {
+		t.Error("expected false for non-ancestor")
+	}
+}
+
+func TestIsAncestor_TrailingSlash(t *testing.T) {
+	if !isAncestor("/a/", "/a/b") {
+		t.Error("expected true when ancestor has trailing slash")
+	}
+}
+
+// --- isTmpfsPath tests ---
+
+func TestIsTmpfsPath_Tmp(t *testing.T) {
+	if !isTmpfsPath("/tmp") {
+		t.Error("expected /tmp to be a tmpfs path")
+	}
+}
+
+func TestIsTmpfsPath_TmpSubdir(t *testing.T) {
+	if !isTmpfsPath("/tmp/cache") {
+		t.Error("expected /tmp/cache to be a tmpfs path")
+	}
+}
+
+func TestIsTmpfsPath_VarTmp(t *testing.T) {
+	if !isTmpfsPath("/var/tmp") {
+		t.Error("expected /var/tmp to be a tmpfs path")
+	}
+}
+
+func TestIsTmpfsPath_VarTmpSubdir(t *testing.T) {
+	if !isTmpfsPath("/var/tmp/cache") {
+		t.Error("expected /var/tmp/cache to be a tmpfs path")
+	}
+}
+
+func TestIsTmpfsPath_NotTmpfs(t *testing.T) {
+	if isTmpfsPath("/home/user/.provider") {
+		t.Error("expected /home/user/.provider to NOT be a tmpfs path")
+	}
+}
+
+func TestIsTmpfsPath_PrefixCollision(t *testing.T) {
+	if isTmpfsPath("/tmpdata") {
+		t.Error("expected /tmpdata to NOT be a tmpfs path (prefix collision)")
+	}
+}
+
+// --- validateWritableDir tests ---
+
+func TestValidateWritableDir_RejectsRoot(t *testing.T) {
+	err := validateWritableDir("/", "/project", []string{"/home"})
+	if err == nil {
+		t.Error("expected error for root path")
+	}
+	if !strings.Contains(err.Error(), "refusing to mount") {
+		t.Errorf("error should mention 'refusing to mount', got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_RejectsDotDot(t *testing.T) {
+	err := validateWritableDir("/home/user/../etc", "/project", []string{"/tmp"})
+	if err == nil {
+		t.Error("expected error for path with ..")
+	}
+	if !strings.Contains(err.Error(), "'..'") {
+		t.Errorf("error should mention '..', got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_RejectsAncestorOfProject(t *testing.T) {
+	err := validateWritableDir("/home/user", "/home/user/project", []string{"/home/user"})
+	if err == nil {
+		t.Error("expected error when writable dir is ancestor of project dir")
+	}
+	if !strings.Contains(err.Error(), "overlaps with project dir") {
+		t.Errorf("error should mention 'overlaps with project dir', got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_RejectsProjectDirItself(t *testing.T) {
+	// Passing projectDir itself as writable defeats the deny-write ACL.
+	err := validateWritableDir("/home/user/project", "/home/user/project", []string{"/home/user/project"})
+	if err == nil {
+		t.Error("expected error when writable dir equals project dir")
+	}
+	if !strings.Contains(err.Error(), "overlaps with project dir") {
+		t.Errorf("error should mention 'overlaps with project dir', got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_RejectsOutsideAllowedRoots(t *testing.T) {
+	err := validateWritableDir("/etc/something", "/project", []string{"/tmp", "/home"})
+	if err == nil {
+		t.Error("expected error for path outside allowed roots")
+	}
+	if !strings.Contains(err.Error(), "not under any allowed root") {
+		t.Errorf("error should mention 'not under any allowed root', got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_AllowsSubpath(t *testing.T) {
+	err := validateWritableDir("/home/user/.claude", "/project", []string{"/home"})
+	if err != nil {
+		t.Errorf("expected no error for valid subpath, got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_AllowsSubpathOfProjectDir(t *testing.T) {
+	// allowedRoots should use the project dir itself, not the subdir,
+	// to match production behavior (resolveAndValidateWritableDirs
+	// passes projectDir as an allowed root).
+	err := validateWritableDir("/home/user/project/output", "/home/user/project", []string{"/home/user/project"})
+	if err != nil {
+		t.Errorf("expected no error for subdir of project dir, got: %v", err)
+	}
+}
+
+func TestValidateWritableDir_AllowsEqualPath(t *testing.T) {
+	err := validateWritableDir("/tmp", "/project", []string{"/tmp"})
+	if err != nil {
+		t.Errorf("expected no error for equal path, got: %v", err)
+	}
+}
+
 // --- checkUserNamespacesEnabled tests ---
 
 func TestCheckUserNamespacesEnabled_Default(t *testing.T) {
-	// When sysctl files don't exist (or aren't readable), should return true.
 	old := usernsClonePath
 	old2 := maxUserNamespacesPath
 	usernsClonePath = "/nonexistent/path/1"
@@ -248,6 +455,35 @@ func TestCheckUserNamespacesEnabled_MaxUserNamespacesZero(t *testing.T) {
 
 	if checkUserNamespacesEnabled() {
 		t.Error("expected false when max_user_namespaces is 0")
+	}
+}
+
+// --- userNamespacesEnabled tests (public API, no caching) ---
+
+func TestUserNamespacesEnabled_ReflectsVarChange(t *testing.T) {
+	old := usernsClonePath
+	old2 := maxUserNamespacesPath
+	defer func() {
+		usernsClonePath = old
+		maxUserNamespacesPath = old2
+	}()
+
+	// Set paths to nonexistent files — should return true.
+	usernsClonePath = "/nonexistent/path/1"
+	maxUserNamespacesPath = "/nonexistent/path/2"
+	if !userNamespacesEnabled() {
+		t.Error("expected true when sysctl files are absent")
+	}
+
+	// Now disable via userns_clone = 0.
+	dir := t.TempDir()
+	f := filepath.Join(dir, "unprivileged_user_ns_clone")
+	if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	usernsClonePath = f
+	if userNamespacesEnabled() {
+		t.Error("expected false after injecting userns_clone=0")
 	}
 }
 
@@ -308,6 +544,87 @@ func TestCheckWSL1_UnreadableFile(t *testing.T) {
 	}
 }
 
+// --- isWSL1 tests (public API, no caching) ---
+
+func TestIsWSL1_ReflectsVarChange(t *testing.T) {
+	old := procVersionPath
+	defer func() { procVersionPath = old }()
+
+	dir := t.TempDir()
+
+	// Regular Linux first.
+	f := filepath.Join(dir, "version_linux")
+	if err := os.WriteFile(f, []byte("Linux version 6.1.0-generic"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	procVersionPath = f
+	if isWSL1() {
+		t.Error("expected false for regular Linux")
+	}
+
+	// Now switch to WSL1.
+	f2 := filepath.Join(dir, "version_wsl1")
+	if err := os.WriteFile(f2, []byte("Linux version 4.4.0-18362-Microsoft (Microsoft@Microsoft.com)"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	procVersionPath = f2
+	if !isWSL1() {
+		t.Error("expected true for WSL1 after var change")
+	}
+}
+
+// --- Available() tests via var injection (now possible without sync.Once) ---
+
+func TestAvailable_DisabledByUserNS(t *testing.T) {
+	old := maxUserNamespacesPath
+	maxUserNamespacesPath = "/nonexistent/init" // ensure no early exit
+	dir := t.TempDir()
+	f := filepath.Join(dir, "max_user_namespaces")
+	if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	maxUserNamespacesPath = f
+	defer func() { maxUserNamespacesPath = old }()
+
+	if userNamespacesEnabled() {
+		t.Skip("user namespaces still enabled after injection — can't test Available()")
+	}
+	if Available() {
+		t.Error("Available() should return false when user namespaces are disabled")
+	}
+}
+
+func TestAvailable_DisabledByWSL1(t *testing.T) {
+	old := procVersionPath
+	dir := t.TempDir()
+	f := filepath.Join(dir, "version")
+	if err := os.WriteFile(f, []byte("Linux version 4.4.0-18362-Microsoft (Microsoft@Microsoft.com)"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	procVersionPath = f
+	defer func() { procVersionPath = old }()
+
+	if !isWSL1() {
+		t.Skip("WSL1 not detected after injection — can't test Available()")
+	}
+	if Available() {
+		t.Error("Available() should return false when isWSL1() is true")
+	}
+}
+
+// --- bwrapPath tests ---
+
+func TestBwrapPath_Deterministic(t *testing.T) {
+	// bwrapPath() calls exec.LookPath each time. Results should be
+	// consistent across calls (LookPath is deterministic for the same
+	// PATH environment).
+	p := bwrapPath()
+	p2 := bwrapPath()
+	if p != p2 {
+		t.Errorf("bwrapPath() returned inconsistent results: %q vs %q", p, p2)
+	}
+}
+
 // --- prepare tests ---
 
 func TestPrepare_WrapsCommand(t *testing.T) {
@@ -319,10 +636,11 @@ func TestPrepare_WrapsCommand(t *testing.T) {
 	}
 
 	projectDir := t.TempDir()
+	writableDir := t.TempDir()
 	cmd := exec.Command("echo", "hello")
 	cfg := Config{
 		ProjectDir:   projectDir,
-		WritableDirs: []string{t.TempDir()},
+		WritableDirs: []string{writableDir},
 		Mode:         ModeAuto,
 	}
 
@@ -341,10 +659,8 @@ func TestPrepare_WrapsCommand(t *testing.T) {
 	if cmd.Args[0] != bwrapPath() {
 		t.Errorf("cmd.Args[0] = %q, want %q", cmd.Args[0], bwrapPath())
 	}
-	// Original binary (resolved by exec.Command via LookPath) should
-	// appear after the -- separator in bwrap args.
 	resolvedBin, _ := exec.LookPath("echo")
-	if !containsSequence(cmd.Args, "--", resolvedBin) {
+	if !containsContiguousSequence(cmd.Args, "--", resolvedBin) {
 		t.Errorf("original binary %q not found after -- in args: %v", resolvedBin, cmd.Args)
 	}
 }
@@ -413,7 +729,7 @@ func TestPrepare_NilArgsHandled(t *testing.T) {
 
 	projectDir := t.TempDir()
 	cmd := exec.Command("echo")
-	cmd.Args = nil // Simulate manual construction.
+	cmd.Args = nil
 	cfg := Config{
 		ProjectDir:   projectDir,
 		WritableDirs: nil,
@@ -426,9 +742,51 @@ func TestPrepare_NilArgsHandled(t *testing.T) {
 	}
 	defer cleanup()
 
-	// Should still have bwrap args + -- + binary.
 	if len(cmd.Args) < 2 {
 		t.Errorf("cmd.Args too short after prepare: %v", cmd.Args)
+	}
+}
+
+func TestPrepare_RejectsRootWritableDir(t *testing.T) {
+	if bwrapPath() == "" {
+		t.Skip("bwrap not in PATH")
+	}
+
+	cmd := exec.Command("echo", "hello")
+	cfg := Config{
+		ProjectDir:   t.TempDir(),
+		WritableDirs: []string{"/"},
+		Mode:         ModeAuto,
+	}
+
+	_, err := prepare(cmd, cfg)
+	if err == nil {
+		t.Fatal("expected prepare to reject writable dir /")
+	}
+	if !strings.Contains(err.Error(), "refusing to mount") {
+		t.Errorf("error should come from validateWritableDir, got: %v", err)
+	}
+}
+
+func TestPrepare_RejectsAncestorWritableDir(t *testing.T) {
+	if bwrapPath() == "" {
+		t.Skip("bwrap not in PATH")
+	}
+
+	projectDir := t.TempDir()
+	cmd := exec.Command("echo", "hello")
+	cfg := Config{
+		ProjectDir:   projectDir,
+		WritableDirs: []string{filepath.Dir(projectDir)},
+		Mode:         ModeAuto,
+	}
+
+	_, err := prepare(cmd, cfg)
+	if err == nil {
+		t.Fatal("expected prepare to reject writable dir that is ancestor of project dir")
+	}
+	if !strings.Contains(err.Error(), "overlaps with project dir") {
+		t.Errorf("error should come from validateWritableDir, got: %v", err)
 	}
 }
 
@@ -444,19 +802,25 @@ func containsFlag(args []string, flag string) bool {
 	return false
 }
 
-// containsSequence checks whether args contains the given subsequence
-// in order (not necessarily contiguous).
-func containsSequence(args []string, seq ...string) bool {
+// containsContiguousSequence checks whether args contains the given
+// subsequence as a contiguous window. This is stricter than the old
+// containsSequence (which allowed non-contiguous matches) and prevents
+// the "tests test the helper, not the code" failure mode where a
+// split arg pair (e.g. --proc ... /proc) would still pass.
+func containsContiguousSequence(args []string, seq ...string) bool {
 	if len(seq) == 0 {
 		return true
 	}
-	j := 0
-	for _, a := range args {
-		if a == seq[j] {
-			j++
-			if j == len(seq) {
-				return true
+	for i := 0; i+len(seq) <= len(args); i++ {
+		match := true
+		for j := 0; j < len(seq); j++ {
+			if args[i+j] != seq[j] {
+				match = false
+				break
 			}
+		}
+		if match {
+			return true
 		}
 	}
 	return false
