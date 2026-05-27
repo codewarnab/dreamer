@@ -91,11 +91,11 @@ func newDaemonCommand() *cobra.Command {
 				logger.Info("swept stale phase-2 findings temp files", logging.Any("count", swept))
 			}
 
-			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, events, overrides)
-			workers.Start()
-
 			var live atomic.Pointer[config.Config]
 			live.Store(cfg)
+
+			workers := newWorkerPool(ctx, queue, cfg, &live, logger, discoveryCache, events, overrides)
+			workers.Start()
 			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
@@ -161,7 +161,13 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 	}
 
 	lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
-	stalePID, _ := fsutil.ReadLockPID(lockPath)
+	stalePID, readErr := fsutil.ReadLockPID(lockPath)
+	if readErr != nil {
+		logger.Warn("read lock PID failed; stale-job recovery will reap unconditionally",
+			logging.Any("lock_path", lockPath),
+			logging.Any("err", readErr),
+		)
+	}
 	releaseLock, err = fsutil.AcquireLock(lockPath, logger)
 	if err != nil {
 		return

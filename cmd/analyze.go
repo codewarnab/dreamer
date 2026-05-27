@@ -45,7 +45,8 @@ func newAnalyzeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			appConfig, err := config.LoadConfig(resolvedConfigPath)
+			overlayPath, _ := config.GlobalOverlayPath()
+			appConfig, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 			if err != nil {
 				return fmt.Errorf("load config %q: %w", resolvedConfigPath, err)
 			}

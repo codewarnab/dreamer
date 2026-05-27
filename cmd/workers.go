@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/config"
@@ -25,6 +26,7 @@ type workerPool struct {
 	ctx       context.Context
 	queue     *jobqueue.Queue
 	cfg       *config.Config
+	live      *atomic.Pointer[config.Config]
 	logger    *logging.Logger
 	cache     *pipeline.DiscoveryCache
 	events    *pipeline.EventBus
@@ -33,11 +35,12 @@ type workerPool struct {
 }
 
 // newWorkerPool creates a pool that will spawn MaxConcurrent workers.
-func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, logger *logging.Logger, cache *pipeline.DiscoveryCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
+func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, live *atomic.Pointer[config.Config], logger *logging.Logger, cache *pipeline.DiscoveryCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
 	return &workerPool{
 		ctx:       ctx,
 		queue:     queue,
 		cfg:       cfg,
+		live:      live,
 		logger:    logger,
 		cache:     cache,
 		events:    events,
@@ -109,6 +112,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 
 	opts := pipeline.Options{
 		Config:                 wp.cfg,
+		LiveConfig:             wp.live,
 		ProjectPath:            job.ProjectPath,
 		ProjectName:            job.Project,
 		ProviderID:             job.Provider,

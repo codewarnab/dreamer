@@ -11,6 +11,9 @@ import (
 // the dreamer log. We log the full prompt and full response so that operators
 // can see exactly what was sent to the model. The wrapper is a transparent
 // pass-through aside from logging.
+//
+// Not safe for concurrent Run calls — the session pool single-flights
+// sessions today, but callers that bypass the pool must serialize access.
 type loggingSession struct {
 	inner    Session
 	logger   *logging.Logger

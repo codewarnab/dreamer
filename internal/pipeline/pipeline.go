@@ -41,7 +41,11 @@ const providerStartTimeout = 30 * time.Second
 // all prompts and outputs from a single analysis run.
 func generateRunID() string {
 	randomBytes := make([]byte, runIDLength/2)
-	_, _ = rand.Read(randomBytes)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// crypto/rand.Read failure indicates a broken OS entropy source —
+		// a system-state bug, not a recoverable runtime condition.
+		panic("crypto/rand.Read failed: " + err.Error())
+	}
 	return hex.EncodeToString(randomBytes)
 }
 
@@ -395,6 +399,12 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 	}
 
 	cfg, findingsPath, binaryPath, buildErr := buildPhase2Config(mode)
+	// Track the MCP config path separately so cleanup can remove it even
+	// when cfg is nil'd after a build error (the file may already exist).
+	var mcpConfigPath string
+	if cfg != nil && cfg.MCP != nil {
+		mcpConfigPath = cfg.MCP.ConfigFilePath
+	}
 	if buildErr != nil {
 		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
 			logging.Any("mode", string(mode)),
@@ -422,8 +432,8 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 				logger.Warn("remove findings temp file failed", logging.Any("err", err))
 			}
 		}
-		if cfg != nil && cfg.MCP != nil && cfg.MCP.ConfigFilePath != "" {
-			if err := os.Remove(cfg.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
+		if mcpConfigPath != "" {
+			if err := os.Remove(mcpConfigPath); err != nil && !os.IsNotExist(err) {
 				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
 			}
 		}
