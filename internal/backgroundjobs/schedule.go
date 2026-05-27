@@ -2,6 +2,7 @@ package backgroundjobs
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -76,7 +77,7 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 	case ScheduleDaily:
 		// Error ignored: ValidateSchedule rejects invalid TimeOfDay before
 		// NextRun is ever called. A corrupted store value silently yields
-		// hour=0, min=0 — acceptable until Phase 3 adds store validation.
+		// hour=0, min=0.
 		hour, min, _ := parseTimeOfDay(s.TimeOfDay)
 		next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, min, 0, 0, loc)
 		if !next.After(localNow) {
@@ -102,14 +103,11 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 }
 
 func parseTimeOfDay(s string) (hour, min int, err error) {
-	_, err = fmt.Sscanf(s, "%d:%d", &hour, &min)
+	t, err := time.Parse("15:04", s)
 	if err != nil {
 		return 0, 0, fmt.Errorf("parse time %q: expected HH:MM", s)
 	}
-	if hour < 0 || hour > 23 || min < 0 || min > 59 {
-		return 0, 0, fmt.Errorf("time %q out of range", s)
-	}
-	return hour, min, nil
+	return t.Hour(), t.Minute(), nil
 }
 
 // cronFields holds the parsed fields of a 5-field cron expression.
@@ -251,10 +249,9 @@ func parseCronRange(part string, min, max int) ([]int, error) {
 	return result, nil
 }
 
-// parseCronInt parses a decimal integer from a string.
+// parseCronInt parses a decimal integer from a string. Rejects trailing junk.
 func parseCronInt(s string) (int, error) {
-	var val int
-	_, err := fmt.Sscanf(s, "%d", &val)
+	val, err := strconv.Atoi(s)
 	if err != nil {
 		return 0, fmt.Errorf("parse int %q", s)
 	}
