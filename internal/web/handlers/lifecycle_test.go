@@ -324,8 +324,18 @@ func TestUndo_Happy(t *testing.T) {
 		t.Errorf("undo did not restore pre-image; got %q", got)
 	}
 	st, _ := state.Load(cfg.Daemon.OutputRoot, "proj-a")
-	if _, ok := st.Findings[hash]; ok {
-		t.Errorf("undo did not remove state entry")
+	fs, ok := st.Findings[hash]
+	if !ok {
+		t.Fatalf("undo removed state entry entirely; expected it to be preserved with cleared fields")
+	}
+	if fs.Status != "" {
+		t.Errorf("undo did not clear Status; got %q", fs.Status)
+	}
+	if !fs.AppliedAt.IsZero() {
+		t.Errorf("undo did not clear AppliedAt; got %v", fs.AppliedAt)
+	}
+	if fs.AppliedReversal != nil {
+		t.Errorf("undo did not clear AppliedReversal")
 	}
 	select {
 	case evt := <-sub:
@@ -388,7 +398,7 @@ func TestDismiss_PersistsAndPublishes(t *testing.T) {
 	}
 	select {
 	case evt := <-sub:
-		if evt.Type != pipeline.EventFindingDismiss {
+		if evt.Type != pipeline.EventFindingDismissed {
 			t.Errorf("event type=%q", evt.Type)
 		}
 	default:
@@ -413,7 +423,7 @@ func TestResolve_PersistsAndPublishes(t *testing.T) {
 	}
 	select {
 	case evt := <-sub:
-		if evt.Type != pipeline.EventFindingResolve {
+		if evt.Type != pipeline.EventFindingResolved {
 			t.Errorf("event type=%q", evt.Type)
 		}
 	default:

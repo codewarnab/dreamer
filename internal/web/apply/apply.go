@@ -23,10 +23,10 @@ const MaxApplyTargetBytes = 4 << 20
 // allowed to apply automatically (spec.v1.5 §6.4). Uses the canonical
 // category constants from the categories package.
 var EligibleCategories = map[string]bool{
-	string(categories.CategoryDoc):      true,
-	string(categories.CategoryLintRule): true,
-	string(categories.CategoryCICheck):  true,
-	string(categories.CategoryConfig):   true,
+	string(categories.Doc):      true,
+	string(categories.LintRule): true,
+	string(categories.CICheck):  true,
+	string(categories.Config):   true,
 }
 
 var (
@@ -149,14 +149,14 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	}
 	// Re-evaluate symlinks on rev.Path so a parent dir swapped into a
 	// symlink between apply and undo still gets caught by containment.
-	cleanPath := rev.Path
-	if resolved, resolveErr := filepath.EvalSymlinks(rev.Path); resolveErr == nil {
-		cleanPath = resolved
+	cleanPath, resolveErr := filepath.EvalSymlinks(rev.Path)
+	if resolveErr != nil {
+		return fmt.Errorf("resolve reversal path %q: %w", rev.Path, resolveErr)
 	}
 	if !fsutil.PathWithinRoot(cleanPath, absRoot) {
 		return fmt.Errorf("%w: reversal path %s", ErrContainment, rev.Path)
 	}
-	current, err := os.ReadFile(rev.Path)
+	current, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return fmt.Errorf("read current target: %w", err)
 	}
@@ -164,7 +164,7 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	if hex.EncodeToString(curHash[:]) != rev.PostImageSHA256 {
 		return ErrTargetChanged
 	}
-	return fsutil.WriteFileAtomic(rev.Path, []byte(rev.PreImage), fsutil.FilePerms)
+	return fsutil.WriteFileAtomic(cleanPath, []byte(rev.PreImage), fsutil.FilePerms)
 }
 
 func transform(pre, strategy, anchor, snippet string) (string, string, error) {
@@ -178,7 +178,10 @@ func transform(pre, strategy, anchor, snippet string) (string, string, error) {
 		return snippet, strategy, nil
 	case "append-section":
 		header := "## " + anchor
-		if strings.Contains(pre, header) {
+		// Only promote to replace-section when the header starts at a
+		// line boundary. A bare strings.Contains match could fire inside
+		// a fenced code block or table cell and destroy unrelated content.
+		if strings.Contains(pre, "\n"+header) || strings.HasPrefix(pre, header) {
 			out, err := replaceSection(pre, anchor, snippet)
 			return out, "replace-section", err
 		}
@@ -196,7 +199,14 @@ func transform(pre, strategy, anchor, snippet string) (string, string, error) {
 
 func replaceSection(pre, anchor, snippet string) (string, error) {
 	header := "## " + anchor
-	idx := strings.Index(pre, header)
+	// Match only at line boundaries to avoid false positives inside code
+	// blocks, table cells, or HTML comments.
+	idx := strings.Index(pre, "\n"+header)
+	if idx >= 0 {
+		idx++ // skip the leading newline so pre[:idx] preserves the line
+	} else if strings.HasPrefix(pre, header) {
+		idx = 0
+	}
 	if idx < 0 {
 		return "", fmt.Errorf("%w: anchor %q", ErrAnchorMissing, anchor)
 	}
