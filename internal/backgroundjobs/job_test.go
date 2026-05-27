@@ -31,9 +31,9 @@ func TestStateJSONRoundTrip(t *testing.T) {
 				UpdatedAt: now,
 				LastRunAt: &now,
 				Permissions: PermissionProfile{
-					FileAccess:    FileAccessReadOnly,
-					ReadScope:     "project",
-					ToolAccess:    ToolAccess{Mode: "none"},
+					FileAccess: FileAccessReadOnly,
+					ReadScope:  "project",
+					ToolAccess: ToolAccess{Mode: "none"},
 				},
 				Health: HealthState{
 					SystemScheduling: "needs_install",
@@ -98,8 +98,6 @@ func TestRunJSONRoundTrip(t *testing.T) {
 		Model:          "mimo-v2.5-pro",
 		PromptSnapshot: "do something",
 		OutputSummary:  "done",
-		LogPath:        "/tmp/logs/run-abc.log",
-		TouchedPaths:   []string{"/tmp/reports/output.md"},
 	}
 
 	data, err := json.MarshalIndent(run, "", "  ")
@@ -120,9 +118,6 @@ func TestRunJSONRoundTrip(t *testing.T) {
 	}
 	if decoded.DurationMillis != 300000 {
 		t.Errorf("DurationMillis = %d, want 300000", decoded.DurationMillis)
-	}
-	if len(decoded.TouchedPaths) != 1 || decoded.TouchedPaths[0] != "/tmp/reports/output.md" {
-		t.Errorf("TouchedPaths = %v, want [/tmp/reports/output.md]", decoded.TouchedPaths)
 	}
 	if !decoded.FinishedAt.Equal(finish) {
 		t.Errorf("FinishedAt = %v, want %v", decoded.FinishedAt, finish)

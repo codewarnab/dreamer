@@ -76,8 +76,6 @@ type Run struct {
 	PromptSnapshot string     `json:"prompt_snapshot"`
 	Error          string     `json:"error,omitempty"`
 	OutputSummary  string     `json:"output_summary,omitempty"`
-	LogPath        string     `json:"log_path"`
-	TouchedPaths   []string   `json:"touched_paths,omitempty"`
 	SkippedReason  string     `json:"skipped_reason,omitempty"`
 }
 
@@ -111,11 +109,11 @@ type ToolAccess struct {
 
 // OSScheduleState tracks the OS-level schedule artifact for a job.
 type OSScheduleState struct {
-	ScheduleID    string     `json:"schedule_id,omitempty"`
-	InstallID     string     `json:"install_id,omitempty"`
-	ConfigPathHash string    `json:"config_path_hash,omitempty"`
-	SpecHash      string     `json:"spec_hash,omitempty"`
-	LastInstalled *time.Time `json:"last_installed,omitempty"`
+	ScheduleID     string     `json:"schedule_id,omitempty"`
+	InstallID      string     `json:"install_id,omitempty"`
+	ConfigPathHash string     `json:"config_path_hash,omitempty"`
+	SpecHash       string     `json:"spec_hash,omitempty"`
+	LastInstalled  *time.Time `json:"last_installed,omitempty"`
 }
 
 // HealthState carries per-job health indicators.
