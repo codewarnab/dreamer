@@ -263,7 +263,8 @@ func TestBuildSandboxArgs_ParamsMatchInputLength(t *testing.T) {
 	}
 }
 
-func TestBuildSandboxArgs_EmptyStringSkipped(t *testing.T) {
+func TestBuildSandboxArgs_AllDirsEmitted(t *testing.T) {
+	// buildSandboxArgs trusts its input — every entry becomes a -D param.
 	dirs := []string{"/a", "/b"}
 	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	count := 0
@@ -407,6 +408,35 @@ func TestResolveWritableDirs_EmptyInput(t *testing.T) {
 	}
 	if len(dirs) != 0 {
 		t.Fatalf("expected 0 dirs, got %d", len(dirs))
+	}
+}
+
+func TestResolveWritableDirs_DuplicateNonSymlinkPaths(t *testing.T) {
+	d := t.TempDir()
+	dirs, err := resolveWritableDirs("", []string{d, d, d})
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 dir after dedup, got %d", len(dirs))
+	}
+}
+
+func TestResolveWritableDirs_WritableDirInsideProjectDir(t *testing.T) {
+	// A writable dir inside the project dir is valid: the (deny file-write*)
+	// blanket protects the project, and the (allow file-write*) re-allows
+	// the specific subdirectory.
+	project := t.TempDir()
+	subdir := filepath.Join(project, "output")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dirs, err := resolveWritableDirs(project, []string{subdir})
+	if err != nil {
+		t.Fatalf("writable dir inside project dir should be accepted: %v", err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 dir, got %d", len(dirs))
 	}
 }
 
