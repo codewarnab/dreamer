@@ -685,7 +685,7 @@ func TestMergeProviderBlocks_OverlayWins(t *testing.T) {
 		Model: "claude-sonnet-4-5-20250929",
 		Env:   map[string]string{"FOO": "bar"},
 	}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Model != "claude-sonnet-4-5-20250929" {
 		t.Fatalf("Model = %q, want claude-sonnet-4-5-20250929", got.Model)
 	}
@@ -705,7 +705,7 @@ func TestMergeProviderBlocks_NilOverrideEnvPreservesBase(t *testing.T) {
 	override := ProviderBlock{
 		Model: "new-model",
 	}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Env["KEY"] != "val" {
 		t.Fatalf("Env[KEY] = %q, want val (preserved from base)", got.Env["KEY"])
 	}
@@ -715,7 +715,7 @@ func TestMergeProviderBlocks_UseLoggedInUserOverride(t *testing.T) {
 	f := false
 	base := ProviderBlock{}
 	override := ProviderBlock{UseLoggedInUser: &f}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.UseLoggedInUser == nil || *got.UseLoggedInUser != false {
 		t.Fatalf("UseLoggedInUser = %v, want false", got.UseLoggedInUser)
 	}
@@ -725,7 +725,7 @@ func TestMergeProviderBlocks_AutoStartOverride(t *testing.T) {
 	tVal := true
 	base := ProviderBlock{}
 	override := ProviderBlock{AutoStart: &tVal}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.AutoStart == nil || *got.AutoStart != true {
 		t.Fatalf("AutoStart = %v, want true", got.AutoStart)
 	}
@@ -734,7 +734,7 @@ func TestMergeProviderBlocks_AutoStartOverride(t *testing.T) {
 func TestMergeProviderBlocks_CopilotHomeOverride(t *testing.T) {
 	base := ProviderBlock{CopilotHome: "/old"}
 	override := ProviderBlock{CopilotHome: "/new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.CopilotHome != "/new" {
 		t.Fatalf("CopilotHome = %q, want /new", got.CopilotHome)
 	}
@@ -743,7 +743,7 @@ func TestMergeProviderBlocks_CopilotHomeOverride(t *testing.T) {
 func TestMergeProviderBlocks_CLIURLOverride(t *testing.T) {
 	base := ProviderBlock{CLIURL: "http://old"}
 	override := ProviderBlock{CLIURL: "http://new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.CLIURL != "http://new" {
 		t.Fatalf("CLIURL = %q, want http://new", got.CLIURL)
 	}
@@ -752,7 +752,7 @@ func TestMergeProviderBlocks_CLIURLOverride(t *testing.T) {
 func TestMergeProviderBlocks_CommandOverride(t *testing.T) {
 	base := ProviderBlock{Command: []string{"old"}}
 	override := ProviderBlock{Command: []string{"new", "cmd"}}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if len(got.Command) != 2 || got.Command[0] != "new" {
 		t.Fatalf("Command = %v, want [new cmd]", got.Command)
 	}
@@ -761,7 +761,7 @@ func TestMergeProviderBlocks_CommandOverride(t *testing.T) {
 func TestMergeProviderBlocks_EnvMerge(t *testing.T) {
 	base := ProviderBlock{Env: map[string]string{"A": "1", "B": "2"}}
 	override := ProviderBlock{Env: map[string]string{"B": "override", "C": "3"}}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Env["A"] != "1" || got.Env["B"] != "override" || got.Env["C"] != "3" {
 		t.Fatalf("Env = %v, want merged", got.Env)
 	}
@@ -770,7 +770,7 @@ func TestMergeProviderBlocks_EnvMerge(t *testing.T) {
 func TestMergeProviderBlocks_APIKeyEnvOverride(t *testing.T) {
 	base := ProviderBlock{APIKeyEnv: "OLD_KEY"}
 	override := ProviderBlock{APIKeyEnv: "NEW_KEY"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.APIKeyEnv != "NEW_KEY" {
 		t.Fatalf("APIKeyEnv = %q, want NEW_KEY", got.APIKeyEnv)
 	}
@@ -779,7 +779,7 @@ func TestMergeProviderBlocks_APIKeyEnvOverride(t *testing.T) {
 func TestMergeProviderBlocks_BaseURLOverride(t *testing.T) {
 	base := ProviderBlock{BaseURL: "http://old"}
 	override := ProviderBlock{BaseURL: "http://new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.BaseURL != "http://new" {
 		t.Fatalf("BaseURL = %q, want http://new", got.BaseURL)
 	}
@@ -788,7 +788,7 @@ func TestMergeProviderBlocks_BaseURLOverride(t *testing.T) {
 func TestMergeProviderBlocks_PasswordOverride(t *testing.T) {
 	base := ProviderBlock{Password: "old"}
 	override := ProviderBlock{Password: "new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Password != "new" {
 		t.Fatalf("Password = %q, want new", got.Password)
 	}
@@ -797,7 +797,7 @@ func TestMergeProviderBlocks_PasswordOverride(t *testing.T) {
 func TestMergeProviderBlocks_MaxInputTokensOverride(t *testing.T) {
 	base := ProviderBlock{MaxInputTokens: 100}
 	override := ProviderBlock{MaxInputTokens: 200}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.MaxInputTokens != 200 {
 		t.Fatalf("MaxInputTokens = %d, want 200", got.MaxInputTokens)
 	}
@@ -807,7 +807,7 @@ func TestMergeProviderBlocks_SandboxOverride(t *testing.T) {
 	mode := "true"
 	base := ProviderBlock{}
 	override := ProviderBlock{Sandbox: &mode}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Sandbox == nil || *got.Sandbox != "true" {
 		t.Fatalf("Sandbox = %v, want true", got.Sandbox)
 	}
@@ -825,7 +825,7 @@ func TestMergeProviderBlocks_EmptyOverridePreservesBase(t *testing.T) {
 		Command:     []string{"cmd"},
 	}
 	override := ProviderBlock{}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Model != "model" || got.CopilotHome != "/home" || got.CLIURL != "http://url" {
 		t.Fatal("base fields not preserved")
 	}
