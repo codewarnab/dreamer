@@ -46,6 +46,9 @@ func init() {
 		ID:          analyzer.ProviderOpenCodeServer,
 		DisplayName: "OpenCode Server (HTTP)",
 		Order:       120,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }
 

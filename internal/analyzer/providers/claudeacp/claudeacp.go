@@ -31,5 +31,8 @@ func init() {
 		ID:          analyzer.ProviderClaudeACP,
 		DisplayName: "Claude via ACP",
 		Order:       50,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }

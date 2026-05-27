@@ -44,6 +44,9 @@ func init() {
 		ID:          analyzer.ProviderCodebuffSDK,
 		DisplayName: "Codebuff SDK",
 		Order:       130,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }
 

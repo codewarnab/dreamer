@@ -44,6 +44,13 @@ func init() {
 		DisplayName: "Google Gemini CLI",
 		Order:       60,
 		Phase2Mode:  analyzer.Phase2ModeCLI,
+		Capabilities: analyzer.ProviderCapabilities{
+			BackgroundSafe:           true,
+			RequiresNetwork:          true,
+			SupportsBackgroundWrites: true,
+			NeedsNativeSandbox:       true,
+			AllowsCustomCommand:      true,
+		},
 	})
 }
 

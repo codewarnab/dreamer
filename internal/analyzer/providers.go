@@ -122,6 +122,19 @@ func NewProvider(id ProviderID, providerConfig ProviderConfig) (Provider, error)
 	return factory(providerConfig)
 }
 
+// ProviderCapabilities declares what a provider can do in the background jobs
+// system. Zero-value means all false — providers that don't register
+// capabilities are blocked from background jobs by default (fail-closed).
+type ProviderCapabilities struct {
+	BackgroundSafe           bool // can run as a background job at all
+	RequiresNetwork          bool // provider needs network for model transport
+	SupportsBackgroundWrites bool // can do selected-writes when OS sandbox is active
+	SupportsToolPolicy       bool // can enforce tool allowlists
+	NeedsNativeSandbox       bool // requires OS sandbox for safety
+	LongLivedProcess         bool // provider keeps a persistent process
+	AllowsCustomCommand      bool // custom command field is supported
+}
+
 // ProviderMeta carries display metadata for a registered provider.
 // Providers self-register via RegisterProviderMeta in init().
 type ProviderMeta struct {
@@ -129,7 +142,8 @@ type ProviderMeta struct {
 	DisplayName string // e.g. "OpenClaude CLI (recommended)"
 	Order       int    // sort order in UI (lower = higher)
 	// Phase2Mode declares the tool-based Phase 2 strategy for this provider.
-	Phase2Mode Phase2Mode
+	Phase2Mode   Phase2Mode
+	Capabilities ProviderCapabilities // background job capabilities; zero = safe defaults
 }
 
 var (
@@ -173,6 +187,18 @@ func LookupPhase2Mode(id ProviderID) Phase2Mode {
 		return meta.Phase2Mode
 	}
 	return Phase2ModeNone
+}
+
+// LookupProviderCapabilities returns the ProviderCapabilities for the given
+// provider id. If the provider is not registered, the zero value is returned
+// (all false — fails closed for background job eligibility).
+func LookupProviderCapabilities(id ProviderID) ProviderCapabilities {
+	providerMetaRegistryMutex.RLock()
+	defer providerMetaRegistryMutex.RUnlock()
+	if meta, ok := providerMetaRegistry[id]; ok {
+		return meta.Capabilities
+	}
+	return ProviderCapabilities{}
 }
 
 func joinProviderIDs(ids []ProviderID, sep string) string {

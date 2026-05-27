@@ -17,5 +17,8 @@ func init() {
 		ID:          analyzer.ProviderCopilotSDK,
 		DisplayName: "GitHub Copilot SDK",
 		Order:       20,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }

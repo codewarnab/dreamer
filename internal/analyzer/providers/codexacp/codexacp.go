@@ -31,5 +31,8 @@ func init() {
 		ID:          analyzer.ProviderCodexACP,
 		DisplayName: "Codex via ACP",
 		Order:       100,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }

@@ -46,6 +46,13 @@ func init() {
 		ID:          analyzer.ProviderCodexCLI,
 		DisplayName: "OpenAI Codex CLI",
 		Order:       90,
+		Capabilities: analyzer.ProviderCapabilities{
+			BackgroundSafe:           true,
+			RequiresNetwork:          true,
+			SupportsBackgroundWrites: true,
+			NeedsNativeSandbox:       true,
+			AllowsCustomCommand:      true,
+		},
 	})
 }
 

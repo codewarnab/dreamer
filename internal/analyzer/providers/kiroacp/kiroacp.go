@@ -25,5 +25,8 @@ func init() {
 		ID:          analyzer.ProviderKiroACP,
 		DisplayName: "Kiro via ACP",
 		Order:       80,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }
