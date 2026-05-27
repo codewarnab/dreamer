@@ -279,6 +279,27 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		},
 	}
 
+	// Startup reconciliation: repair missing/stale OS schedules.
+	if scheduler != nil {
+		go func() {
+			reconciler := &backgroundjobs.Reconciler{
+				Scheduler:  scheduler,
+				Store:      store,
+				Logger:     logger,
+				ConfigHash: backgroundjobs.HashConfigPath(configPath),
+			}
+			result, err := reconciler.ReconcileSchedules(ctx, false)
+			if err != nil {
+				logger.Warn("startup reconciliation failed", logging.Any("err", err))
+			} else if result.Installed+result.Removed+result.Disabled > 0 {
+				logger.Info("startup reconciliation complete",
+					logging.Any("installed", result.Installed),
+					logging.Any("removed", result.Removed),
+					logging.Any("disabled", result.Disabled))
+			}
+		}()
+	}
+
 	srv, srvErr := web.NewServer(web.Options{
 		Config:      cfg,
 		Logger:      logger,

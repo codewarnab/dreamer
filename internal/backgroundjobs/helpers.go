@@ -9,9 +9,10 @@ import (
 
 // ProviderMeta is a subset of analyzer.ProviderMeta exposed for CLI use.
 type ProviderMeta struct {
-	ID             string
-	DisplayName    string
-	BackgroundSafe bool
+	ID              string
+	DisplayName     string
+	BackgroundSafe  bool
+	RequiresNetwork bool
 }
 
 // ProviderMetaByID returns provider metadata for the given ID, or nil if
@@ -20,9 +21,10 @@ func ProviderMetaByID(id string) *ProviderMeta {
 	for _, m := range analyzer.RegisteredProviderMeta() {
 		if string(m.ID) == id {
 			return &ProviderMeta{
-				ID:             string(m.ID),
-				DisplayName:    m.DisplayName,
-				BackgroundSafe: m.Capabilities.BackgroundSafe,
+				ID:              string(m.ID),
+				DisplayName:     m.DisplayName,
+				BackgroundSafe:  m.Capabilities.BackgroundSafe,
+				RequiresNetwork: m.Capabilities.RequiresNetwork,
 			}
 		}
 	}

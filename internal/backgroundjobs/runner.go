@@ -51,6 +51,9 @@ const maxOutputSummaryRunes = 500
 // defaultSessionTimeout is the fallback when no schedule-derived timeout exists.
 const defaultSessionTimeout = 10 * time.Minute
 
+// defaultRunRetention is the maximum number of runs kept per job.
+const defaultRunRetention = 100
+
 // backgroundSystemMessage is injected into every background job session.
 const backgroundSystemMessage = `You are running as a scheduled Dreamer background job.
 Follow the user's prompt exactly.
@@ -195,6 +198,11 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 
 	if appendErr := e.RunStore.Append(run); appendErr != nil {
 		e.Logger.Warn("failed to record run", logging.Any("err", appendErr))
+	}
+
+	// Enforce run retention (best-effort, non-fatal).
+	if _, pruneErr := e.RunStore.Prune(jobID, defaultRunRetention); pruneErr != nil {
+		e.Logger.Warn("run retention prune failed", logging.String("job_id", jobID), logging.Any("err", pruneErr))
 	}
 
 	// Step 8: Update job.
