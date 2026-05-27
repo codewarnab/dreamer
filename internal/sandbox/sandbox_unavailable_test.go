@@ -8,6 +8,9 @@ import (
 )
 
 func TestPrepare_ModeOnUnavailable_ReturnsError(t *testing.T) {
+	if Available() {
+		t.Skip("sandbox available on this platform")
+	}
 	cmd := exec.Command("dreamer-test-placeholder")
 	_, err := Prepare(cmd, Config{Mode: ModeOn, ProjectDir: t.TempDir()})
 	if err == nil {
@@ -16,6 +19,9 @@ func TestPrepare_ModeOnUnavailable_ReturnsError(t *testing.T) {
 }
 
 func TestPrepare_ModeAutoUnavailable_ReturnsNoop(t *testing.T) {
+	if Available() {
+		t.Skip("sandbox available on this platform")
+	}
 	cmd := exec.Command("dreamer-test-placeholder")
 	cleanup, err := Prepare(cmd, Config{Mode: ModeAuto, ProjectDir: t.TempDir()})
 	if err != nil {

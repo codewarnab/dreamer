@@ -1,0 +1,74 @@
+//go:build linux
+
+// Linux sandbox using bubblewrap (bwrap). The entire host filesystem is
+// mounted read-only via --ro-bind / /, with selective --bind for writable
+// directories. User and PID namespaces isolate the child process.
+//
+// File layout:
+//
+//	linux.go        — Available(), prepare(), postStart()
+//	linux_bwrap.go  — bwrapPath(), userNamespacesEnabled(), isWSL1(), buildBwrapArgs()
+package sandbox
+
+import (
+	"fmt"
+	"os/exec"
+	"path/filepath"
+)
+
+// Available reports whether bubblewrap sandboxing is supported on this
+// system. Returns true only when bwrap is in PATH, user namespaces are
+// enabled, and the host is not WSL1 (which lacks user namespace support).
+func Available() bool {
+	return bwrapPath() != "" && userNamespacesEnabled() && !isWSL1()
+}
+
+// prepare wraps cmd with bwrap to sandbox the child process. The original
+// binary and args are preserved after the "--" separator in the bwrap
+// argument list. cmd.Path and cmd.Args are modified in-place.
+//
+// Writable dirs are resolved once here (Abs + EvalSymlinks + MkdirAll +
+// containment validation) and passed as pre-resolved paths to
+// buildBwrapArgs, which becomes a pure string-assembly function.
+//
+// Returns a no-op cleanup — bwrap handles its own lifecycle via
+// --die-with-parent and --unshare-pid.
+func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
+	projectDir, err := filepath.Abs(cfg.ProjectDir)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: resolve project dir: %w", err)
+	}
+	projectDir, err = filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("sandbox: resolve symlinks in project dir: %w", err)
+	}
+
+	// Resolve and validate writable dirs once. buildBwrapArgs receives
+	// pre-resolved paths and is a pure string-assembly function.
+	resolvedDirs, err := resolveAndValidateWritableDirs(cfg.WritableDirs, projectDir)
+	if err != nil {
+		return nil, err
+	}
+
+	bwrapBinPath := bwrapPath()
+	originalBinary := cmd.Path
+	var originalArgs []string
+	if len(cmd.Args) > 1 {
+		originalArgs = cmd.Args[1:]
+	}
+
+	cmd.Path = bwrapBinPath
+	cmd.Args = append(
+		[]string{bwrapBinPath},
+		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs)...,
+	)
+
+	return func() {}, nil
+}
+
+// postStart is a no-op on Linux. Unlike Windows (where Job Objects manage
+// child lifecycle), bwrap's --die-with-parent and --unshare-pid ensure all
+// descendants are killed when the parent exits. No kernel handles to release.
+func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
+	return func() {}, nil
+}

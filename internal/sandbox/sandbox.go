@@ -1,7 +1,8 @@
 // Package sandbox provides OS-level process sandboxing for child-process
 // providers. On Windows, it uses WRITE_RESTRICTED tokens with capability SIDs
-// and Job Objects. On other platforms, ModeAuto is a no-op and providers are
-// responsible for using policy-only flags.
+// and Job Objects. On Linux, it uses bubblewrap (bwrap) with user+PID
+// namespaces and read-only root mount. On other platforms, ModeAuto is a
+// no-op and providers are responsible for using policy-only flags.
 //
 // The sandbox replaces provider-native policy flags (--permission-mode plan,
 // --yolo, --sandbox read-only) with kernel-enforced file access control.
@@ -75,8 +76,9 @@ func ParseMode(raw string) (Mode, error) {
 
 // Prepare applies OS-level sandbox constraints to cmd before it is started.
 // On Windows, this sets a WRITE_RESTRICTED token with a capability SID and
-// applies Allow-Write ACLs on writable dirs. On other platforms it is a
-// no-op. Must be called before cmd.Start().
+// applies Allow-Write ACLs on writable dirs. On Linux, this wraps cmd with
+// bwrap (read-only root, selective bind mounts, user+PID namespaces). On
+// other platforms it is a no-op. Must be called before cmd.Start().
 //
 // Returns a cleanup function that must be called after cmd.Wait() to release
 // kernel handles (restricted token). Returns a no-op cleanup on ModeOff.
