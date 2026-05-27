@@ -38,10 +38,6 @@ func DeriveProjectName(projectPath string, usedNames map[string]string) string {
 	return candidate + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
-func deriveProjectName(projectPath string) string {
-	return DeriveProjectName(projectPath, nil)
-}
-
 func projectNameCollides(candidate string, projectPath string, usedNames map[string]string) bool {
 	if len(usedNames) == 0 {
 		return false

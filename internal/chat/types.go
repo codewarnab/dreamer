@@ -34,6 +34,10 @@ type ChatSource struct {
 // DiscoveryEnvironment captures the OS-derived inputs that drive chat source
 // discovery. Tests build this manually; DiscoverChats resolves it from the
 // process environment.
+//
+// TODO: This struct has 11 fields coupling the chat package to every SQLite
+// provider's reader type. Refactor so providers register their own per-provider
+// env via a chat.ProviderEnv(name) lookup rather than the central struct.
 type DiscoveryEnvironment struct {
 	HomeDir           string
 	AppDataDir        string

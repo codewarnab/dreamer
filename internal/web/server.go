@@ -46,8 +46,10 @@ type Options struct {
 	// OverlayPath is the absolute path to ui-overrides.yaml used by the
 	// settings PUT handler. Empty disables overlay writes.
 	OverlayPath string
-	// Runner, when non-nil, enqueues on-demand runs for the run handler.
-	Runner *Runner
+	// EnqueueRun, when non-nil, enqueues on-demand runs for the run handler.
+	// Returns (jobID, true, nil) on success; ("", false, nil) when a job is
+	// already active for the project (queue-level dedup).
+	EnqueueRun func(projectName string) (jobID string, accepted bool, err error)
 	// RestartHook, when non-nil, is invoked by /api/daemon/restart to trigger
 	// graceful daemon shutdown (e.g. cancel the signal context).
 	RestartHook func() error
@@ -350,10 +352,10 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			return s.opts.Activity.Snapshot()
 		},
 		EnqueueRun: func(name string) (string, bool, error) {
-			if s.opts.Runner == nil {
+			if s.opts.EnqueueRun == nil {
 				return "", false, fmt.Errorf("runner not configured")
 			}
-			return s.opts.Runner.Enqueue(name)
+			return s.opts.EnqueueRun(name)
 		},
 		RestartDaemon: func() error {
 			if s.opts.RestartHook == nil {

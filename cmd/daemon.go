@@ -201,7 +201,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		return nil
 	}
 
-	runner := web.NewRunner(func(projectName string) (string, bool) {
+	enqueueRun := func(projectName string) (string, bool, error) {
 		curCfg := live.Load()
 		var proj config.ProjectConfig
 		found := false
@@ -213,7 +213,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 			}
 		}
 		if !found {
-			return "", false
+			return "", false, nil
 		}
 		job := queue.Enqueue(proj.Name, jobqueue.EnqueueConfig{
 			ProjectPath: proj.Path,
@@ -221,10 +221,10 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 			Since:       proj.Since,
 		})
 		if job == nil {
-			return "", false
+			return "", false, nil
 		}
-		return job.ID, true
-	}, logger)
+		return job.ID, true, nil
+	}
 
 	// Wire background job dependencies for the web UI.
 	outputRoot := cfg.Daemon.OutputRoot
@@ -306,7 +306,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		Events:      events,
 		ConfigPtr:   live,
 		OverlayPath: overlayPath,
-		Runner:      runner,
+		EnqueueRun:  enqueueRun,
 		RestartHook: restartHook,
 		Activity:    activity,
 		Jobs:        jobsDeps,

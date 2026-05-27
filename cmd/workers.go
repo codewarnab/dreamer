@@ -94,7 +94,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		logging.Any("worker", workerID),
 	)
 
-	maxDur, durErr := resolveMaxDuration(job, wp.cfg)
+	maxDur, durErr := wp.cfg.ResolveMaxDuration(job.Project)
 	if durErr != nil {
 		// Should never happen — config validation rejects bad durations at
 		// load time. Log and fail the job rather than silently fall back so
@@ -146,13 +146,6 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 			logging.Any("sources", result.SourcesAnalyzed),
 		)
 	}
-}
-
-// resolveMaxDuration returns the per-project or global max analysis duration.
-// Returns the underlying error so callers can surface regressions in config
-// validation rather than papering over them with an 8h default.
-func resolveMaxDuration(job *jobqueue.Job, cfg *config.Config) (time.Duration, error) {
-	return cfg.ResolveMaxDuration(job.Project)
 }
 
 // recoverStaleJobs cleans up running jobs left over from a prior daemon run.

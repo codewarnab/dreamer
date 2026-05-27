@@ -26,11 +26,11 @@ func TestPreflightShortCircuitForEmptyProject(t *testing.T) {
 		t.Fatalf("expected zero analyzed sources/messages, got %d / %d", res.SourcesAnalyzed, res.MessagesRead)
 	}
 
-	statePath, _ := state.PathForProject(outputRoot, deriveProjectName(projectDir))
+	statePath, _ := state.PathForProject(outputRoot, DeriveProjectName(projectDir, nil))
 	if _, err := os.Stat(statePath); err != nil {
 		t.Fatalf("preflight must save state to enable next-run cache hit, got stat err=%v", err)
 	}
-	loaded, err := state.Load(outputRoot, deriveProjectName(projectDir))
+	loaded, err := state.Load(outputRoot, DeriveProjectName(projectDir, nil))
 	if err != nil {
 		t.Fatalf("state.Load: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestProviderHealthRoundTrip(t *testing.T) {
 	if _, err := Run(context.Background(), Options{Config: cfg, ProjectPath: projectDir}, logger); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	loaded, err := state.Load(outputRoot, deriveProjectName(projectDir))
+	loaded, err := state.Load(outputRoot, DeriveProjectName(projectDir, nil))
 	if err != nil {
 		t.Fatalf("state.Load: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestPerCategoryTimestampAfterSuccess(t *testing.T) {
 	if _, err := Run(context.Background(), Options{Config: cfg, ProjectPath: projectDir}, logger); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	loaded, err := state.Load(outputRoot, deriveProjectName(projectDir))
+	loaded, err := state.Load(outputRoot, DeriveProjectName(projectDir, nil))
 	if err != nil {
 		t.Fatalf("state.Load: %v", err)
 	}

@@ -65,15 +65,6 @@ func (q *Queue) MaxConcurrent() int {
 	return q.maxConcurrent
 }
 
-// MaxDuration returns the configured per-job timeout.
-func (q *Queue) MaxDuration() time.Duration {
-	return q.maxDuration
-}
-
-// StorePath returns the path to jobs.json.
-func (q *Queue) StorePath() string {
-	return q.store.Path()
-}
 
 // Wake returns the channel signalled on Enqueue. Workers can select on it
 // to pre-empt their idle wait without polling on a long ticker.
