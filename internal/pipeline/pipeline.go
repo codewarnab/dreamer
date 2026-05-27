@@ -121,44 +121,6 @@ func resolveMaxConcurrency(appConfig *config.Config, opts Options) int {
 	return appConfig.Analyzer.Execution.MaxConcurrency
 }
 
-// recordProviderSuccess: Runs++, LastSuccessUTC = now, clear LastError.
-// Caller persists state.
-func recordProviderSuccess(currentState *state.State, providerID string, tokens int64) {
-	if currentState == nil || strings.TrimSpace(providerID) == "" {
-		return
-	}
-	if currentState.ProviderUsage == nil {
-		currentState.ProviderUsage = map[string]state.ProviderUsage{}
-	}
-	usage := currentState.ProviderUsage[providerID]
-	usage.Runs++
-	if tokens > 0 {
-		usage.TotalTokens += tokens
-	}
-	usage.LastSuccessUTC = time.Now().UTC()
-	usage.LastError = ""
-	currentState.ProviderUsage[providerID] = usage
-}
-
-// recordProviderFailure: Timeouts++ on DeadlineExceeded, else Failures++.
-// Caller persists state.
-func recordProviderFailure(currentState *state.State, providerID string, err error) {
-	if currentState == nil || strings.TrimSpace(providerID) == "" || err == nil {
-		return
-	}
-	if currentState.ProviderUsage == nil {
-		currentState.ProviderUsage = map[string]state.ProviderUsage{}
-	}
-	usage := currentState.ProviderUsage[providerID]
-	if errors.Is(err, context.DeadlineExceeded) {
-		usage.Timeouts++
-	} else {
-		usage.Failures++
-	}
-	usage.LastError = state.TruncateError(err.Error())
-	currentState.ProviderUsage[providerID] = usage
-}
-
 // runCtx bundles the per-invocation context shared by pipeline helpers.
 // Created once in Run() after all local variables are resolved.
 type runCtx struct {
@@ -550,7 +512,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
 		_ = provider.Close()
-		recordProviderFailure(currentState, discovery.providerID, err)
+		currentState.RecordProviderFailure(discovery.providerID, err)
 		runContext.persistFailureState(err, logger)
 		return analysis, fmt.Errorf("start provider %q: %w (%s)", discovery.providerID, err, config.RemediationMessage(discovery.providerID))
 	}
@@ -607,7 +569,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	pipelineResult, err := orchestrator.RunChunks(ctx, rc, chunkInputs, phaseReq)
 	if err != nil {
 		_ = provider.Close()
-		recordProviderFailure(currentState, discovery.providerID, err)
+		currentState.RecordProviderFailure(discovery.providerID, err)
 		runContext.persistFailureState(err, logger)
 		return analysis, fmt.Errorf("run analyzer: %w", err)
 	}
@@ -670,7 +632,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 	for _, cat := range analysis.result.CompletedCategories {
 		currentState.LastRunPerCategory[cat] = now
 	}
-	recordProviderSuccess(currentState, discovery.providerID, 0)
+	currentState.RecordProviderSuccess(discovery.providerID, 0)
 
 	if currentState.UsageStats == nil {
 		currentState.UsageStats = map[string]int64{}
