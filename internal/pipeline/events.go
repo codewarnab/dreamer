@@ -12,8 +12,8 @@ const (
 	EventRunError       = "run.error"
 	EventFindingApplied = "finding.applied"
 	EventFindingUndone  = "finding.undone"
-	EventFindingDismiss = "finding.dismissed"
-	EventFindingResolve = "finding.resolved"
+	EventFindingDismissed = "finding.dismissed"
+	EventFindingResolved  = "finding.resolved"
 	EventConfigReload   = "config.reloaded"
 	EventChatDeleted    = "chat.deleted"
 )
