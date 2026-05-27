@@ -29,6 +29,9 @@ type Deps struct {
 	// StateLock serializes state Load→Mutate→Save cycles per project
 	// so concurrent lifecycle handlers don't clobber each other.
 	StateLock *ProjectLock
+	// Jobs holds background job dependencies. When zero-valued, job
+	// endpoints return 503.
+	Jobs JobDeps
 }
 
 // Dashboard returns an http.HandlerFunc for GET /api/dashboard.

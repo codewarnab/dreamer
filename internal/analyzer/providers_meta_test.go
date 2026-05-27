@@ -49,3 +49,57 @@ func TestProviderMetaDisplayNameNonEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIBackgroundSafeProviders(t *testing.T) {
+	cliProviders := []analyzer.ProviderID{
+		analyzer.ProviderOpenClaudeCLI,
+		analyzer.ProviderClaudeCLI,
+		analyzer.ProviderCodexCLI,
+		analyzer.ProviderGeminiCLI,
+	}
+	for _, id := range cliProviders {
+		caps := analyzer.LookupProviderCapabilities(id)
+		if !caps.BackgroundSafe {
+			t.Errorf("CLI provider %q: BackgroundSafe = false, want true", id)
+		}
+		if !caps.RequiresNetwork {
+			t.Errorf("CLI provider %q: RequiresNetwork = false, want true", id)
+		}
+		if !caps.SupportsBackgroundWrites {
+			t.Errorf("CLI provider %q: SupportsBackgroundWrites = false, want true", id)
+		}
+		if !caps.NeedsNativeSandbox {
+			t.Errorf("CLI provider %q: NeedsNativeSandbox = false, want true", id)
+		}
+	}
+}
+
+func TestACPAndSDKProvidersNotBackgroundSafe(t *testing.T) {
+	nonCLIProviders := []analyzer.ProviderID{
+		analyzer.ProviderCopilotSDK,
+		analyzer.ProviderCopilotACP,
+		analyzer.ProviderClaudeACP,
+		analyzer.ProviderGeminiACP,
+		analyzer.ProviderKiroACP,
+		analyzer.ProviderCodexACP,
+		analyzer.ProviderOpenCodeACP,
+		analyzer.ProviderOpenCodeServer,
+		analyzer.ProviderCodebuffSDK,
+	}
+	for _, id := range nonCLIProviders {
+		caps := analyzer.LookupProviderCapabilities(id)
+		if caps.BackgroundSafe {
+			t.Errorf("non-CLI provider %q: BackgroundSafe = true, want false", id)
+		}
+		if !caps.RequiresNetwork {
+			t.Errorf("provider %q: RequiresNetwork = false, want true", id)
+		}
+	}
+}
+
+func TestLookupProviderCapabilities_Unknown(t *testing.T) {
+	caps := analyzer.LookupProviderCapabilities("nonexistent-provider")
+	if caps.BackgroundSafe {
+		t.Error("unknown provider should have zero-value capabilities (BackgroundSafe=false)")
+	}
+}

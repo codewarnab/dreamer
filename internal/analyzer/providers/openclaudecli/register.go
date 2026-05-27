@@ -16,5 +16,12 @@ func init() {
 		DisplayName: "OpenClaude CLI (recommended)",
 		Order:       10,
 		Phase2Mode:  analyzer.Phase2ModeMCP,
+		Capabilities: analyzer.ProviderCapabilities{
+			BackgroundSafe:           true,
+			RequiresNetwork:          true,
+			SupportsBackgroundWrites: true,
+			NeedsNativeSandbox:       true,
+			AllowsCustomCommand:      true,
+		},
 	})
 }

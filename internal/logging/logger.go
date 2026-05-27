@@ -99,6 +99,15 @@ func New(outputRoot string, level string, maxSizeMB int) (*Logger, error) {
 	return &Logger{file: file, logger: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
 }
 
+// Silent returns a logger that discards all output. Useful for CLI commands
+// that need a logger for the Store/RunStore but don't want log files.
+func Silent() *Logger {
+	handler := slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError + 1, // above Error = nothing logged
+	})
+	return &Logger{logger: slog.New(handler), level: slog.LevelError + 1}
+}
+
 // Path returns the absolute log file path used by this logger.
 func (logger *Logger) Path() string {
 	if logger == nil {

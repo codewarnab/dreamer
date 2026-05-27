@@ -27,5 +27,8 @@ func init() {
 		ID:          analyzer.ProviderGeminiACP,
 		DisplayName: "Gemini via ACP",
 		Order:       70,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }

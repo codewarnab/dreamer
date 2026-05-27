@@ -25,5 +25,8 @@ func init() {
 		ID:          analyzer.ProviderOpenCodeACP,
 		DisplayName: "OpenCode via ACP",
 		Order:       110,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }

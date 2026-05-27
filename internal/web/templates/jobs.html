@@ -1,0 +1,354 @@
+{{define "content"}}
+<section x-data="jobsPage()" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">background jobs</span>
+    <h1 class="headline-lg">jobs</h1>
+    <p class="body" style="color: var(--text-secondary); max-width: 60ch;">
+      Schedule recurring prompts that run automatically via your configured providers.
+    </p>
+  </header>
+
+  <!-- System health card -->
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">system health</div>
+    <div style="display: flex; gap: var(--space-5); flex-wrap: wrap; margin-top: var(--space-3);">
+      <div>
+        <span class="label-mono">scheduling:</span>
+        <span class="pill" :class="health?.scheduling_available ? 'pill--healthy' : 'pill--warn'" x-text="health?.scheduling_available ? 'available' : 'unavailable'"></span>
+      </div>
+      <div>
+        <span class="label-mono">total jobs:</span>
+        <span x-text="health?.total_jobs ?? 0"></span>
+      </div>
+      <div>
+        <span class="label-mono">enabled:</span>
+        <span x-text="health?.enabled_jobs ?? 0"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create job card -->
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div class="kicker">create job</div>
+      <button class="btn btn--ghost" @click="showCreate = !showCreate" x-text="showCreate ? 'collapse' : 'expand'"></button>
+    </div>
+    <div x-show="showCreate" x-collapse style="margin-top: var(--space-4);">
+      <div style="display: flex; flex-direction: column; gap: var(--space-3);">
+        <div>
+          <label class="label-mono" for="job-prompt">prompt</label>
+          <textarea class="input" id="job-prompt" rows="4" x-model="form.prompt" placeholder="What should the job do?" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);"></textarea>
+        </div>
+        <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="job-project">project</label>
+            <select class="input" id="job-project" x-model="form.project_name" style="display: block; margin-top: var(--space-2); width: 100%;">
+              <option value="">(default)</option>
+              <template x-for="p in projects" :key="p">
+                <option :value="p" x-text="p"></option>
+              </template>
+            </select>
+          </div>
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="job-provider">provider</label>
+            <select class="input" id="job-provider" x-model="form.provider_id" style="display: block; margin-top: var(--space-2); width: 100%;">
+              <template x-for="p in providers" :key="p.id">
+                <option :value="p.id" x-text="p.display_name"></option>
+              </template>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="label-mono">schedule</label>
+          <div style="display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap;">
+            <button class="btn" :class="form.schedule_kind === 'hourly' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'hourly'">hourly</button>
+            <button class="btn" :class="form.schedule_kind === 'daily' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'daily'">daily</button>
+            <button class="btn" :class="form.schedule_kind === 'weekly' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'weekly'">weekly</button>
+            <button class="btn" :class="form.schedule_kind === 'cron' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'cron'">cron</button>
+          </div>
+        </div>
+        <div x-show="form.schedule_kind === 'daily' || form.schedule_kind === 'weekly'" style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+          <div x-show="form.schedule_kind === 'weekly'">
+            <label class="label-mono" for="job-day">day of week</label>
+            <select class="input" id="job-day" x-model="form.day_of_week" style="display: block; margin-top: var(--space-2);">
+              <option value="monday">monday</option>
+              <option value="tuesday">tuesday</option>
+              <option value="wednesday">wednesday</option>
+              <option value="thursday">thursday</option>
+              <option value="friday">friday</option>
+              <option value="saturday">saturday</option>
+              <option value="sunday">sunday</option>
+            </select>
+          </div>
+          <div>
+            <label class="label-mono" for="job-time">time of day</label>
+            <input class="input" id="job-time" type="time" x-model="form.time_of_day" style="display: block; margin-top: var(--space-2);">
+          </div>
+        </div>
+        <div x-show="form.schedule_kind === 'cron'">
+          <label class="label-mono" for="job-cron">cron expression</label>
+          <input class="input" id="job-cron" type="text" x-model="form.cron" placeholder="*/30 * * * *" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+        </div>
+        <div>
+          <label class="label-mono" for="job-name">name (optional)</label>
+          <input class="input" id="job-name" type="text" x-model="form.name" placeholder="auto-generated from prompt" style="display: block; margin-top: var(--space-2); width: 100%;">
+        </div>
+        <div style="display: flex; gap: var(--space-3); align-items: center;">
+          <button class="btn btn--ghost" @click="previewJob()" :disabled="loading">preview</button>
+          <button class="btn btn--primary" @click="createJob()" :disabled="loading" x-text="loading ? 'creating...' : 'create'"></button>
+          <span x-show="error" x-text="error" style="color: #ef476f;"></span>
+        </div>
+        <!-- Preview result -->
+        <div x-show="preview" class="card" style="background: var(--surface-1); margin-top: var(--space-2);">
+          <div class="kicker">preview</div>
+          <div style="margin-top: var(--space-2);">
+            <div><span class="label-mono">schedule:</span> <span x-text="preview?.schedule_summary"></span></div>
+            <div><span class="label-mono">next runs:</span> <span x-text="preview?.next_3_runs?.join(', ')"></span></div>
+            <div><span class="label-mono">provider:</span> <span x-text="preview?.provider?.display_name"></span></div>
+            <div x-show="preview?.warnings?.length > 0" style="color: var(--text-secondary);">
+              <span class="label-mono">warnings:</span> <span x-text="preview?.warnings?.join(', ')"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Job list table -->
+  <div class="card">
+    <div class="kicker">jobs</div>
+    <table class="table" style="margin-top: var(--space-3);">
+      <thead>
+        <tr>
+          <th>name</th>
+          <th>provider</th>
+          <th>schedule</th>
+          <th>next run</th>
+          <th>status</th>
+          <th>runs</th>
+          <th>actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="job in jobs" :key="job.id">
+          <tr>
+            <td><a :href="'/jobs/' + job.id" x-text="job.name" style="color: var(--text-primary);"></a></td>
+            <td x-text="job.provider_id"></td>
+            <td x-text="job.schedule_summary || '—'"></td>
+            <td x-text="job.next_run_at ? new Date(job.next_run_at).toLocaleString() : '—'"></td>
+            <td>
+              <span class="pill" :class="statusPill(job).class" x-text="statusPill(job).label"></span>
+            </td>
+            <td x-text="job.run_count"></td>
+            <td>
+              <div style="display: flex; gap: var(--space-2);">
+                <button class="btn btn--ghost" @click="runNow(job.id)" title="Run now">&#9654;</button>
+                <button class="btn btn--ghost" @click="job.enabled ? pauseJob(job.id) : resumeJob(job.id)" x-text="job.enabled ? 'pause' : 'resume'"></button>
+                <button class="btn btn--ghost" @click="deleteJob(job.id)" title="Delete" style="color: #ef476f;">&times;</button>
+              </div>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="jobs.length === 0" style="color: var(--text-secondary); padding: var(--space-4) 0;">No background jobs configured.</div>
+  </div>
+
+  <!-- Audit log -->
+  <div class="card" style="margin-top: var(--space-4);">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div class="kicker">audit log</div>
+      <button class="btn btn--ghost" @click="showAudit = !showAudit; if (showAudit && auditEvents.length === 0) loadAudit()" x-text="showAudit ? 'collapse' : 'expand'"></button>
+    </div>
+    <div x-show="showAudit" x-collapse style="margin-top: var(--space-3);">
+      <div x-show="auditEvents.length === 0" style="color: var(--text-secondary);">No audit events.</div>
+      <table x-show="auditEvents.length > 0" style="width: 100%; font-size: 0.85rem;">
+        <thead>
+          <tr>
+            <th style="text-align: left;">time</th>
+            <th style="text-align: left;">event</th>
+            <th style="text-align: left;">job</th>
+            <th style="text-align: left;">actor</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="ev in auditEvents" :key="ev.timestamp + ev.event">
+            <tr>
+              <td x-text="new Date(ev.timestamp).toLocaleString()" style="white-space: nowrap;"></td>
+              <td><span class="pill" x-text="ev.event"></span></td>
+              <td x-text="ev.job_id || '—'"></td>
+              <td x-text="ev.actor || '—'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+window.jobsPage = function () {
+  return {
+    jobs: [],
+    health: null,
+    showCreate: false,
+    form: {
+      prompt: '',
+      project_name: '',
+      provider_id: '',
+      schedule_kind: 'daily',
+      time_of_day: '09:00',
+      day_of_week: 'monday',
+      cron: '',
+      name: '',
+      model: '',
+    },
+    preview: null,
+    providers: [],
+    projects: [],
+    loading: false,
+    error: '',
+    showAudit: false,
+    auditEvents: [],
+    csrf: function () {
+      return document.querySelector('meta[name="csrf-token"]')?.content || '';
+    },
+    load: async function () {
+      const [jobsRes, settingsRes] = await Promise.all([
+        fetch('/api/jobs'),
+        fetch('/api/settings'),
+      ]);
+      if (jobsRes.ok) {
+        const data = await jobsRes.json();
+        this.jobs = data.jobs || [];
+        this.health = data.system_health || {};
+      }
+      if (settingsRes.ok) {
+        const cfg = await settingsRes.json();
+        this.projects = (cfg.projects || []).map(function (p) { return p.name; });
+        // Build providers list from config providers map.
+        const provs = cfg.providers || {};
+        this.providers = Object.keys(provs).map(function (id) {
+          return { id: id, display_name: provs[id].display_name || id };
+        });
+        if (this.providers.length > 0 && !this.form.provider_id) {
+          this.form.provider_id = this.providers[0].id;
+        }
+      }
+    },
+    loadAudit: async function () {
+      var r = await fetch('/api/jobs/audit');
+      if (r.ok) {
+        var data = await r.json();
+        this.auditEvents = data.events || [];
+      }
+    },
+    buildSchedule: function () {
+      var s = { kind: this.form.schedule_kind, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+      if (this.form.schedule_kind === 'daily') {
+        s.time_of_day = this.form.time_of_day;
+      } else if (this.form.schedule_kind === 'weekly') {
+        s.time_of_day = this.form.time_of_day;
+        s.day_of_week = this.form.day_of_week;
+      } else if (this.form.schedule_kind === 'cron') {
+        s.cron = this.form.cron;
+      }
+      return s;
+    },
+    previewJob: async function () {
+      this.error = '';
+      this.preview = null;
+      this.loading = true;
+      try {
+        var body = {
+          prompt: this.form.prompt,
+          project_name: this.form.project_name,
+          provider_id: this.form.provider_id,
+          schedule: this.buildSchedule(),
+          name: this.form.name,
+          model: this.form.model,
+        };
+        var r = await fetch('/api/jobs/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Dreamer-CSRF': this.csrf() },
+          body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (!r.ok) { this.error = data.error || 'preview failed'; return; }
+        this.preview = data;
+      } catch (e) { this.error = 'network error'; }
+      finally { this.loading = false; }
+    },
+    createJob: async function () {
+      this.error = '';
+      this.loading = true;
+      try {
+        var body = {
+          prompt: this.form.prompt,
+          project_name: this.form.project_name,
+          provider_id: this.form.provider_id,
+          schedule: this.buildSchedule(),
+          name: this.form.name,
+          model: this.form.model,
+        };
+        var r = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Dreamer-CSRF': this.csrf() },
+          body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (!r.ok) { this.error = data.error || 'create failed'; return; }
+        this.preview = null;
+        this.form.prompt = '';
+        this.form.name = '';
+        this.showCreate = false;
+        await this.load();
+      } catch (e) { this.error = 'network error'; }
+      finally { this.loading = false; }
+    },
+    pauseJob: async function (id) {
+      await fetch('/api/jobs/' + id + '/pause', {
+        method: 'POST',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      await this.load();
+    },
+    resumeJob: async function (id) {
+      await fetch('/api/jobs/' + id + '/resume', {
+        method: 'POST',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      await this.load();
+    },
+    deleteJob: async function (id) {
+      if (!confirm('Delete this job?')) return;
+      await fetch('/api/jobs/' + id, {
+        method: 'DELETE',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      await this.load();
+    },
+    runNow: async function (id) {
+      var r = await fetch('/api/jobs/' + id + '/run', {
+        method: 'POST',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      if (!r.ok) {
+        var data = await r.json();
+        alert(data.error || 'run failed');
+      }
+      await this.load();
+    },
+    statusPill: function (job) {
+      if (!job.enabled) return { label: 'paused', class: '' };
+      switch (job.run_state) {
+        case 'running': return { label: 'running', class: 'pill--info' };
+        case 'never_run': return { label: 'never run', class: '' };
+        case 'failed': return { label: 'last run failed', class: 'pill--warn' };
+        default: return { label: 'ready', class: 'pill--healthy' };
+      }
+    },
+  };
+};
+</script>
+{{end}}

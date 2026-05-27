@@ -539,7 +539,7 @@ func collectDismissedHashes(currentState *state.State) map[string]struct{} {
 func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, transcript transcriptResult, runContext *runCtx, currentState *state.State, runID string, logger *logging.Logger) (analysisResult, error) {
 	var analysis analysisResult
 
-	providerCfg := buildProviderConfig(discovery.providerID, discovery.providerBlock)
+	providerCfg := analyzer.ProviderConfigFromBlock(discovery.providerID, discovery.providerBlock)
 	provider, err := analyzer.NewProvider(analyzer.ProviderID(discovery.providerID), providerCfg)
 	if err != nil {
 		return analysis, fmt.Errorf("instantiate provider %q: %w (%s)", discovery.providerID, err, config.RemediationMessage(discovery.providerID))

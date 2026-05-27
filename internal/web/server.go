@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
@@ -53,6 +54,9 @@ type Options struct {
 	// Activity, when non-nil, provides a snapshot of recent pipeline events
 	// for the dashboard live_activity panel.
 	Activity *ActivityRing
+	// Jobs holds background job dependencies. When zero-valued, job
+	// endpoints return 503.
+	Jobs handlers.JobDeps
 }
 
 // Server is the embedded HTTP server lifecycle handle.
@@ -89,6 +93,8 @@ func (s *Server) initTemplates() {
 	s.templates = make(map[string]*template.Template)
 	for _, page := range []string{
 		"dashboard",
+		"jobs",
+		"job_detail",
 		"settings",
 		"logs",
 		"providers",
@@ -200,6 +206,7 @@ type pageRoute struct {
 
 var pageRoutes = map[string]pageRoute{
 	"/":          {template: "dashboard.html", nameInTitle: "dashboard"},
+	"/jobs":      {template: "jobs.html", nameInTitle: "jobs"},
 	"/settings":  {template: "settings.html", nameInTitle: "settings"},
 	"/logs":      {template: "logs.html", nameInTitle: "logs"},
 	"/providers": {template: "providers.html", nameInTitle: "providers"},
@@ -216,6 +223,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if strings.HasPrefix(path, "/projects/") {
 		s.renderProjectPage(w, r)
+		return
+	}
+	if strings.HasPrefix(path, "/jobs/") {
+		s.renderJobDetailPage(w, r)
 		return
 	}
 	route, ok := pageRoutes[path]
@@ -305,11 +316,30 @@ func (s *Server) renderProjectPage(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, tmpl, struct{ ProjectName string }{ProjectName: name})
 }
 
+// renderJobDetailPage extracts the job ID from /jobs/{id}, validates it,
+// and renders the job_detail template with the ID as Extra.
+func (s *Server) renderJobDetailPage(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/jobs/")
+	rest = strings.TrimSuffix(rest, "/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	jobID := parts[0]
+	if err := backgroundjobs.ValidateJobID(jobID); err != nil {
+		http.Error(w, "invalid job id", http.StatusBadRequest)
+		return
+	}
+	s.renderPage(w, r, "job_detail.html", struct{ JobID string }{JobID: jobID})
+}
+
 func (s *Server) attachAPI(mux *http.ServeMux) {
 	deps := handlers.Deps{
 		Config: s.currentConfig,
 		Events: s.opts.Events,
 		Logger: s.opts.Logger,
+		Jobs:   s.opts.Jobs,
 		OverlayPath: func() string {
 			return s.opts.OverlayPath
 		},
@@ -347,6 +377,11 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	mux.Handle("/api/events", handlers.Events(deps))
 	mux.Handle("/api/fs/exists", handlers.FSExists(deps))
 	mux.Handle("/api/daemon/restart", handlers.DaemonRestart(deps))
+
+	// /api/jobs[/...] — background jobs endpoints.
+	// RouteJobs handles all sub-routes including collection, preview, health.
+	mux.Handle("/api/jobs", handlers.RouteJobs(deps))
+	mux.Handle("/api/jobs/", handlers.RouteJobs(deps))
 
 	// /api/projects/{name}[/sub...] — dispatcher routes by path shape.
 	mux.HandleFunc("/api/projects/", s.routeProject(deps))

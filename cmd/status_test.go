@@ -90,7 +90,7 @@ func TestFilterRecent(t *testing.T) {
 
 	status := jobqueue.QueueStatus{
 		Jobs: []*jobqueue.Job{
-			{Status: jobqueue.StatusRunning},                    // active
+			{Status: jobqueue.StatusRunning},                        // active
 			{Status: jobqueue.StatusCompleted, FinishedAt: &recent}, // recent
 			{Status: jobqueue.StatusCompleted, FinishedAt: &old},    // stale
 		},
@@ -234,14 +234,14 @@ func TestPrintStatusJSON_WithJobs(t *testing.T) {
 		Cancelled: 1,
 		Jobs: []*jobqueue.Job{
 			{
-				ID:            "proj-001",
-				Project:       "proj",
-				Status:        jobqueue.StatusRunning,
-				EnqueuedAt:    now,
-				StartedAt:     &now,
-				Provider:      "test",
-				MessagesRead:  10,
-				SourcesCount:  2,
+				ID:           "proj-001",
+				Project:      "proj",
+				Status:       jobqueue.StatusRunning,
+				EnqueuedAt:   now,
+				StartedAt:    &now,
+				Provider:     "test",
+				MessagesRead: 10,
+				SourcesCount: 2,
 			},
 			{
 				ID:            "proj-002",
@@ -254,27 +254,27 @@ func TestPrintStatusJSON_WithJobs(t *testing.T) {
 				Provider:      "test",
 			},
 			{
-				ID:            "proj-003",
-				Project:       "proj",
-				Status:        jobqueue.StatusFailed,
-				EnqueuedAt:    now,
-				FinishedAt:    &now,
-				Error:         "analysis error",
-				Provider:      "test",
+				ID:         "proj-003",
+				Project:    "proj",
+				Status:     jobqueue.StatusFailed,
+				EnqueuedAt: now,
+				FinishedAt: &now,
+				Error:      "analysis error",
+				Provider:   "test",
 			},
 			{
-				ID:       "proj-004",
-				Project:  "proj",
-				Status:   jobqueue.StatusTimedOut,
+				ID:         "proj-004",
+				Project:    "proj",
+				Status:     jobqueue.StatusTimedOut,
 				EnqueuedAt: now,
-				Provider: "test",
+				Provider:   "test",
 			},
 			{
-				ID:       "proj-005",
-				Project:  "proj",
-				Status:   jobqueue.StatusCancelled,
+				ID:         "proj-005",
+				Project:    "proj",
+				Status:     jobqueue.StatusCancelled,
 				EnqueuedAt: now,
-				Provider: "test",
+				Provider:   "test",
 			},
 		},
 	}

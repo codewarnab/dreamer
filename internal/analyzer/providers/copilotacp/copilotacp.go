@@ -25,5 +25,8 @@ func init() {
 		ID:          analyzer.ProviderCopilotACP,
 		DisplayName: "Copilot via ACP",
 		Order:       30,
+		Capabilities: analyzer.ProviderCapabilities{
+			RequiresNetwork: true,
+		},
 	})
 }
