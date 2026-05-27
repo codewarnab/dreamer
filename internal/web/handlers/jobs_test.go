@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
@@ -80,12 +82,29 @@ func (m *mockRunStore) Count(jobID string) (int, error) {
 }
 
 type mockAuditWriter struct {
-	events []backgroundjobs.AuditEvent
+	events    []backgroundjobs.AuditEvent
+	readError error // if set, ReadAll returns this error
 }
 
 func (m *mockAuditWriter) Write(event backgroundjobs.AuditEvent) error {
 	m.events = append(m.events, event)
 	return nil
+}
+
+func (m *mockAuditWriter) ReadAll(limit int) ([]backgroundjobs.AuditEvent, error) {
+	if m.readError != nil {
+		return nil, m.readError
+	}
+	events := make([]backgroundjobs.AuditEvent, len(m.events))
+	copy(events, m.events)
+	// Match real implementation: sort newest-first.
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.After(events[j].Timestamp)
+	})
+	if limit > 0 && len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
 }
 
 type mockExecutor struct {
@@ -1090,5 +1109,203 @@ func TestResolveProjectPath_EmptyUsesFirst(t *testing.T) {
 	}
 	if path != cfg.Projects[0].Path {
 		t.Fatalf("expected %s, got %s", cfg.Projects[0].Path, path)
+	}
+}
+
+func TestJobAuditLog_ReturnsEvents(t *testing.T) {
+	audit := &mockAuditWriter{
+		events: []backgroundjobs.AuditEvent{
+			{Timestamp: time.Now().Add(-time.Minute), Event: "job.create", JobID: "abc"},
+			{Timestamp: time.Now(), Event: "job.run.finish", JobID: "abc"},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: audit},
+		Logger: testLogger(),
+	}
+
+	r := httptest.NewRequest("GET", "/api/jobs/audit", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Events []backgroundjobs.AuditEvent `json:"events"`
+		Total  int                          `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Total != 2 {
+		t.Errorf("total = %d, want 2", resp.Total)
+	}
+	if len(resp.Events) != 2 {
+		t.Errorf("events count = %d, want 2", len(resp.Events))
+	}
+}
+
+func TestJobAuditLog_RespectsLimit(t *testing.T) {
+	events := make([]backgroundjobs.AuditEvent, 10)
+	for i := range events {
+		events[i] = backgroundjobs.AuditEvent{Timestamp: time.Now(), Event: "test"}
+	}
+	audit := &mockAuditWriter{events: events}
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: audit},
+		Logger: testLogger(),
+	}
+
+	r := httptest.NewRequest("GET", "/api/jobs/audit?limit=3", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Events []backgroundjobs.AuditEvent `json:"events"`
+		Total  int                          `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Events) != 3 {
+		t.Errorf("events count = %d, want 3 (limited)", len(resp.Events))
+	}
+	if resp.Total != 3 {
+		t.Errorf("total = %d, want 3", resp.Total)
+	}
+}
+
+func TestJobAuditLog_NilAudit(t *testing.T) {
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: nil},
+		Logger: testLogger(),
+	}
+	r := httptest.NewRequest("GET", "/api/jobs/audit", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+}
+
+func TestJobAuditLog_InvalidLimitFallsBack(t *testing.T) {
+	events := make([]backgroundjobs.AuditEvent, 5)
+	for i := range events {
+		events[i] = backgroundjobs.AuditEvent{Event: "test"}
+	}
+	audit := &mockAuditWriter{events: events}
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: audit},
+		Logger: testLogger(),
+	}
+	r := httptest.NewRequest("GET", "/api/jobs/audit?limit=abc", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Invalid limit falls back to default 100; with 5 events, all returned.
+	if int(resp["total"].(float64)) != 5 {
+		t.Errorf("total = %v, want 5 (default limit)", resp["total"])
+	}
+}
+
+func TestJobAuditLog_LimitOver500Capped(t *testing.T) {
+	events := make([]backgroundjobs.AuditEvent, 600)
+	for i := range events {
+		events[i] = backgroundjobs.AuditEvent{Event: "test"}
+	}
+	audit := &mockAuditWriter{events: events}
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: audit},
+		Logger: testLogger(),
+	}
+	r := httptest.NewRequest("GET", "/api/jobs/audit?limit=1000", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Handler caps at 500; mock returns all 600, handler should truncate.
+	if int(resp["total"].(float64)) != 500 {
+		t.Errorf("total = %v, want 500 (capped)", resp["total"])
+	}
+}
+
+func TestJobAuditLog_ReadAllError(t *testing.T) {
+	audit := &mockAuditWriter{readError: fmt.Errorf("disk error")}
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: audit},
+		Logger: testLogger(),
+	}
+	r := httptest.NewRequest("GET", "/api/jobs/audit", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestJobAuditLog_MockSortsNewestFirst(t *testing.T) {
+	// Insert events in chronological order — mock should sort newest-first.
+	audit := &mockAuditWriter{
+		events: []backgroundjobs.AuditEvent{
+			{Timestamp: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), Event: "old"},
+			{Timestamp: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC), Event: "new"},
+			{Timestamp: time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC), Event: "mid"},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Jobs:   JobDeps{Audit: audit},
+		Logger: testLogger(),
+	}
+
+	r := httptest.NewRequest("GET", "/api/jobs/audit", nil)
+	w := httptest.NewRecorder()
+	JobAuditLog(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Events []backgroundjobs.AuditEvent `json:"events"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Events) != 3 {
+		t.Fatalf("events count = %d, want 3", len(resp.Events))
+	}
+	if resp.Events[0].Event != "new" {
+		t.Errorf("first event = %q, want 'new' (newest first)", resp.Events[0].Event)
+	}
+	if resp.Events[2].Event != "old" {
+		t.Errorf("last event = %q, want 'old' (oldest last)", resp.Events[2].Event)
 	}
 }

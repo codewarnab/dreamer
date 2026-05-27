@@ -69,6 +69,7 @@ type RunStore interface {
 // AuditWriter is the subset of backgroundjobs.AuditWriter needed by web handlers.
 type AuditWriter interface {
 	Write(event backgroundjobs.AuditEvent) error
+	ReadAll(limit int) ([]backgroundjobs.AuditEvent, error)
 }
 
 // JobExecutor is the subset of backgroundjobs.Executor needed by web handlers.
@@ -140,6 +141,11 @@ func validateCreatePayload(cfg *config.Config, payload createPayload, lookup fun
 	}
 	if !meta.BackgroundSafe {
 		return "", nil, fmt.Errorf("provider %q is not safe for background execution", payload.ProviderID)
+	}
+
+	// Network warning when provider requires network for model transport.
+	if meta.RequiresNetwork {
+		warnings = append(warnings, "Network required by provider for model transport")
 	}
 
 	// 4. Resolve project path — validate against config project list.
@@ -462,13 +468,14 @@ func JobPreview(deps Deps) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"valid":            true,
+			"can_create":       true,
 			"warnings":         warnings,
 			"schedule_summary": scheduleSummary,
 			"next_3_runs":      nextRuns,
 			"provider":         providerInfo,
 			"permissions": map[string]any{
 				"file_access":      "read_only",
-				"network_required": true,
+				"network_required": meta.RequiresNetwork,
 			},
 		})
 	}
@@ -534,6 +541,38 @@ func JobHealth(deps Deps) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// JobAuditLog returns an http.HandlerFunc for GET /api/jobs/audit.
+func JobAuditLog(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Jobs.Audit == nil {
+			writeJSONError(w, http.StatusServiceUnavailable, "audit log not available")
+			return
+		}
+
+		limit := 100
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				if n > 500 {
+					n = 500
+				}
+				limit = n
+			}
+		}
+
+		events, err := deps.Jobs.Audit.ReadAll(limit)
+		if err != nil {
+			deps.Logger.Error("audit read", logging.ErrAttr(err)...)
+			writeJSONError(w, http.StatusInternalServerError, "failed to read audit log")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"events": events,
+			"total":  len(events),
+		})
 	}
 }
 
@@ -938,6 +977,7 @@ func RouteJobs(deps Deps) http.HandlerFunc {
 	runDetail := JobRunDetail(deps)
 	preview := JobPreview(deps)
 	health := JobHealth(deps)
+	auditLog := JobAuditLog(deps)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Strip both /api/jobs/ and /api/jobs prefixes.
@@ -979,6 +1019,12 @@ func RouteJobs(deps Deps) http.HandlerFunc {
 					return
 				}
 				health(w, r)
+			case "audit":
+				if r.Method != http.MethodGet {
+					writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+					return
+				}
+				auditLog(w, r)
 			default:
 				if err := backgroundjobs.ValidateJobID(parts[0]); err != nil {
 					writeJSONError(w, http.StatusBadRequest, "invalid job id")
