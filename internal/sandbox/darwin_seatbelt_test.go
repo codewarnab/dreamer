@@ -463,6 +463,10 @@ func TestPrepare_WrapsCommand(t *testing.T) {
 func TestPrepare_SavesOriginalArgs(t *testing.T) {
 	project := t.TempDir()
 	cmd := exec.Command("echo", "hello", "world")
+	// exec.Command resolves cmd.Path via LookPath — on macOS this is
+	// typically /bin/echo. prepare() uses cmd.Path (not cmd.Args[0]) as
+	// the originalBinary, so we must assert the resolved path.
+	resolvedBinary := cmd.Path
 	cfg := Config{ProjectDir: project, Mode: ModeOn}
 
 	_, err := prepare(cmd, cfg)
@@ -480,8 +484,8 @@ func TestPrepare_SavesOriginalArgs(t *testing.T) {
 	if sepIdx < 0 {
 		t.Fatal("missing -- separator in cmd.Args")
 	}
-	if cmd.Args[sepIdx+1] != "echo" {
-		t.Fatalf("original binary = %q, want echo", cmd.Args[sepIdx+1])
+	if cmd.Args[sepIdx+1] != resolvedBinary {
+		t.Fatalf("original binary = %q, want %q", cmd.Args[sepIdx+1], resolvedBinary)
 	}
 	if cmd.Args[sepIdx+2] != "hello" || cmd.Args[sepIdx+3] != "world" {
 		t.Fatalf("original args = %v", cmd.Args[sepIdx+1:])
