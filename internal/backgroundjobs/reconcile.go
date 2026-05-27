@@ -114,6 +114,11 @@ func (r *Reconciler) computeReconcileActions(ctx context.Context, state *State) 
 	}
 
 	for _, osID := range ownIDs {
+		// B15: Skip IDs that don't match the expected format (defense-in-depth).
+		if ValidateJobID(osID) != nil {
+			r.Logger.Warn("skipping invalid OS schedule ID", logging.String("os_id", osID))
+			continue
+		}
 		if !storeIDs[osID] {
 			actions = append(actions, ReconcileAction{
 				JobID:  osID,
