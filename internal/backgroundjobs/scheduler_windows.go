@@ -77,7 +77,10 @@ func (s *windowsScheduler) Remove(_ context.Context, jobID string) error {
 	taskPath := taskFolderPrefix + jobID
 	_, err := s.runCmd(schtasksExe, "/Delete", "/TN", taskPath, "/F")
 	if err != nil {
-		return fmt.Errorf("delete task %q: %w", taskPath, err)
+		if classifyScheduleError(err) == scheduleErrNotFound {
+			return nil // already gone — idempotent
+		}
+		return fmt.Errorf("delete task %q: %w", taskPath, classifyScheduleError(err))
 	}
 	return nil
 }
@@ -87,7 +90,11 @@ func (s *windowsScheduler) Inspect(_ context.Context, jobID string) (ScheduleHea
 	taskPath := taskFolderPrefix + jobID
 	output, err := s.runCmd(schtasksExe, "/Query", "/TN", taskPath, "/XML")
 	if err != nil {
-		return ScheduleHealth{Installed: false}, nil
+		cat := classifyScheduleError(err)
+		if cat == scheduleErrNotFound {
+			return ScheduleHealth{Installed: false}, nil
+		}
+		return ScheduleHealth{Installed: false}, fmt.Errorf("inspect task %q: %w", taskPath, cat)
 	}
 
 	health := ScheduleHealth{Installed: true}
@@ -159,7 +166,7 @@ func (s *windowsScheduler) writeTask(ctx context.Context, taskPath string, xmlBy
 
 	_, err = s.runCmd(schtasksExe, "/Create", "/TN", taskPath, "/XML", tmpFile.Name(), "/F")
 	if err != nil {
-		return fmt.Errorf("schtasks /Create: %w", err)
+		return fmt.Errorf("schtasks /Create: %w", classifyScheduleError(err))
 	}
 	return nil
 }
@@ -387,4 +394,52 @@ func specHashOrEmpty(spec ScheduleSpec) string {
 		return ""
 	}
 	return h
+}
+
+// scheduleErrorCategory classifies schtasks errors for user-friendly messages.
+type scheduleErrorCategory int
+
+const (
+	scheduleErrNone       scheduleErrorCategory = iota // nil error (no error)
+	scheduleErrPermission                              // access denied
+	scheduleErrNotFound                                // task doesn't exist
+	scheduleErrXML                                     // XML/validation error
+	scheduleErrUnknown                                 // unrecognized
+)
+
+func (c scheduleErrorCategory) Error() string {
+	switch c {
+	case scheduleErrNone:
+		return "no error"
+	case scheduleErrPermission:
+		return "access denied — try running as administrator, or check Task Scheduler permissions"
+	case scheduleErrNotFound:
+		return "task not found"
+	case scheduleErrXML:
+		return "invalid task definition — run 'dreamer jobs reconcile' to repair"
+	default:
+		return "unknown scheduler error"
+	}
+}
+
+// classifyScheduleError inspects a schtasks error and returns a categorized
+// error with a user-friendly message. Falls back to the original error if
+// unrecognized.
+func classifyScheduleError(err error) scheduleErrorCategory {
+	if err == nil {
+		return scheduleErrNone
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "access is denied") || strings.Contains(msg, "permission"):
+		return scheduleErrPermission
+	case strings.Contains(msg, "the system cannot find the file specified") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "does not exist"):
+		return scheduleErrNotFound
+	case strings.Contains(msg, "xml") || strings.Contains(msg, "invalid"):
+		return scheduleErrXML
+	default:
+		return scheduleErrUnknown
+	}
 }

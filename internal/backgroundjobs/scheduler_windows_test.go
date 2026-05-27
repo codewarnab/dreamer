@@ -2,7 +2,10 @@
 
 package backgroundjobs
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestStripControlChars(t *testing.T) {
 	tests := []struct {
@@ -72,6 +75,90 @@ func TestExtractXMLField(t *testing.T) {
 			got := extractXMLField(xml, tt.field)
 			if got != tt.want {
 				t.Errorf("extractXMLField(%q, %q) = %q, want %q", xml, tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyScheduleError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want scheduleErrorCategory
+	}{
+		{"nil", nil, scheduleErrNone},
+		{"access denied", fmt.Errorf("Access is denied."), scheduleErrPermission},
+		{"permission keyword", fmt.Errorf("permission denied for task"), scheduleErrPermission},
+		{"file not found", fmt.Errorf("The system cannot find the file specified."), scheduleErrNotFound},
+		{"not found keyword", fmt.Errorf("task not found in scheduler"), scheduleErrNotFound},
+		{"does not exist", fmt.Errorf("The task does not exist"), scheduleErrNotFound},
+		{"xml error", fmt.Errorf("Invalid XML content"), scheduleErrXML},
+		{"invalid keyword", fmt.Errorf("invalid schedule format"), scheduleErrXML},
+		{"unrecognized", fmt.Errorf("some random error"), scheduleErrUnknown},
+		{"empty error", fmt.Errorf(""), scheduleErrUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyScheduleError(tt.err)
+			if got != tt.want {
+				t.Errorf("classifyScheduleError(%v) = %v (%s), want %v (%s)",
+					tt.err, got, got.Error(), tt.want, tt.want.Error())
+			}
+		})
+	}
+}
+
+func TestScheduleErrorCategory_ErrorString(t *testing.T) {
+	// Verify all categories have non-empty error strings.
+	categories := []scheduleErrorCategory{
+		scheduleErrNone, scheduleErrPermission, scheduleErrNotFound,
+		scheduleErrXML, scheduleErrUnknown,
+	}
+	for _, c := range categories {
+		if c.Error() == "" {
+			t.Errorf("category %d has empty Error() string", c)
+		}
+	}
+}
+
+func TestParseWindowsTime(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"ISO basic", "2026-05-27T09:00:00", false},
+		{"ISO with fractional", "2026-05-27T09:00:00.123456789", false},
+		{"RFC3339", "2026-05-27T09:00:00+05:30", false},
+		{"US format", "5/27/2026 9:00:00 AM", false},
+		{"unparseable", "not a time", true},
+		{"empty", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseWindowsTime(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseWindowsTime(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestWeekdayToXMLElement(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"monday", "Monday"}, {"tuesday", "Tuesday"}, {"wednesday", "Wednesday"},
+		{"thursday", "Thursday"}, {"friday", "Friday"}, {"saturday", "Saturday"},
+		{"sunday", "Sunday"},
+		{"unknown", "Monday"}, // default fallback
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := weekdayToXMLElement(tt.input)
+			if got != tt.want {
+				t.Errorf("weekdayToXMLElement(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
