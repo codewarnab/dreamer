@@ -37,7 +37,7 @@ func TestStateJSONRoundTrip(t *testing.T) {
 				},
 				Health: HealthState{
 					SystemScheduling: SchedulingNeedsInstall,
-					JobSchedule:      ScheduleValid,
+					JobSchedule:      JobScheduleValid,
 					RunState:         RunStatusNeverRun,
 					PermissionState:  PermissionAllowed,
 				},

@@ -344,7 +344,7 @@ func newJobsCreateCommand() *cobra.Command {
 				},
 				Health: backgroundjobs.HealthState{
 					SystemScheduling: backgroundjobs.SchedulingNotInstalled,
-					JobSchedule:      backgroundjobs.ScheduleValid,
+					JobSchedule:      backgroundjobs.JobScheduleValid,
 					RunState:         backgroundjobs.RunStatusIdle,
 					PermissionState:  backgroundjobs.PermissionAllowed,
 				},

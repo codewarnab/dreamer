@@ -1,7 +1,7 @@
 // Package backgroundjobs implements recurring natural-language tasks that run
-// via OS scheduling (Task Scheduler, LaunchAgent, systemd). Phase 0 provides
-// the shared data model, cross-process store, schedule validation, permission
-// checks, and audit logging.
+// via OS scheduling (Task Scheduler, LaunchAgent, systemd). Provides the
+// shared data model, cross-process store, schedule validation, permission
+// checks, audit logging, and job execution.
 package backgroundjobs
 
 import "time"
@@ -125,16 +125,16 @@ type SchedulingHealth string
 const (
 	SchedulingNotInstalled SchedulingHealth = "not_installed"
 	SchedulingNeedsInstall SchedulingHealth = "needs_install"
-	SchedulingValid        SchedulingHealth = "valid"
+	SystemSchedulingValid        SchedulingHealth = "valid"
 	SchedulingError        SchedulingHealth = "error"
 )
 
-// ScheduleValidity describes whether the job's schedule spec is valid.
-type ScheduleValidity string
+// JobScheduleValidity describes whether the job's schedule spec is valid.
+type JobScheduleValidity string
 
 const (
-	ScheduleValid   ScheduleValidity = "valid"
-	ScheduleInvalid ScheduleValidity = "invalid"
+	JobScheduleValid   JobScheduleValidity = "valid"
+	JobScheduleInvalid JobScheduleValidity = "invalid"
 )
 
 // PermissionHealth describes the job's permission status.
@@ -149,7 +149,7 @@ const (
 // HealthState carries per-job health indicators.
 type HealthState struct {
 	SystemScheduling SchedulingHealth `json:"system_scheduling"`
-	JobSchedule      ScheduleValidity `json:"job_schedule"`
+	JobSchedule      JobScheduleValidity `json:"job_schedule"`
 	RunState         RunStatus        `json:"run_state"`
 	PermissionState  PermissionHealth `json:"permission_state"`
 	LastChecked      *time.Time       `json:"last_checked,omitempty"`
