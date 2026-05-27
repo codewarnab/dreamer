@@ -5,14 +5,11 @@
 package acpcore
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +19,6 @@ import (
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 	"dreamer/internal/fsutil"
-	"dreamer/internal/sandbox"
 )
 
 // ErrTransportClosed: ACP child process exited before/during a session.Run.
@@ -301,160 +297,3 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 
 func (s *session) Close() error { return nil }
 
-type permissionHandler func(req map[string]any) map[string]any
-
-func dialStdio(ctx context.Context, providerID string, command []string, env map[string]string, sandboxMode string) (*transport, error) {
-	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-	cmd.Env = transportutil.MergeWithProcessEnv(env)
-
-	// Apply OS-level sandbox if configured.
-	sbMode, err := sandbox.ParseMode(sandboxMode)
-	if err != nil {
-		return nil, fmt.Errorf("acpcore: %w", err)
-	}
-	// ACP providers don't know the project dir at spawn time (received
-	// per-session via session/new). The kernel write-block does NOT
-	// cover ACP project files — per-session path restrictions rely
-	// entirely on the policy layer (permission handler). Under agents
-	// running with --yolo / --dangerously-skip-permissions, the policy
-	// layer is bypassed, leaving project files unprotected from writes.
-	// Privilege stripping (WRITE_RESTRICTED token) and orphan cleanup
-	// (Job Object KILL_ON_JOB_CLOSE) are still applied.
-	writableDirs, err := acpWritableDirs(providerID, env)
-	if err != nil {
-		return nil, err
-	}
-	sbCfg := sandbox.Config{
-		ProjectDir:   "",
-		WritableDirs: writableDirs,
-		Mode:         sbMode,
-	}
-	var prepareCleanup func()
-	if sbMode != sandbox.ModeOff {
-		var err error
-		prepareCleanup, err = sandbox.Prepare(cmd, sbCfg)
-		if err != nil {
-			return nil, fmt.Errorf("acpcore: sandbox prepare: %w", err)
-		}
-	}
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		if prepareCleanup != nil {
-			prepareCleanup()
-		}
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		if prepareCleanup != nil {
-			prepareCleanup()
-		}
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		if prepareCleanup != nil {
-			prepareCleanup()
-		}
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		_ = stderr.Close()
-		if prepareCleanup != nil {
-			prepareCleanup()
-		}
-		return nil, err
-	}
-
-	// Apply post-start sandbox (Job Object on Windows).
-	// Store cleanup on transport so it's called when transport.close() runs.
-	var postCleanup func()
-	if sbMode != sandbox.ModeOff {
-		var err error
-		postCleanup, err = sandbox.PostStart(cmd, sbCfg)
-		if err != nil {
-			_ = stdin.Close()
-			_ = stdout.Close()
-			_ = stderr.Close()
-			_ = cmd.Process.Kill()
-			go func() { _ = cmd.Wait() }()
-			if prepareCleanup != nil {
-				prepareCleanup()
-			}
-			return nil, fmt.Errorf("acpcore: sandbox post-start: %w", err)
-		}
-	}
-
-	t := &transport{
-		cmd:            cmd,
-		stdin:          stdin,
-		stdout:         bufio.NewReader(stdout),
-		sandboxCleanup: postCleanup,
-		prepareCleanup: prepareCleanup,
-		stderrPipe:     stderr,
-	}
-	t.goroutines.Add(2)
-	go t.drainStderr(stderr)
-	go t.readLoop(nil)
-	return t, nil
-}
-
-// acpWritableDirs returns provider-specific state directories that ACP agents
-// need for auth, sessions, and caches while running under a restricted token.
-func acpWritableDirs(providerID string, env map[string]string) ([]string, error) {
-	dirs := []string{os.TempDir()}
-	switch analyzer.ProviderID(providerID) {
-	case analyzer.ProviderClaudeACP:
-		dir, err := resolveACPConfigDir(env, "CLAUDE_CONFIG_DIR", ".claude")
-		if err != nil {
-			return nil, fmt.Errorf("acpcore: resolve claude config dir for sandbox writable paths: %w", err)
-		}
-		dirs = append(dirs, dir)
-	case analyzer.ProviderGeminiACP:
-		dir, err := resolveACPConfigDir(env, "GEMINI_HOME", ".gemini")
-		if err != nil {
-			return nil, fmt.Errorf("acpcore: resolve gemini home for sandbox writable paths: %w", err)
-		}
-		dirs = append(dirs, dir)
-	case analyzer.ProviderCodexACP:
-		dir, err := resolveACPConfigDir(env, "CODEX_HOME", ".codex")
-		if err != nil {
-			return nil, fmt.Errorf("acpcore: resolve codex home for sandbox writable paths: %w", err)
-		}
-		dirs = append(dirs, dir)
-	}
-	return dirs, nil
-}
-
-// resolveACPConfigDir mirrors each provider's discovery environment variable
-// before falling back to the conventional directory under the user's home.
-func resolveACPConfigDir(env map[string]string, envName, fallbackName string) (string, error) {
-	if envValue := strings.TrimSpace(env[envName]); envValue != "" {
-		return envValue, nil
-	}
-	if envValue := strings.TrimSpace(os.Getenv(envName)); envValue != "" {
-		return envValue, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, fallbackName), nil
-}
-
-func copyStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
