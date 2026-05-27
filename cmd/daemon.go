@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/jobqueue"
@@ -18,6 +19,7 @@ import (
 	"dreamer/internal/mcpserver"
 	"dreamer/internal/pipeline"
 	"dreamer/internal/web"
+	"dreamer/internal/web/handlers"
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
@@ -94,7 +96,7 @@ func newDaemonCommand() *cobra.Command {
 
 			var live atomic.Pointer[config.Config]
 			live.Store(cfg)
-			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop)
+			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
@@ -184,7 +186,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 }
 
 // startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
-func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc) <-chan struct{} {
+func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string) <-chan struct{} {
 	done := make(chan struct{})
 	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
 		close(done)
@@ -224,6 +226,59 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		return job.ID, true
 	}, logger)
 
+	// Wire background job dependencies for the web UI.
+	outputRoot := cfg.Daemon.OutputRoot
+	store := backgroundjobs.NewStore(outputRoot, logger)
+	runStore := backgroundjobs.NewRunStore(store.Dir(), logger)
+	auditWriter := backgroundjobs.NewAuditWriter(store.Dir())
+	installID, _ := backgroundjobs.ResolveInstallID(store.Dir())
+
+	var scheduler backgroundjobs.Scheduler
+	if s, schedErr := buildScheduler(outputRoot, configPath); schedErr == nil {
+		scheduler = s
+	} else {
+		logger.Warn("background job scheduler unavailable", logging.Any("err", schedErr))
+	}
+
+	var selfRepair *backgroundjobs.SelfRepairConfig
+	if scheduler != nil {
+		execPath, _ := os.Executable()
+		execPath, _ = filepath.EvalSymlinks(execPath)
+		selfRepair = &backgroundjobs.SelfRepairConfig{
+			Scheduler:      scheduler,
+			ExecutablePath: execPath,
+			InstallID:      installID,
+			ConfigHash:     backgroundjobs.HashConfigPath(configPath),
+			ExecHash:       backgroundjobs.HashExecutablePath(execPath),
+		}
+	}
+
+	executor := &backgroundjobs.Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: auditWriter,
+		ConfigPath:  configPath,
+		Logger:      logger,
+		NewProvider: defaultProviderFactory,
+		SelfRepair:  selfRepair,
+	}
+
+	jobsDeps := handlers.JobDeps{
+		Store:     store,
+		Runs:      runStore,
+		Audit:     auditWriter,
+		Scheduler: scheduler,
+		Executor:  executor,
+		InstallID: installID,
+		Events: &handlers.EventSink{
+			PublishFunc: func(evt string, payload map[string]any) {
+				if events != nil {
+					events.Publish(pipeline.Event{Type: evt, Payload: payload})
+				}
+			},
+		},
+	}
+
 	srv, srvErr := web.NewServer(web.Options{
 		Config:      cfg,
 		Logger:      logger,
@@ -233,6 +288,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		Runner:      runner,
 		RestartHook: restartHook,
 		Activity:    activity,
+		Jobs:        jobsDeps,
 	})
 	if srvErr != nil {
 		logger.Error("web server construct failed", logging.Any("err", srvErr))

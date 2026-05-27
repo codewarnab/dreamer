@@ -1,0 +1,212 @@
+{{define "content"}}
+<section x-data="jobDetailPage('{{.Extra.JobID}}')" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">background job</span>
+    <h1 class="headline-lg" x-text="job?.name || 'loading...'"></h1>
+    <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
+      <button class="btn btn--primary" @click="runNow()" :disabled="running" x-text="running ? 'running...' : 'run now'"></button>
+      <button class="btn btn--ghost" x-show="job?.enabled" @click="pauseJob()">pause</button>
+      <button class="btn btn--ghost" x-show="!job?.enabled" @click="resumeJob()">resume</button>
+      <button class="btn btn--ghost" @click="deleteJob()" style="color: #ef476f;">delete</button>
+    </div>
+  </header>
+
+  <!-- Details card -->
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">details</div>
+    <div style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3);">
+      <div>
+        <span class="label-mono">prompt:</span>
+        <pre style="margin-top: var(--space-2); white-space: pre-wrap; word-break: break-word; background: var(--surface-1); padding: var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-sm); max-height: 200px; overflow-y: auto;" x-text="job?.prompt || ''"></pre>
+      </div>
+      <div style="display: flex; gap: var(--space-5); flex-wrap: wrap;">
+        <div><span class="label-mono">project:</span> <span x-text="job?.project_name || '—'"></span></div>
+        <div><span class="label-mono">provider:</span> <span x-text="job?.provider_id || '—'"></span></div>
+        <div><span class="label-mono">model:</span> <span x-text="job?.model || '(default)'"></span></div>
+      </div>
+      <div><span class="label-mono">schedule:</span> <span x-text="scheduleSummary"></span></div>
+      <div><span class="label-mono">next runs:</span> <span x-text="nextRuns.join(', ') || '—'"></span></div>
+      <div style="display: flex; gap: var(--space-5); flex-wrap: wrap;">
+        <div><span class="label-mono">created:</span> <span x-text="job?.created_at ? new Date(job.created_at).toLocaleString() : '—'"></span></div>
+        <div><span class="label-mono">updated:</span> <span x-text="job?.updated_at ? new Date(job.updated_at).toLocaleString() : '—'"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Health card -->
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">health</div>
+    <div style="margin-top: var(--space-3); display: flex; gap: var(--space-5); flex-wrap: wrap;">
+      <div>
+        <span class="label-mono">OS schedule:</span>
+        <span class="pill" :class="osSchedule?.installed ? 'pill--healthy' : 'pill--warn'" x-text="osSchedule?.installed ? 'installed' : 'not installed'"></span>
+      </div>
+      <div>
+        <span class="label-mono">enabled:</span>
+        <span class="pill" :class="job?.enabled ? 'pill--healthy' : ''" x-text="job?.enabled ? 'yes' : 'paused'"></span>
+      </div>
+      <div>
+        <span class="label-mono">last run:</span>
+        <span x-text="latestRun ? formatRunStatus(latestRun) : 'never'"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run history table -->
+  <div class="card">
+    <div class="kicker">run history</div>
+    <table class="table" style="margin-top: var(--space-3);">
+      <thead>
+        <tr>
+          <th>run id</th>
+          <th>status</th>
+          <th>scheduled for</th>
+          <th>duration</th>
+          <th>summary</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="run in runs" :key="run.id">
+          <tr>
+            <td x-text="run.id.substring(0, 8)" style="font-family: var(--font-mono);"></td>
+            <td>
+              <span class="pill" :class="runStatusPill(run).class" x-text="runStatusPill(run).label"></span>
+            </td>
+            <td x-text="new Date(run.scheduled_for).toLocaleString()"></td>
+            <td x-text="formatDuration(run.duration_millis)"></td>
+            <td x-text="run.output_summary || run.error || run.skipped_reason || '—'" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="runs.length === 0" style="color: var(--text-secondary); padding: var(--space-4) 0;">No runs yet.</div>
+  </div>
+
+  <div x-show="error" style="color: #ef476f; margin-top: var(--space-3);" x-text="error"></div>
+</section>
+
+<script>
+window.jobDetailPage = function (jobID) {
+  return {
+    jobID: jobID,
+    job: null,
+    runs: [],
+    latestRun: null,
+    osSchedule: null,
+    nextRuns: [],
+    loading: true,
+    running: false,
+    error: '',
+    csrf: function () {
+      return document.querySelector('meta[name="csrf-token"]')?.content || '';
+    },
+    load: async function () {
+      this.loading = true;
+      this.error = '';
+      try {
+        var [detailRes, runsRes] = await Promise.all([
+          fetch('/api/jobs/' + this.jobID),
+          fetch('/api/jobs/' + this.jobID + '/runs?limit=50'),
+        ]);
+        if (detailRes.ok) {
+          var data = await detailRes.json();
+          this.job = data.job;
+          this.latestRun = data.latest_run;
+          this.osSchedule = data.os_schedule;
+          this.nextRuns = data.next_3_runs || [];
+          this.scheduleSummary = data.schedule_summary || '';
+        } else if (detailRes.status === 404) {
+          this.error = 'Job not found.';
+          return;
+        } else {
+          this.error = 'Failed to load job details.';
+          return;
+        }
+        if (runsRes.ok) {
+          var runsData = await runsRes.json();
+          this.runs = runsData.runs || [];
+        }
+      } catch (e) {
+        this.error = 'Network error loading job.';
+      } finally {
+        this.loading = false;
+      }
+    },
+    pauseJob: async function () {
+      await fetch('/api/jobs/' + this.jobID + '/pause', {
+        method: 'POST',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      await this.load();
+    },
+    resumeJob: async function () {
+      await fetch('/api/jobs/' + this.jobID + '/resume', {
+        method: 'POST',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      await this.load();
+    },
+    deleteJob: async function () {
+      if (!confirm('Delete this job permanently?')) return;
+      var r = await fetch('/api/jobs/' + this.jobID, {
+        method: 'DELETE',
+        headers: { 'X-Dreamer-CSRF': this.csrf() },
+      });
+      if (r.ok || r.status === 204) {
+        window.location.href = '/jobs';
+        return;
+      }
+      this.error = 'Failed to delete job.';
+    },
+    runNow: async function () {
+      this.running = true;
+      this.error = '';
+      try {
+        var r = await fetch('/api/jobs/' + this.jobID + '/run', {
+          method: 'POST',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          var data = await r.json();
+          this.error = data.error || 'Run failed.';
+          return;
+        }
+        await this.load();
+      } catch (e) {
+        this.error = 'Network error during run.';
+      } finally {
+        this.running = false;
+      }
+    },
+    scheduleSummary: '',
+    formatDuration: function (ms) {
+      if (!ms) return '—';
+      var secs = Math.floor(ms / 1000);
+      if (secs < 60) return secs + 's';
+      var mins = Math.floor(secs / 60);
+      secs = secs % 60;
+      if (mins < 60) return mins + 'm ' + secs + 's';
+      var hrs = Math.floor(mins / 60);
+      mins = mins % 60;
+      return hrs + 'h ' + mins + 'm';
+    },
+    formatRunStatus: function (run) {
+      if (!run) return 'never';
+      var when = run.finished_at ? new Date(run.finished_at).toLocaleString() : new Date(run.started_at).toLocaleString();
+      return run.status + ' ' + when;
+    },
+    runStatusPill: function (run) {
+      switch (run.status) {
+        case 'completed': return { label: 'completed', class: 'pill--healthy' };
+        case 'failed': return { label: 'failed', class: 'pill--warn' };
+        case 'running': return { label: 'running', class: 'pill--info' };
+        case 'timed_out': return { label: 'timed out', class: 'pill--warn' };
+        case 'cancelled': return { label: 'cancelled', class: '' };
+        case 'skipped': return { label: 'skipped', class: '' };
+        default: return { label: run.status, class: '' };
+      }
+    },
+  };
+};
+</script>
+{{end}}
