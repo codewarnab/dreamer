@@ -65,10 +65,10 @@ type ScheduleHealth struct {
 	Detail      string     `json:"detail,omitempty"`        // human-readable diagnostic
 }
 
-// runExternalCommand executes an external command and returns its combined output.
+// runExternalCommand executes an external command with context support and returns its combined output.
 // Shared by all platform scheduler implementations.
-func runExternalCommand(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+func runExternalCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
