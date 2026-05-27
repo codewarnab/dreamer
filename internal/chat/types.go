@@ -22,7 +22,7 @@ const (
 	SourceTypeCodebuffSession     SourceType = "codebuff-session-json"
 )
 
-type ChatSource struct {
+type Source struct {
 	Path         string
 	Tool         SourceType
 	ModifiedTime time.Time
@@ -53,12 +53,12 @@ type DiscoveryEnvironment struct {
 }
 
 // sqliteSourcePathSeparator separates the database file path from the
-// session/conversation identifier when a ChatSource refers to a single row
+// session/conversation identifier when a Source refers to a single row
 // inside a shared SQLite database (opencode, kiro-cli). Discovery encodes
 // `<dbPath>#<sessionID>`; the runtime reader splits on this separator.
 const sqliteSourcePathSeparator = "#"
 
-// SplitSQLiteSourcePath returns (dbPath, sessionID) for a ChatSource path that
+// SplitSQLiteSourcePath returns (dbPath, sessionID) for a Source path that
 // was produced by SQLite-backed discovery. When the path has no separator the
 // raw path is returned with an empty session id.
 func SplitSQLiteSourcePath(path string) (string, string) {

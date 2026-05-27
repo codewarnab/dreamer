@@ -16,18 +16,18 @@ type codexProvider struct {
 	fileBackedProvider
 }
 
-func (codexProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (codexProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverCodexSessions(env.HomeDir, projectPath)
 }
 
-func discoverCodexSessions(homeDir string, projectPath string) ([]ChatSource, error) {
+func discoverCodexSessions(homeDir string, projectPath string) ([]Source, error) {
 	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
 	if !ok {
 		return nil, nil
 	}
 
 	codexRoot := filepath.Join(strings.TrimSpace(homeDir), ".codex")
-	discovered := make([]ChatSource, 0)
+	discovered := make([]Source, 0)
 	seen := map[string]struct{}{}
 	for _, root := range []string{
 		filepath.Join(codexRoot, "sessions"),
@@ -61,7 +61,7 @@ func discoverCodexSessions(homeDir string, projectPath string) ([]ChatSource, er
 	return discovered, nil
 }
 
-func (codexProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (codexProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
 		Sanitizer: readers.SanitizeCodexMessages,
 	})

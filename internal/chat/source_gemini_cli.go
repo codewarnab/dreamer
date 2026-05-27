@@ -16,11 +16,11 @@ type geminiCLIProvider struct {
 	fileBackedProvider
 }
 
-func (geminiCLIProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (geminiCLIProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverGeminiCLISessions(env.HomeDir, env.GeminiHomeDir, projectPath)
 }
 
-func discoverGeminiCLISessions(homeDir string, geminiHomeDir string, projectPath string) ([]ChatSource, error) {
+func discoverGeminiCLISessions(homeDir string, geminiHomeDir string, projectPath string) ([]Source, error) {
 	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
 	if !ok {
 		return nil, nil
@@ -40,7 +40,7 @@ func discoverGeminiCLISessions(homeDir string, geminiHomeDir string, projectPath
 		return nil, err
 	}
 
-	discovered := make([]ChatSource, 0, len(candidates))
+	discovered := make([]Source, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !strings.Contains(candidate.Path, string(filepath.Separator)+"chats"+string(filepath.Separator)) {
 			continue
@@ -84,7 +84,7 @@ func extractGeminiCLIParentID(path string) string {
 	return ""
 }
 
-func (geminiCLIProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (geminiCLIProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadGeminiCLI(source.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read gemini cli chat source %q: %w", source.Path, err)

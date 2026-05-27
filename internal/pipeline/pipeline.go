@@ -168,7 +168,7 @@ type discoveryResult struct {
 	providerBlock config.ProviderBlock
 	projectFile   *config.ProjectFileConfig
 	appConfig     *config.Config
-	sources       []chat.ChatSource
+	sources       []chat.Source
 }
 
 // runDiscovery resolves paths, loads project config, discovers chat sources,
@@ -285,7 +285,7 @@ func runCaching(opts Options, discovery discoveryResult, currentState *state.Sta
 // transcriptResult holds the output of the transcript preparation stage.
 type transcriptResult struct {
 	blocks          []ProviderBlock
-	sourcesUsed     []chat.ChatSource
+	sourcesUsed     []chat.Source
 	messageCount    int
 	warnings        []string
 	chunks          []analyzer.Chunk
@@ -301,7 +301,7 @@ type transcriptResult struct {
 // runTranscriptPrep loads rule packs, builds redacted transcripts, and packs
 // chunks. Returns zeroMessages=true when the preflight check finds no readable
 // messages (caller should save state and return early).
-func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.ChatSource, logger *logging.Logger) (transcriptResult, bool, error) {
+func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.Source, logger *logging.Logger) (transcriptResult, bool, error) {
 	var transcript transcriptResult
 
 	rulePacks := mergeRulePacks(discovery.appConfig, discovery.projectFile)

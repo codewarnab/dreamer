@@ -11,7 +11,7 @@ import (
 	"dreamer/internal/logging"
 )
 
-func logDiscoveredSources(logger *logging.Logger, sources []chat.ChatSource) {
+func logDiscoveredSources(logger *logging.Logger, sources []chat.Source) {
 	logger.Info("discovery done", logging.Any("sources", len(sources)))
 	if len(sources) == 0 {
 		return

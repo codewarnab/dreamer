@@ -62,13 +62,13 @@ func ParseLookbackDuration(amount int, unit string) (time.Duration, bool) {
 // filterSourcesByLookback keeps chat sources whose modified time is inside the
 // requested lookback window. Sources exactly at the cutoff are included, and
 // future timestamps are included to tolerate clock skew across tools.
-func filterSourcesByLookback(sources []chat.ChatSource, now time.Time, lookback time.Duration, enabled bool) []chat.ChatSource {
+func filterSourcesByLookback(sources []chat.Source, now time.Time, lookback time.Duration, enabled bool) []chat.Source {
 	if !enabled {
 		return sources
 	}
 
 	cutoff := now.UTC().Add(-lookback)
-	filtered := make([]chat.ChatSource, 0, len(sources))
+	filtered := make([]chat.Source, 0, len(sources))
 	for _, source := range sources {
 		if !source.ModifiedTime.UTC().Before(cutoff) {
 			filtered = append(filtered, source)

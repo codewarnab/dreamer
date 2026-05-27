@@ -19,11 +19,11 @@ type vscodeProvider struct {
 	fileBackedProvider
 }
 
-func (vscodeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (vscodeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverVSCodeChatSessions(env.AppDataDir, projectPath)
 }
 
-func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSource, error) {
+func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]Source, error) {
 	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
 	if !ok {
 		return nil, nil
@@ -46,7 +46,7 @@ func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSo
 		return nil, fmt.Errorf("read vscode workspace storage %q: %w", workspaceStorageRoot, err)
 	}
 
-	discovered := make([]ChatSource, 0)
+	discovered := make([]Source, 0)
 	for _, workspaceEntry := range workspaceEntries {
 		if !workspaceEntry.IsDir() {
 			continue
@@ -76,7 +76,7 @@ func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSo
 	return discovered, nil
 }
 
-func (vscodeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (vscodeProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".json", ".jsonl":
 		messages, err := readers.ReadVSCodeChat(source.Path)

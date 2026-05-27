@@ -14,7 +14,7 @@ import (
 // DiscoverChats enumerates every supported chat source whose evidence places
 // it inside projectPath. The result is sorted by ModifiedTime (newest first),
 // tie-breaking on Path. Uses environment variables for provider paths.
-func DiscoverChats(projectPath string) ([]ChatSource, error) {
+func DiscoverChats(projectPath string) ([]Source, error) {
 	env, err := DefaultDiscoveryEnvironment()
 	if err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ func DiscoverChats(projectPath string) ([]ChatSource, error) {
 // DiscoverChatsWithEnvironment is like DiscoverChats but accepts a
 // pre-built DiscoveryEnvironment. Callers that have config access should
 // use this to pass provider-specific paths (e.g. CopilotHome for isolation).
-func DiscoverChatsWithEnvironment(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func DiscoverChatsWithEnvironment(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverChatsFromEnvironment(env, projectPath)
 }
 
@@ -61,11 +61,11 @@ func DefaultDiscoveryEnvironment() (DiscoveryEnvironment, error) {
 }
 
 // discoverChatsFromEnvironment runs every registered provider's Discover hook
-// in parallel and returns the merged, sorted slice of ChatSources. First
+// in parallel and returns the merged, sorted slice of Sources. First
 // non-nil error from any provider wins.
-func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	providers := Providers()
-	results := make([][]ChatSource, len(providers))
+	results := make([][]Source, len(providers))
 
 	var (
 		group errgroup.Group
@@ -88,7 +88,7 @@ func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath 
 		return nil, err
 	}
 
-	combined := make([]ChatSource, 0)
+	combined := make([]Source, 0)
 	for _, sources := range results {
 		combined = append(combined, sources...)
 	}

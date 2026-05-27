@@ -16,7 +16,7 @@ type copilotProvider struct {
 	fileBackedProvider
 }
 
-func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]ChatSource, error) {
+func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]Source, error) {
 	copilotHome := strings.TrimSpace(env.CopilotHome)
 	if copilotHome == "" {
 		copilotHome = env.HomeDir
@@ -24,14 +24,14 @@ func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]ChatSourc
 	return discoverCopilotSessionState(copilotHome)
 }
 
-func discoverCopilotSessionState(homeDir string) ([]ChatSource, error) {
+func discoverCopilotSessionState(homeDir string) ([]Source, error) {
 	root := filepath.Join(strings.TrimSpace(homeDir), ".copilot", "session-state")
 	return walkChatFiles(root, SourceTypeCopilotSessionJSONL, map[string]struct{}{
 		".jsonl": {},
 	}, skipDreamerMarkedFiles)
 }
 
-func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (copilotProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
 		Sanitizer: readers.SanitizeCopilotSessionMessages,
 	})

@@ -90,7 +90,7 @@ func listProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 
 	filtered := sources
 	if toolFilter != "" {
-		filtered = make([]chat.ChatSource, 0, len(sources))
+		filtered = make([]chat.Source, 0, len(sources))
 		for _, source := range sources {
 			if string(source.Tool) == toolFilter {
 				filtered = append(filtered, source)
@@ -126,9 +126,9 @@ func listProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 // bulk size lookup keyed by full source path. Single-source providers are
 // resolved on demand by the caller. Sources are grouped by Tool first so each
 // batch call sees only its own kind.
-func batchSizesByPath(sources []chat.ChatSource) map[string]int64 {
+func batchSizesByPath(sources []chat.Source) map[string]int64 {
 	result := make(map[string]int64, len(sources))
-	byTool := make(map[chat.SourceType][]chat.ChatSource)
+	byTool := make(map[chat.SourceType][]chat.Source)
 	for _, source := range sources {
 		byTool[source.Tool] = append(byTool[source.Tool], source)
 	}
@@ -148,7 +148,7 @@ func batchSizesByPath(sources []chat.ChatSource) map[string]int64 {
 
 // singleSourceSize falls back to the per-source SizeBytes call. Errors are
 // swallowed: a single bad source should not blank the chats list.
-func singleSourceSize(source chat.ChatSource) int64 {
+func singleSourceSize(source chat.Source) int64 {
 	provider, ok := chat.ProviderFor(source.Tool)
 	if !ok {
 		return 0
@@ -249,7 +249,7 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("discover chats: %v", err), http.StatusInternalServerError)
 		return
 	}
-	byPath := make(map[string]*chat.ChatSource, len(sources))
+	byPath := make(map[string]*chat.Source, len(sources))
 	for i := range sources {
 		byPath[sources[i].Path] = &sources[i]
 	}
@@ -346,7 +346,7 @@ func dropChatHashEntries(deps Deps, projectName string, paths []string) {
 // dispatchDelete looks up the provider for source.Tool, calls DeleteSource,
 // logs the outcome (logger nil-safe), and publishes the chat.deleted event
 // on success. Returned errors are caller-formatted.
-func dispatchDelete(deps Deps, projectName string, source chat.ChatSource) error {
+func dispatchDelete(deps Deps, projectName string, source chat.Source) error {
 	provider, ok := chat.ProviderFor(source.Tool)
 	if !ok {
 		return fmt.Errorf("no provider for tool %q", source.Tool)
@@ -380,7 +380,7 @@ func findProjectByName(cfg *config.Config, name string) *config.ProjectConfig {
 	return nil
 }
 
-func findSourceByPath(sources []chat.ChatSource, target string) *chat.ChatSource {
+func findSourceByPath(sources []chat.Source, target string) *chat.Source {
 	for i := range sources {
 		if sources[i].Path == target {
 			return &sources[i]

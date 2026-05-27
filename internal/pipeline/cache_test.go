@@ -99,7 +99,7 @@ func TestComputeCacheKeysPreservesPriorOnHashFailure(t *testing.T) {
 		badPath: "prior-key",
 		okPath:  "old-ok",
 	}
-	sources := []chat.ChatSource{
+	sources := []chat.Source{
 		{Path: okPath, Tool: chat.SourceTypeCodexSessionJSONL},
 		{Path: badPath, Tool: chat.SourceTypeCodexSessionJSONL},
 	}
@@ -126,7 +126,7 @@ func TestComputeCacheKeysDropsHashFailureWithNoPrior(t *testing.T) {
 	if err := os.Mkdir(badPath, 0o755); err != nil {
 		t.Fatalf("seed bad: %v", err)
 	}
-	sources := []chat.ChatSource{{Path: badPath, Tool: chat.SourceTypeCodexSessionJSONL}}
+	sources := []chat.Source{{Path: badPath, Tool: chat.SourceTypeCodexSessionJSONL}}
 
 	out, stats := computeCacheKeys(sources, nil, "head1", nil)
 
@@ -149,7 +149,7 @@ func TestComputeCacheKeysPrunesAbsentSources(t *testing.T) {
 
 	absentPath := filepath.Join(dir, "absent.jsonl")
 	prior := map[string]string{absentPath: "stale-key", okPath: "old"}
-	sources := []chat.ChatSource{{Path: okPath, Tool: chat.SourceTypeCodexSessionJSONL}}
+	sources := []chat.Source{{Path: okPath, Tool: chat.SourceTypeCodexSessionJSONL}}
 
 	out, _ := computeCacheKeys(sources, prior, "head1", nil)
 	if _, ok := out[absentPath]; ok {
