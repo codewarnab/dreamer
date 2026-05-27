@@ -19,7 +19,7 @@ const systemdUnitDir = ".config/systemd/user"
 type linuxScheduler struct {
 	cfg    SchedulerConfig
 	logger *logging.Logger
-	runCmd func(name string, args ...string) ([]byte, error)
+	runCmd func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 func newPlatformScheduler(cfg SchedulerConfig, logger *logging.Logger) Scheduler {
@@ -63,7 +63,7 @@ func (s *linuxScheduler) Install(ctx context.Context, params ScheduleParams) (OS
 	}
 
 	if params.Enabled {
-		if _, err := s.runCmd("systemctl", "--user", "enable", "--now", baseName+".timer"); err != nil {
+		if _, err := s.runCmd(ctx, "systemctl", "--user", "enable", "--now", baseName+".timer"); err != nil {
 			return OSScheduleState{}, fmt.Errorf("enable timer: %w", err)
 		}
 	}
@@ -87,11 +87,14 @@ func (s *linuxScheduler) Update(ctx context.Context, params ScheduleParams) (OSS
 
 // Remove disables and removes systemd unit files for the job.
 func (s *linuxScheduler) Remove(ctx context.Context, jobID string) error {
+	if err := ValidateJobID(jobID); err != nil {
+		return fmt.Errorf("remove: %w", err)
+	}
 	baseName := "dreamer-job-" + jobID
 	// Ignore errors from disable/stop — units may not exist.
-	s.runCmd("systemctl", "--user", "disable", "--now", baseName+".timer")
-	s.runCmd("systemctl", "--user", "stop", baseName+".timer")
-	s.runCmd("systemctl", "--user", "stop", baseName+".service")
+	s.runCmd(ctx, "systemctl", "--user", "disable", "--now", baseName+".timer")
+	s.runCmd(ctx, "systemctl", "--user", "stop", baseName+".timer")
+	s.runCmd(ctx, "systemctl", "--user", "stop", baseName+".service")
 
 	unitDir, err := s.unitDir()
 	if err != nil {
@@ -103,10 +106,10 @@ func (s *linuxScheduler) Remove(ctx context.Context, jobID string) error {
 }
 
 // Inspect returns the OS-level health for a job's schedule.
-func (s *linuxScheduler) Inspect(_ context.Context, jobID string) (ScheduleHealth, error) {
+func (s *linuxScheduler) Inspect(ctx context.Context, jobID string) (ScheduleHealth, error) {
 	baseName := "dreamer-job-" + jobID
 
-	output, err := s.runCmd("systemctl", "--user", "is-active", baseName+".timer")
+	output, err := s.runCmd(ctx, "systemctl", "--user", "is-active", baseName+".timer")
 	installed := err == nil && strings.TrimSpace(string(output)) == "active"
 
 	if !installed {
@@ -128,7 +131,7 @@ func (s *linuxScheduler) Inspect(_ context.Context, jobID string) (ScheduleHealt
 	health := ScheduleHealth{Installed: true, Enabled: true}
 
 	// Get next elapse from systemctl status.
-	statusOutput, err := s.runCmd("systemctl", "--user", "show", baseName+".timer", "--property=NextElapseUSecRealtime")
+	statusOutput, err := s.runCmd(ctx, "systemctl", "--user", "show", baseName+".timer", "--property=NextElapseUSecRealtime")
 	if err == nil {
 		line := strings.TrimSpace(string(statusOutput))
 		if idx := strings.Index(line, "="); idx >= 0 {
@@ -164,7 +167,8 @@ func (s *linuxScheduler) ListOwn(_ context.Context) ([]string, error) {
 		if strings.HasPrefix(name, "dreamer-job-") && strings.HasSuffix(name, ".timer") {
 			jobID := strings.TrimPrefix(name, "dreamer-job-")
 			jobID = strings.TrimSuffix(jobID, ".timer")
-			if jobID != "" && !seen[jobID] {
+			// B15: Validate to prevent path traversal via crafted filenames.
+			if jobID != "" && !seen[jobID] && ValidateJobID(jobID) == nil {
 				jobIDs = append(jobIDs, jobID)
 				seen[jobID] = true
 			}
@@ -176,10 +180,6 @@ func (s *linuxScheduler) ListOwn(_ context.Context) ([]string, error) {
 // buildTimerUnit generates a systemd timer unit file for the job.
 func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
 	onCalendar := scheduleToOnCalendar(params.Schedule)
-	enabledStr := "true"
-	if !params.Enabled {
-		enabledStr = "false"
-	}
 
 	var b strings.Builder
 	b.WriteString("[Unit]\n")
@@ -190,11 +190,6 @@ func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
 	b.WriteString(fmt.Sprintf("RandomizedDelaySec=%d\n", randomizedDelaySec(params.Schedule)))
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=timers.target\n")
-
-	if enabledStr == "false" {
-		// systemd doesn't have a direct "disabled" flag in the unit file.
-		// We simply don't enable it. The timer file is still written.
-	}
 
 	return b.String()
 }
@@ -207,7 +202,11 @@ func (s *linuxScheduler) buildServiceUnit(params ScheduleParams) string {
 	b.WriteString("After=network-online.target\n")
 	b.WriteString("\n[Service]\n")
 	b.WriteString("Type=oneshot\n")
-	b.WriteString("ExecStart=" + s.cfg.ExecutablePath + " jobs run " + params.JobID + " --config " + s.cfg.ConfigPath + "\n")
+	// Use argv-list form with quoted paths to handle spaces in paths.
+	// Escape % as %% per systemd.service(5) specifier syntax.
+	exe := strings.ReplaceAll(s.cfg.ExecutablePath, "%", "%%")
+	cfg := strings.ReplaceAll(s.cfg.ConfigPath, "%", "%%")
+	b.WriteString(fmt.Sprintf("ExecStart=%q jobs run %s --config %q\n", exe, params.JobID, cfg))
 	b.WriteString("WorkingDirectory=" + s.cfg.StoreDir + "\n")
 	b.WriteString(fmt.Sprintf("TimeoutStartSec=%d\n", timeoutSec(params.Schedule)))
 	b.WriteString("\n[Install]\n")
@@ -310,15 +309,16 @@ func (s *linuxScheduler) reloadDaemon(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.runCmd("systemctl", "--user", "daemon-reload")
+	_, err := s.runCmd(ctx, "systemctl", "--user", "daemon-reload")
 	return err
 }
 
-// writeFileAtomic writes content to a path, creating parent dirs if needed.
+// writeFileAtomic writes content to a path atomically (temp + rename),
+// creating parent dirs if needed.
 func writeFileAtomic(path string, content []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, fsutil.DirPerms); err != nil {
 		return fmt.Errorf("create parent dir: %w", err)
 	}
-	return os.WriteFile(path, content, fsutil.FilePerms)
+	return fsutil.WriteFileAtomic(path, content, fsutil.FilePerms)
 }
