@@ -69,6 +69,8 @@ func newJobsCommand() *cobra.Command {
 	command.AddCommand(newJobsResumeCommand())
 	command.AddCommand(newJobsDeleteCommand())
 	command.AddCommand(newJobsRunCommand())
+	command.AddCommand(newJobsReconcileCommand())
+	command.AddCommand(newJobsHealthCommand())
 
 	return command
 }
@@ -163,7 +165,7 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 				prompt = prompt[:40] + "..."
 			}
 			cmd.Printf("%-18s %-20s %-12s %-8t %-19s %s\n",
-				j.ID, truncate(j.Name, 20), j.ProviderID, j.Enabled, nextRun, prompt)
+				j.ID, truncateWithEllipsis(j.Name, 20), j.ProviderID, j.Enabled, nextRun, prompt)
 		}
 	} else {
 		cmd.Printf("%-18s %-20s %-12s %-8s %-19s\n",
@@ -174,7 +176,7 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 				nextRun = j.NextRunAt.Format("2006-01-02 15:04 MST")
 			}
 			cmd.Printf("%-18s %-20s %-12s %-8t %-19s\n",
-				j.ID, truncate(j.Name, 20), j.ProviderID, j.Enabled, nextRun)
+				j.ID, truncateWithEllipsis(j.Name, 20), j.ProviderID, j.Enabled, nextRun)
 		}
 	}
 
@@ -195,12 +197,44 @@ func formatSchedule(spec backgroundjobs.ScheduleSpec) string {
 	return s
 }
 
-func truncate(s string, maxRunes int) string {
+func truncateWithEllipsis(s string, maxRunes int) string {
 	runes := []rune(s)
 	if len(runes) <= maxRunes {
 		return s
 	}
 	return string(runes[:maxRunes-1]) + "~"
+}
+
+// buildScheduler creates a Scheduler from the resolved config path and output root.
+// Returns nil + nil error if scheduler creation fails (non-fatal for CLI commands).
+func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, error) {
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve executable: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		execPath, _ = os.Executable()
+	}
+
+	installID, err := backgroundjobs.ResolveInstallID(store.Dir())
+	if err != nil {
+		return nil, fmt.Errorf("resolve install ID: %w", err)
+	}
+
+	cfg := backgroundjobs.SchedulerConfig{
+		StoreDir:       store.Dir(),
+		ExecutablePath: execPath,
+		ConfigPath:     configPath,
+		InstallID:      installID,
+		ConfigHash:     backgroundjobs.HashConfigPath(configPath),
+		ExecHash:       backgroundjobs.HashExecutablePath(execPath),
+	}
+
+	return backgroundjobs.NewScheduler(cfg, lg), nil
 }
 
 func newJobsCreateCommand() *cobra.Command {
@@ -212,6 +246,7 @@ func newJobsCreateCommand() *cobra.Command {
 		scheduleKind string
 		timeOfDay    string
 		dayOfWeek    string
+		cron         string
 		timezone     string
 		dryRun       bool
 	)
@@ -272,6 +307,7 @@ func newJobsCreateCommand() *cobra.Command {
 				Kind:      kind,
 				TimeOfDay: timeOfDay,
 				DayOfWeek: dayOfWeek,
+				Cron:      cron,
 				Timezone:  timezone,
 			}
 
@@ -307,10 +343,10 @@ func newJobsCreateCommand() *cobra.Command {
 					ReadScope:  "project_dir",
 				},
 				Health: backgroundjobs.HealthState{
-					SystemScheduling: "not_installed",
-					JobSchedule:      "valid",
-					RunState:         "idle",
-					PermissionState:  "allowed",
+					SystemScheduling: backgroundjobs.SchedulingNotInstalled,
+					JobSchedule:      backgroundjobs.ScheduleValid,
+					RunState:         backgroundjobs.RunStatusIdle,
+					PermissionState:  backgroundjobs.PermissionAllowed,
 				},
 			}
 
@@ -330,6 +366,27 @@ func newJobsCreateCommand() *cobra.Command {
 			store := backgroundjobs.NewStore(outputRoot, lg)
 			if err := store.AddJob(job); err != nil {
 				return fmt.Errorf("save job: %w", err)
+			}
+
+			// Install OS schedule (best-effort).
+			if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
+				params := backgroundjobs.ScheduleParams{
+					JobID:    jobID,
+					Schedule: schedule,
+					Name:     backgroundjobs.SanitizeScheduleName(name),
+					Enabled:  true,
+				}
+				osState, installErr := sched.Install(cmd.Context(), params)
+				if installErr != nil {
+					lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+				} else {
+					_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+						if j := s.Jobs[jobID]; j != nil {
+							j.OSSchedule = osState
+						}
+						return nil
+					})
+				}
 			}
 
 			// Audit.
@@ -352,6 +409,7 @@ func newJobsCreateCommand() *cobra.Command {
 	command.Flags().StringVarP(&scheduleKind, "schedule", "s", "daily", "Schedule kind: hourly|daily|weekly|cron.")
 	command.Flags().StringVar(&timeOfDay, "time-of-day", "09:00", "Time of day for daily/weekly (HH:MM).")
 	command.Flags().StringVar(&dayOfWeek, "day-of-week", "", "Day of week for weekly schedule.")
+	command.Flags().StringVar(&cron, "cron", "", "Cron expression for cron schedule (5 fields, e.g. '0 9 * * 1').")
 	command.Flags().StringVar(&timezone, "timezone", "UTC", "Timezone for schedule (IANA format).")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Validate inputs, resolve provider, print job definition without saving.")
 	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
@@ -513,6 +571,48 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 		return err
 	}
 
+	// Update OS schedule (best-effort).
+	if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
+		state, loadErr := store.Load()
+		if loadErr == nil {
+			job := state.Jobs[jobID]
+			if job != nil {
+				if enabled {
+					// Reinstall schedule.
+					params := backgroundjobs.ScheduleParams{
+						JobID:    jobID,
+						Schedule: job.Schedule,
+						Name:     backgroundjobs.SanitizeScheduleName(job.Name),
+						Enabled:  true,
+					}
+					osState, installErr := sched.Install(cmd.Context(), params)
+					if installErr != nil {
+						lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+					} else {
+						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+							if j := s.Jobs[jobID]; j != nil {
+								j.OSSchedule = osState
+							}
+							return nil
+						})
+					}
+				} else {
+					// Remove OS schedule for paused jobs.
+					if removeErr := sched.Remove(cmd.Context(), jobID); removeErr != nil {
+						lg.Warn("remove OS schedule failed", logging.Any("error", removeErr))
+					} else {
+						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+							if j := s.Jobs[jobID]; j != nil {
+								j.OSSchedule = backgroundjobs.OSScheduleState{}
+							}
+							return nil
+						})
+					}
+				}
+			}
+		}
+	}
+
 	if enabled {
 		cmd.Printf("job resumed: %s\n", jobID)
 	} else {
@@ -556,6 +656,13 @@ func newJobsDeleteCommand() *cobra.Command {
 				cmd.Printf("Delete job %q? This cannot be undone.\n", jobID)
 				cmd.Printf("Use --yes to confirm.\n")
 				return nil
+			}
+
+			// Remove OS schedule before deleting the job (best-effort).
+			if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
+				if removeErr := sched.Remove(cmd.Context(), jobID); removeErr != nil {
+					lg.Warn("remove OS schedule failed", logging.Any("error", removeErr))
+				}
 			}
 
 			if err := store.DeleteJob(jobID); err != nil {

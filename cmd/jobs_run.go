@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"dreamer/internal/backgroundjobs"
@@ -49,6 +51,21 @@ func newJobsRunCommand() *cobra.Command {
 			runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
 			audit := backgroundjobs.NewAuditWriter(store.Dir())
 
+			// Build scheduler for self-repair (best-effort).
+			var selfRepair *backgroundjobs.SelfRepairConfig
+			if s, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
+				execPath, _ := os.Executable()
+				execPath, _ = filepath.EvalSymlinks(execPath)
+				installID, _ := backgroundjobs.ResolveInstallID(store.Dir())
+				selfRepair = &backgroundjobs.SelfRepairConfig{
+					Scheduler:      s,
+					ExecutablePath: execPath,
+					InstallID:      installID,
+					ConfigHash:     backgroundjobs.HashConfigPath(resolvedConfigPath),
+					ExecHash:       backgroundjobs.HashExecutablePath(execPath),
+				}
+			}
+
 			executor := &backgroundjobs.Executor{
 				Store:       store,
 				RunStore:    runStore,
@@ -56,6 +73,7 @@ func newJobsRunCommand() *cobra.Command {
 				ConfigPath:  resolvedConfigPath,
 				Logger:      lg,
 				NewProvider: defaultProviderFactory,
+				SelfRepair:  selfRepair,
 			}
 
 			ctx := cmd.Context()
