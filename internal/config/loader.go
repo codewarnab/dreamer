@@ -486,7 +486,7 @@ func (cfg *Config) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProv
 	block := cfg.Providers[id]
 	if projectFile != nil {
 		if override, ok := projectFile.Providers[id]; ok {
-			block = mergeProviderBlocks(block, override)
+			block = MergeProviderBlock(block, override)
 		}
 	}
 	return id, block
@@ -503,50 +503,54 @@ func (cfg *Config) ResolveMaxDuration(projectName string) (time.Duration, error)
 	return time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
 }
 
-func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
+// MergeProviderBlock merges an overlay ProviderBlock onto a base.
+// Overlay values win when present (non-zero / non-nil). Maps are merged
+// per-key; slices are replaced (not appended). Used by both the overlay
+// merge path (ui-overrides.yaml) and the project-file merge path.
+func MergeProviderBlock(base, overlay ProviderBlock) ProviderBlock {
 	out := base
-	if override.Model != "" {
-		out.Model = override.Model
+	if overlay.Model != "" {
+		out.Model = overlay.Model
 	}
-	if override.UseLoggedInUser != nil {
-		out.UseLoggedInUser = override.UseLoggedInUser
+	if overlay.UseLoggedInUser != nil {
+		out.UseLoggedInUser = overlay.UseLoggedInUser
 	}
-	if override.AutoStart != nil {
-		out.AutoStart = override.AutoStart
+	if overlay.AutoStart != nil {
+		out.AutoStart = overlay.AutoStart
 	}
-	if override.CopilotHome != "" {
-		out.CopilotHome = override.CopilotHome
+	if overlay.CopilotHome != "" {
+		out.CopilotHome = overlay.CopilotHome
 	}
-	if override.CLIURL != "" {
-		out.CLIURL = override.CLIURL
+	if overlay.CLIURL != "" {
+		out.CLIURL = overlay.CLIURL
 	}
-	if len(override.Command) > 0 {
-		out.Command = append([]string(nil), override.Command...)
+	if len(overlay.Command) > 0 {
+		out.Command = append([]string(nil), overlay.Command...)
 	}
-	if len(override.Env) > 0 {
+	if len(overlay.Env) > 0 {
 		merged := map[string]string{}
 		for k, v := range base.Env {
 			merged[k] = v
 		}
-		for k, v := range override.Env {
+		for k, v := range overlay.Env {
 			merged[k] = v
 		}
 		out.Env = merged
 	}
-	if override.APIKeyEnv != "" {
-		out.APIKeyEnv = override.APIKeyEnv
+	if overlay.APIKeyEnv != "" {
+		out.APIKeyEnv = overlay.APIKeyEnv
 	}
-	if override.BaseURL != "" {
-		out.BaseURL = override.BaseURL
+	if overlay.BaseURL != "" {
+		out.BaseURL = overlay.BaseURL
 	}
-	if override.Password != "" {
-		out.Password = override.Password
+	if overlay.Password != "" {
+		out.Password = overlay.Password
 	}
-	if override.MaxInputTokens > 0 {
-		out.MaxInputTokens = override.MaxInputTokens
+	if overlay.MaxInputTokens > 0 {
+		out.MaxInputTokens = overlay.MaxInputTokens
 	}
-	if override.Sandbox != nil {
-		out.Sandbox = override.Sandbox
+	if overlay.Sandbox != nil {
+		out.Sandbox = overlay.Sandbox
 	}
 	return out
 }

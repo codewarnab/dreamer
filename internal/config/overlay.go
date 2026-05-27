@@ -114,8 +114,7 @@ func mergeOverlay(base, overlay *Config) {
 		}
 		for providerID, block := range overlay.Providers {
 			existing := base.Providers[providerID]
-			mergeProviderBlock(&existing, &block)
-			base.Providers[providerID] = existing
+			base.Providers[providerID] = MergeProviderBlock(existing, block)
 		}
 	}
 	mergeAnalyzer(&base.Analyzer, &overlay.Analyzer)
@@ -207,43 +206,3 @@ func mergeRuleConfig(base, overlay *RuleConfig) {
 	}
 }
 
-func mergeProviderBlock(base, overlay *ProviderBlock) {
-	if overlay.Model != "" {
-		base.Model = overlay.Model
-	}
-	if overlay.UseLoggedInUser != nil {
-		base.UseLoggedInUser = overlay.UseLoggedInUser
-	}
-	if overlay.AutoStart != nil {
-		base.AutoStart = overlay.AutoStart
-	}
-	if overlay.CopilotHome != "" {
-		base.CopilotHome = overlay.CopilotHome
-	}
-	if overlay.CLIURL != "" {
-		base.CLIURL = overlay.CLIURL
-	}
-	if len(overlay.Command) > 0 {
-		base.Command = overlay.Command
-	}
-	if len(overlay.Env) > 0 {
-		if base.Env == nil {
-			base.Env = map[string]string{}
-		}
-		for k, v := range overlay.Env {
-			base.Env[k] = v
-		}
-	}
-	if overlay.APIKeyEnv != "" {
-		base.APIKeyEnv = overlay.APIKeyEnv
-	}
-	if overlay.BaseURL != "" {
-		base.BaseURL = overlay.BaseURL
-	}
-	if overlay.Password != "" {
-		base.Password = overlay.Password
-	}
-	if overlay.MaxInputTokens != 0 {
-		base.MaxInputTokens = overlay.MaxInputTokens
-	}
-}

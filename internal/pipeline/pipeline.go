@@ -349,26 +349,26 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.C
 	}
 
 	includeSubagents := discovery.appConfig.Analyzer.IncludeSubagentTranscripts != nil && *discovery.appConfig.Analyzer.IncludeSubagentTranscripts
-	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger, includeSubagents)
+	tb, err := buildProviderBlocks(sources, redactor, logger, includeSubagents)
 	if err != nil {
 		return transcript, false, err
 	}
 	transcriptBytes := 0
-	for _, b := range blocks {
+	for _, b := range tb.blocks {
 		transcriptBytes += b.Bytes()
 	}
-	logger.Info("transcript built", logging.Any("sources_used", len(sourcesUsed)), logging.Any("messages", messageCount), logging.Any("transcript_bytes", transcriptBytes), logging.Any("redaction_hits", redactionTotal))
+	logger.Info("transcript built", logging.Any("sources_used", len(tb.sourcesUsed)), logging.Any("messages", tb.messageCount), logging.Any("transcript_bytes", transcriptBytes), logging.Any("redaction_hits", tb.redactionHits))
 
-	if messageCount == 0 {
+	if tb.messageCount == 0 {
 		logger.Info("preflight skip",
 			logging.Any("reason", "no readable chat messages"),
 			logging.Any("sources_discovered", len(sources)),
 		)
 		return transcriptResult{
-			sourcesUsed:    sourcesUsed,
+			sourcesUsed:    tb.sourcesUsed,
 			messageCount:   0,
-			warnings:       append(warnings, "no readable messages in discovered chats"),
-			redactionTotal: redactionTotal,
+			warnings:       append(tb.warnings, "no readable messages in discovered chats"),
+			redactionTotal: tb.redactionHits,
 			rulePacks:      rulePacks,
 		}, true, nil
 	}
@@ -377,7 +377,7 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.C
 	if opts.MaxChunkBytesOverrideSet {
 		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
 	}
-	chunks, chunkWarnings := PackChunks(blocks, chunkCfg, opts.Since)
+	chunks, chunkWarnings := PackChunks(tb.blocks, chunkCfg, opts.Since)
 	if len(chunks) == 0 {
 		return transcript, false, fmt.Errorf("chunker produced zero chunks despite non-empty transcript")
 	}
@@ -393,15 +393,15 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.C
 		logging.Any("max_chunk_bytes", chunkCfg.MaxChunkBytes),
 		logging.Any("hard_splits", totalSplits),
 	)
-	warnings = append(warnings, chunkWarnings...)
+	tb.warnings = append(tb.warnings, chunkWarnings...)
 
 	return transcriptResult{
-		blocks:          blocks,
-		sourcesUsed:     sourcesUsed,
-		messageCount:    messageCount,
-		warnings:        warnings,
+		blocks:          tb.blocks,
+		sourcesUsed:     tb.sourcesUsed,
+		messageCount:    tb.messageCount,
+		warnings:        tb.warnings,
 		chunks:          chunks,
-		redactionTotal:  redactionTotal,
+		redactionTotal:  tb.redactionHits,
 		transcriptBytes: transcriptBytes,
 		rulePacks:       rulePacks,
 		redactor:        redactor,

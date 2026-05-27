@@ -31,10 +31,21 @@ func readMessagesFromSource(source chat.ChatSource) ([]readers.ChatMessage, erro
 	return provider.ReadMessages(source)
 }
 
+// transcriptBuild bundles the outputs of buildProviderBlocks so the
+// function returns at most two values (struct + error), matching the
+// project's 3-return convention used by runDiscovery/runCaching/runAnalysis.
+type transcriptBuild struct {
+	blocks        []ProviderBlock
+	sourcesUsed   []chat.ChatSource
+	messageCount  int
+	warnings      []string
+	redactionHits int
+}
+
 // buildProviderBlocks reads + redacts every source and groups results by tool.
 // Returns one ProviderBlock per tool with messages in discovery order.
 // When includeSubagents is false, sources with a non-empty ParentID are skipped.
-func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger, includeSubagents bool) ([]ProviderBlock, []chat.ChatSource, int, []string, int, error) {
+func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor, logger *logging.Logger, includeSubagents bool) (transcriptBuild, error) {
 	type toolAggregator struct {
 		tool     string
 		paths    []string
@@ -109,5 +120,11 @@ func buildProviderBlocks(sources []chat.ChatSource, redactor *analyzer.Redactor,
 			Messages: agg.messages,
 		})
 	}
-	return blocks, usedSources, messageCount, warnings, totalHits, nil
+	return transcriptBuild{
+		blocks:        blocks,
+		sourcesUsed:   usedSources,
+		messageCount:  messageCount,
+		warnings:      warnings,
+		redactionHits: totalHits,
+	}, nil
 }
