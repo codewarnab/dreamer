@@ -15,6 +15,16 @@ import (
 	"dreamer/internal/logging"
 )
 
+// SelfRepairConfig holds the fields needed for OS schedule self-repair.
+// Nil Scheduler disables self-repair entirely.
+type SelfRepairConfig struct {
+	Scheduler      Scheduler
+	ExecutablePath string
+	InstallID      string
+	ConfigHash     string
+	ExecHash       string
+}
+
 // Executor runs a single background job on demand.
 type Executor struct {
 	Store       *Store
@@ -23,6 +33,7 @@ type Executor struct {
 	ConfigPath  string
 	Logger      *logging.Logger
 	NewProvider func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error)
+	SelfRepair  *SelfRepairConfig // nil disables self-repair
 }
 
 // RunResult captures the outcome of a job run.
@@ -94,6 +105,19 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	}
 	if skipped {
 		return skipResult, nil
+	}
+
+	// Step 2.5: Self-repair (bounded — single job only).
+	if e.SelfRepair != nil && e.SelfRepair.Scheduler != nil {
+		reconciler := &Reconciler{
+			Scheduler:  e.SelfRepair.Scheduler,
+			Store:      e.Store,
+			Logger:     e.Logger,
+			ConfigHash: e.SelfRepair.ConfigHash,
+		}
+		if repairErr := reconciler.SelfRepair(ctx, jobID); repairErr != nil {
+			e.Logger.Warn("self-repair failed (non-fatal)", logging.String("job_id", jobID), logging.Any("error", repairErr))
+		}
 	}
 
 	// Step 3: Resolve provider config.
@@ -296,7 +320,7 @@ func (e *Executor) updateJobAfterRun(ctx context.Context, jobID string, jobSched
 		}
 		j.LastRunAt = &now
 		j.NextRunAt = &nextRunAt
-		j.Health.RunState = string(run.Status)
+		j.Health.RunState = run.Status
 		j.UpdatedAt = now
 		return nil
 	}); updateErr != nil {

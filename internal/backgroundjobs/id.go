@@ -1,8 +1,6 @@
 package backgroundjobs
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"regexp"
 )
@@ -21,11 +19,7 @@ var reservedIDs = map[string]bool{
 
 // GenerateJobID returns a cryptographically random 16-character hex job ID.
 func GenerateJobID() (string, error) {
-	b := make([]byte, jobIDLength/2)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate job ID: %w", err)
-	}
-	return hex.EncodeToString(b), nil
+	return generateRandomHex(jobIDLength)
 }
 
 // ValidateJobID checks that id is a valid 16-lowercase-hex job ID that does

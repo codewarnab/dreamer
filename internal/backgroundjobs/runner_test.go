@@ -366,7 +366,7 @@ func TestExecutor_Run_UpdatesJobTimestamps(t *testing.T) {
 	if updated.NextRunAt == nil {
 		t.Error("NextRunAt is nil")
 	}
-	if updated.Health.RunState != string(RunStatusCompleted) {
+	if updated.Health.RunState != RunStatusCompleted {
 		t.Errorf("RunState = %q, want %q", updated.Health.RunState, RunStatusCompleted)
 	}
 }

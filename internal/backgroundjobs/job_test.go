@@ -36,10 +36,10 @@ func TestStateJSONRoundTrip(t *testing.T) {
 					ToolAccess: ToolAccess{Mode: "none"},
 				},
 				Health: HealthState{
-					SystemScheduling: "needs_install",
-					JobSchedule:      "active",
-					RunState:         "never_run",
-					PermissionState:  "ok",
+					SystemScheduling: SchedulingNeedsInstall,
+					JobSchedule:      ScheduleValid,
+					RunState:         RunStatusNeverRun,
+					PermissionState:  PermissionAllowed,
 				},
 			},
 		},
@@ -78,8 +78,8 @@ func TestStateJSONRoundTrip(t *testing.T) {
 	if !job.LastRunAt.Equal(now) {
 		t.Errorf("LastRunAt = %v, want %v", job.LastRunAt, now)
 	}
-	if job.Health.RunState != "never_run" {
-		t.Errorf("Health.RunState = %q, want %q", job.Health.RunState, "never_run")
+	if job.Health.RunState != RunStatusNeverRun {
+		t.Errorf("Health.RunState = %q, want %q", job.Health.RunState, RunStatusNeverRun)
 	}
 }
 

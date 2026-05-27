@@ -60,6 +60,8 @@ const (
 	RunStatusTimedOut  RunStatus = "timed_out"
 	RunStatusCancelled RunStatus = "cancelled"
 	RunStatusSkipped   RunStatus = "skipped"
+	RunStatusIdle      RunStatus = "idle"
+	RunStatusNeverRun  RunStatus = "never_run"
 )
 
 // Run records one execution of a background job.
@@ -112,17 +114,45 @@ type OSScheduleState struct {
 	ScheduleID     string     `json:"schedule_id,omitempty"`
 	InstallID      string     `json:"install_id,omitempty"`
 	ConfigPathHash string     `json:"config_path_hash,omitempty"`
+	ExecPathHash   string     `json:"exec_path_hash,omitempty"`
 	SpecHash       string     `json:"spec_hash,omitempty"`
 	LastInstalled  *time.Time `json:"last_installed,omitempty"`
 }
 
+// SchedulingHealth describes the OS scheduler integration status.
+type SchedulingHealth string
+
+const (
+	SchedulingNotInstalled SchedulingHealth = "not_installed"
+	SchedulingNeedsInstall SchedulingHealth = "needs_install"
+	SchedulingValid        SchedulingHealth = "valid"
+	SchedulingError        SchedulingHealth = "error"
+)
+
+// ScheduleValidity describes whether the job's schedule spec is valid.
+type ScheduleValidity string
+
+const (
+	ScheduleValid   ScheduleValidity = "valid"
+	ScheduleInvalid ScheduleValidity = "invalid"
+)
+
+// PermissionHealth describes the job's permission status.
+type PermissionHealth string
+
+const (
+	PermissionAllowed PermissionHealth = "allowed"
+	PermissionDenied  PermissionHealth = "denied"
+	PermissionUnknown PermissionHealth = "unknown"
+)
+
 // HealthState carries per-job health indicators.
 type HealthState struct {
-	SystemScheduling string     `json:"system_scheduling"`
-	JobSchedule      string     `json:"job_schedule"`
-	RunState         string     `json:"run_state"`
-	PermissionState  string     `json:"permission_state"`
-	LastChecked      *time.Time `json:"last_checked,omitempty"`
+	SystemScheduling SchedulingHealth `json:"system_scheduling"`
+	JobSchedule      ScheduleValidity `json:"job_schedule"`
+	RunState         RunStatus        `json:"run_state"`
+	PermissionState  PermissionHealth `json:"permission_state"`
+	LastChecked      *time.Time       `json:"last_checked,omitempty"`
 }
 
 // State is the top-level persisted structure for background jobs.
