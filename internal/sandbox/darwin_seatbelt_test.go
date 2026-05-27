@@ -52,13 +52,6 @@ func TestBuildSeatbeltProfile_AllowsDevNull(t *testing.T) {
 	}
 }
 
-func TestBuildSeatbeltProfile_AllowsProcessExec(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
-	if !strings.Contains(profile, "(allow process-exec)") {
-		t.Fatal("profile missing (allow process-exec)")
-	}
-}
-
 func TestBuildSeatbeltProfile_NoNetworkDeny(t *testing.T) {
 	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "(deny network") {
@@ -81,20 +74,6 @@ func TestBuildSeatbeltProfile_ZeroWritableDirs(t *testing.T) {
 	profile := buildSeatbeltProfile(nil)
 	if strings.Contains(profile, "WRITABLE_") {
 		t.Fatal("profile should have no WRITABLE entries when dirs is empty")
-	}
-}
-
-func TestBuildSeatbeltProfile_CapsAtMax(t *testing.T) {
-	dirs := make([]string, maxWritableDirs+10)
-	for i := range dirs {
-		dirs[i] = "/tmp/dir" + string(rune('A'+i%26)) + string(rune('0'+i/26))
-	}
-	profile := buildSeatbeltProfile(dirs)
-	// WRITABLE entries appear in one block (file-write* re-allow only;
-	// file-link is denied entirely with no re-allow).
-	count := strings.Count(profile, "WRITABLE_")
-	if count != maxWritableDirs {
-		t.Fatalf("profile has %d WRITABLE entries, want exactly %d", count, maxWritableDirs)
 	}
 }
 
@@ -148,12 +127,53 @@ func TestBuildSeatbeltProfile_MoreThan3WritableDirs(t *testing.T) {
 	}
 }
 
+func TestBuildSeatbeltProfile_NoProcessExecRule(t *testing.T) {
+	// Under (allow default), process-exec is already allowed.
+	// No redundant (allow process-exec) should appear in the profile.
+	profile := buildSeatbeltProfile(nil)
+	if strings.Contains(profile, "(allow process-exec)") {
+		t.Fatal("profile should not contain redundant (allow process-exec)")
+	}
+}
+
+func TestBuildSeatbeltProfile_NoPseudoTtyRule(t *testing.T) {
+	profile := buildSeatbeltProfile(nil)
+	if strings.Contains(profile, "(allow pseudo-tty)") {
+		t.Fatal("profile should not contain redundant (allow pseudo-tty)")
+	}
+}
+
+func TestBuildSeatbeltProfile_NoSysctlReadRule(t *testing.T) {
+	profile := buildSeatbeltProfile(nil)
+	if strings.Contains(profile, "(allow sysctl-read") {
+		t.Fatal("profile should not contain redundant (allow sysctl-read)")
+	}
+}
+
+func TestBuildSeatbeltProfile_NoDevTtyRule(t *testing.T) {
+	profile := buildSeatbeltProfile(nil)
+	if strings.Contains(profile, "/dev/tty") {
+		t.Fatal("profile should not contain redundant /dev/tty rule")
+	}
+}
+
+func TestBuildSeatbeltProfile_ParamsMatchInputLength(t *testing.T) {
+	// buildSeatbeltProfile trusts its input. The number of WRITABLE_N
+	// params must equal len(writableDirs) — no skip/cap logic.
+	dirs := []string{"/a", "/b", "/c"}
+	profile := buildSeatbeltProfile(dirs)
+	count := strings.Count(profile, "WRITABLE_")
+	if count != 3 {
+		t.Fatalf("profile has %d WRITABLE entries, want 3", count)
+	}
+}
+
 // --- Argument construction tests ---
 
 func TestBuildSandboxArgs_BinaryPath(t *testing.T) {
 	args := buildSandboxArgs("profile", nil, "/bin/echo", nil)
-	if args[0] != sandboxExecPath {
-		t.Fatalf("first arg = %q, want %q", args[0], sandboxExecPath)
+	if args[0] != sandboxExecLocator() {
+		t.Fatalf("first arg = %q, want %q", args[0], sandboxExecLocator())
 	}
 }
 
@@ -227,9 +247,10 @@ func TestBuildSandboxArgs_EmptyWritableDirs(t *testing.T) {
 	}
 }
 
-func TestBuildSandboxArgs_DeduplicateWritableDirs(t *testing.T) {
-	// /tmp is a symlink to /private/tmp on macOS.
-	dirs := []string{"/tmp", "/private/tmp"}
+func TestBuildSandboxArgs_ParamsMatchInputLength(t *testing.T) {
+	// buildSandboxArgs trusts its input. No dedup/skip/cap logic —
+	// that belongs to resolveWritableDirs.
+	dirs := []string{"/a", "/b", "/c"}
 	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	count := 0
 	for _, a := range args {
@@ -237,30 +258,13 @@ func TestBuildSandboxArgs_DeduplicateWritableDirs(t *testing.T) {
 			count++
 		}
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 WRITABLE param after dedup, got %d", count)
-	}
-}
-
-func TestBuildSandboxArgs_MaxWritableDirs(t *testing.T) {
-	dirs := make([]string, maxWritableDirs+10)
-	for i := range dirs {
-		dirs[i] = filepath.Join(os.TempDir(), "dir"+string(rune('A'+i%26))+string(rune('0'+i/26)))
-	}
-	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
-	count := 0
-	for _, a := range args {
-		if strings.HasPrefix(a, "WRITABLE_") {
-			count++
-		}
-	}
-	if count != maxWritableDirs {
-		t.Fatalf("expected exactly %d WRITABLE params, got %d", maxWritableDirs, count)
+	if count != 3 {
+		t.Fatalf("expected 3 WRITABLE params, got %d", count)
 	}
 }
 
 func TestBuildSandboxArgs_EmptyStringSkipped(t *testing.T) {
-	dirs := []string{"", "/tmp/w", ""}
+	dirs := []string{"/a", "/b"}
 	args := buildSandboxArgs("p", dirs, "/bin/echo", nil)
 	count := 0
 	for _, a := range args {
@@ -268,8 +272,141 @@ func TestBuildSandboxArgs_EmptyStringSkipped(t *testing.T) {
 			count++
 		}
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 WRITABLE param (empty strings skipped), got %d", count)
+	if count != 2 {
+		t.Fatalf("expected 2 WRITABLE params, got %d", count)
+	}
+}
+
+// --- resolveWritableDirs tests ---
+
+func TestResolveWritableDirs_Basic(t *testing.T) {
+	d1 := t.TempDir()
+	d2 := t.TempDir()
+	dirs, err := resolveWritableDirs("", []string{d1, d2})
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(dirs) != 2 {
+		t.Fatalf("expected 2 dirs, got %d", len(dirs))
+	}
+}
+
+func TestResolveWritableDirs_EmptySkipped(t *testing.T) {
+	d1 := t.TempDir()
+	dirs, err := resolveWritableDirs("", []string{"", d1, ""})
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 dir, got %d", len(dirs))
+	}
+}
+
+func TestResolveWritableDirs_SymlinkDedup(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	dirs, err := resolveWritableDirs("", []string{real, link})
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 dir after symlink dedup, got %d", len(dirs))
+	}
+	if dirs[0] != real {
+		t.Fatalf("expected resolved dir %q, got %q", real, dirs[0])
+	}
+}
+
+func TestResolveWritableDirs_CreatesDirectories(t *testing.T) {
+	parent := t.TempDir()
+	nested := filepath.Join(parent, "new", "nested", "dir")
+	dirs, err := resolveWritableDirs("", []string{nested})
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 dir, got %d", len(dirs))
+	}
+	if _, err := os.Stat(nested); err != nil {
+		t.Fatalf("directory should have been created: %v", err)
+	}
+}
+
+func TestResolveWritableDirs_OverlapDetection(t *testing.T) {
+	project := t.TempDir()
+	dirs, err := resolveWritableDirs(project, []string{project})
+	if err == nil {
+		t.Fatal("should reject writable dir == project dir")
+	}
+	if !strings.Contains(err.Error(), "contains project dir") {
+		t.Fatalf("error = %q, want mention of overlap", err.Error())
+	}
+	_ = dirs
+}
+
+func TestResolveWritableDirs_ParentOverlapDetection(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "sub", "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Dir(project)
+	dirs, err := resolveWritableDirs(project, []string{parent})
+	if err == nil {
+		t.Fatal("should reject writable dir that is parent of project dir")
+	}
+	_ = dirs
+}
+
+func TestResolveWritableDirs_SymlinkOverlapDetection(t *testing.T) {
+	// Create: /tmp/X/real/project (project dir) and /tmp/X/link -> /tmp/X/real (writable dir)
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	project := filepath.Join(real, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	// Both project and writable resolve to /tmp/X/real — should detect overlap.
+	_, err := resolveWritableDirs(project, []string{link})
+	if err == nil {
+		t.Fatal("should detect overlap through symlink resolution")
+	}
+}
+
+func TestResolveWritableDirs_SBPLMetacharacters(t *testing.T) {
+	_, err := resolveWritableDirs("", []string{"/tmp/bad(dir"})
+	if err == nil {
+		t.Fatal("should reject SBPL metacharacters")
+	}
+}
+
+func TestResolveWritableDirs_CapsAtMax(t *testing.T) {
+	dirs := make([]string, maxWritableDirs+10)
+	for i := range dirs {
+		dirs[i] = filepath.Join(os.TempDir(), "dir"+string(rune('A'+i%26))+string(rune('0'+i/26)))
+	}
+	resolved, err := resolveWritableDirs("", dirs)
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(resolved) != maxWritableDirs {
+		t.Fatalf("expected %d dirs, got %d", maxWritableDirs, len(resolved))
+	}
+}
+
+func TestResolveWritableDirs_EmptyInput(t *testing.T) {
+	dirs, err := resolveWritableDirs("", nil)
+	if err != nil {
+		t.Fatalf("resolveWritableDirs: %v", err)
+	}
+	if len(dirs) != 0 {
+		t.Fatalf("expected 0 dirs, got %d", len(dirs))
 	}
 }
 
@@ -285,8 +422,8 @@ func TestPrepare_WrapsCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if cmd.Path != sandboxExecPath {
-		t.Fatalf("cmd.Path = %q, want %q", cmd.Path, sandboxExecPath)
+	if cmd.Path != sandboxExecLocator() {
+		t.Fatalf("cmd.Path = %q, want %q", cmd.Path, sandboxExecLocator())
 	}
 	if len(cmd.Args) < 3 || cmd.Args[1] != "-p" {
 		t.Fatalf("cmd.Args missing -p flag: %v", cmd.Args)
@@ -435,8 +572,8 @@ func TestPrepare_ResolvesSymlinks(t *testing.T) {
 	}
 	// PROJECT_DIR is no longer passed as a param (project dir is protected
 	// by the (deny file-write*) rule). Verify the command was still wrapped.
-	if cmd.Path != sandboxExecPath {
-		t.Fatalf("cmd.Path = %q, want %q", cmd.Path, sandboxExecPath)
+	if cmd.Path != sandboxExecLocator() {
+		t.Fatalf("cmd.Path = %q, want %q", cmd.Path, sandboxExecLocator())
 	}
 }
 
@@ -457,22 +594,23 @@ func TestPrepare_SBPLMetacharactersWritableDir(t *testing.T) {
 // --- Available / PostStart tests ---
 
 func TestAvailable_Present(t *testing.T) {
-	// On macOS, /usr/bin/sandbox-exec should exist.
-	if _, err := os.Stat(sandboxExecPath); err != nil {
-		t.Skipf("sandbox-exec not found: %v", err)
+	if sandboxExecLocator() == "" {
+		t.Skip("sandbox-exec not found")
 	}
 	if !Available() {
 		t.Fatal("Available() should return true when sandbox-exec exists")
 	}
 }
 
+// Tests that mutate sandboxExecLocator must NOT use t.Parallel() —
+// they share process-global state.
 func TestAvailable_Missing(t *testing.T) {
-	orig := sandboxExecPath
-	sandboxExecPath = "/nonexistent/sandbox-exec"
-	defer func() { sandboxExecPath = orig }()
+	orig := sandboxExecLocator
+	sandboxExecLocator = func() string { return "" }
+	defer func() { sandboxExecLocator = orig }()
 
 	if Available() {
-		t.Fatal("Available() should return false for nonexistent path")
+		t.Fatal("Available() should return false when locator returns empty")
 	}
 }
 

@@ -6,8 +6,8 @@
 //
 // File layout:
 //
-//	darwin.go           — Available(), prepare(), postStart()
-//	darwin_seatbelt.go  — buildSeatbeltProfile(), buildSandboxArgs(), validateSBPLPath()
+//	darwin.go           — Available(), prepare(), resolveWritableDirs(), postStart()
+//	darwin_seatbelt.go  — buildSeatbeltProfile(), buildSandboxArgs(), validateSBPLPath(), sandboxExecLocator()
 package sandbox
 
 import (
@@ -19,8 +19,61 @@ import (
 
 // Available reports whether sandbox-exec is present on this system.
 func Available() bool {
-	_, err := os.Stat(sandboxExecPath)
-	return err == nil
+	return sandboxExecLocator() != ""
+}
+
+// resolveWritableDirs validates, creates, deduplicates, and caps writable dirs.
+// This is the single source of truth for writable dir canonicalization.
+// Returns an error if any dir is invalid or overlaps with projectDir.
+func resolveWritableDirs(projectDir string, dirs []string) ([]string, error) {
+	resolved := make([]string, 0, len(dirs))
+	seen := make(map[string]bool)
+
+	for _, wdir := range dirs {
+		if wdir == "" {
+			continue
+		}
+		if err := validateSBPLPath(wdir); err != nil {
+			return nil, err
+		}
+		absDir, err := filepath.Abs(wdir)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: resolve writable dir %q: %w", wdir, err)
+		}
+		// Create the directory BEFORE resolving symlinks. This ensures
+		// EvalSymlinks succeeds for paths whose ancestors exist but the
+		// leaf does not yet, and that the resolved path is correct even
+		// when the leaf was a symlink created by MkdirAll.
+		if err := os.MkdirAll(absDir, 0o755); err != nil {
+			return nil, fmt.Errorf("sandbox: create writable dir %s: %w", absDir, err)
+		}
+		// Resolve symlinks AFTER creating the directory. This is now
+		// symmetric with projectDir resolution — both require full
+		// EvalSymlinks success, preventing the overlap-check bypass
+		// where an unresolved symlink in the writable path's ancestry
+		// could hide overlap with the fully-resolved project dir.
+		canonical, err := filepath.EvalSymlinks(absDir)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: resolve symlinks in writable dir %q: %w", absDir, err)
+		}
+		// Reject overlap: writable dir must not contain or equal project dir.
+		if projectDir != "" {
+			if canonical == projectDir || pathContains(canonical, projectDir) {
+				return nil, fmt.Errorf("sandbox: writable dir %s contains project dir %s", canonical, projectDir)
+			}
+		}
+		if seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
+		resolved = append(resolved, canonical)
+
+		if len(resolved) >= maxWritableDirs {
+			break
+		}
+	}
+
+	return resolved, nil
 }
 
 // prepare wraps cmd with sandbox-exec to apply a Seatbelt profile. The
@@ -47,51 +100,22 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		projectDir = resolved
 	}
 
-	// Validate and resolve writable dirs.
-	resolvedDirs := make([]string, 0, len(cfg.WritableDirs))
-	seen := make(map[string]bool)
-	for _, wdir := range cfg.WritableDirs {
-		if wdir == "" {
-			continue
-		}
-		if err := validateSBPLPath(wdir); err != nil {
-			return nil, err
-		}
-		absDir, err := filepath.Abs(wdir)
-		if err != nil {
-			return nil, fmt.Errorf("sandbox: resolve writable dir %q: %w", wdir, err)
-		}
-		resolved, err := filepath.EvalSymlinks(absDir)
-		if err != nil {
-			resolved = absDir
-		}
-		// Reject overlap: writable dir must not contain or equal project dir.
-		if projectDir != "" {
-			if resolved == projectDir || pathContains(resolved, projectDir) {
-				return nil, fmt.Errorf("sandbox: writable dir %s contains project dir %s", resolved, projectDir)
-			}
-		}
-		if seen[resolved] {
-			continue
-		}
-		seen[resolved] = true
-		// Ensure directory exists.
-		if err := os.MkdirAll(resolved, 0o755); err != nil {
-			return nil, fmt.Errorf("sandbox: create writable dir %s: %w", resolved, err)
-		}
-		resolvedDirs = append(resolvedDirs, resolved)
+	// Validate and resolve writable dirs — single source of truth.
+	writableDirs, err := resolveWritableDirs(projectDir, cfg.WritableDirs)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build profile and args.
-	profile := buildSeatbeltProfile(resolvedDirs)
+	profile := buildSeatbeltProfile(writableDirs)
 	originalBinary := cmd.Path
 	var originalArgs []string
 	if len(cmd.Args) > 1 {
 		originalArgs = cmd.Args[1:]
 	}
 
-	cmd.Path = sandboxExecPath
-	cmd.Args = buildSandboxArgs(profile, resolvedDirs, originalBinary, originalArgs)
+	cmd.Path = sandboxExecLocator()
+	cmd.Args = buildSandboxArgs(profile, writableDirs, originalBinary, originalArgs)
 
 	return func() {}, nil
 }

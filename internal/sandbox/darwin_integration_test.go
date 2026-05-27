@@ -165,10 +165,12 @@ func TestIntegration_DynamicBinary(t *testing.T) {
 	}
 }
 
+// Tests that mutate sandboxExecLocator must NOT use t.Parallel() —
+// they share process-global state.
 func TestIntegration_ModeOn_NoSandboxExec(t *testing.T) {
-	orig := sandboxExecPath
-	sandboxExecPath = "/nonexistent/sandbox-exec"
-	defer func() { sandboxExecPath = orig }()
+	orig := sandboxExecLocator
+	sandboxExecLocator = func() string { return "" }
+	defer func() { sandboxExecLocator = orig }()
 
 	cmd := exec.Command("echo")
 	cfg := Config{ProjectDir: t.TempDir(), Mode: ModeOn}
@@ -179,9 +181,9 @@ func TestIntegration_ModeOn_NoSandboxExec(t *testing.T) {
 }
 
 func TestIntegration_ModeAuto_NoSandboxExec(t *testing.T) {
-	orig := sandboxExecPath
-	sandboxExecPath = "/nonexistent/sandbox-exec"
-	defer func() { sandboxExecPath = orig }()
+	orig := sandboxExecLocator
+	sandboxExecLocator = func() string { return "" }
+	defer func() { sandboxExecLocator = orig }()
 
 	cmd := exec.Command("echo")
 	cfg := Config{ProjectDir: t.TempDir(), Mode: ModeAuto}
