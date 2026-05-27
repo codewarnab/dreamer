@@ -36,6 +36,7 @@ var commandGroups = []*cobra.Group{
 var groupAssignments = map[string]string{
 	"analyze":  groupCore,
 	"daemon":   groupCore,
+	"jobs":     groupCore,
 	"start":    groupCore,
 	"stop":     groupCore,
 	"status":   groupCore,

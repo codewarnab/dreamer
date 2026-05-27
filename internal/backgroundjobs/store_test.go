@@ -38,9 +38,9 @@ func TestStore_Update_CreatesJobsFile(t *testing.T) {
 	err := s.Update(context.Background(), func(st *State) error {
 		id, _ := GenerateJobID()
 		st.Jobs[id] = &Job{
-			ID:       id,
-			Name:     "test job",
-			Enabled:  true,
+			ID:         id,
+			Name:       "test job",
+			Enabled:    true,
 			ProviderID: "openclaude-cli",
 		}
 		return nil

@@ -633,7 +633,6 @@ func TestSweepStaleFindingsTempFiles_RemovesOldFiles(t *testing.T) {
 	}
 }
 
-
 func TestRunExternalCommand_Echo(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("echo is a shell built-in on Windows")
@@ -676,4 +675,3 @@ func TestFormatCommandOutput(t *testing.T) {
 		}
 	}
 }
-

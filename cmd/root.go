@@ -63,6 +63,10 @@ func newRootCommand() *cobra.Command {
 	statusCmd.GroupID = groupCore
 	root.AddCommand(statusCmd)
 
+	jobsCmd := newJobsCommand()
+	jobsCmd.GroupID = groupCore
+	root.AddCommand(jobsCmd)
+
 	// Setup & Config commands.
 	setupCmd := newSetupCommand()
 	setupCmd.GroupID = groupSetup
