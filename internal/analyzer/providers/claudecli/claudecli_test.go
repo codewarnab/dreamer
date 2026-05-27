@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/cliharness"
 	"dreamer/internal/sandbox"
 )
 
@@ -29,13 +30,13 @@ func TestReadStreamJSON_SchemaChange(t *testing.T) {
 }
 
 func TestDefaultCommandIncludesUnrestrictedFlags(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer p.Close()
 
-	cmd := p.(*provider).command
+	cmd := p.(*provider).p.Command
 	got := strings.Join(cmd, " ")
 
 	if !sandbox.Available() {
@@ -76,20 +77,20 @@ func TestDefaultCommandIncludesUnrestrictedFlags(t *testing.T) {
 
 func TestCustomCommandOverridesDefaults(t *testing.T) {
 	custom := []string{"my-claude", "--safe"}
-	p, err := New(Options{Command: custom})
+	p, err := New(cliharness.Options{Command: custom})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer p.Close()
 
-	cmd := p.(*provider).command
+	cmd := p.(*provider).p.Command
 	if len(cmd) != len(custom) {
 		t.Fatalf("custom command not applied: got %v, want %v", cmd, custom)
 	}
 }
 
 func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	got := strings.Join(sess.(*session).command, " ")
+	got := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if strings.Contains(got, "--dangerously-skip-permissions") {
 		t.Fatalf("sandbox=false should use policy flags, got: %s", got)
 	}
@@ -115,7 +116,7 @@ func TestWritableDirsHonorClaudeConfigDir(t *testing.T) {
 	claudeConfigDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeConfigDir)
 
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestWritableDirsHonorClaudeConfigDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	writable := sess.(*session).sandboxCfg.WritableDirs
+	writable := sess.(*cliharness.Session).SandboxConfig().WritableDirs
 	for _, dir := range writable {
 		if dir == claudeConfigDir {
 			return
@@ -137,7 +138,7 @@ func TestWritableDirsHonorClaudeConfigDir(t *testing.T) {
 }
 
 func TestProviderID(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -148,7 +149,7 @@ func TestProviderID(t *testing.T) {
 }
 
 func TestProviderClose(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -158,7 +159,7 @@ func TestProviderClose(t *testing.T) {
 }
 
 func TestStart_NonExistentBinary(t *testing.T) {
-	p, err := New(Options{Command: []string{"nonexistent-claude-binary-12345"}})
+	p, err := New(cliharness.Options{Command: []string{"nonexistent-claude-binary-12345"}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -174,7 +175,7 @@ func TestStart_NonExistentBinary(t *testing.T) {
 }
 
 func TestNewSession_EmptyWorkingDirectory(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -191,7 +192,7 @@ func TestNewSession_EmptyWorkingDirectory(t *testing.T) {
 
 func TestNewSession_CustomCommandPreserved(t *testing.T) {
 	custom := []string{"custom-claude", "--flag"}
-	p, err := New(Options{Command: custom})
+	p, err := New(cliharness.Options{Command: custom})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -203,14 +204,14 @@ func TestNewSession_CustomCommandPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := sess.(*session).command
+	cmd := sess.(*cliharness.Session).Command()
 	if cmd[0] != "custom-claude" {
 		t.Errorf("expected custom command preserved, got %v", cmd)
 	}
 }
 
 func TestNewSession_ModelFlagFromSessionConfig(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -223,14 +224,14 @@ func TestNewSession_ModelFlagFromSessionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := strings.Join(sess.(*session).command, " ")
+	cmd := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if !strings.Contains(cmd, "--model claude-sonnet-4") {
 		t.Errorf("expected --model flag, got: %s", cmd)
 	}
 }
 
 func TestNewSession_ModelFromDefaultModel(t *testing.T) {
-	p, err := New(Options{DefaultModel: "claude-haiku"})
+	p, err := New(cliharness.Options{DefaultModel: "claude-haiku"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -242,14 +243,14 @@ func TestNewSession_ModelFromDefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := strings.Join(sess.(*session).command, " ")
+	cmd := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if !strings.Contains(cmd, "--model claude-haiku") {
 		t.Errorf("expected --model flag from DefaultModel, got: %s", cmd)
 	}
 }
 
 func TestNewSession_InvalidSandboxMode(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -268,7 +269,7 @@ func TestNewSession_InvalidSandboxMode(t *testing.T) {
 }
 
 func TestNewSession_ModelFlagSessionOverridesDefault(t *testing.T) {
-	p, err := New(Options{DefaultModel: "default-model"})
+	p, err := New(cliharness.Options{DefaultModel: "default-model"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -281,7 +282,7 @@ func TestNewSession_ModelFlagSessionOverridesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := strings.Join(sess.(*session).command, " ")
+	cmd := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if strings.Contains(cmd, "default-model") {
 		t.Errorf("session model should override default, got: %s", cmd)
 	}
@@ -291,7 +292,7 @@ func TestNewSession_ModelFlagSessionOverridesDefault(t *testing.T) {
 }
 
 func TestNewSession_NoModelFlagWhenEmpty(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -303,7 +304,7 @@ func TestNewSession_NoModelFlagWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := strings.Join(sess.(*session).command, " ")
+	cmd := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if strings.Contains(cmd, "--model") {
 		t.Errorf("should not have --model flag when no model specified, got: %s", cmd)
 	}
@@ -413,8 +414,7 @@ func TestReadStreamJSON_BlankLinesIgnored(t *testing.T) {
 }
 
 func TestResolveConfigDir_EnvMapOverride(t *testing.T) {
-	env := map[string]string{"CLAUDE_CONFIG_DIR": "/custom/path"}
-	got, err := resolveConfigDir(env, "CLAUDE_CONFIG_DIR", ".claude")
+	got, err := cliharness.ResolveConfigDir(map[string]string{"CLAUDE_CONFIG_DIR": "/custom/path"}, "CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestResolveConfigDir_EnvMapOverride(t *testing.T) {
 
 func TestResolveConfigDir_OsGetenvFallback(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "/env/fallback")
-	got, err := resolveConfigDir(nil, "CLAUDE_CONFIG_DIR", ".claude")
+	got, err := cliharness.ResolveConfigDir(nil, "CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestResolveConfigDir_OsGetenvFallback(t *testing.T) {
 
 func TestResolveConfigDir_HomeFallback(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	got, err := resolveConfigDir(nil, "CLAUDE_CONFIG_DIR", ".claude")
+	got, err := cliharness.ResolveConfigDir(nil, "CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -449,8 +449,7 @@ func TestResolveConfigDir_HomeFallback(t *testing.T) {
 
 func TestResolveConfigDir_EnvMapTakesPrecedenceOverOsGetenv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "/from/env")
-	env := map[string]string{"CLAUDE_CONFIG_DIR": "/from/map"}
-	got, err := resolveConfigDir(env, "CLAUDE_CONFIG_DIR", ".claude")
+	got, err := cliharness.ResolveConfigDir(map[string]string{"CLAUDE_CONFIG_DIR": "/from/map"}, "CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -460,8 +459,7 @@ func TestResolveConfigDir_EnvMapTakesPrecedenceOverOsGetenv(t *testing.T) {
 }
 
 func TestResolveConfigDir_WhitespaceIgnored(t *testing.T) {
-	env := map[string]string{"CLAUDE_CONFIG_DIR": "  "}
-	got, err := resolveConfigDir(env, "CLAUDE_CONFIG_DIR", ".claude")
+	got, err := cliharness.ResolveConfigDir(map[string]string{"CLAUDE_CONFIG_DIR": "  "}, "CLAUDE_CONFIG_DIR", ".claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -519,4 +517,3 @@ func TestReadStreamJSON_AssistantWithOnlyNonTextContent(t *testing.T) {
 		t.Errorf("expected empty for tool_use-only content, got %q", text)
 	}
 }
-

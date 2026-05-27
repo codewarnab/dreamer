@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/cliharness"
 	"dreamer/internal/sandbox"
 )
 
@@ -29,13 +30,13 @@ func TestReadStreamJSON_SchemaChange(t *testing.T) {
 }
 
 func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer p.Close()
 
-	cmd := p.(*provider).command
+	cmd := p.(*provider).p.Command
 	got := strings.Join(cmd, " ")
 
 	if !sandbox.Available() {
@@ -59,20 +60,20 @@ func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
 
 func TestCustomCommandOverridesDefaults(t *testing.T) {
 	custom := []string{"my-gemini", "-p"}
-	p, err := New(Options{Command: custom})
+	p, err := New(cliharness.Options{Command: custom})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer p.Close()
 
-	cmd := p.(*provider).command
+	cmd := p.(*provider).p.Command
 	if len(cmd) != len(custom) {
 		t.Fatalf("custom command not applied: got %v, want %v", cmd, custom)
 	}
 }
 
 func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	got := strings.Join(sess.(*session).command, " ")
+	got := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if strings.Contains(got, "--yolo") {
 		t.Fatalf("sandbox=false should not use --yolo, got: %s", got)
 	}
@@ -98,7 +99,7 @@ func TestWritableDirsHonorGeminiHome(t *testing.T) {
 	geminiHomeDir := t.TempDir()
 	t.Setenv("GEMINI_HOME", geminiHomeDir)
 
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestWritableDirsHonorGeminiHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	writable := sess.(*session).sandboxCfg.WritableDirs
+	writable := sess.(*cliharness.Session).SandboxConfig().WritableDirs
 	for _, dir := range writable {
 		if dir == geminiHomeDir {
 			return
@@ -120,7 +121,7 @@ func TestWritableDirsHonorGeminiHome(t *testing.T) {
 }
 
 func TestProviderID(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestProviderID(t *testing.T) {
 }
 
 func TestProviderClose(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -141,7 +142,7 @@ func TestProviderClose(t *testing.T) {
 }
 
 func TestNewSession_EmptyWorkingDirectory(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -158,7 +159,7 @@ func TestNewSession_EmptyWorkingDirectory(t *testing.T) {
 
 func TestNewSession_CustomCommandPreserved(t *testing.T) {
 	custom := []string{"custom-gemini", "-p", "--yolo"}
-	p, err := New(Options{Command: custom})
+	p, err := New(cliharness.Options{Command: custom})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestNewSession_CustomCommandPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := sess.(*session).command
+	cmd := sess.(*cliharness.Session).Command()
 	if cmd[0] != "custom-gemini" {
 		t.Errorf("expected custom command preserved, got %v", cmd)
 	}
@@ -296,8 +297,7 @@ func TestReadStreamJSON_MultipleAssistantMessages(t *testing.T) {
 }
 
 func TestResolveConfigDir_EnvMapOverride(t *testing.T) {
-	env := map[string]string{"GEMINI_HOME": "/custom/gemini"}
-	got, err := resolveConfigDir(env, "GEMINI_HOME", ".gemini")
+	got, err := cliharness.ResolveConfigDir(map[string]string{"GEMINI_HOME": "/custom/gemini"}, "GEMINI_HOME", ".gemini")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestResolveConfigDir_EnvMapOverride(t *testing.T) {
 
 func TestResolveConfigDir_OsGetenvFallback(t *testing.T) {
 	t.Setenv("GEMINI_HOME", "/env/gemini")
-	got, err := resolveConfigDir(nil, "GEMINI_HOME", ".gemini")
+	got, err := cliharness.ResolveConfigDir(nil, "GEMINI_HOME", ".gemini")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestResolveConfigDir_OsGetenvFallback(t *testing.T) {
 
 func TestResolveConfigDir_HomeFallback(t *testing.T) {
 	t.Setenv("GEMINI_HOME", "")
-	got, err := resolveConfigDir(nil, "GEMINI_HOME", ".gemini")
+	got, err := cliharness.ResolveConfigDir(nil, "GEMINI_HOME", ".gemini")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,8 +332,7 @@ func TestResolveConfigDir_HomeFallback(t *testing.T) {
 
 func TestResolveConfigDir_EnvMapTakesPrecedenceOverOsGetenv(t *testing.T) {
 	t.Setenv("GEMINI_HOME", "/from/env")
-	env := map[string]string{"GEMINI_HOME": "/from/map"}
-	got, err := resolveConfigDir(env, "GEMINI_HOME", ".gemini")
+	got, err := cliharness.ResolveConfigDir(map[string]string{"GEMINI_HOME": "/from/map"}, "GEMINI_HOME", ".gemini")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
