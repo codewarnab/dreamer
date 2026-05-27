@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -132,6 +133,10 @@ func validateCreatePayload(cfg *config.Config, payload createPayload, lookup fun
 	// 2. Validate schedule.
 	if err := backgroundjobs.ValidateSchedule(payload.Schedule); err != nil {
 		return "", nil, fmt.Errorf("invalid schedule: %w", err)
+	}
+	// Cron schedules are not supported on Windows (Task Scheduler has no cron equivalent).
+	if payload.Schedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+		return "", nil, fmt.Errorf("cron schedules are not supported on Windows; use daily or weekly instead")
 	}
 
 	// 3. Validate provider is background-safe.
@@ -322,22 +327,15 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		// Check job count cap.
-		state, err := deps.Jobs.Store.Load()
-		if err != nil {
-			deps.Logger.Error("jobs create load", logging.ErrAttr(err)...)
-			writeJSONError(w, http.StatusInternalServerError, "failed to load jobs")
-			return
-		}
-		if len(state.Jobs) >= maxJobsPerInstall {
-			writeJSONError(w, http.StatusBadRequest, "job limit reached (128)")
-			return
-		}
-
 		// Derive name if empty.
 		name := strings.TrimSpace(payload.Name)
 		if name == "" {
 			name = deriveNameFromPrompt(payload.Prompt)
+		}
+		// Truncate name to 64 runes for safety.
+		runes := []rune(name)
+		if len(runes) > 64 {
+			name = string(runes[:64])
 		}
 
 		jobID, err := backgroundjobs.GenerateJobID()
@@ -373,12 +371,19 @@ func JobCreate(deps Deps) http.HandlerFunc {
 		}
 
 		if err := deps.Jobs.Store.Update(r.Context(), func(s *backgroundjobs.State) error {
+			if len(s.Jobs) >= maxJobsPerInstall {
+				return fmt.Errorf("job limit reached (%d)", maxJobsPerInstall)
+			}
 			if s.Jobs == nil {
 				s.Jobs = make(map[string]*backgroundjobs.Job)
 			}
 			s.Jobs[jobID] = job
 			return nil
 		}); err != nil {
+			if strings.Contains(err.Error(), "job limit reached") {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			deps.Logger.Error("jobs create store", logging.ErrAttr(err)...)
 			writeJSONError(w, http.StatusInternalServerError, "failed to create job")
 			return
@@ -567,6 +572,17 @@ func JobAuditLog(deps Deps) http.HandlerFunc {
 			deps.Logger.Error("audit read", logging.ErrAttr(err)...)
 			writeJSONError(w, http.StatusInternalServerError, "failed to read audit log")
 			return
+		}
+
+		// Filter by job_id if specified.
+		if jobFilter := r.URL.Query().Get("job_id"); jobFilter != "" {
+			filtered := make([]backgroundjobs.AuditEvent, 0, len(events))
+			for _, ev := range events {
+				if ev.JobID == jobFilter {
+					filtered = append(filtered, ev)
+				}
+			}
+			events = filtered
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
