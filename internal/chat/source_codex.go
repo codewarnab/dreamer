@@ -9,12 +9,12 @@ import (
 )
 
 func init() {
-	registerProvider(codexProvider{})
+	registerProvider(codexProvider{fileBackedProvider{sourceType: SourceTypeCodexSessionJSONL}})
 }
 
-type codexProvider struct{}
-
-func (codexProvider) Type() SourceType { return SourceTypeCodexSessionJSONL }
+type codexProvider struct {
+	fileBackedProvider
+}
 
 func (codexProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
 	return discoverCodexSessions(env.HomeDir, projectPath)
@@ -59,14 +59,6 @@ func discoverCodexSessions(homeDir string, projectPath string) ([]ChatSource, er
 		}
 	}
 	return discovered, nil
-}
-
-func (codexProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (codexProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
 }
 
 func (codexProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

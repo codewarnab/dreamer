@@ -9,12 +9,12 @@ import (
 )
 
 func init() {
-	registerProvider(claudeProvider{})
+	registerProvider(claudeProvider{fileBackedProvider{sourceType: SourceTypeClaudeCodeSession}})
 }
 
-type claudeProvider struct{}
-
-func (claudeProvider) Type() SourceType { return SourceTypeClaudeCodeSession }
+type claudeProvider struct {
+	fileBackedProvider
+}
 
 func (claudeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
 	return discoverClaudeCodeSessions(env.HomeDir, env.ClaudeConfigDir, projectPath)
@@ -75,13 +75,6 @@ func extractClaudeParentID(path string) string {
 	return ""
 }
 
-func (claudeProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (claudeProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
-}
 
 func (claudeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadClaudeJSONLWithToolFolding(source.Path)

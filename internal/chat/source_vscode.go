@@ -12,12 +12,12 @@ import (
 )
 
 func init() {
-	registerProvider(vscodeProvider{})
+	registerProvider(vscodeProvider{fileBackedProvider{sourceType: SourceTypeVSCodeChatSession}})
 }
 
-type vscodeProvider struct{}
-
-func (vscodeProvider) Type() SourceType { return SourceTypeVSCodeChatSession }
+type vscodeProvider struct {
+	fileBackedProvider
+}
 
 func (vscodeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
 	return discoverVSCodeChatSessions(env.AppDataDir, projectPath)
@@ -74,14 +74,6 @@ func discoverVSCodeChatSessions(appDataDir string, projectPath string) ([]ChatSo
 	}
 
 	return discovered, nil
-}
-
-func (vscodeProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (vscodeProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
 }
 
 func (vscodeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

@@ -9,12 +9,12 @@ import (
 )
 
 func init() {
-	registerProvider(geminiCLIProvider{})
+	registerProvider(geminiCLIProvider{fileBackedProvider{sourceType: SourceTypeGeminiCLISession}})
 }
 
-type geminiCLIProvider struct{}
-
-func (geminiCLIProvider) Type() SourceType { return SourceTypeGeminiCLISession }
+type geminiCLIProvider struct {
+	fileBackedProvider
+}
 
 func (geminiCLIProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
 	return discoverGeminiCLISessions(env.HomeDir, env.GeminiHomeDir, projectPath)
@@ -82,14 +82,6 @@ func extractGeminiCLIParentID(path string) string {
 		}
 	}
 	return ""
-}
-
-func (geminiCLIProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (geminiCLIProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
 }
 
 func (geminiCLIProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

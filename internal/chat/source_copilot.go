@@ -9,12 +9,12 @@ import (
 )
 
 func init() {
-	registerProvider(copilotProvider{})
+	registerProvider(copilotProvider{fileBackedProvider{sourceType: SourceTypeCopilotSessionJSONL}})
 }
 
-type copilotProvider struct{}
-
-func (copilotProvider) Type() SourceType { return SourceTypeCopilotSessionJSONL }
+type copilotProvider struct {
+	fileBackedProvider
+}
 
 func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]ChatSource, error) {
 	copilotHome := strings.TrimSpace(env.CopilotHome)
@@ -41,10 +41,3 @@ func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, e
 	return messages, nil
 }
 
-func (copilotProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (copilotProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
-}

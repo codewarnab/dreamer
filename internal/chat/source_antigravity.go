@@ -12,12 +12,12 @@ import (
 )
 
 func init() {
-	registerProvider(antigravityProvider{})
+	registerProvider(antigravityProvider{fileBackedProvider{sourceType: SourceTypeAntigravityGemini}})
 }
 
-type antigravityProvider struct{}
-
-func (antigravityProvider) Type() SourceType { return SourceTypeAntigravityGemini }
+type antigravityProvider struct {
+	fileBackedProvider
+}
 
 func (antigravityProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
 	return discoverAntigravityGeminiSessions(env.HomeDir, projectPath, env.GeminiHomeDir)
@@ -74,14 +74,6 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 	}
 
 	return discovered, nil
-}
-
-func (antigravityProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (antigravityProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
 }
 
 func (antigravityProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

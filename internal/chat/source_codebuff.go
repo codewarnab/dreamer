@@ -10,12 +10,12 @@ import (
 )
 
 func init() {
-	registerProvider(codebuffProvider{})
+	registerProvider(codebuffProvider{fileBackedProvider{sourceType: SourceTypeCodebuffSession}})
 }
 
-type codebuffProvider struct{}
-
-func (codebuffProvider) Type() SourceType { return SourceTypeCodebuffSession }
+type codebuffProvider struct {
+	fileBackedProvider
+}
 
 func (codebuffProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
 	return discoverCodebuffSessions(env.HomeDir, env.CodebuffConfigDir, projectPath)
@@ -90,14 +90,6 @@ func discoverCodebuffSessions(homeDir string, configDir string, projectPath stri
 // is sufficient.
 func codebuffProjectMatches(dirName string, projectBase string) bool {
 	return strings.EqualFold(strings.TrimSpace(dirName), strings.TrimSpace(projectBase))
-}
-
-func (codebuffProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (codebuffProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
 }
 
 func (codebuffProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {

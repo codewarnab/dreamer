@@ -27,6 +27,17 @@ type BatchSizer interface {
 	SizeBytesBatch(sources []ChatSource) map[string]int64
 }
 
+// fileBackedProvider is a mixin for providers whose chat sources are
+// plain files on disk. It provides Type(), DeleteSource(), and SizeBytes()
+// so each concrete provider only needs Discover() and ReadMessages().
+type fileBackedProvider struct {
+	sourceType SourceType
+}
+
+func (p fileBackedProvider) Type() SourceType                    { return p.sourceType }
+func (fileBackedProvider) DeleteSource(s ChatSource) error       { return deleteSourceFile(s.Path) }
+func (fileBackedProvider) SizeBytes(s ChatSource) (int64, error) { return statSourceSize(s.Path) }
+
 var registeredProviders []ChatSourceProvider
 
 // registerProvider is called from each source file's init() to install a
