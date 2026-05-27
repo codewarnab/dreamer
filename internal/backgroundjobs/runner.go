@@ -83,7 +83,7 @@ func truncateUTF8(s string, maxRunes int) string {
 // Run executes a background job by ID. It:
 // 1. Loads job from store; returns error if not found or deleted.
 // 2. Validates: enabled, schedule valid, provider background-safe.
-// 3. Rejects selected_writes and full_workspace (Phase 2).
+// 3. Rejects selected_writes and full_workspace (only read_only is supported).
 // 4. Resolves provider config from current config + overlay.
 // 5. Creates a run record with status "running"; writes job.run.claim audit.
 // 6. Acquires per-job lock, starts provider, runs prompt with timeout.
@@ -110,7 +110,13 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		return skipResult, nil
 	}
 
-	// Step 2.5: Self-repair (bounded — single job only).
+	// Step 3: Resolve provider config (before self-repair to avoid re-installing for broken configs).
+	providerCfg, err := e.resolveProvider(job)
+	if err != nil {
+		return RunResult{}, err
+	}
+
+	// Step 3.5: Self-repair (bounded — single job only).
 	if e.SelfRepair != nil && e.SelfRepair.Scheduler != nil {
 		reconciler := &Reconciler{
 			Scheduler:  e.SelfRepair.Scheduler,
@@ -121,12 +127,6 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		if repairErr := reconciler.SelfRepair(ctx, jobID); repairErr != nil {
 			e.Logger.Warn("self-repair failed (non-fatal)", logging.String("job_id", jobID), logging.Any("error", repairErr))
 		}
-	}
-
-	// Step 3: Resolve provider config.
-	providerCfg, err := e.resolveProvider(job)
-	if err != nil {
-		return RunResult{}, err
 	}
 
 	// Step 5: Create run record and execute.
@@ -147,18 +147,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		PromptSnapshot: truncateUTF8(job.Prompt, maxPromptSnapshotRunes),
 	}
 
-	// Write job.run.claim audit event (best-effort, non-fatal).
-	if auditErr := e.AuditWriter.Write(AuditEvent{
-		Event: "job.run.claim",
-		JobID: jobID,
-		Details: map[string]any{
-			"run_id": runID,
-		},
-	}); auditErr != nil {
-		e.Logger.Warn("audit write failed (claim)", logging.Any("err", auditErr))
-	}
-
-	// Step 6: Acquire per-job lock, start provider, run prompt.
+	// Step 6: Acquire per-job lock first, then write audit claim.
 	lockPath := filepath.Join(e.Store.Dir(), "locks", jobID+".lock")
 	release, lockErr := fsutil.AcquireLock(lockPath, e.Logger)
 	if lockErr != nil {
@@ -175,6 +164,17 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 
 	// Defer release to prevent lock leak on panic.
 	defer release()
+
+	// Write job.run.claim audit event after lock acquired (best-effort, non-fatal).
+	if auditErr := e.AuditWriter.Write(AuditEvent{
+		Event: "job.run.claim",
+		JobID: jobID,
+		Details: map[string]any{
+			"run_id": runID,
+		},
+	}); auditErr != nil {
+		e.Logger.Warn("audit write failed (claim)", logging.Any("err", auditErr))
+	}
 
 	output, runErr := e.executeJob(ctx, job, providerCfg, runID)
 
@@ -283,6 +283,17 @@ func (e *Executor) validateJob(job *Job, jobID string) (skipped bool, result Run
 		if appendErr := e.RunStore.Append(run); appendErr != nil {
 			e.Logger.Warn("failed to record skipped run", logging.Any("err", appendErr))
 		}
+		// Emit audit event so skipped runs are visible in the audit log.
+		if auditErr := e.AuditWriter.Write(AuditEvent{
+			Event: "job.run.skipped",
+			JobID: jobID,
+			Details: map[string]any{
+				"run_id": run.ID,
+				"reason": "job is disabled",
+			},
+		}); auditErr != nil {
+			e.Logger.Warn("audit write failed (skipped)", logging.Any("err", auditErr))
+		}
 		return true, RunResult{Record: run}, nil
 	}
 
@@ -295,9 +306,9 @@ func (e *Executor) validateJob(job *Job, jobID string) (skipped bool, result Run
 		return false, RunResult{}, fmt.Errorf("provider %q is not safe for background execution", job.ProviderID)
 	}
 
-	// Reject write modes until Phase 2.
+	// Only read_only file access is supported.
 	if job.Permissions.FileAccess != FileAccessReadOnly {
-		return false, RunResult{}, fmt.Errorf("file access %q is not supported in Phase 1; only read_only is allowed", job.Permissions.FileAccess)
+		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only is allowed", job.Permissions.FileAccess)
 	}
 
 	return false, RunResult{}, nil
@@ -318,8 +329,8 @@ func (e *Executor) resolveProvider(job *Job) (analyzer.ProviderConfig, error) {
 }
 
 // updateJobAfterRun updates the job's LastRunAt, NextRunAt, Health.RunState, and UpdatedAt.
-func (e *Executor) updateJobAfterRun(ctx context.Context, jobID string, jobSchedule ScheduleSpec, run Run, now time.Time) {
-	nextRunAt, _ := NextRun(jobSchedule, now)
+// Uses j.Schedule (current value under lock) to compute NextRun, not a stale snapshot.
+func (e *Executor) updateJobAfterRun(ctx context.Context, jobID string, _ ScheduleSpec, run Run, now time.Time) {
 	if updateErr := e.Store.Update(ctx, func(s *State) error {
 		j := s.Jobs[jobID]
 		if j == nil {
@@ -327,6 +338,8 @@ func (e *Executor) updateJobAfterRun(ctx context.Context, jobID string, jobSched
 			return nil
 		}
 		j.LastRunAt = &now
+		// B20: Recompute NextRun from the current schedule, not the captured snapshot.
+		nextRunAt, _ := NextRun(j.Schedule, now)
 		j.NextRunAt = &nextRunAt
 		j.Health.RunState = run.Status
 		j.UpdatedAt = now
