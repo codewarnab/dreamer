@@ -65,47 +65,42 @@ window.projectOverviewPage = function () {
       // Bind SSE: refresh stats when this project's run completes.
       this._bindSSE();
     },
+    _sseUnsub: [],
     _bindSSE: function () {
-      if (this._es) return;
-      try {
-        this._es = new EventSource("/api/events");
-        this._es.addEventListener("run.done", (ev) => {
-          try {
-            const p = JSON.parse(ev.data);
-            if (p && p.project === this.name) {
-              this.busy = false;
-              this.msg = "run complete: " + (p.findings_new || 0) + " new finding(s)";
-              this.load();
-            }
-          } catch (_) {}
-        });
-        this._es.addEventListener("run.start", (ev) => {
-          try {
-            const p = JSON.parse(ev.data);
-            if (p && p.project === this.name) {
-              this.busy = true;
-              this.msg = "run started";
-            }
-          } catch (_) {}
-        });
-        this._es.addEventListener("chat.deleted", (ev) => {
-          try {
-            const p = JSON.parse(ev.data);
-            if (p && p.project === this.name) {
-              this.load();
-            }
-          } catch (_) {}
-        });
-        this._es.addEventListener("run.error", (ev) => {
-          try {
-            const p = JSON.parse(ev.data);
-            if (p && p.project === this.name) {
-              this.busy = false;
-              this.msg = "run failed: " + (p.error || "unknown error");
-            }
-          } catch (_) {}
-        });
-      } catch (_) {}
+      // Unsubscribe any previously bound handlers to prevent listener leak
+      // when load() triggers _bindSSE multiple times.
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
+      var self = this;
+      var sse = Alpine.store("sse");
+      this._sseUnsub.push(sse.on("run.done", function (p) {
+        if (p && p.project === self.name) {
+          self.busy = false;
+          self.msg = "run complete: " + (p.findings_new || 0) + " new finding(s)";
+          self.load();
+        }
+      }));
+      this._sseUnsub.push(sse.on("run.start", function (p) {
+        if (p && p.project === self.name) {
+          self.busy = true;
+          self.msg = "run started";
+        }
+      }));
+      this._sseUnsub.push(sse.on("chat.deleted", function (p) {
+        if (p && p.project === self.name) {
+          self.load();
+        }
+      }));
+      this._sseUnsub.push(sse.on("run.error", function (p) {
+        if (p && p.project === self.name) {
+          self.busy = false;
+          self.msg = "run failed: " + (p.error || "unknown error");
+        }
+      }));
+    },
+    destroy: function () {
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
     },
     lastRunText: function () {
       if (!this.detail.last_run_utc) return "never";

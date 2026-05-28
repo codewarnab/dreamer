@@ -13,6 +13,7 @@ import (
 	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
 )
 
 // workerIdleInterval is the worst-case latency between Enqueue and a worker
@@ -23,28 +24,30 @@ const workerIdleInterval = 1 * time.Second
 
 // workerPool manages a set of goroutines that dequeue and run analysis jobs.
 type workerPool struct {
-	ctx       context.Context
-	queue     *jobqueue.Queue
-	cfg       *config.App
-	live      *atomic.Pointer[config.App]
-	logger    *logging.Logger
-	cache     *pipeline.DiscoveryCache
-	events    *pipeline.EventBus
-	overrides daemonOverrides
-	wg        sync.WaitGroup
+	ctx        context.Context
+	queue      *jobqueue.Queue
+	cfg        *config.App
+	live       *atomic.Pointer[config.App]
+	logger     *logging.Logger
+	cache      *pipeline.DiscoveryCache
+	stateCache *state.StateCache
+	events     *pipeline.EventBus
+	overrides  daemonOverrides
+	wg         sync.WaitGroup
 }
 
 // newWorkerPool creates a pool that will spawn MaxConcurrent workers.
-func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.App, live *atomic.Pointer[config.App], logger *logging.Logger, cache *pipeline.DiscoveryCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
+func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.App, live *atomic.Pointer[config.App], logger *logging.Logger, cache *pipeline.DiscoveryCache, stateCache *state.StateCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
 	return &workerPool{
-		ctx:       ctx,
-		queue:     queue,
-		cfg:       cfg,
-		live:      live,
-		logger:    logger,
-		cache:     cache,
-		events:    events,
-		overrides: overrides,
+		ctx:        ctx,
+		queue:      queue,
+		cfg:        cfg,
+		live:       live,
+		logger:     logger,
+		cache:      cache,
+		stateCache: stateCache,
+		events:     events,
+		overrides:  overrides,
 	}
 }
 
@@ -119,6 +122,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		Force:                  false,
 		Since:                  job.Since,
 		DiscoveryCache:         wp.cache,
+		StateCache:             wp.stateCache,
 		Events:                 wp.events,
 		ParallelOverride:       wp.overrides.forceParallel,
 		MaxConcurrencyOverride: wp.overrides.maxConcurrency,

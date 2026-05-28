@@ -152,7 +152,7 @@ func TestRunStatusTerminal(t *testing.T) {
 }
 
 func TestScheduleKindValues(t *testing.T) {
-	kinds := []ScheduleKind{ScheduleHourly, ScheduleDaily, ScheduleWeekly, ScheduleCron}
+	kinds := []ScheduleKind{ScheduleInterval, ScheduleDaily, ScheduleWeekly, ScheduleCron}
 	seen := map[ScheduleKind]bool{}
 	for _, k := range kinds {
 		if seen[k] {

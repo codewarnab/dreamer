@@ -181,7 +181,8 @@ func (s *windowsScheduler) writeTask(ctx context.Context, taskPath string, xmlBy
 
 	_, err = s.runCmd(ctx, schtasksExe, "/Create", "/TN", taskPath, "/XML", tmpFile.Name(), "/F")
 	if err != nil {
-		return fmt.Errorf("schtasks /Create: %w", classifyScheduleError(err))
+		_, detail := classifyScheduleErrorWithDetail(err)
+		return fmt.Errorf("schtasks /Create: %w", detail)
 	}
 	return nil
 }
@@ -234,7 +235,9 @@ func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString(xml.Header)
+	// Note: xml.Header is intentionally omitted. schtasks.exe requires
+	// UTF-16LE when an XML declaration with encoding="UTF-8" is present.
+	// Omitting the declaration lets schtasks accept UTF-8 bytes as-is.
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
@@ -279,17 +282,23 @@ const taskXMLTemplate = `<Task version="1.2" xmlns="http://schemas.microsoft.com
 // buildTriggerXML returns the trigger XML fragment for a schedule kind.
 func buildTriggerXML(spec ScheduleSpec) (string, error) {
 	switch spec.Kind {
-	case ScheduleHourly:
-		return `<CalendarTrigger>
+	case ScheduleInterval:
+		interval := "PT1H"
+		if spec.Every != "" {
+			if d, err := parseEveryDuration(spec.Every); err == nil {
+				interval = durationToISO8601(d)
+			}
+		}
+		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>2026-01-01T00:00:00</StartBoundary>
       <Enabled>true</Enabled>
       <Repetition>
-        <Interval>PT1H</Interval>
+        <Interval>%s</Interval>
       </Repetition>
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, nil
+    </CalendarTrigger>`, interval), nil
 
 	case ScheduleDaily:
 		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
@@ -457,4 +466,14 @@ func classifyScheduleError(err error) scheduleErrorCategory {
 	default:
 		return scheduleErrUnknown
 	}
+}
+
+// classifyScheduleErrorWithDetail inspects a schtasks error and returns both
+// the category and a wrapped error that preserves the original message.
+func classifyScheduleErrorWithDetail(err error) (scheduleErrorCategory, error) {
+	if err == nil {
+		return scheduleErrNone, nil
+	}
+	cat := classifyScheduleError(err)
+	return cat, fmt.Errorf("%w: %s", cat, err.Error())
 }

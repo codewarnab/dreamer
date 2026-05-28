@@ -74,6 +74,10 @@ type Options struct {
 	// the expensive HashFile loop when source files haven't changed. Nil disables caching.
 	DiscoveryCache *DiscoveryCache
 
+	// StateCache, when non-nil, is invalidated after each state.Save
+	// so concurrent web handler reads see the new data.
+	StateCache *state.StateCache
+
 	// Events, when non-nil, receives run.start/run.done events.
 	Events *EventBus
 
@@ -133,6 +137,7 @@ type runCtx struct {
 	state      *state.State
 	packs      []analyzer.RulePack
 	providerID string
+	stateCache *state.StateCache // nil = skip invalidation
 }
 
 // persistFailureState saves currentState on a failure path; logs but does
@@ -148,6 +153,9 @@ func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
 			logging.Any("cause", cause),
 		)
 	}
+	if rc.stateCache != nil {
+		rc.stateCache.Invalidate(rc.project)
+	}
 }
 
 // savePrunedState prunes stale entries (B28/B29) then writes state. Used by
@@ -156,7 +164,11 @@ func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
 func (rc *runCtx) savePrunedState() error {
 	pruneLastRunPerCategory(rc.state.LastRunPerCategory, rc.packs)
 	pruneProviderUsage(rc.state.ProviderUsage, rc.providerID)
-	return state.Save(rc.outputRoot, rc.project, rc.state)
+	err := state.Save(rc.outputRoot, rc.project, rc.state)
+	if err == nil && rc.stateCache != nil {
+		rc.stateCache.Invalidate(rc.project)
+	}
+	return err
 }
 
 // discoveryResult holds the output of the discovery stage.
@@ -508,7 +520,8 @@ func collectDismissedHashes(currentState *state.State) map[string]struct{} {
 
 // runAnalysis instantiates the provider, detects the toolchain, and runs the
 // orchestrator. The caller must close the returned provider.
-func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, transcript transcriptResult, runContext *runCtx, currentState *state.State, runID string, logger *logging.Logger) (analysisResult, error) {
+// cacheKeys and repoHeadSHA are used for Phase 1 result caching.
+func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, transcript transcriptResult, runContext *runCtx, currentState *state.State, cacheKeys map[string]string, repoHeadSHA string, runID string, logger *logging.Logger) (analysisResult, error) {
 	var analysis analysisResult
 
 	providerCfg := analyzer.ProviderConfigFromBlock(discovery.providerID, discovery.providerBlock)
@@ -571,18 +584,48 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 		Mode:                 mode,
 		MaxConcurrency:       resolveMaxConcurrency(discovery.appConfig, opts),
 	}
-	chunkInputs := analyzer.ChunkInputs{
-		Chunks:          transcript.chunks,
-		RuleTimeoutSecs: discovery.appConfig.Analyzer.RuleTimeoutSeconds,
+	ruleTimeoutSecs := discovery.appConfig.Analyzer.RuleTimeoutSeconds
+
+	// Check for cached Phase 1 results from a prior run where Phase 1
+	// succeeded but the pipeline did not complete (e.g. Phase 2 failed).
+	p1CacheKey := phase1CacheKey(cacheKeys, repoHeadSHA, runContext.packs)
+	cachedMistakes := loadPhase1Cache(currentState, p1CacheKey)
+
+	var pipelineResult analyzer.AnalysisResult
+	if len(cachedMistakes) > 0 && !opts.Force {
+		logger.Info("replaying cached Phase 1 mistakes",
+			logging.Any("categories", len(cachedMistakes)),
+			logging.Any("total", mistakeCount(cachedMistakes)),
+		)
+		pipelineResult, err = orchestrator.RunPhase2Only(ctx, rc, cachedMistakes, ruleTimeoutSecs, phaseReq)
+	} else {
+		chunkInputs := analyzer.ChunkInputs{
+			Chunks:          transcript.chunks,
+			RuleTimeoutSecs: ruleTimeoutSecs,
+		}
+		logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(transcript.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
+		pipelineResult, err = orchestrator.RunChunks(ctx, rc, chunkInputs, phaseReq)
 	}
-	logger.Info("phase dispatch", logging.Any("mode", mode.String()), logging.Any("chunks", len(transcript.chunks)), logging.Any("concurrency", rc.MaxConcurrency))
-	pipelineResult, err := orchestrator.RunChunks(ctx, rc, chunkInputs, phaseReq)
 	if err != nil {
+		// If Phase 1 produced mistakes but Phase 2 (or later) failed,
+		// cache the Phase 1 results for the next run — but only when
+		// every chunk completed successfully. Partial results from
+		// failed/parse-failed chunks would silently drop those chunks
+		// on replay since the cache key won't change.
+		if len(pipelineResult.Mistakes) > 0 && pipelineResult.Phase1Complete {
+			savePhase1Cache(currentState, mistakesFromResult(pipelineResult), p1CacheKey)
+			if saveErr := runContext.savePrunedState(); saveErr != nil {
+				logger.Warn("save Phase 1 cache failed", logging.Any("err", saveErr))
+			}
+			logger.Info("cached Phase 1 mistakes for next run", logging.Any("mistakes", len(pipelineResult.Mistakes)))
+		}
 		_ = provider.Close()
 		currentState.RecordProviderFailure(discovery.providerID, err)
 		runContext.persistFailureState(err, logger)
 		return analysis, fmt.Errorf("run analyzer: %w", err)
 	}
+	// Full success — clear any stale Phase 1 cache.
+	clearPhase1Cache(currentState)
 	logger.Info("orchestrator done", logging.Any("mistakes", len(pipelineResult.Mistakes)), logging.Any("findings", len(pipelineResult.Findings)), logging.Any("warnings", len(pipelineResult.Warnings)))
 	for _, w := range pipelineResult.Warnings {
 		logger.Warn("orchestrator warning", logging.Any("warning", w))
@@ -758,6 +801,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		state:      currentState,
 		packs:      transcript.rulePacks,
 		providerID: discovery.providerID,
+		stateCache: opts.StateCache,
 	}
 
 	if zeroMessages {
@@ -779,7 +823,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 	}
 
 	// Stage 4: Analysis — provider, toolchain, orchestrator.
-	analysis, err := runAnalysis(ctx, opts, discovery, transcript, runContext, currentState, runID, logger)
+	analysis, err := runAnalysis(ctx, opts, discovery, transcript, runContext, currentState, cachingOutcome.cacheKeys, repoHeadSHA, runID, logger)
 	if err != nil {
 		return Result{}, err
 	}

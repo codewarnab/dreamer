@@ -18,6 +18,12 @@ const (
 	EventFindingResolved  = "finding.resolved"
 	EventConfigReload   = "config.reloaded"
 	EventChatDeleted    = "chat.deleted"
+	EventJobCreated     = "job.created"
+	EventJobDeleted     = "job.deleted"
+	EventJobRunStart    = "job.run.start"
+	EventJobRunDone     = "job.run.done"
+	EventJobPaused      = "job.paused"
+	EventJobResumed     = "job.resumed"
 )
 
 // Event is one SSE-shaped notification. Payload is a JSON-serializable map.

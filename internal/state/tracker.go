@@ -61,6 +61,32 @@ type State struct {
 	// Findings is the v1.5 per-finding lifecycle map. Open findings are
 	// absent (zero-value semantics).
 	Findings map[string]FindingState `json:"findings,omitempty"`
+
+	// CachedPhase1 holds Phase 1 mistakes from a prior run where Phase 1
+	// succeeded but the full pipeline did not complete (e.g. Phase 2 failed).
+	// On the next run, if the cache key matches, Phase 1 is skipped and these
+	// mistakes are replayed into Phase 2 directly. Nil means no cache.
+	CachedPhase1 *CachedPhase1Result `json:"cached_phase1,omitempty"`
+}
+
+// CachedPhase1Result stores Phase 1 output for replay on the next run.
+type CachedPhase1Result struct {
+	// Mistakes is the Phase 1 output keyed by category ID string.
+	Mistakes map[string][]CachedMistake `json:"mistakes"`
+	// CacheKey is a deterministic hash of the transcript + config that
+	// produced these mistakes. Mismatches on the next run invalidate the cache.
+	CacheKey string `json:"cache_key"`
+	// Timestamp records when the cache was written (for observability).
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// CachedMistake mirrors analyzer.Mistake but uses plain string for Category
+// to avoid cross-package serialization coupling.
+type CachedMistake struct {
+	Category        string  `json:"category"`
+	Summary         string  `json:"summary"`
+	EvidenceExcerpt string  `json:"evidence_excerpt"`
+	Confidence      float64 `json:"confidence"`
 }
 
 // PathForProject returns the per-project state.json path under outputRoot.

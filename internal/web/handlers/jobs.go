@@ -17,6 +17,7 @@ import (
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"dreamer/internal/pipeline"
 )
 
 const (
@@ -85,11 +86,11 @@ type EventSink struct {
 
 // createPayload is the parsed request body for job create/preview.
 type createPayload struct {
-	Name        string                     `json:"name"`
-	Prompt      string                     `json:"prompt"`
-	ProjectName string                     `json:"project_name"`
-	ProviderID  string                     `json:"provider_id"`
-	Model       string                     `json:"model"`
+	Name        string                      `json:"name"`
+	Prompt      string                      `json:"prompt"`
+	ProjectName string                      `json:"project_name"`
+	ProviderID  string                      `json:"provider_id"`
+	Model       string                      `json:"model"`
 	Schedule    backgroundjobs.ScheduleSpec `json:"schedule"`
 }
 
@@ -416,7 +417,7 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			})
 		}
 
-		publishJobEvent(deps.Jobs.Events, "job.created", map[string]any{
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobCreated, map[string]any{
 			"job_id": jobID,
 		})
 
@@ -509,8 +510,8 @@ func JobHealth(deps Deps) http.HandlerFunc {
 
 		result := map[string]any{
 			"scheduling_available": deps.Jobs.Scheduler != nil,
-			"total_jobs":          len(state.Jobs),
-			"enabled_jobs":        enabledCount,
+			"total_jobs":           len(state.Jobs),
+			"enabled_jobs":         enabledCount,
 		}
 
 		// Per-job schedule health via scheduler Inspect.
@@ -665,18 +666,18 @@ func JobDetail(deps Deps) http.HandlerFunc {
 
 		// Build response without exposing project_path.
 		jobView := map[string]any{
-			"id":          job.ID,
-			"name":        sanitizeName(job.Name),
-			"prompt":      job.Prompt,
+			"id":           job.ID,
+			"name":         sanitizeName(job.Name),
+			"prompt":       job.Prompt,
 			"project_name": job.ProjectName,
-			"provider_id": job.ProviderID,
-			"model":       job.Model,
-			"schedule":    job.Schedule,
-			"enabled":     job.Enabled,
-			"created_at":  job.CreatedAt,
-			"updated_at":  job.UpdatedAt,
-			"permissions": job.Permissions,
-			"health":      job.Health,
+			"provider_id":  job.ProviderID,
+			"model":        job.Model,
+			"schedule":     job.Schedule,
+			"enabled":      job.Enabled,
+			"created_at":   job.CreatedAt,
+			"updated_at":   job.UpdatedAt,
+			"permissions":  job.Permissions,
+			"health":       job.Health,
 		}
 		if job.LastRunAt != nil {
 			jobView["last_run_at"] = job.LastRunAt
@@ -749,7 +750,7 @@ func JobDelete(deps Deps) http.HandlerFunc {
 			})
 		}
 
-		publishJobEvent(deps.Jobs.Events, "job.deleted", map[string]any{
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobDeleted, map[string]any{
 			"job_id": jobID,
 		})
 
@@ -774,46 +775,62 @@ func JobRunNow(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusConflict, "run already in progress")
 			return
 		}
-		defer releaseRun(jobID)
 
 		// Verify job exists.
 		state, err := deps.Jobs.Store.Load()
 		if err != nil {
+			releaseRun(jobID)
 			deps.Logger.Error("job run load", logging.ErrAttr(err)...)
 			writeJSONError(w, http.StatusInternalServerError, "failed to load job")
 			return
 		}
 		job, ok := state.Jobs[jobID]
 		if !ok {
+			releaseRun(jobID)
 			writeJSONError(w, http.StatusNotFound, "job not found")
 			return
 		}
 
-		publishJobEvent(deps.Jobs.Events, "job.run.start", map[string]any{
+		// Return 202 Accepted immediately; execute in background.
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"job_id":   jobID,
+			"job_name": sanitizeName(job.Name),
+			"status":   "running",
+		})
+
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunStart, map[string]any{
 			"job_id": jobID,
 		})
 
-		result, err := deps.Jobs.Executor.Run(r.Context(), jobID)
-		if err != nil {
-			deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
-			writeJSONError(w, http.StatusInternalServerError, "job execution failed")
-			return
-		}
+		go func() {
+			defer releaseRun(jobID)
+			defer func() {
+				if r := recover(); r != nil {
+					deps.Logger.Error("job run panic", logging.Any("panic", r))
+					publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
+						"job_id": jobID,
+						"status": "failed",
+					})
+				}
+			}()
 
-		publishJobEvent(deps.Jobs.Events, "job.run.done", map[string]any{
-			"job_id":          jobID,
-			"run_id":          result.Record.ID,
-			"status":          string(result.Record.Status),
-			"duration_millis": result.Record.DurationMillis,
-		})
+			result, err := deps.Jobs.Executor.Run(deps.ShutdownCtx, jobID)
+			if err != nil {
+				deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
+				publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
+					"job_id": jobID,
+					"status": "failed",
+				})
+				return
+			}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"run_id":          result.Record.ID,
-			"status":          string(result.Record.Status),
-			"job_id":          jobID,
-			"job_name":        sanitizeName(job.Name),
-			"duration_millis": result.Record.DurationMillis,
-		})
+			publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
+				"job_id":          jobID,
+				"run_id":          result.Record.ID,
+				"status":          string(result.Record.Status),
+				"duration_millis": result.Record.DurationMillis,
+			})
+		}()
 	}
 }
 
@@ -879,9 +896,9 @@ func JobSetEnabled(deps Deps, enabled bool) http.HandlerFunc {
 			})
 		}
 
-		pubEvt := "job.resumed"
+		pubEvt := pipeline.EventJobResumed
 		if !enabled {
-			pubEvt = "job.paused"
+			pubEvt = pipeline.EventJobPaused
 		}
 		publishJobEvent(deps.Jobs.Events, pubEvt, map[string]any{
 			"job_id": jobID,
@@ -1139,7 +1156,10 @@ func buildScheduleSummary(s backgroundjobs.ScheduleSpec) string {
 		tz = "UTC"
 	}
 	switch s.Kind {
-	case backgroundjobs.ScheduleHourly:
+	case backgroundjobs.ScheduleInterval:
+		if s.Every != "" {
+			return fmt.Sprintf("Every %s", s.Every)
+		}
 		return "Every hour"
 	case backgroundjobs.ScheduleDaily:
 		return fmt.Sprintf("Daily at %s %s", s.TimeOfDay, tz)

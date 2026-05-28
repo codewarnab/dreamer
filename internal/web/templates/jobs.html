@@ -213,6 +213,7 @@ window.jobsPage = function () {
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || '';
     },
+    _sseUnsub: [],
     load: async function () {
       const [jobsRes, settingsRes] = await Promise.all([
         fetch('/api/jobs'),
@@ -226,7 +227,6 @@ window.jobsPage = function () {
       if (settingsRes.ok) {
         const cfg = await settingsRes.json();
         this.projects = (cfg.projects || []).map(function (p) { return p.name; });
-        // Build providers list from config providers map.
         const provs = cfg.providers || {};
         this.providers = Object.keys(provs).map(function (id) {
           return { id: id, display_name: provs[id].display_name || id };
@@ -235,6 +235,22 @@ window.jobsPage = function () {
           this.form.provider_id = this.providers[0].id;
         }
       }
+      if (this._sseUnsub.length === 0) this._bindSSE();
+    },
+    _bindSSE: function () {
+      var self = this;
+      var sse = Alpine.store("sse");
+      var refresh = function () { self.load(); };
+      this._sseUnsub.push(sse.on("job.run.done", refresh));
+      this._sseUnsub.push(sse.on("job.run.start", refresh));
+      this._sseUnsub.push(sse.on("job.created", refresh));
+      this._sseUnsub.push(sse.on("job.deleted", refresh));
+      this._sseUnsub.push(sse.on("job.paused", refresh));
+      this._sseUnsub.push(sse.on("job.resumed", refresh));
+    },
+    destroy: function () {
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
     },
     loadAudit: async function () {
       var r = await fetch('/api/jobs/audit');

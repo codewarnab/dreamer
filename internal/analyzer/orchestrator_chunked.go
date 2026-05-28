@@ -50,6 +50,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 		return analysisResult, err
 	}
 	analysisResult.Mistakes = orderedByCategory(mistakesByCategory, enabled)
+	analysisResult.Phase1Complete = completedChunks == len(chunkInputs.Chunks)
 
 	if req.DryRun || len(analysisResult.Mistakes) == 0 {
 		if completedChunks == len(chunkInputs.Chunks) {
@@ -79,6 +80,47 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 	if completedChunks == len(chunkInputs.Chunks) {
 		analysisResult.CompletedCategories = stringsFromCategories(enabled)
 	}
+	return analysisResult, nil
+}
+
+// RunPhase2Only executes only Phase 2 (guardrail synthesis) with pre-computed
+// Phase 1 mistakes. Used when Phase 1 results are cached from a prior run.
+// The RunConfig must provide a Phase 2 (or Phase 1) session factory.
+func (o *Orchestrator) RunPhase2Only(ctx context.Context, rc RunConfig, mistakes map[RuleCategory][]Mistake, ruleTimeoutSecs int, req PhaseRequest) (AnalysisResult, error) {
+	if rc.Phase2SessionFactory == nil && rc.Phase1SessionFactory == nil {
+		return AnalysisResult{}, errors.New("RunPhase2Only: at least one session factory is required")
+	}
+
+	builder := NewPromptBuilder(o.Packs)
+	enabled := builder.EnabledCategories()
+	if len(enabled) == 0 {
+		return AnalysisResult{}, errors.New("RunPhase2Only: no enabled categories")
+	}
+
+	analysisResult := AnalysisResult{
+		Mistakes: orderedByCategory(mistakes, enabled),
+	}
+
+	if req.DryRun || len(analysisResult.Mistakes) == 0 {
+		return analysisResult, nil
+	}
+
+	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
+	defer phase2Pool.Close()
+
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakes, ruleTimeoutSecs, req)
+	analysisResult.Warnings = p2Warnings
+	if err != nil {
+		return analysisResult, err
+	}
+
+	for _, c := range enabled {
+		validated, validationWarnings := validateFindings(findingsByCategory[c], packForCategory(o.Packs, c), req)
+		analysisResult.Warnings = append(analysisResult.Warnings, validationWarnings...)
+		findingsByCategory[c] = validated
+	}
+	analysisResult.Findings = orderedByCategory(findingsByCategory, enabled)
+	analysisResult.CompletedCategories = stringsFromCategories(enabled)
 	return analysisResult, nil
 }
 

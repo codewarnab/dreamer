@@ -1,7 +1,11 @@
 package pipeline
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -220,4 +224,124 @@ func todosOutputPath(outputRoot string, projectName string) string {
 		return ""
 	}
 	return filepath.Join(root, projectName, "todos.md")
+}
+
+// phase1CacheKey builds a deterministic hash of the transcript identity and
+// rule pack configuration. If either changes, the cached Phase 1 results
+// are invalid.
+func phase1CacheKey(chatHashes map[string]string, repoHeadSHA string, packs []analyzer.RulePack) string {
+	h := sha256.New()
+	// Sorted chat hash entries for determinism.
+	paths := make([]string, 0, len(chatHashes))
+	for p := range chatHashes {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		fmt.Fprintf(h, "%s=%s\n", p, chatHashes[p])
+	}
+	fmt.Fprintf(h, "repo_head=%s\n", repoHeadSHA)
+	// Include enabled categories and their Phase 1 prompt components so
+	// config changes invalidate the cache. Only Phase 1 inputs are hashed;
+	// Phase 2 fields (e.g. GuardrailPromptTemplate) are excluded because
+	// they don't affect the cached Phase 1 output.
+	for _, p := range packs {
+		if !p.Enabled {
+			continue
+		}
+		fmt.Fprintf(h, "pack=%s|tpl=%s|preamble=%s|desc=%s|schema=%s\n",
+			p.Category, p.MistakePromptTemplate,
+			p.EffectivePhase1Preamble(),
+			p.EffectivePhase1CategoryDescription(),
+			p.EffectivePhase1ResponseSchema())
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// mistakesToCached converts analyzer Mistakes to the serializable CachedMistake
+// form, keyed by category ID string.
+// mistakesToCached converts analyzer mistakes to cache-friendly state types.
+// NOTE: Only the four fields below are mapped. If analyzer.Mistake gains new
+// fields, this conversion will silently drop them. Update both directions
+// (mistakesToCached + cachedToMistakes) when extending Mistake.
+func mistakesToCached(mistakes map[analyzer.RuleCategory][]analyzer.Mistake) map[string][]state.CachedMistake {
+	out := make(map[string][]state.CachedMistake, len(mistakes))
+	for cat, list := range mistakes {
+		cached := make([]state.CachedMistake, 0, len(list))
+		for _, m := range list {
+			cached = append(cached, state.CachedMistake{
+				Category:        string(m.Category),
+				Summary:         m.Summary,
+				EvidenceExcerpt: m.EvidenceExcerpt,
+				Confidence:      m.Confidence,
+			})
+		}
+		out[string(cat)] = cached
+	}
+	return out
+}
+
+// cachedToMistakes converts CachedMistake back to analyzer Mistakes.
+func cachedToMistakes(cached map[string][]state.CachedMistake) map[analyzer.RuleCategory][]analyzer.Mistake {
+	out := make(map[analyzer.RuleCategory][]analyzer.Mistake, len(cached))
+	for catID, list := range cached {
+		cat := analyzer.RuleCategory(catID)
+		mistakes := make([]analyzer.Mistake, 0, len(list))
+		for _, c := range list {
+			mistakes = append(mistakes, analyzer.Mistake{
+				Category:        analyzer.RuleCategory(c.Category),
+				Summary:         c.Summary,
+				EvidenceExcerpt: c.EvidenceExcerpt,
+				Confidence:      c.Confidence,
+			})
+		}
+		out[cat] = mistakes
+	}
+	return out
+}
+
+// savePhase1Cache persists Phase 1 mistakes to state for replay on the next run.
+func savePhase1Cache(st *state.State, mistakes map[analyzer.RuleCategory][]analyzer.Mistake, cacheKey string) {
+	st.CachedPhase1 = &state.CachedPhase1Result{
+		Mistakes:  mistakesToCached(mistakes),
+		CacheKey:  cacheKey,
+		Timestamp: time.Now().UTC(),
+	}
+}
+
+// loadPhase1Cache returns cached Phase 1 mistakes if the cache key matches.
+// Returns nil if there is no cache or the key mismatches (and clears stale cache).
+func loadPhase1Cache(st *state.State, cacheKey string) map[analyzer.RuleCategory][]analyzer.Mistake {
+	if st.CachedPhase1 == nil {
+		return nil
+	}
+	if st.CachedPhase1.CacheKey != cacheKey {
+		st.CachedPhase1 = nil
+		return nil
+	}
+	return cachedToMistakes(st.CachedPhase1.Mistakes)
+}
+
+// clearPhase1Cache removes any cached Phase 1 results from state.
+func clearPhase1Cache(st *state.State) {
+	st.CachedPhase1 = nil
+}
+
+// mistakeCount returns the total number of mistakes across all categories.
+func mistakeCount(mistakes map[analyzer.RuleCategory][]analyzer.Mistake) int {
+	n := 0
+	for _, list := range mistakes {
+		n += len(list)
+	}
+	return n
+}
+
+// mistakesFromResult groups a flat Mistake slice (from AnalysisResult) by
+// category into the map form used by the cache and RunPhase2Only.
+func mistakesFromResult(result analyzer.AnalysisResult) map[analyzer.RuleCategory][]analyzer.Mistake {
+	out := make(map[analyzer.RuleCategory][]analyzer.Mistake)
+	for _, m := range result.Mistakes {
+		out[m.Category] = append(out[m.Category], m)
+	}
+	return out
 }

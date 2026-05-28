@@ -7,11 +7,64 @@ import (
 
 func TestValidateSchedule_Hourly(t *testing.T) {
 	s := ScheduleSpec{
-		Kind:     ScheduleHourly,
+		Kind:     ScheduleInterval,
 		Timezone: "UTC",
 	}
 	if err := ValidateSchedule(s); err != nil {
 		t.Errorf("ValidateSchedule(hourly) error: %v", err)
+	}
+}
+
+func TestValidateSchedule_HourlyEvery(t *testing.T) {
+	tests := []struct {
+		name    string
+		every   string
+		wantErr bool
+	}{
+		{"5m", "5m", false},
+		{"15m", "15m", false},
+		{"45m", "45m", false},
+		{"2h", "2h", false},
+		{"90m", "90m", false},
+		{"23h", "23h", false},
+		{"empty", "", false},
+		{"30s", "30s", true},       // too small
+		{"24h", "24h", true},       // too large
+		{"bad", "abc", true},       // malformed
+		{"1d", "1d", true},         // unsupported unit
+		{"5", "5", true},           // missing unit
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ScheduleSpec{
+				Kind:     ScheduleInterval,
+				Every:    tt.every,
+				Timezone: "UTC",
+			}
+			err := ValidateSchedule(s)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSchedule(hourly, every=%q) error = %v, wantErr %v", tt.every, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateSchedule_EveryOnlyWithHourly(t *testing.T) {
+	tests := []struct {
+		name string
+		kind ScheduleKind
+		spec ScheduleSpec
+	}{
+		{"daily", ScheduleDaily, ScheduleSpec{Kind: ScheduleDaily, Every: "15m", TimeOfDay: "09:00", Timezone: "UTC"}},
+		{"weekly", ScheduleWeekly, ScheduleSpec{Kind: ScheduleWeekly, Every: "15m", DayOfWeek: "Monday", TimeOfDay: "09:00", Timezone: "UTC"}},
+		{"cron", ScheduleCron, ScheduleSpec{Kind: ScheduleCron, Every: "15m", Cron: "0 9 * * 1", Timezone: "UTC"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateSchedule(tt.spec); err == nil {
+				t.Errorf("ValidateSchedule(%s, every=15m) expected error", tt.kind)
+			}
+		})
 	}
 }
 
@@ -126,7 +179,7 @@ func TestValidateSchedule_UnknownKind(t *testing.T) {
 
 func TestValidateSchedule_MissingTimezone(t *testing.T) {
 	s := ScheduleSpec{
-		Kind: ScheduleHourly,
+		Kind: ScheduleInterval,
 	}
 	if err := ValidateSchedule(s); err == nil {
 		t.Error("ValidateSchedule(no timezone) expected error")
@@ -135,7 +188,7 @@ func TestValidateSchedule_MissingTimezone(t *testing.T) {
 
 func TestValidateSchedule_InvalidTimezone(t *testing.T) {
 	s := ScheduleSpec{
-		Kind:     ScheduleHourly,
+		Kind:     ScheduleInterval,
 		Timezone: "Not/A/Timezone",
 	}
 	if err := ValidateSchedule(s); err == nil {
@@ -145,7 +198,7 @@ func TestValidateSchedule_InvalidTimezone(t *testing.T) {
 
 func TestNextRun_Hourly(t *testing.T) {
 	now := time.Date(2026, 5, 27, 14, 30, 0, 0, time.UTC)
-	s := ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"}
+	s := ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"}
 	next, err := NextRun(s, now)
 	if err != nil {
 		t.Fatalf("NextRun(hourly) error: %v", err)
@@ -153,6 +206,33 @@ func TestNextRun_Hourly(t *testing.T) {
 	want := now.Add(1 * time.Hour)
 	if !next.Equal(want) {
 		t.Errorf("NextRun(hourly) = %v, want %v", next, want)
+	}
+}
+
+func TestNextRun_HourlyEvery(t *testing.T) {
+	now := time.Date(2026, 5, 27, 14, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		every    string
+		wantMins int
+	}{
+		{"5m", "5m", 5},
+		{"15m", "15m", 15},
+		{"45m", "45m", 45},
+		{"2h", "2h", 120},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every, Timezone: "UTC"}
+			next, err := NextRun(s, now)
+			if err != nil {
+				t.Fatalf("NextRun(hourly, every=%s) error: %v", tt.every, err)
+			}
+			want := now.Add(time.Duration(tt.wantMins) * time.Minute)
+			if !next.Equal(want) {
+				t.Errorf("NextRun(hourly, every=%s) = %v, want %v", tt.every, next, want)
+			}
+		})
 	}
 }
 
@@ -348,6 +428,107 @@ func TestParseCron_RejectsTrailingJunk(t *testing.T) {
 			_, err := parseCron(tt.expr)
 			if err == nil {
 				t.Errorf("parseCron(%q) expected error, got nil", tt.expr)
+			}
+		})
+	}
+}
+
+func TestParseEveryDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"5m", "5m", 5 * time.Minute, false},
+		{"15m", "15m", 15 * time.Minute, false},
+		{"45m", "45m", 45 * time.Minute, false},
+		{"2h", "2h", 2 * time.Hour, false},
+		{"90m", "90m", 90 * time.Minute, false},
+		{"23h", "23h", 23 * time.Hour, false},
+		{"1m", "1m", 1 * time.Minute, false},
+		{"30s", "30s", 0, true},      // too small
+		{"24h", "24h", 0, true},      // too large
+		{"bad", "abc", 0, true},      // malformed
+		{"1d", "1d", 0, true},        // unsupported unit
+		{"5", "5", 0, true},          // missing unit
+		{"negative", "-5m", 0, true}, // negative
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseEveryDuration(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseEveryDuration(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("parseEveryDuration(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEveryDuration(t *testing.T) {
+	tests := []struct {
+		name string
+		spec ScheduleSpec
+		want time.Duration
+	}{
+		{"default", ScheduleSpec{Kind: ScheduleInterval}, 1 * time.Hour},
+		{"5m", ScheduleSpec{Kind: ScheduleInterval, Every: "5m"}, 5 * time.Minute},
+		{"2h", ScheduleSpec{Kind: ScheduleInterval, Every: "2h"}, 2 * time.Hour},
+		{"invalid falls back", ScheduleSpec{Kind: ScheduleInterval, Every: "bad"}, 1 * time.Hour},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := EveryDuration(tt.spec)
+			if got != tt.want {
+				t.Errorf("EveryDuration(%+v) = %v, want %v", tt.spec, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDurationToISO8601(t *testing.T) {
+	tests := []struct {
+		name string
+		d    time.Duration
+		want string
+	}{
+		{"5m", 5 * time.Minute, "PT5M"},
+		{"15m", 15 * time.Minute, "PT15M"},
+		{"45m", 45 * time.Minute, "PT45M"},
+		{"1h", 1 * time.Hour, "PT1H"},
+		{"2h", 2 * time.Hour, "PT2H"},
+		{"90m", 90 * time.Minute, "PT90M"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := durationToISO8601(tt.d)
+			if got != tt.want {
+				t.Errorf("durationToISO8601(%v) = %q, want %q", tt.d, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExecutionTimeLimit_HourlyEvery(t *testing.T) {
+	tests := []struct {
+		name  string
+		every string
+		want  string
+	}{
+		{"default", "", "PT55M"},
+		{"5m", "5m", "PT5M"},
+		{"15m", "15m", "PT15M"},
+		{"2h", "2h", "PT2H"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every}
+			got := executionTimeLimit(spec)
+			if got != tt.want {
+				t.Errorf("executionTimeLimit(every=%q) = %q, want %q", tt.every, got, tt.want)
 			}
 		})
 	}

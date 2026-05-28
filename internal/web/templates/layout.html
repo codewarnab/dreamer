@@ -40,12 +40,14 @@
     </aside>
     <div class="main">
       <header class="topbar">
-        <div>
-          <span class="kicker">daemon</span>
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
           <span class="pill" :class="status === 'running' ? 'pill--healthy' : 'pill--warn'" x-text="status">running</span>
+          <span class="pill" :class="$store.sse.connected ? 'pill--healthy' : 'pill--warn'" x-text="$store.sse.connected ? 'sse: ok' : 'sse: reconnecting'" style="font-size: 10px;"></span>
         </div>
-        <button class="btn btn--primary" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
-        <span x-show="msg" x-text="msg" style="margin-left: var(--space-3); color: var(--text-secondary);"></span>
+        <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <button class="btn btn--primary" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
+          <span x-show="msg" x-text="msg" style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);"></span>
+        </div>
       </header>
       <main id="content" role="main">
         {{block "content" .}}
@@ -57,6 +59,12 @@
         {{end}}
       </main>
     </div>
+  </div>
+  <!-- Toast container -->
+  <div class="toast-container" x-data>
+    <template x-for="t in $store.toasts.items" :key="t.id">
+      <div class="toast" :class="'toast--' + t.type" @click="$store.toasts.dismiss(t.id)" x-text="t.msg"></div>
+    </template>
   </div>
   <script defer src="/static/vendor/htmx.min.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>

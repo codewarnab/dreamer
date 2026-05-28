@@ -230,7 +230,13 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		st, err := state.Load(cfg.Daemon.OutputRoot, name)
+		var st *state.State
+		var err error
+		if deps.StateCache != nil {
+			st, err = deps.StateCache.GetState(cfg.Daemon.OutputRoot, name)
+		} else {
+			st, err = state.Load(cfg.Daemon.OutputRoot, name)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -340,7 +346,13 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		st, err := state.Load(cfg.Daemon.OutputRoot, name)
+		var st *state.State
+		var err error
+		if deps.StateCache != nil {
+			st, err = deps.StateCache.GetState(cfg.Daemon.OutputRoot, name)
+		} else {
+			st, err = state.Load(cfg.Daemon.OutputRoot, name)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

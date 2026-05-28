@@ -61,6 +61,10 @@ type AnalysisResult struct {
 	// CompletedCategories: rule categories that ran to completion without
 	// timeout or provider error. Empty findings still counts as completed.
 	CompletedCategories []string
+	// Phase1Complete is true when every chunk was successfully processed
+	// (no failures or parse errors). Used to gate Phase 1 cache saves so
+	// partial results from failed chunks are never persisted for replay.
+	Phase1Complete bool
 }
 
 // PhaseRequest groups grounding + validation inputs shared by all chunks.

@@ -313,6 +313,157 @@ func TestJobsRun_DisabledJob(t *testing.T) {
 	}
 }
 
+// --- Wizard draft persistence tests ---
+
+func TestWizardDraftPath(t *testing.T) {
+	got := wizardDraftPath("/some/root")
+	want := filepath.Join("/some/root", "background-jobs", ".wizard-draft.json")
+	if got != want {
+		t.Errorf("wizardDraftPath = %q, want %q", got, want)
+	}
+}
+
+func TestLoadWizardDraft_MissingFile(t *testing.T) {
+	ans, err := loadWizardDraft(filepath.Join(t.TempDir(), "nonexistent.json"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if (ans != jobWizardAnswers{}) {
+		t.Errorf("expected zero-value answers, got %+v", ans)
+	}
+}
+
+func TestLoadWizardDraft_CorruptJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "draft.json")
+	os.WriteFile(path, []byte("{bad json"), 0o644)
+
+	ans, err := loadWizardDraft(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if (ans != jobWizardAnswers{}) {
+		t.Errorf("expected zero-value answers on corrupt file, got %+v", ans)
+	}
+}
+
+func TestLoadWizardDraft_WrongVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "draft.json")
+	os.WriteFile(path, []byte(`{"version":99,"answers":{"prompt":"hi"}}`), 0o644)
+
+	ans, err := loadWizardDraft(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ans.prompt != "" {
+		t.Errorf("expected empty prompt for wrong version, got %q", ans.prompt)
+	}
+}
+
+func TestSaveAndLoadWizardDraft(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", ".wizard-draft.json")
+
+	saved := jobWizardAnswers{
+		name:         "my-job",
+		prompt:       "analyze code",
+		providerID:   "openclaude-cli",
+		scheduleKind: "daily",
+		timeOfDay:    "09:00",
+		timezone:     "Asia/Kolkata",
+	}
+
+	if err := saveWizardDraft(path, saved); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded, err := loadWizardDraft(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.name != saved.name {
+		t.Errorf("name = %q, want %q", loaded.name, saved.name)
+	}
+	if loaded.prompt != saved.prompt {
+		t.Errorf("prompt = %q, want %q", loaded.prompt, saved.prompt)
+	}
+	if loaded.providerID != saved.providerID {
+		t.Errorf("providerID = %q, want %q", loaded.providerID, saved.providerID)
+	}
+	if loaded.scheduleKind != saved.scheduleKind {
+		t.Errorf("scheduleKind = %q, want %q", loaded.scheduleKind, saved.scheduleKind)
+	}
+	if loaded.timezone != saved.timezone {
+		t.Errorf("timezone = %q, want %q", loaded.timezone, saved.timezone)
+	}
+}
+
+func TestDeleteWizardDraft(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "draft.json")
+	os.WriteFile(path, []byte(`{"version":1,"answers":{}}`), 0o644)
+
+	if err := deleteWizardDraft(path); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("file should be deleted, stat err = %v", err)
+	}
+}
+
+func TestDeleteWizardDraft_Missing(t *testing.T) {
+	// Should not error on missing file.
+	if err := deleteWizardDraft(filepath.Join(t.TempDir(), "nope.json")); err != nil {
+		t.Fatalf("delete missing: %v", err)
+	}
+}
+
+func TestMergeWizardDraft_CLIOverridesDraft(t *testing.T) {
+	draft := jobWizardAnswers{
+		name:         "draft-job",
+		prompt:       "draft prompt",
+		providerID:   "openclaude-cli",
+		scheduleKind: "daily",
+		timeOfDay:    "09:00",
+		timezone:     "UTC",
+	}
+	cli := jobWizardAnswers{
+		prompt: "cli prompt",
+	}
+
+	merged := mergeWizardDraft(draft, cli)
+
+	if merged.prompt != "cli prompt" {
+		t.Errorf("prompt = %q, want %q", merged.prompt, "cli prompt")
+	}
+	if merged.name != "draft-job" {
+		t.Errorf("name = %q, want %q", merged.name, "draft-job")
+	}
+	if merged.scheduleKind != "daily" {
+		t.Errorf("scheduleKind = %q, want %q", merged.scheduleKind, "daily")
+	}
+}
+
+func TestMergeWizardDraft_PathAlwaysFromCLI(t *testing.T) {
+	draft := jobWizardAnswers{
+		projectPath: "/old/path",
+		name:        "job",
+	}
+	cli := jobWizardAnswers{
+		projectPath: "/new/path",
+	}
+
+	merged := mergeWizardDraft(draft, cli)
+	if merged.projectPath != "/new/path" {
+		t.Errorf("projectPath = %q, want %q", merged.projectPath, "/new/path")
+	}
+
+	// When CLI has no path, draft path is cleared.
+	merged2 := mergeWizardDraft(draft, jobWizardAnswers{})
+	if merged2.projectPath != "" {
+		t.Errorf("projectPath should be empty when CLI has none, got %q", merged2.projectPath)
+	}
+}
+
 func TestJobsRun_WriteModeRejected(t *testing.T) {
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)

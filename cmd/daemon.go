@@ -18,6 +18,7 @@ import (
 	"dreamer/internal/logging"
 	"dreamer/internal/mcpserver"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
 	"dreamer/internal/web"
 	"dreamer/internal/web/handlers"
 	"github.com/fsnotify/fsnotify"
@@ -91,12 +92,14 @@ func newDaemonCommand() *cobra.Command {
 				logger.Info("swept stale phase-2 findings temp files", logging.Any("count", swept))
 			}
 
+			stateCache := state.NewStateCache()
+
 			var live atomic.Pointer[config.App]
 			live.Store(cfg)
 
-			workers := newWorkerPool(ctx, queue, cfg, &live, logger, discoveryCache, events, overrides)
+			workers := newWorkerPool(ctx, queue, cfg, &live, logger, discoveryCache, stateCache, events, overrides)
 			workers.Start()
-			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath)
+			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath, stateCache)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
@@ -192,7 +195,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging
 }
 
 // startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
-func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointer[config.App], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string) <-chan struct{} {
+func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointer[config.App], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string, stateCache *state.StateCache) <-chan struct{} {
 	done := make(chan struct{})
 	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
 		close(done)
@@ -310,11 +313,13 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 		Config:      cfg,
 		Logger:      logger,
 		Events:      events,
+		ShutdownCtx: ctx,
 		ConfigPtr:   live,
 		OverlayPath: overlayPath,
 		EnqueueRun:  enqueueRun,
 		RestartHook: restartHook,
 		Activity:    activity,
+		StateCache:  stateCache,
 		Jobs:        jobsDeps,
 	})
 	if srvErr != nil {

@@ -322,3 +322,143 @@ func TestRecordFindingApplySpecsPreservesLifecycleFields(t *testing.T) {
 		t.Errorf("ApplySpec missing: %+v", got.ApplySpec)
 	}
 }
+
+func TestPhase1CacheKeyDeterministic(t *testing.T) {
+	hashes := map[string]string{"a.jsonl": "h1", "b.jsonl": "h2"}
+	packs := []analyzer.RulePack{
+		{Category: "test", Enabled: true, MistakePromptTemplate: "tmpl1"},
+	}
+	k1 := phase1CacheKey(hashes, "abc", packs)
+	k2 := phase1CacheKey(hashes, "abc", packs)
+	if k1 != k2 {
+		t.Errorf("same inputs produced different keys: %q vs %q", k1, k2)
+	}
+}
+
+func TestPhase1CacheKeyChangesOnTranscriptChange(t *testing.T) {
+	packs := []analyzer.RulePack{{Category: "test", Enabled: true}}
+	k1 := phase1CacheKey(map[string]string{"a.jsonl": "h1"}, "abc", packs)
+	k2 := phase1CacheKey(map[string]string{"a.jsonl": "h2"}, "abc", packs)
+	if k1 == k2 {
+		t.Error("different hashes should produce different keys")
+	}
+}
+
+func TestPhase1CacheKeyChangesOnRepoHeadChange(t *testing.T) {
+	hashes := map[string]string{"a.jsonl": "h1"}
+	packs := []analyzer.RulePack{{Category: "test", Enabled: true}}
+	k1 := phase1CacheKey(hashes, "abc", packs)
+	k2 := phase1CacheKey(hashes, "def", packs)
+	if k1 == k2 {
+		t.Error("different repo HEAD should produce different keys")
+	}
+}
+
+func TestPhase1CacheKeyChangesOnPackChange(t *testing.T) {
+	hashes := map[string]string{"a.jsonl": "h1"}
+	k1 := phase1CacheKey(hashes, "abc", []analyzer.RulePack{{Category: "test", Enabled: true, MistakePromptTemplate: "old"}})
+	k2 := phase1CacheKey(hashes, "abc", []analyzer.RulePack{{Category: "test", Enabled: true, MistakePromptTemplate: "new"}})
+	if k1 == k2 {
+		t.Error("different pack templates should produce different keys")
+	}
+}
+
+func TestCachedMistakeRoundTrip(t *testing.T) {
+	original := map[analyzer.RuleCategory][]analyzer.Mistake{
+		"test": {
+			{Category: "test", Summary: "missed assertion", EvidenceExcerpt: "line 42", Confidence: 0.9},
+			{Category: "test", Summary: "no cleanup", EvidenceExcerpt: "line 99", Confidence: 0.7},
+		},
+		"doc": {
+			{Category: "doc", Summary: "missing godoc", EvidenceExcerpt: "func Foo", Confidence: 0.8},
+		},
+	}
+	cached := mistakesToCached(original)
+	restored := cachedToMistakes(cached)
+
+	for cat, wantList := range original {
+		gotList, ok := restored[cat]
+		if !ok {
+			t.Fatalf("category %q missing from restored map", cat)
+		}
+		if len(gotList) != len(wantList) {
+			t.Fatalf("category %q: got %d mistakes, want %d", cat, len(gotList), len(wantList))
+		}
+		for i, want := range wantList {
+			got := gotList[i]
+			if got.Category != want.Category || got.Summary != want.Summary || got.EvidenceExcerpt != want.EvidenceExcerpt || got.Confidence != want.Confidence {
+				t.Errorf("mismatch [%q][%d]: got %+v, want %+v", cat, i, got, want)
+			}
+		}
+	}
+}
+
+func TestSaveLoadClearPhase1Cache(t *testing.T) {
+	st := &state.State{}
+	mistakes := map[analyzer.RuleCategory][]analyzer.Mistake{
+		"test": {{Category: "test", Summary: "s", Confidence: 0.5}},
+	}
+	savePhase1Cache(st, mistakes, "key123")
+	if st.CachedPhase1 == nil {
+		t.Fatal("CachedPhase1 should be set after save")
+	}
+	if st.CachedPhase1.CacheKey != "key123" {
+		t.Errorf("CacheKey=%q want key123", st.CachedPhase1.CacheKey)
+	}
+
+	// Load with matching key.
+	loaded := loadPhase1Cache(st, "key123")
+	if len(loaded) != 1 || len(loaded["test"]) != 1 {
+		t.Fatalf("load with matching key returned wrong data: %+v", loaded)
+	}
+
+	// Load with mismatching key clears cache.
+	loadPhase1Cache(st, "wrong")
+	if st.CachedPhase1 != nil {
+		t.Error("mismatching key should clear CachedPhase1")
+	}
+
+	// Clear is idempotent.
+	savePhase1Cache(st, mistakes, "key123")
+	clearPhase1Cache(st)
+	if st.CachedPhase1 != nil {
+		t.Error("clearPhase1Cache should nil the field")
+	}
+}
+
+func TestLoadPhase1CacheNilState(t *testing.T) {
+	st := &state.State{}
+	if got := loadPhase1Cache(st, "any"); got != nil {
+		t.Errorf("load from nil cache should return nil, got %+v", got)
+	}
+}
+
+func TestMistakeCount(t *testing.T) {
+	mistakes := map[analyzer.RuleCategory][]analyzer.Mistake{
+		"test": {{}, {}},
+		"doc":  {{}},
+	}
+	if got := mistakeCount(mistakes); got != 3 {
+		t.Errorf("mistakeCount=%d want 3", got)
+	}
+	if got := mistakeCount(nil); got != 0 {
+		t.Errorf("mistakeCount(nil)=%d want 0", got)
+	}
+}
+
+func TestMistakesFromResultGroupsByCategory(t *testing.T) {
+	result := analyzer.AnalysisResult{
+		Mistakes: []analyzer.Mistake{
+			{Category: "test", Summary: "a"},
+			{Category: "doc", Summary: "b"},
+			{Category: "test", Summary: "c"},
+		},
+	}
+	grouped := mistakesFromResult(result)
+	if len(grouped["test"]) != 2 {
+		t.Errorf("test: got %d, want 2", len(grouped["test"]))
+	}
+	if len(grouped["doc"]) != 1 {
+		t.Errorf("doc: got %d, want 1", len(grouped["doc"]))
+	}
+}

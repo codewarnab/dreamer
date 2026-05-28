@@ -1,4 +1,4 @@
-// dreamer SPA bootstrap — HTMX CSRF wiring + Alpine root state.
+// dreamer SPA bootstrap — HTMX CSRF wiring + Alpine stores + root state.
 
 (function () {
   const meta = document.querySelector('meta[name="csrf-token"]');
@@ -11,9 +11,130 @@
   });
 })();
 
-// Alpine root state — exposed as `appState()`. Each page may extend via
-// x-data="$store.<page>" but the root carries the global status pill +
-// run-now action.
+// SSE store — single EventSource shared across all pages.
+// Pages watch $store.sse.connected and $store.sse.lastEvent instead of
+// opening their own connections.
+document.addEventListener("alpine:init", function () {
+  Alpine.store("sse", {
+    connected: false,
+    lastEvent: null,
+    _es: null,
+    _listeners: {},
+
+    init: function () {
+      this._connect();
+    },
+
+    _connect: function () {
+      try {
+        var self = this;
+        var es = new EventSource("/api/events");
+
+        es.onopen = function () { self.connected = true; };
+        es.onerror = function () {
+          self.connected = false;
+          // EventSource reconnects automatically; we just track state.
+        };
+
+        es.addEventListener("run.start", function (ev) {
+          self._dispatch("run.start", ev);
+        });
+        es.addEventListener("run.done", function (ev) {
+          self._dispatch("run.done", ev);
+        });
+        es.addEventListener("run.error", function (ev) {
+          self._dispatch("run.error", ev);
+        });
+        es.addEventListener("finding.applied", function (ev) {
+          self._dispatch("finding.applied", ev);
+        });
+        es.addEventListener("finding.undone", function (ev) {
+          self._dispatch("finding.undone", ev);
+        });
+        es.addEventListener("finding.dismissed", function (ev) {
+          self._dispatch("finding.dismissed", ev);
+        });
+        es.addEventListener("finding.resolved", function (ev) {
+          self._dispatch("finding.resolved", ev);
+        });
+        es.addEventListener("chat.deleted", function (ev) {
+          self._dispatch("chat.deleted", ev);
+        });
+        es.addEventListener("job.created", function (ev) {
+          self._dispatch("job.created", ev);
+        });
+        es.addEventListener("job.deleted", function (ev) {
+          self._dispatch("job.deleted", ev);
+        });
+        es.addEventListener("job.run.start", function (ev) {
+          self._dispatch("job.run.start", ev);
+        });
+        es.addEventListener("job.run.done", function (ev) {
+          self._dispatch("job.run.done", ev);
+        });
+        es.addEventListener("job.paused", function (ev) {
+          self._dispatch("job.paused", ev);
+        });
+        es.addEventListener("job.resumed", function (ev) {
+          self._dispatch("job.resumed", ev);
+        });
+
+        this._es = es;
+      } catch (_) { /* SSE unsupported */ }
+    },
+
+    _dispatch: function (type, ev) {
+      var payload = null;
+      try { payload = JSON.parse(ev.data); } catch (_) {}
+      this.lastEvent = { type: type, payload: payload, at: new Date().toISOString() };
+      // Notify registered listeners.
+      var fns = this._listeners[type];
+      if (fns) {
+        for (var i = 0; i < fns.length; i++) {
+          try { fns[i](payload); } catch (_) {}
+        }
+      }
+    },
+
+    // Register a listener for a specific event type. Returns an unsubscribe fn.
+    on: function (type, fn) {
+      if (!this._listeners[type]) this._listeners[type] = [];
+      this._listeners[type].push(fn);
+      var self = this;
+      return function () {
+        var arr = self._listeners[type];
+        if (!arr) return;
+        var idx = arr.indexOf(fn);
+        if (idx >= 0) arr.splice(idx, 1);
+      };
+    },
+  });
+
+  // Toast store — non-blocking notifications.
+  Alpine.store("toasts", {
+    _items: [],
+    _nextId: 0,
+
+    add: function (msg, type, durationMs) {
+      var id = ++this._nextId;
+      this._items.push({ id: id, msg: msg, type: type || "info" });
+      if (durationMs !== 0) {
+        var self = this;
+        setTimeout(function () { self.dismiss(id); }, durationMs || 4000);
+      }
+      return id;
+    },
+
+    dismiss: function (id) {
+      this._items = this._items.filter(function (t) { return t.id !== id; });
+    },
+
+    get items() { return this._items; },
+  });
+});
+
+// Alpine root state — exposed as `appState()`. Manages the topbar status
+// pill and run-now action.
 window.appState = function () {
   return {
     status: "running",
@@ -24,21 +145,28 @@ window.appState = function () {
       return meta ? meta.getAttribute("content") : "";
     },
     init: function () {
-      // Subscribe to SSE for status + activity.
-      try {
-        const es = new EventSource("/api/events");
-        es.addEventListener("run.start", () => { this.status = "running"; });
-        es.addEventListener("run.done", () => { this.status = "idle"; this.busy = false; this.msg = ""; });
-        es.addEventListener("run.error", (ev) => {
-          try {
-            const p = JSON.parse(ev.data);
-            this.status = "idle";
-            this.busy = false;
-            this.msg = "run failed: " + (p.error || "unknown error");
-          } catch (_) {}
-        });
-        this._es = es;
-      } catch (_) { /* SSE unsupported */ }
+      var self = this;
+      // React to SSE events for topbar status.
+      Alpine.store("sse").on("run.start", function () {
+        self.status = "running";
+      });
+      Alpine.store("sse").on("run.done", function (p) {
+        self.status = "idle";
+        self.busy = false;
+        self.msg = "";
+        if (p) {
+          Alpine.store("toasts").add(
+            "run complete: " + (p.project || "all") + " — " + (p.findings_new || 0) + " new finding(s)",
+            "success"
+          );
+        }
+      });
+      Alpine.store("sse").on("run.error", function (p) {
+        self.status = "idle";
+        self.busy = false;
+        self.msg = "run failed: " + ((p && p.error) || "unknown error");
+        Alpine.store("toasts").add("run failed: " + ((p && p.error) || "unknown error"), "error");
+      });
     },
     runNow: async function () {
       if (this.busy) return;

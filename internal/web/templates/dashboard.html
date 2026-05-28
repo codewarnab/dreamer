@@ -29,6 +29,50 @@
   </div>
 
   <div class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">findings — 30 days</div>
+    <div class="sparkline" style="margin-top: var(--space-3);">
+      <svg viewBox="0 0 300 60" preserveAspectRatio="none">
+        <polyline :points="sparklinePoints()" fill="none" stroke="var(--jelly-mint)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      </svg>
+    </div>
+    <div style="margin-top: var(--space-2); font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);">
+      <span x-text="sparkline30d.length"></span> days &middot;
+      <span x-text="sparkline30d.reduce(function(s,d){ return s + (d.findings_new || 0); }, 0)"></span> new findings
+    </div>
+  </div>
+
+  <div x-show="topMistakeProviders.length > 0" class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">top mistake sources</div>
+    <table class="table" style="margin-top: var(--space-3);">
+      <thead><tr><th>tool</th><th>findings</th></tr></thead>
+      <tbody>
+        <template x-for="p in topMistakeProviders" :key="p.tool">
+          <tr><td x-text="p.tool"></td><td x-text="p.count"></td></tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div class="kicker">projects</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
+      <template x-for="p in projects" :key="p.name">
+        <a :href="'/projects/' + p.name" class="card" style="display: block; text-decoration: none; color: inherit; padding: var(--space-3);">
+          <div class="label-mono" style="margin-bottom: var(--space-2);" x-text="p.name"></div>
+          <div style="display: flex; gap: var(--space-3); font-size: 12px; color: var(--text-secondary);">
+            <span x-text="(p.findings_open || 0) + ' open'"></span>
+            <span x-text="(p.chats_count || 0) + ' chats'"></span>
+          </div>
+          <div style="margin-top: var(--space-2); font-size: 11px; color: var(--text-muted);">
+            last run: <span x-text="p.last_run_utc ? timeAgo(p.last_run_utc) : 'never'"></span>
+          </div>
+        </a>
+      </template>
+    </div>
+    <div x-show="projects.length === 0" style="color: var(--text-secondary);">no projects configured.</div>
+  </div>
+
+  <div class="card" style="margin-bottom: var(--space-4);">
     <div class="kicker">live activity</div>
     <div class="activity-strip">
       <template x-for="ev in liveActivity" :key="ev.at + ev.type">
@@ -42,7 +86,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" style="margin-bottom: var(--space-4);">
     <div class="kicker">per-category 30 days</div>
     <table class="table">
       <thead><tr><th>category</th><th>findings</th></tr></thead>
@@ -53,6 +97,7 @@
       </tbody>
     </table>
   </div>
+
 </section>
 
 <script>
@@ -61,13 +106,62 @@ window.dashboardPage = function () {
     stats: {},
     liveActivity: [],
     perCategory: {},
+    sparkline30d: [],
+    topMistakeProviders: [],
+    projects: [],
+    _sseUnsub: [],
     load: async function () {
-      const r = await fetch("/api/dashboard");
-      if (!r.ok) return;
-      const data = await r.json();
-      this.stats = data.stats || {};
-      this.liveActivity = data.live_activity || [];
-      this.perCategory = data.per_category || {};
+      var self = this;
+      var dashP = fetch("/api/dashboard").then(function (r) { return r.ok ? r.json() : {}; });
+      var projP = fetch("/api/projects").then(function (r) { return r.ok ? r.json() : {}; });
+      var results = await Promise.all([dashP, projP]);
+      var data = results[0];
+      var projData = results[1];
+      self.stats = data.stats || {};
+      self.liveActivity = data.live_activity || [];
+      self.perCategory = data.per_category || {};
+      self.sparkline30d = data.sparkline_30d || [];
+      self.topMistakeProviders = data.top_mistake_providers || [];
+      self.projects = projData.projects || [];
+      if (self._sseUnsub.length === 0) self._bindSSE();
+    },
+    timeAgo: function (iso) {
+      if (!iso) return "never";
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return "never";
+      var mins = Math.floor((Date.now() - d.getTime()) / 60000);
+      if (mins < 1) return "just now";
+      if (mins < 60) return mins + "m ago";
+      var hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + "h ago";
+      return Math.floor(hrs / 24) + "d ago";
+    },
+    _bindSSE: function () {
+      var self = this;
+      var sse = Alpine.store("sse");
+      var refresh = function () { self.load(); };
+      this._sseUnsub.push(sse.on("run.done", refresh));
+      this._sseUnsub.push(sse.on("run.start", refresh));
+      this._sseUnsub.push(sse.on("finding.applied", refresh));
+      this._sseUnsub.push(sse.on("finding.dismissed", refresh));
+      this._sseUnsub.push(sse.on("finding.resolved", refresh));
+    },
+    destroy: function () {
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
+    },
+    sparklinePoints: function () {
+      var pts = this.sparkline30d;
+      if (!pts || pts.length === 0) return "";
+      var vals = pts.map(function (d) { return d.findings_new || 0; });
+      var lo = Math.min.apply(null, vals);
+      var hi = Math.max.apply(null, vals);
+      var range = hi - lo || 1;
+      var w = 300, h = 60, pad = 4;
+      var step = w / Math.max(pts.length - 1, 1);
+      return vals.map(function (v, i) {
+        return (i * step).toFixed(1) + "," + (pad + (1 - (v - lo) / range) * (h - 2 * pad)).toFixed(1);
+      }).join(" ");
     },
   };
 };

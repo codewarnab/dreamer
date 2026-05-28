@@ -42,7 +42,7 @@ func ProjectsList(deps Deps) http.HandlerFunc {
 		}
 		out := projectsListResponse{Projects: make([]ProjectRollup, 0, len(cfg.Projects))}
 		for _, p := range cfg.Projects {
-			out.Projects = append(out.Projects, projectRollup(cfg, p))
+			out.Projects = append(out.Projects, projectRollup(cfg, p, deps.StateCache))
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
@@ -78,7 +78,7 @@ func ProjectDetail(deps Deps) http.HandlerFunc {
 		}
 		for _, p := range cfg.Projects {
 			if p.Name == tail {
-				rollup := projectRollup(cfg, p)
+				rollup := projectRollup(cfg, p, deps.StateCache)
 				writeJSON(w, http.StatusOK, rollup)
 				return
 			}
@@ -87,9 +87,15 @@ func ProjectDetail(deps Deps) http.HandlerFunc {
 	}
 }
 
-func projectRollup(cfg *config.App, p config.ProjectConfig) ProjectRollup {
+func projectRollup(cfg *config.App, p config.ProjectConfig, sc *state.StateCache) ProjectRollup {
 	rollup := ProjectRollup{Name: p.Name, Path: p.Path, Since: p.Since}
-	st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
+	var st *state.State
+	var err error
+	if sc != nil {
+		st, err = sc.GetState(cfg.Daemon.OutputRoot, p.Name)
+	} else {
+		st, err = state.Load(cfg.Daemon.OutputRoot, p.Name)
+	}
 	if err != nil || st == nil {
 		return rollup
 	}

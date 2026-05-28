@@ -1,4 +1,4 @@
-.PHONY: build build-dev build-linux test test-race vet fmt lint cover cover-html vulncheck install-hooks clean
+.PHONY: build build-dev build-linux dev install test test-race vet fmt lint cover cover-html vulncheck install-hooks clean
 
 # Auto-detect host OS/arch via the active Go toolchain.
 GOOS   ?= $(shell go env GOOS)
@@ -32,6 +32,14 @@ build-dev:
 # Cross-compile for Linux
 build-linux:
 	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dreamer .
+
+# Live-reload daemon during development (requires: go install github.com/air-verse/air@latest)
+dev:
+	air -c .air.toml
+
+# Build + install to $GOPATH/bin (makes "dreamer" available on PATH)
+install:
+	go install -trimpath .
 
 # Run full test suite
 test:

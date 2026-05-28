@@ -6,15 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
-
-	"github.com/spf13/cobra"
 )
 
 const outputRootFlag = "output-root"
@@ -185,7 +187,9 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 
 func formatSchedule(spec backgroundjobs.ScheduleSpec) string {
 	s := string(spec.Kind)
-	if spec.TimeOfDay != "" {
+	if spec.Every != "" {
+		s += " every " + spec.Every
+	} else if spec.TimeOfDay != "" {
 		s += " at " + spec.TimeOfDay
 	}
 	if spec.DayOfWeek != "" {
@@ -237,6 +241,141 @@ func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, er
 	return backgroundjobs.NewScheduler(cfg, lg), nil
 }
 
+// createJobInput holds the resolved inputs for creating a background job.
+type createJobInput struct {
+	projectPath  string
+	projectName  string
+	name         string
+	providerID   string
+	model        string
+	prompt       string
+	fileAccess   string // read_only, selected_writes, full_workspace
+	writablePaths string // comma-separated, for selected_writes
+	schedule     backgroundjobs.ScheduleSpec
+	timezone     string
+}
+
+// createAndSaveJob validates, builds, and persists a background job.
+func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input createJobInput, dryRun bool) error {
+	// Validate provider is background-safe.
+	meta := backgroundjobs.ProviderMetaByID(input.providerID)
+	if meta == nil {
+		return fmt.Errorf("provider %q is not registered", input.providerID)
+	}
+	if !meta.BackgroundSafe {
+		return fmt.Errorf("provider %q is not safe for background execution (requires interactive terminal)", input.providerID)
+	}
+
+	// Validate schedule.
+	if err := backgroundjobs.ValidateSchedule(input.schedule); err != nil {
+		return fmt.Errorf("invalid schedule: %w", err)
+	}
+	if input.schedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+		return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
+	}
+
+	// Build job.
+	now := time.Now().UTC()
+	jobID, err := backgroundjobs.GenerateJobID()
+	if err != nil {
+		return fmt.Errorf("generate job id: %w", err)
+	}
+
+	// Resolve file access mode.
+	fileAccess := backgroundjobs.FileAccessReadOnly
+	switch input.fileAccess {
+	case "selected_writes":
+		fileAccess = backgroundjobs.FileAccessSelectedWrites
+	case "full_workspace":
+		fileAccess = backgroundjobs.FileAccessFullWorkspace
+	}
+
+	// Parse writable paths.
+	var writablePaths []string
+	if input.writablePaths != "" {
+		for _, p := range strings.Split(input.writablePaths, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				writablePaths = append(writablePaths, trimmed)
+			}
+		}
+	}
+
+	job := &backgroundjobs.Job{
+		ID:          jobID,
+		Name:        input.name,
+		Prompt:      input.prompt,
+		ProjectName: input.projectName,
+		ProjectPath: input.projectPath,
+		ProviderID:  input.providerID,
+		Model:       input.model,
+		Schedule:    input.schedule,
+		Enabled:     true,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Permissions: backgroundjobs.PermissionProfile{
+			FileAccess:    fileAccess,
+			WritablePaths: writablePaths,
+			ReadScope:     "project_dir",
+		},
+		Health: backgroundjobs.HealthState{
+			SystemScheduling: backgroundjobs.SchedulingNotInstalled,
+			JobSchedule:      backgroundjobs.JobScheduleValid,
+			RunState:         backgroundjobs.RunStatusIdle,
+			PermissionState:  backgroundjobs.PermissionAllowed,
+		},
+	}
+
+	if dryRun {
+		return printJobDetail(cmd, job)
+	}
+
+	// Calculate next run.
+	nextRun, err := backgroundjobs.NextRun(input.schedule, now)
+	if err != nil {
+		return fmt.Errorf("calculate next run: %w", err)
+	}
+	job.NextRunAt = &nextRun
+
+	// Save.
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	if err := store.AddJob(job); err != nil {
+		return fmt.Errorf("save job: %w", err)
+	}
+
+	// Install OS schedule (best-effort).
+	if sched, schedErr := buildScheduler(outputRoot, configPath); schedErr == nil {
+		params := backgroundjobs.ScheduleParams{
+			JobID:    jobID,
+			Schedule: input.schedule,
+			Name:     backgroundjobs.SanitizeScheduleName(input.name),
+			Enabled:  true,
+		}
+		osState, installErr := sched.Install(cmd.Context(), params)
+		if installErr != nil {
+			lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+		} else {
+			_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+				if j := s.Jobs[jobID]; j != nil {
+					j.OSSchedule = osState
+				}
+				return nil
+			})
+		}
+	}
+
+	// Audit.
+	audit := backgroundjobs.NewAuditWriter(store.Dir())
+	_ = audit.Write(backgroundjobs.AuditEvent{
+		Event: "job.created",
+		JobID: jobID,
+		Actor: "cli",
+	})
+
+	cmd.Printf("job created: %s\n", jobID)
+	return nil
+}
+
 func newJobsCreateCommand() *cobra.Command {
 	var (
 		name         string
@@ -244,17 +383,22 @@ func newJobsCreateCommand() *cobra.Command {
 		providerID   string
 		model        string
 		scheduleKind string
+		every        string
 		timeOfDay    string
 		dayOfWeek    string
 		cron         string
 		timezone     string
+		fileAccess   string
+		writablePaths string
 		dryRun       bool
+		interactive  bool
 	)
 
 	command := &cobra.Command{
 		Use:   "create [project-path]",
 		Short: "Create a new background job.",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Create a new background job. Launches an interactive wizard when run with no arguments or with --interactive.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
@@ -266,6 +410,38 @@ func newJobsCreateCommand() *cobra.Command {
 				return err
 			}
 
+			// Determine default provider for the wizard.
+			defaultProvider := cfg.DefaultProvider
+			if defaultProvider == "" {
+				defaultProvider = string(config.DefaultProviderID)
+			}
+
+			// Decide whether to launch the interactive wizard.
+			hasPath := len(args) > 0
+			hasPrompt := cmd.Flags().Changed("prompt")
+			launchWizard := interactive || (!hasPath && !hasPrompt)
+
+			if launchWizard {
+				return runInteractiveCreate(cmd, outputRoot, resolvedConfigPath, defaultProvider, args, jobWizardAnswers{
+					providerID:   providerID,
+					name:         name,
+					prompt:       prompt,
+					fileAccess:   fileAccess,
+					writablePaths: writablePaths,
+					scheduleKind: scheduleKind,
+					every:        every,
+					timeOfDay:    timeOfDay,
+					dayOfWeek:    dayOfWeek,
+					cron:         cron,
+					timezone:     timezone,
+				})
+			}
+
+			// Non-interactive path.
+			if len(args) == 0 {
+				return fmt.Errorf("project path is required (or use --interactive for the wizard)")
+			}
+
 			projectPath, err := resolveProjectPath(args[0])
 			if err != nil {
 				return err
@@ -275,7 +451,7 @@ func newJobsCreateCommand() *cobra.Command {
 			}
 
 			if prompt == "" {
-				return fmt.Errorf("--prompt is required")
+				return fmt.Errorf("--prompt is required (or use --interactive for the wizard)")
 			}
 			if name == "" {
 				name = filepath.Base(projectPath)
@@ -283,138 +459,119 @@ func newJobsCreateCommand() *cobra.Command {
 			if timezone == "" {
 				timezone = "UTC"
 			}
-
-			// Resolve provider: --provider flag → config default → fallback.
-			if providerID == "" {
-				providerID = cfg.DefaultProvider
-				if providerID == "" {
-					providerID = string(config.DefaultProviderID)
+			if every != "" && scheduleKind != "interval" {
+				return fmt.Errorf("--every is only valid with --schedule interval")
+			}
+			if fileAccess != "" {
+				switch fileAccess {
+				case "read_only", "selected_writes", "full_workspace":
+				default:
+					return fmt.Errorf("--file-access must be one of: read_only, selected_writes, full_workspace")
 				}
 			}
-
-			// Validate provider is background-safe.
-			meta := backgroundjobs.ProviderMetaByID(providerID)
-			if meta == nil {
-				return fmt.Errorf("provider %q is not registered", providerID)
+			if writablePaths != "" && fileAccess != "selected_writes" {
+				return fmt.Errorf("--writable-paths requires --file-access selected_writes")
 			}
-			if !meta.BackgroundSafe {
-				return fmt.Errorf("provider %q is not safe for background execution (requires interactive terminal)", providerID)
+			if fileAccess == "selected_writes" && writablePaths == "" {
+				return fmt.Errorf("--writable-paths is required when --file-access is selected_writes")
 			}
 
-			// Build schedule.
+			// Resolve provider.
+			if providerID == "" {
+				providerID = defaultProvider
+			}
+
+			// Build schedule. Normalize user-facing "interval" to the
+			// stored constant value (ScheduleInterval = "hourly").
 			kind := backgroundjobs.ScheduleKind(scheduleKind)
+			if kind == "interval" {
+				kind = backgroundjobs.ScheduleInterval
+			}
 			schedule := backgroundjobs.ScheduleSpec{
 				Kind:      kind,
+				Every:     every,
 				TimeOfDay: timeOfDay,
 				DayOfWeek: dayOfWeek,
 				Cron:      cron,
 				Timezone:  timezone,
 			}
 
-			// Validate schedule.
-			if err := backgroundjobs.ValidateSchedule(schedule); err != nil {
-				return fmt.Errorf("invalid schedule: %w", err)
-			}
-
-			// Derive project name.
 			projectName := pipeline.DeriveProjectName(projectPath, nil)
 
-			// Build job.
-			now := time.Now().UTC()
-			jobID, err := backgroundjobs.GenerateJobID()
-			if err != nil {
-				return fmt.Errorf("generate job id: %w", err)
-			}
-
-			job := &backgroundjobs.Job{
-				ID:          jobID,
-				Name:        name,
-				Prompt:      prompt,
-				ProjectName: projectName,
-				ProjectPath: projectPath,
-				ProviderID:  providerID,
-				Model:       model,
-				Schedule:    schedule,
-				Enabled:     true,
-				CreatedAt:   now,
-				UpdatedAt:   now,
-				Permissions: backgroundjobs.PermissionProfile{
-					FileAccess: backgroundjobs.FileAccessReadOnly,
-					ReadScope:  "project_dir",
-				},
-				Health: backgroundjobs.HealthState{
-					SystemScheduling: backgroundjobs.SchedulingNotInstalled,
-					JobSchedule:      backgroundjobs.JobScheduleValid,
-					RunState:         backgroundjobs.RunStatusIdle,
-					PermissionState:  backgroundjobs.PermissionAllowed,
-				},
-			}
-
-			if dryRun {
-				return printJobDetail(cmd, job)
-			}
-
-			// Calculate next run.
-			nextRun, err := backgroundjobs.NextRun(schedule, now)
-			if err != nil {
-				return fmt.Errorf("calculate next run: %w", err)
-			}
-			job.NextRunAt = &nextRun
-
-			// Save.
-			lg := logging.Silent()
-			store := backgroundjobs.NewStore(outputRoot, lg)
-			if err := store.AddJob(job); err != nil {
-				return fmt.Errorf("save job: %w", err)
-			}
-
-			// Install OS schedule (best-effort).
-			if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
-				params := backgroundjobs.ScheduleParams{
-					JobID:    jobID,
-					Schedule: schedule,
-					Name:     backgroundjobs.SanitizeScheduleName(name),
-					Enabled:  true,
-				}
-				osState, installErr := sched.Install(cmd.Context(), params)
-				if installErr != nil {
-					lg.Warn("install OS schedule failed", logging.Any("error", installErr))
-				} else {
-					_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
-						if j := s.Jobs[jobID]; j != nil {
-							j.OSSchedule = osState
-						}
-						return nil
-					})
-				}
-			}
-
-			// Audit.
-			audit := backgroundjobs.NewAuditWriter(store.Dir())
-			_ = audit.Write(backgroundjobs.AuditEvent{
-				Event: "job.created",
-				JobID: jobID,
-				Actor: "cli",
-			})
-
-			cmd.Printf("job created: %s\n", jobID)
-			return nil
+			return createAndSaveJob(cmd, outputRoot, resolvedConfigPath, createJobInput{
+				projectPath:  projectPath,
+				projectName:  projectName,
+				name:         name,
+				providerID:   providerID,
+				model:        model,
+				prompt:       prompt,
+				fileAccess:   fileAccess,
+				writablePaths: writablePaths,
+				schedule:     schedule,
+				timezone:     timezone,
+			}, dryRun)
 		},
 	}
 
 	command.Flags().StringVarP(&name, "name", "n", "", "Human-readable name (default: project directory name).")
-	command.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt to execute on each run (required).")
+	command.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt to execute on each run.")
 	command.Flags().StringVar(&providerID, "provider", "", "Analyzer provider ID (default: config default).")
 	command.Flags().StringVarP(&model, "model", "m", "", "Override model for this job.")
-	command.Flags().StringVarP(&scheduleKind, "schedule", "s", "daily", "Schedule kind: hourly|daily|weekly|cron.")
+	command.Flags().StringVarP(&scheduleKind, "schedule", "s", "daily", "Schedule kind: interval|daily|weekly|cron.")
+	command.Flags().StringVar(&every, "every", "", "Repeat interval for interval schedule (e.g. 5m, 15m, 2h). Default: 1h.")
 	command.Flags().StringVar(&timeOfDay, "time-of-day", "09:00", "Time of day for daily/weekly (HH:MM).")
 	command.Flags().StringVar(&dayOfWeek, "day-of-week", "", "Day of week for weekly schedule.")
 	command.Flags().StringVar(&cron, "cron", "", "Cron expression for cron schedule (5 fields, e.g. '0 9 * * 1').")
 	command.Flags().StringVar(&timezone, "timezone", "UTC", "Timezone for schedule (IANA format).")
+	command.Flags().StringVar(&fileAccess, "file-access", "", "File access: read_only, selected_writes, full_workspace (default: read_only).")
+	command.Flags().StringVar(&writablePaths, "writable-paths", "", "Comma-separated writable paths (for selected_writes).")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Validate inputs, resolve provider, print job definition without saving.")
+	command.Flags().BoolVarP(&interactive, "interactive", "i", false, "Launch the interactive job creation wizard.")
 	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
 
 	return command
+}
+
+// runInteractiveCreate launches the TUI wizard and creates the job from the result.
+func runInteractiveCreate(cmd *cobra.Command, outputRoot, configPath, defaultProvider string, args []string, prefilled jobWizardAnswers) error {
+	// Pre-fill path from arg if provided.
+	if len(args) > 0 {
+		projectPath, err := resolveProjectPath(args[0])
+		if err != nil {
+			return err
+		}
+		prefilled.projectPath = projectPath
+	}
+
+	// Load any saved draft from a previous interrupted wizard run.
+	draftPath := wizardDraftPath(outputRoot)
+	draft, err := loadWizardDraft(draftPath)
+	if err != nil {
+		// Non-fatal — log and continue with fresh wizard.
+		fmt.Fprintf(os.Stderr, "warning: could not load wizard draft: %v\n", err)
+	}
+
+	// Merge: draft provides defaults, CLI flags override.
+	merged := mergeWizardDraft(draft, prefilled)
+
+	answers, confirmed, err := runJobWizard(merged)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		// Save partial state so the user can resume next time.
+		if saveErr := saveWizardDraft(draftPath, answers); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not save wizard draft: %v\n", saveErr)
+		} else {
+			cmd.Println("wizard draft saved — your entries will be pre-filled next time.")
+		}
+		return nil
+	}
+
+	// Job created — clean up any leftover draft.
+	_ = deleteWizardDraft(draftPath)
+
+	return createAndSaveJob(cmd, outputRoot, configPath, jobAnswersToCreateInput(answers, defaultProvider), false)
 }
 
 func newJobsShowCommand() *cobra.Command {
@@ -508,7 +665,9 @@ func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 		cmd.Printf("Model:       %s\n", job.Model)
 	}
 	cmd.Printf("Schedule:    %s", job.Schedule.Kind)
-	if job.Schedule.TimeOfDay != "" {
+	if job.Schedule.Every != "" {
+		cmd.Printf(" every %s", job.Schedule.Every)
+	} else if job.Schedule.TimeOfDay != "" {
 		cmd.Printf(" at %s", job.Schedule.TimeOfDay)
 	}
 	if job.Schedule.DayOfWeek != "" {
@@ -518,7 +677,11 @@ func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 	cmd.Printf("Enabled:     %t\n", job.Enabled)
 	cmd.Printf("Next Run:    %s\n", nextRun)
 	cmd.Printf("Last Run:    %s\n", lastRun)
-	cmd.Printf("Permissions: read-only\n")
+	cmd.Printf("Permissions: %s", job.Permissions.FileAccess)
+	if len(job.Permissions.WritablePaths) > 0 {
+		cmd.Printf(" (%s)", strings.Join(job.Permissions.WritablePaths, ", "))
+	}
+	cmd.Printf("\n")
 	cmd.Printf("\nPrompt:\n%s\n", job.Prompt)
 	return nil
 }

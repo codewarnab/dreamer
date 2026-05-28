@@ -179,15 +179,24 @@ func (s *linuxScheduler) ListOwn(_ context.Context) ([]string, error) {
 
 // buildTimerUnit generates a systemd timer unit file for the job.
 func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
-	onCalendar := scheduleToOnCalendar(params.Schedule)
-
 	var b strings.Builder
 	b.WriteString("[Unit]\n")
 	b.WriteString("Description=Timer for Dreamer background job " + params.JobID + "\n")
 	b.WriteString("\n[Timer]\n")
-	b.WriteString("OnCalendar=" + onCalendar + "\n")
-	b.WriteString("Persistent=true\n")
-	b.WriteString(fmt.Sprintf("RandomizedDelaySec=%d\n", randomizedDelaySec(params.Schedule)))
+
+	if params.Schedule.Kind == ScheduleInterval && params.Schedule.Every != "" {
+		// Use interval-based triggering for custom Every intervals.
+		interval := durationToSystemdSpan(EveryDuration(params.Schedule))
+		b.WriteString("OnBootSec=1min\n")
+		b.WriteString("OnUnitActiveSec=" + interval + "\n")
+		b.WriteString("Persistent=true\n")
+	} else {
+		onCalendar := scheduleToOnCalendar(params.Schedule)
+		b.WriteString("OnCalendar=" + onCalendar + "\n")
+		b.WriteString("Persistent=true\n")
+		b.WriteString(fmt.Sprintf("RandomizedDelaySec=%d\n", randomizedDelaySec(params.Schedule)))
+	}
+
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=timers.target\n")
 
@@ -217,7 +226,7 @@ func (s *linuxScheduler) buildServiceUnit(params ScheduleParams) string {
 // scheduleToOnCalendar converts a ScheduleSpec to a systemd OnCalendar expression.
 func scheduleToOnCalendar(spec ScheduleSpec) string {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		return "*-*-* *:00:00"
 	case ScheduleDaily:
 		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
@@ -261,7 +270,7 @@ func weekdayToSystemdDay(day string) string {
 // Prevents thundering herd for hourly jobs.
 func randomizedDelaySec(spec ScheduleSpec) int {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		return 300 // 5 min
 	case ScheduleDaily, ScheduleWeekly:
 		return 0
@@ -273,13 +282,28 @@ func randomizedDelaySec(spec ScheduleSpec) int {
 // timeoutSec returns the service timeout in seconds.
 func timeoutSec(spec ScheduleSpec) int {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
+		if spec.Every != "" {
+			if d, err := parseEveryDuration(spec.Every); err == nil {
+				return int(d.Seconds())
+			}
+		}
 		return 3300 // 55 min
 	case ScheduleDaily, ScheduleWeekly:
 		return 7200 // 2 hours
 	default:
 		return 3600
 	}
+}
+
+// durationToSystemdSpan converts a Go duration to systemd time span format.
+// Systemd accepts: "5min", "1h", "30s", etc.
+func durationToSystemdSpan(d time.Duration) string {
+	totalMinutes := int(d.Minutes())
+	if totalMinutes >= 60 && totalMinutes%60 == 0 {
+		return fmt.Sprintf("%dh", totalMinutes/60)
+	}
+	return fmt.Sprintf("%dmin", totalMinutes)
 }
 
 // ensureUnitDir creates the systemd user unit directory if it doesn't exist.

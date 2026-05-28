@@ -59,7 +59,13 @@ func ProjectHistory(deps Deps) http.HandlerFunc {
 			}
 		}
 
-		hist, err := state.LoadHistory(cfg.Daemon.OutputRoot, name)
+		var hist *state.History
+		var err error
+		if deps.StateCache != nil {
+			hist, err = deps.StateCache.GetHistory(cfg.Daemon.OutputRoot, name)
+		} else {
+			hist, err = state.LoadHistory(cfg.Daemon.OutputRoot, name)
+		}
 		if err != nil {
 			http.Error(w, "load history: "+err.Error(), http.StatusInternalServerError)
 			return

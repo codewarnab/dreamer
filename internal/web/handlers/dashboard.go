@@ -4,6 +4,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -22,6 +23,9 @@ type Deps struct {
 	Config         func() *config.App
 	Events         *pipeline.EventBus
 	Logger         *logging.Logger
+	// ShutdownCtx is cancelled when the daemon is shutting down.
+	// Use for background goroutines that should be cancelled on exit.
+	ShutdownCtx context.Context
 	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
 	OverlayPath    func() string
 	RecentActivity func() []pipeline.Event
@@ -29,6 +33,9 @@ type Deps struct {
 	// StateLock serializes state Load→Mutate→Save cycles per project
 	// so concurrent lifecycle handlers don't clobber each other.
 	StateLock *ProjectLock
+	// StateCache is a read-through cache for state.json and history.json.
+	// Nil disables caching (handlers fall back to direct state.Load).
+	StateCache *state.StateCache
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs JobDeps
@@ -46,7 +53,7 @@ func Dashboard(deps Deps) http.HandlerFunc {
 			http.Error(w, "config unavailable", http.StatusInternalServerError)
 			return
 		}
-		out := buildDashboard(cfg)
+		out := buildDashboard(cfg, deps.StateCache)
 		if deps.RecentActivity != nil {
 			events := deps.RecentActivity()
 			liveActivity := make([]any, 0, len(events))
@@ -91,7 +98,7 @@ type providerCount struct {
 }
 
 // buildDashboard aggregates state.json + history.json across every project.
-func buildDashboard(cfg *config.App) dashboardResponse {
+func buildDashboard(cfg *config.App, sc *state.StateCache) dashboardResponse {
 	out := dashboardResponse{
 		PerCategory:         map[string]int{},
 		TopMistakeProviders: []providerCount{},
@@ -112,7 +119,13 @@ func buildDashboard(cfg *config.App) dashboardResponse {
 	aggregatedSparkline := map[string]state.DaySummary{}
 
 	for _, p := range cfg.Projects {
-		st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
+		var st *state.State
+		var err error
+		if sc != nil {
+			st, err = sc.GetState(cfg.Daemon.OutputRoot, p.Name)
+		} else {
+			st, err = state.Load(cfg.Daemon.OutputRoot, p.Name)
+		}
 		if err != nil || st == nil {
 			continue
 		}
@@ -137,7 +150,12 @@ func buildDashboard(cfg *config.App) dashboardResponse {
 		out.Stats.FindingsResolved += resolved
 		out.Stats.FindingsOpen += open
 
-		history, err := state.LoadHistory(cfg.Daemon.OutputRoot, p.Name)
+		var history *state.History
+		if sc != nil {
+			history, err = sc.GetHistory(cfg.Daemon.OutputRoot, p.Name)
+		} else {
+			history, err = state.LoadHistory(cfg.Daemon.OutputRoot, p.Name)
+		}
 		if err != nil || history == nil {
 			continue
 		}

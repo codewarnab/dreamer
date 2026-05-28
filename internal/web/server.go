@@ -19,6 +19,7 @@ import (
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
 	"dreamer/internal/web/handlers"
 )
 
@@ -53,9 +54,15 @@ type Options struct {
 	// RestartHook, when non-nil, is invoked by /api/daemon/restart to trigger
 	// graceful daemon shutdown (e.g. cancel the signal context).
 	RestartHook func() error
+	// ShutdownCtx is cancelled when the daemon is shutting down.
+	// Used by background goroutines (e.g. async job runs) for graceful cancellation.
+	ShutdownCtx context.Context
 	// Activity, when non-nil, provides a snapshot of recent pipeline events
 	// for the dashboard live_activity panel.
 	Activity *ActivityRing
+	// StateCache, when non-nil, is shared with handlers for read-through
+	// caching of state.json and history.json. Nil creates a fresh cache.
+	StateCache *state.StateCache
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs handlers.JobDeps
@@ -338,10 +345,11 @@ func (s *Server) renderJobDetailPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) attachAPI(mux *http.ServeMux) {
 	deps := handlers.Deps{
-		Config: s.currentConfig,
-		Events: s.opts.Events,
-		Logger: s.opts.Logger,
-		Jobs:   s.opts.Jobs,
+		Config:      s.currentConfig,
+		Events:      s.opts.Events,
+		Logger:      s.opts.Logger,
+		ShutdownCtx: s.opts.ShutdownCtx,
+		Jobs:        s.opts.Jobs,
 		OverlayPath: func() string {
 			return s.opts.OverlayPath
 		},
@@ -364,6 +372,11 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			return s.opts.RestartHook()
 		},
 		StateLock: handlers.NewProjectLock(),
+	}
+	if s.opts.StateCache != nil {
+		deps.StateCache = s.opts.StateCache
+	} else {
+		deps.StateCache = state.NewStateCache()
 	}
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

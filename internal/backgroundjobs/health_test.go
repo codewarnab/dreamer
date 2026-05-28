@@ -14,12 +14,12 @@ func TestCheckHealth_AllHealthy(t *testing.T) {
 	lg := logging.Silent()
 
 	// Add an enabled job with a healthy schedule.
-	specHash, _ := HashScheduleSpec(ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"})
+	specHash, _ := HashScheduleSpec(ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"})
 	job := &Job{
 		ID:        "healthy-job",
 		Name:      "test",
 		Enabled:   true,
-		Schedule:  ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"},
+		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
 		OSSchedule: OSScheduleState{
 			ScheduleID: "mock-healthy-job",
 			InstallID:  "test-install-id",
@@ -59,7 +59,7 @@ func TestCheckHealth_MissingSchedule(t *testing.T) {
 		ID:        "unscheduled-job",
 		Name:      "test",
 		Enabled:   true,
-		Schedule:  ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"},
+		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -124,7 +124,7 @@ func TestCheckHealth_DisabledJobNoSchedule(t *testing.T) {
 		ID:        "disabled-job",
 		Name:      "test",
 		Enabled:   false,
-		Schedule:  ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"},
+		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}

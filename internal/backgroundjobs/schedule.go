@@ -20,8 +20,12 @@ var validDayOfWeek = map[string]time.Weekday{
 // ValidateSchedule checks that a ScheduleSpec is well-formed.
 func ValidateSchedule(s ScheduleSpec) error {
 	switch s.Kind {
-	case ScheduleHourly:
-		// no extra validation
+	case ScheduleInterval:
+		if s.Every != "" {
+			if _, err := parseEveryDuration(s.Every); err != nil {
+				return fmt.Errorf("invalid every %q: %w", s.Every, err)
+			}
+		}
 	case ScheduleDaily:
 		if s.TimeOfDay == "" {
 			return fmt.Errorf("daily schedule requires time_of_day")
@@ -53,6 +57,10 @@ func ValidateSchedule(s ScheduleSpec) error {
 		return fmt.Errorf("unknown schedule kind %q", s.Kind)
 	}
 
+	if s.Every != "" && s.Kind != ScheduleInterval {
+		return fmt.Errorf("--every is only valid with interval schedule")
+	}
+
 	if s.Timezone == "" {
 		return fmt.Errorf("timezone is required")
 	}
@@ -72,8 +80,14 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 	localNow := now.In(loc)
 
 	switch s.Kind {
-	case ScheduleHourly:
-		return now.Add(1 * time.Hour), nil
+	case ScheduleInterval:
+		interval := 1 * time.Hour
+		if s.Every != "" {
+			if d, err := parseEveryDuration(s.Every); err == nil {
+				interval = d
+			}
+		}
+		return now.Add(interval), nil
 	case ScheduleDaily:
 		// Error ignored: ValidateSchedule rejects invalid TimeOfDay before
 		// NextRun is ever called. A corrupted store value silently yields
@@ -154,45 +168,45 @@ func parseCron(expr string) (cronFields, error) {
 
 // parseCronField parses a single cron field into a sorted slice of valid values.
 // Supports: *, */N, N, N-M, N,M.
-func parseCronField(field string, min, max int) ([]int, error) {
+func parseCronField(field string, lo, hi int) ([]int, error) {
 	if field == "*" {
-		return cronRange(min, max), nil
+		return cronRange(lo, hi), nil
 	}
 	if strings.HasPrefix(field, "*/") {
-		return parseCronStep(field[2:], min, max)
+		return parseCronStep(field[2:], lo, hi)
 	}
-	return parseCronParts(field, min, max)
+	return parseCronParts(field, lo, hi)
 }
 
-// cronRange returns all integers in [min, max].
-func cronRange(min, max int) []int {
-	result := make([]int, max-min+1)
+// cronRange returns all integers in [lo, hi].
+func cronRange(lo, hi int) []int {
+	result := make([]int, hi-lo+1)
 	for i := range result {
-		result[i] = min + i
+		result[i] = lo + i
 	}
 	return result
 }
 
 // parseCronStep handles */N step syntax.
-func parseCronStep(stepStr string, min, max int) ([]int, error) {
+func parseCronStep(stepStr string, lo, hi int) ([]int, error) {
 	step, err := parseCronInt(stepStr)
 	if err != nil || step < 1 {
 		return nil, fmt.Errorf("invalid step %q", stepStr)
 	}
 	var result []int
-	for i := min; i <= max; i += step {
+	for i := lo; i <= hi; i += step {
 		result = append(result, i)
 	}
 	return result, nil
 }
 
 // parseCronParts handles comma-separated parts (N, N-M, N,M).
-func parseCronParts(field string, min, max int) ([]int, error) {
+func parseCronParts(field string, lo, hi int) ([]int, error) {
 	parts := strings.Split(field, ",")
 	var result []int
 	seen := make(map[int]bool)
 	for _, part := range parts {
-		vals, err := parseCronPart(strings.TrimSpace(part), min, max)
+		vals, err := parseCronPart(strings.TrimSpace(part), lo, hi)
 		if err != nil {
 			return nil, err
 		}
@@ -211,40 +225,40 @@ func parseCronParts(field string, min, max int) ([]int, error) {
 }
 
 // parseCronPart handles a single part: either a range (N-M) or a single value (N).
-func parseCronPart(part string, min, max int) ([]int, error) {
+func parseCronPart(part string, lo, hi int) ([]int, error) {
 	if strings.Contains(part, "-") {
-		return parseCronRange(part, min, max)
+		return parseCronRange(part, lo, hi)
 	}
 	val, err := parseCronInt(part)
 	if err != nil {
 		return nil, fmt.Errorf("invalid value %q: %w", part, err)
 	}
-	if val < min || val > max {
-		return nil, fmt.Errorf("value %d out of bounds [%d,%d]", val, min, max)
+	if val < lo || val > hi {
+		return nil, fmt.Errorf("value %d out of bounds [%d,%d]", val, lo, hi)
 	}
 	return []int{val}, nil
 }
 
 // parseCronRange handles N-M range syntax.
-func parseCronRange(part string, min, max int) ([]int, error) {
+func parseCronRange(part string, lo, hi int) ([]int, error) {
 	bounds := strings.SplitN(part, "-", 2)
 	if len(bounds) != 2 {
 		return nil, fmt.Errorf("invalid range %q", part)
 	}
-	lo, err := parseCronInt(bounds[0])
+	rangeStart, err := parseCronInt(bounds[0])
 	if err != nil {
 		return nil, fmt.Errorf("invalid range start %q: %w", bounds[0], err)
 	}
-	hi, err := parseCronInt(bounds[1])
+	rangeEnd, err := parseCronInt(bounds[1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid range end %q: %w", bounds[1], err)
 	}
-	if lo < min || hi > max || lo > hi {
-		return nil, fmt.Errorf("range %d-%d out of bounds [%d,%d]", lo, hi, min, max)
+	if rangeStart < lo || rangeEnd > hi || rangeStart > rangeEnd {
+		return nil, fmt.Errorf("range %d-%d out of bounds [%d,%d]", rangeStart, rangeEnd, lo, hi)
 	}
-	result := make([]int, hi-lo+1)
+	result := make([]int, rangeEnd-rangeStart+1)
 	for i := range result {
-		result[i] = lo + i
+		result[i] = rangeStart + i
 	}
 	return result, nil
 }
@@ -326,9 +340,9 @@ func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, err
 	return time.Time{}, fmt.Errorf("no matching cron time in next 366 days")
 }
 
-// isWildcard checks if a cron field contains every value in the range [min, max].
-func isWildcard(values []int, min, max int) bool {
-	return len(values) == max-min+1 && values[0] == min && values[len(values)-1] == max
+// isWildcard checks if a cron field contains every value in the range [lo, hi].
+func isWildcard(values []int, lo, hi int) bool {
+	return len(values) == hi-lo+1 && values[0] == lo && values[len(values)-1] == hi
 }
 
 // intSliceContains checks if a sorted int slice contains a value.
@@ -345,7 +359,13 @@ func intSliceContains(s []int, v int) bool {
 // Shared across platforms — used by Windows Task Scheduler and systemd timeout.
 func executionTimeLimit(spec ScheduleSpec) string {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
+		if spec.Every != "" {
+			if d, err := parseEveryDuration(spec.Every); err == nil {
+				// Cap at the interval so the job finishes before the next trigger.
+				return durationToISO8601(d)
+			}
+		}
 		return "PT55M"
 	case ScheduleDaily, ScheduleWeekly:
 		return "PT2H"
@@ -354,4 +374,40 @@ func executionTimeLimit(spec ScheduleSpec) string {
 	default:
 		return "PT1H"
 	}
+}
+
+// parseEveryDuration parses and validates an --every duration string.
+// Accepts Go duration strings (e.g. "5m", "15m", "2h", "90m").
+// Rejects values < 1 minute and > 23 hours.
+func parseEveryDuration(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse duration %q: expected Go duration like 5m, 15m, 2h", s)
+	}
+	if d < 1*time.Minute {
+		return 0, fmt.Errorf("minimum interval is 1m, got %v", d)
+	}
+	if d > 23*time.Hour {
+		return 0, fmt.Errorf("maximum interval is 23h, got %v", d)
+	}
+	return d, nil
+}
+
+// EveryDuration returns the parsed Every duration, or 1 hour as default.
+func EveryDuration(spec ScheduleSpec) time.Duration {
+	if spec.Every != "" {
+		if d, err := parseEveryDuration(spec.Every); err == nil {
+			return d
+		}
+	}
+	return 1 * time.Hour
+}
+
+// durationToISO8601 converts a Go duration to ISO 8601 format (PT{N}H or PT{N}M).
+func durationToISO8601(d time.Duration) string {
+	totalMinutes := int(d.Minutes())
+	if totalMinutes >= 60 && totalMinutes%60 == 0 {
+		return fmt.Sprintf("PT%dH", totalMinutes/60)
+	}
+	return fmt.Sprintf("PT%dM", totalMinutes)
 }
