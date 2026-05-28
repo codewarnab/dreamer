@@ -44,12 +44,12 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 	phase1Pool := NewSessionPool(poolCap, rc.Phase1Factory())
 	defer phase1Pool.Close()
 
-	mistakesByCategoryegory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, chunkInputs, req)
+	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, chunkInputs, req)
 	analysisResult := AnalysisResult{Warnings: p1Warnings}
 	if err != nil {
 		return analysisResult, err
 	}
-	analysisResult.Mistakes = orderedByCategory(mistakesByCategoryegory, enabled)
+	analysisResult.Mistakes = orderedByCategory(mistakesByCategory, enabled)
 
 	if req.DryRun || len(analysisResult.Mistakes) == 0 {
 		if completedChunks == len(chunkInputs.Chunks) {
@@ -63,7 +63,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
 	defer phase2Pool.Close()
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategoryegory, chunkInputs.RuleTimeoutSecs, req)
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategory, chunkInputs.RuleTimeoutSecs, req)
 	analysisResult.Warnings = append(analysisResult.Warnings, p2Warnings...)
 	if err != nil {
 		return analysisResult, err

@@ -32,7 +32,7 @@ const (
 type Logger struct {
 	mu        sync.Mutex
 	file      *os.File
-	slog    *slog.Logger
+	handler *slog.Logger
 	level     slog.Level
 	path      string
 	maxSizeMB int
@@ -96,7 +96,7 @@ func New(outputRoot string, level string, maxSizeMB int) (*Logger, error) {
 		Level:       minLevel,
 		ReplaceAttr: replaceAttrLowerLevel,
 	})
-	return &Logger{file: file, slog: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
+	return &Logger{file: file, handler: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
 }
 
 // Silent returns a logger that discards all output. Useful for CLI commands
@@ -105,10 +105,10 @@ func Silent() *Logger {
 	handler := slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
 		Level: slog.LevelError + 1, // above Error = nothing logged
 	})
-	return &Logger{slog: slog.New(handler), level: slog.LevelError + 1}
+	return &Logger{handler: slog.New(handler), level: slog.LevelError + 1}
 }
 
-// Path returns the absolute log file path used by this l.
+// Path returns the absolute log file path used by this Logger.
 func (l *Logger) Path() string {
 	if l == nil {
 		return ""
@@ -125,7 +125,7 @@ func (l *Logger) Close() error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.slog = nil
+	l.handler = nil
 	if l.file == nil {
 		return nil
 	}
@@ -160,7 +160,7 @@ func (l *Logger) write(level slog.Level, message string, attrs ...Attr) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.slog == nil {
+	if l.handler == nil {
 		return
 	}
 	if l.rotateIfNeededLocked() {
@@ -170,7 +170,7 @@ func (l *Logger) write(level slog.Level, message string, attrs ...Attr) {
 	for _, attr := range attrs {
 		args = append(args, attr)
 	}
-	l.slog.Log(context.Background(), level, message, args...)
+	l.handler.Log(context.Background(), level, message, args...)
 }
 
 // rotateIfNeededLocked checks whether the log file exceeds the configured size
@@ -215,7 +215,7 @@ func (l *Logger) rebuildHandlerLocked() {
 		Level:       l.level,
 		ReplaceAttr: replaceAttrLowerLevel,
 	})
-	l.slog = slog.New(handler)
+	l.handler = slog.New(handler)
 }
 
 // replaceAttrLowerLevel normalizes the level attribute to lowercase.
