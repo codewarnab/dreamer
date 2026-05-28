@@ -15,6 +15,17 @@ import (
 	"dreamer/internal/state"
 )
 
+// setHomeForTest sets the home directory environment variables for the
+// current platform so os.UserHomeDir() returns fakeHome on both POSIX
+// (HOME) and Windows (USERPROFILE).
+func setHomeForTest(t *testing.T, fakeHome string) {
+	t.Helper()
+	t.Setenv("HOME", fakeHome)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", fakeHome)
+	}
+}
+
 func TestParseSinceWindow(t *testing.T) {
 	cases := []struct {
 		in        string
@@ -65,11 +76,8 @@ func TestChatsProjectName(t *testing.T) {
 // $HOME/.copilot/session-state matches — so we can seed it without caring
 // about the project path.
 func TestProjectChats_Discovery(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based fixture is POSIX-flavored; copilot discovery uses HomeDir")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -127,11 +135,8 @@ func TestProjectChats_Discovery(t *testing.T) {
 }
 
 func TestProjectChats_ToolFilter(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based fixture is POSIX-flavored")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -291,11 +296,8 @@ func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
 // len(st.ChatHashes) stays authoritative for the overview-tab badge
 // without a re-analyze.
 func TestDeleteUpdatesChatHashes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based copilot fixture is POSIX-flavored")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -324,7 +326,7 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 	}
 	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
 
-	body := `{"path":"` + chatPath + `"}`
+	body := `{"path":"` + strings.ReplaceAll(chatPath, `\`, `\\`) + `"}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -351,11 +353,8 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 // the :bulk-delete endpoint: all successful paths drop from state in one
 // save.
 func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based copilot fixture is POSIX-flavored")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -388,7 +387,7 @@ func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
 	}
 	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
 
-	body := `{"paths":["` + pathA + `","` + pathB + `"]}`
+	body := `{"paths":["` + strings.ReplaceAll(pathA, `\`, `\\`) + `","` + strings.ReplaceAll(pathB, `\`, `\\`) + `"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
