@@ -32,7 +32,7 @@ func NewDiscoveryCache() *DiscoveryCache {
 // ModifiedTime matches the cached value, the source count is the same, and
 // repoHeadSHA is unchanged. Returns false on the first mismatch or if the
 // project has never been cached. Thread-safe.
-func (c *DiscoveryCache) Check(projectPath string, sources []chat.ChatSource, repoHeadSHA string) bool {
+func (c *DiscoveryCache) Check(projectPath string, sources []chat.Source, repoHeadSHA string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -58,7 +58,7 @@ func (c *DiscoveryCache) Check(projectPath string, sources []chat.ChatSource, re
 // Update stores the current discovery state for a project. Call this only
 // after a successful state.Save so the cache never records a state the
 // pipeline didn't persist. Thread-safe.
-func (c *DiscoveryCache) Update(projectPath string, sources []chat.ChatSource, repoHeadSHA string) {
+func (c *DiscoveryCache) Update(projectPath string, sources []chat.Source, repoHeadSHA string) {
 	mtimes := make(map[string]time.Time, len(sources))
 	for _, s := range sources {
 		mtimes[s.Path] = s.ModifiedTime

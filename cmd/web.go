@@ -72,7 +72,7 @@ func newWebCommand() *cobra.Command {
 	return cmd
 }
 
-func resolveWebPort(cfg *config.Config) (int, error) {
+func resolveWebPort(cfg *config.App) (int, error) {
 	outputRoot := strings.TrimSpace(cfg.Daemon.OutputRoot)
 	if outputRoot != "" {
 		path := filepath.Join(outputRoot, "web.port")

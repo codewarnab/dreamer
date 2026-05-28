@@ -16,7 +16,7 @@ func anyEnabled(packs []analyzer.RulePack) bool {
 	return false
 }
 
-func mergeRulePacks(cfg *config.Config, project *config.ProjectFileConfig) []analyzer.RulePack {
+func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig) []analyzer.RulePack {
 	packs, err := analyzer.LoadDefaultRulePacks()
 	if err != nil {
 		return nil
@@ -79,7 +79,7 @@ func applyRuleToggles(packs []analyzer.RulePack, overrides map[string]config.Rul
 	}
 }
 
-func buildRedactor(cfg *config.Config, project *config.ProjectFileConfig) (*analyzer.Redactor, error) {
+func buildRedactor(cfg *config.App, project *config.ProjectFileConfig) (*analyzer.Redactor, error) {
 	patterns := append([]string{}, cfg.Redaction.Patterns...)
 	if project != nil {
 		patterns = append(patterns, project.Redaction.Patterns...)

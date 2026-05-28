@@ -62,7 +62,7 @@ func resolveConfigPath(configPath string) (string, error) {
 
 // logDefaultedSinceNotices emits one info line per project whose `since` was
 // filled with the v1.2 default. No-op when the list is empty.
-func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.Config) {
+func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.App) {
 	if logger == nil || cfg == nil {
 		return
 	}

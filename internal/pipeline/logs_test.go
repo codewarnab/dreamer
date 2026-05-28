@@ -28,7 +28,7 @@ func TestLoggingSessionRecordsPromptAndResponse(t *testing.T) {
 	content := readFileString(t, logger.Path())
 	assertContains(t, content, `level=info msg="provider call started"`)
 	assertContains(t, content, `provider=fake-provider`)
-	assertContains(t, content, `level=info msg="provider response"`)
+	assertContains(t, content, `level=debug msg="provider response"`)
 	assertContains(t, content, `body="assistant response"`)
 }
 

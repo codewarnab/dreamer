@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"dreamer/internal/fsutil"
 )
 
 // Mode controls sandbox behavior.
@@ -136,9 +138,30 @@ func BuildConfig(projectDir, providerHome, rawMode string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("sandbox: resolve home dir: %w", err)
 	}
+	writableDirs := []string{os.TempDir(), filepath.Join(home, providerHome)}
+	// Verify no writable dir contains or equals the project dir (and vice
+	// versa). Symlink-resolve both sides so symlinked paths can't slip past
+	// the textual prefix check.
+	resolvedProject, err := fsutil.ResolveSymlinks(projectDir)
+	if err != nil {
+		return Config{}, fmt.Errorf("sandbox: resolve project dir %q: %w", projectDir, err)
+	}
+	for _, wdir := range writableDirs {
+		absWdir, err := filepath.Abs(wdir)
+		if err != nil {
+			return Config{}, fmt.Errorf("sandbox: resolve writable dir %q: %w", wdir, err)
+		}
+		resolvedWdir, err := fsutil.ResolveSymlinks(absWdir)
+		if err != nil {
+			return Config{}, fmt.Errorf("sandbox: resolve writable dir %q: %w", wdir, err)
+		}
+		if fsutil.PathWithinRoot(resolvedWdir, resolvedProject) || fsutil.PathWithinRoot(resolvedProject, resolvedWdir) {
+			return Config{}, fmt.Errorf("sandbox: writable dir %q overlaps with project dir %q", wdir, projectDir)
+		}
+	}
 	return Config{
 		ProjectDir:   projectDir,
-		WritableDirs: []string{os.TempDir(), filepath.Join(home, providerHome)},
+		WritableDirs: writableDirs,
 		Mode:         mode,
 	}, nil
 }

@@ -2,10 +2,12 @@ package codexcli
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/analyzer/providers/cliharness"
 	"dreamer/internal/sandbox"
 )
 
@@ -27,13 +29,13 @@ func TestReadStreamJSON_SchemaChange(t *testing.T) {
 }
 
 func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer p.Close()
 
-	cmd := p.(*provider).command
+	cmd := p.(*provider).p.Command
 	got := strings.Join(cmd, " ")
 
 	if !sandbox.Available() {
@@ -61,20 +63,20 @@ func TestDefaultCommandIncludesYoloFlag(t *testing.T) {
 
 func TestCustomCommandOverridesDefaults(t *testing.T) {
 	custom := []string{"my-codex", "exec"}
-	p, err := New(Options{Command: custom})
+	p, err := New(cliharness.Options{Command: custom})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	defer p.Close()
 
-	cmd := p.(*provider).command
-	if len(cmd) != len(custom) {
+	cmd := p.(*provider).p.Command
+	if !reflect.DeepEqual(cmd, custom) {
 		t.Fatalf("custom command not applied: got %v, want %v", cmd, custom)
 	}
 }
 
 func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -87,7 +89,7 @@ func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	got := strings.Join(sess.(*session).command, " ")
+	got := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if strings.Contains(got, "--yolo") {
 		t.Fatalf("sandbox=false should not use --yolo, got: %s", got)
 	}
@@ -97,7 +99,7 @@ func TestSandboxOffDefaultCommandUsesPolicyFlags(t *testing.T) {
 }
 
 func TestProviderID(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -108,7 +110,7 @@ func TestProviderID(t *testing.T) {
 }
 
 func TestProviderClose(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -118,7 +120,7 @@ func TestProviderClose(t *testing.T) {
 }
 
 func TestNewSession_EmptyWorkingDirectory(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -135,7 +137,7 @@ func TestNewSession_EmptyWorkingDirectory(t *testing.T) {
 
 func TestNewSession_CustomCommandPreserved(t *testing.T) {
 	custom := []string{"custom-codex", "exec", "--json"}
-	p, err := New(Options{Command: custom})
+	p, err := New(cliharness.Options{Command: custom})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -147,14 +149,14 @@ func TestNewSession_CustomCommandPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := sess.(*session).command
+	cmd := sess.(*cliharness.Session).Command()
 	if cmd[0] != "custom-codex" {
 		t.Errorf("expected custom command preserved, got %v", cmd)
 	}
 }
 
 func TestNewSession_ModelFlagFromSessionConfig(t *testing.T) {
-	p, err := New(Options{})
+	p, err := New(cliharness.Options{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -167,14 +169,14 @@ func TestNewSession_ModelFlagFromSessionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := strings.Join(sess.(*session).command, " ")
+	cmd := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if !strings.Contains(cmd, "--model gpt-5") {
 		t.Errorf("expected --model flag, got: %s", cmd)
 	}
 }
 
 func TestNewSession_ModelFromDefaultModel(t *testing.T) {
-	p, err := New(Options{DefaultModel: "o3"})
+	p, err := New(cliharness.Options{DefaultModel: "o3"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -186,7 +188,7 @@ func TestNewSession_ModelFromDefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	cmd := strings.Join(sess.(*session).command, " ")
+	cmd := strings.Join(sess.(*cliharness.Session).Command(), " ")
 	if !strings.Contains(cmd, "--model o3") {
 		t.Errorf("expected --model flag from DefaultModel, got: %s", cmd)
 	}

@@ -9,14 +9,14 @@ import (
 )
 
 func init() {
-	registerProvider(copilotProvider{})
+	registerProvider(copilotProvider{fileBackedProvider{sourceType: SourceTypeCopilotSessionJSONL}})
 }
 
-type copilotProvider struct{}
+type copilotProvider struct {
+	fileBackedProvider
+}
 
-func (copilotProvider) Type() SourceType { return SourceTypeCopilotSessionJSONL }
-
-func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]ChatSource, error) {
+func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]Source, error) {
 	copilotHome := strings.TrimSpace(env.CopilotHome)
 	if copilotHome == "" {
 		copilotHome = env.HomeDir
@@ -24,14 +24,14 @@ func (copilotProvider) Discover(env DiscoveryEnvironment, _ string) ([]ChatSourc
 	return discoverCopilotSessionState(copilotHome)
 }
 
-func discoverCopilotSessionState(homeDir string) ([]ChatSource, error) {
+func discoverCopilotSessionState(homeDir string) ([]Source, error) {
 	root := filepath.Join(strings.TrimSpace(homeDir), ".copilot", "session-state")
 	return walkChatFiles(root, SourceTypeCopilotSessionJSONL, map[string]struct{}{
 		".jsonl": {},
 	}, skipDreamerMarkedFiles)
 }
 
-func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (copilotProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
 		Sanitizer: readers.SanitizeCopilotSessionMessages,
 	})
@@ -41,10 +41,3 @@ func (copilotProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, e
 	return messages, nil
 }
 
-func (copilotProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (copilotProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
-}

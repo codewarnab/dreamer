@@ -22,7 +22,7 @@ const (
 	SourceTypeCodebuffSession     SourceType = "codebuff-session-json"
 )
 
-type ChatSource struct {
+type Source struct {
 	Path         string
 	Tool         SourceType
 	ModifiedTime time.Time
@@ -34,6 +34,10 @@ type ChatSource struct {
 // DiscoveryEnvironment captures the OS-derived inputs that drive chat source
 // discovery. Tests build this manually; DiscoverChats resolves it from the
 // process environment.
+//
+// TODO: This struct has 11 fields coupling the chat package to every SQLite
+// provider's reader type. Refactor so providers register their own per-provider
+// env via a chat.ProviderEnv(name) lookup rather than the central struct.
 type DiscoveryEnvironment struct {
 	HomeDir           string
 	AppDataDir        string
@@ -49,12 +53,12 @@ type DiscoveryEnvironment struct {
 }
 
 // sqliteSourcePathSeparator separates the database file path from the
-// session/conversation identifier when a ChatSource refers to a single row
+// session/conversation identifier when a Source refers to a single row
 // inside a shared SQLite database (opencode, kiro-cli). Discovery encodes
 // `<dbPath>#<sessionID>`; the runtime reader splits on this separator.
 const sqliteSourcePathSeparator = "#"
 
-// SplitSQLiteSourcePath returns (dbPath, sessionID) for a ChatSource path that
+// SplitSQLiteSourcePath returns (dbPath, sessionID) for a Source path that
 // was produced by SQLite-backed discovery. When the path has no separator the
 // raw path is returned with an empty session id.
 func SplitSQLiteSourcePath(path string) (string, string) {

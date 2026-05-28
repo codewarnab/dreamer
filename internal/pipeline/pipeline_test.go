@@ -56,7 +56,7 @@ func TestRunHappyPathWritesTodosAndState(t *testing.T) {
 	assertContains(t, todos, "Add a regression test for empty chat payloads")
 	assertContains(t, todos, "<!-- dreamer:finding:")
 
-	current, err := state.Load(outputRoot, deriveProjectName(projectDir))
+	current, err := state.Load(outputRoot, DeriveProjectName(projectDir, nil))
 	if err != nil {
 		t.Fatalf("state.Load returned error: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRunWritesHistoryAndEmitsEvents(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	h, err := state.LoadHistory(outputRoot, deriveProjectName(projectDir))
+	h, err := state.LoadHistory(outputRoot, DeriveProjectName(projectDir, nil))
 	if err != nil {
 		t.Fatalf("LoadHistory returned error: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestRunDryRunDoesNotWriteTodosOrState(t *testing.T) {
 		t.Fatalf("dry run should not write todos.md, stat err=%v", err)
 	}
 
-	statePath, err := state.PathForProject(outputRoot, deriveProjectName(projectDir))
+	statePath, err := state.PathForProject(outputRoot, DeriveProjectName(projectDir, nil))
 	if err != nil {
 		t.Fatalf("PathForProject returned error: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestRunReturnsCacheHitWhenSourcesAndRepoAreUnchanged(t *testing.T) {
 	}
 }
 
-func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg *config.Config) {
+func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg *config.App) {
 	t.Helper()
 
 	home := t.TempDir()
@@ -227,7 +227,7 @@ func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg
 	}
 
 	outputRoot = t.TempDir()
-	cfg = &config.Config{
+	cfg = &config.App{
 		DefaultProvider: fakeProviderID,
 		Daemon: config.DaemonConfig{
 			FrequencySeconds: 60,

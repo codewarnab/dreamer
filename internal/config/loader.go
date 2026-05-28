@@ -55,8 +55,8 @@ const (
 	projectConfigFile = "config.yaml"
 )
 
-// Config is the v1 global configuration document.
-type Config struct {
+// App is the v1 global configuration document.
+type App struct {
 	DefaultProvider string                   `yaml:"default_provider" json:"default_provider"`
 	Projects        []ProjectConfig          `yaml:"projects" json:"projects"`
 	Daemon          DaemonConfig             `yaml:"daemon" json:"daemon"`
@@ -69,12 +69,12 @@ type Config struct {
 	// Notices collects soft signals discovered during config load. Not
 	// serialized; callers (cmd/analyze.go, cmd/daemon.go) log them at
 	// info level once per process.
-	Notices ConfigNotices `yaml:"-" json:"-"`
+	Notices Notices `yaml:"-" json:"-"`
 }
 
-// ConfigNotices collects soft signals discovered during config load.
+// Notices collects soft signals discovered during config load.
 // Callers log them once per process at info level.
-type ConfigNotices struct {
+type Notices struct {
 	// DefaultedSince: project names whose `since` field was filled with DefaultSince.
 	DefaultedSince    []string
 	OverlayApplied    bool
@@ -235,10 +235,10 @@ func ProjectRulesPath(projectPath string, category string) string {
 	return filepath.Join(projectPath, projectConfigDir, "rules", category+".yaml")
 }
 
-// LoadConfig loads + validates the global config. Returns a Config with
+// LoadConfig loads + validates the global config. Returns an App with
 // defaults applied. A missing file is treated as "no config" only when path
 // is empty; otherwise an explicit path that does not exist errors out.
-func LoadConfig(path string) (*Config, error) {
+func LoadConfig(path string) (*App, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("config path is required")
 	}
@@ -246,7 +246,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config file %q: %w", path, err)
 	}
-	var cfg Config
+	var cfg App
 	if err := yaml.Unmarshal(configFileBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config file %q: %w", path, err)
 	}
@@ -277,7 +277,7 @@ func LoadProjectFileConfig(projectPath string) (*ProjectFileConfig, error) {
 	return &projectFileConfig, nil
 }
 
-func applyDefaults(appConfig *Config) error {
+func applyDefaults(appConfig *App) error {
 	if strings.TrimSpace(appConfig.DefaultProvider) == "" {
 		appConfig.DefaultProvider = DefaultProviderID
 	}
@@ -344,7 +344,7 @@ func applyAnalyzerChunkingDefaults(chunk *ChunkingConfig) {
 }
 
 // applyDaemonJobQueueDefaults fills job-queue fields with sane defaults.
-func applyDaemonJobQueueDefaults(appConfig *Config) {
+func applyDaemonJobQueueDefaults(appConfig *App) {
 	if appConfig.Daemon.MaxConcurrentJobs <= 0 {
 		appConfig.Daemon.MaxConcurrentJobs = DefaultMaxConcurrentJobs
 	}
@@ -357,7 +357,7 @@ func applyDaemonJobQueueDefaults(appConfig *Config) {
 }
 
 // applyProjectSinceDefaults fills blank `since` with DefaultSince and records the notice.
-func applyProjectSinceDefaults(appConfig *Config) {
+func applyProjectSinceDefaults(appConfig *App) {
 	for i := range appConfig.Projects {
 		project := &appConfig.Projects[i]
 		if strings.TrimSpace(project.Since) != "" {
@@ -377,7 +377,7 @@ func IsLifetimeSince(value string) bool {
 	return strings.EqualFold(strings.TrimSpace(value), LifetimeSinceValue)
 }
 
-func validateConfig(cfg *Config) error {
+func validateConfig(cfg *App) error {
 	seenNames := make(map[string]int, len(cfg.Projects))
 	for i := range cfg.Projects {
 		project := &cfg.Projects[i]
@@ -471,7 +471,7 @@ func ExpandUserHome(path string) (string, error) {
 
 // ResolveProviderConfig merges global + per-project + CLI overrides per §3.1.
 // Returns the resolved provider id and ProviderBlock for that id.
-func (cfg *Config) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProvider string) (string, ProviderBlock) {
+func (cfg *App) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProvider string) (string, ProviderBlock) {
 	id := strings.TrimSpace(cliProvider)
 	if id == "" && projectFile != nil {
 		id = strings.TrimSpace(projectFile.Provider)
@@ -486,7 +486,7 @@ func (cfg *Config) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProv
 	block := cfg.Providers[id]
 	if projectFile != nil {
 		if override, ok := projectFile.Providers[id]; ok {
-			block = mergeProviderBlocks(block, override)
+			block = MergeProviderBlock(block, override)
 		}
 	}
 	return id, block
@@ -494,7 +494,7 @@ func (cfg *Config) ResolveProviderConfig(projectFile *ProjectFileConfig, cliProv
 
 // ResolveMaxDuration returns the analysis timeout for the named project.
 // A per-project override takes precedence over the daemon default.
-func (cfg *Config) ResolveMaxDuration(projectName string) (time.Duration, error) {
+func (cfg *App) ResolveMaxDuration(projectName string) (time.Duration, error) {
 	for _, p := range cfg.Projects {
 		if p.Name == projectName && p.MaxAnalysisDuration != "" {
 			return time.ParseDuration(p.MaxAnalysisDuration)
@@ -503,50 +503,54 @@ func (cfg *Config) ResolveMaxDuration(projectName string) (time.Duration, error)
 	return time.ParseDuration(cfg.Daemon.MaxAnalysisDuration)
 }
 
-func mergeProviderBlocks(base, override ProviderBlock) ProviderBlock {
+// MergeProviderBlock merges an overlay ProviderBlock onto a base.
+// Overlay values win when present (non-zero / non-nil). Maps are merged
+// per-key; slices are replaced (not appended). Used by both the overlay
+// merge path (ui-overrides.yaml) and the project-file merge path.
+func MergeProviderBlock(base, overlay ProviderBlock) ProviderBlock {
 	out := base
-	if override.Model != "" {
-		out.Model = override.Model
+	if overlay.Model != "" {
+		out.Model = overlay.Model
 	}
-	if override.UseLoggedInUser != nil {
-		out.UseLoggedInUser = override.UseLoggedInUser
+	if overlay.UseLoggedInUser != nil {
+		out.UseLoggedInUser = overlay.UseLoggedInUser
 	}
-	if override.AutoStart != nil {
-		out.AutoStart = override.AutoStart
+	if overlay.AutoStart != nil {
+		out.AutoStart = overlay.AutoStart
 	}
-	if override.CopilotHome != "" {
-		out.CopilotHome = override.CopilotHome
+	if overlay.CopilotHome != "" {
+		out.CopilotHome = overlay.CopilotHome
 	}
-	if override.CLIURL != "" {
-		out.CLIURL = override.CLIURL
+	if overlay.CLIURL != "" {
+		out.CLIURL = overlay.CLIURL
 	}
-	if len(override.Command) > 0 {
-		out.Command = append([]string(nil), override.Command...)
+	if len(overlay.Command) > 0 {
+		out.Command = append([]string(nil), overlay.Command...)
 	}
-	if len(override.Env) > 0 {
+	if len(overlay.Env) > 0 {
 		merged := map[string]string{}
 		for k, v := range base.Env {
 			merged[k] = v
 		}
-		for k, v := range override.Env {
+		for k, v := range overlay.Env {
 			merged[k] = v
 		}
 		out.Env = merged
 	}
-	if override.APIKeyEnv != "" {
-		out.APIKeyEnv = override.APIKeyEnv
+	if overlay.APIKeyEnv != "" {
+		out.APIKeyEnv = overlay.APIKeyEnv
 	}
-	if override.BaseURL != "" {
-		out.BaseURL = override.BaseURL
+	if overlay.BaseURL != "" {
+		out.BaseURL = overlay.BaseURL
 	}
-	if override.Password != "" {
-		out.Password = override.Password
+	if overlay.Password != "" {
+		out.Password = overlay.Password
 	}
-	if override.MaxInputTokens > 0 {
-		out.MaxInputTokens = override.MaxInputTokens
+	if overlay.MaxInputTokens > 0 {
+		out.MaxInputTokens = overlay.MaxInputTokens
 	}
-	if override.Sandbox != nil {
-		out.Sandbox = override.Sandbox
+	if overlay.Sandbox != nil {
+		out.Sandbox = overlay.Sandbox
 	}
 	return out
 }

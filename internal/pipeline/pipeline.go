@@ -41,14 +41,18 @@ const providerStartTimeout = 30 * time.Second
 // all prompts and outputs from a single analysis run.
 func generateRunID() string {
 	randomBytes := make([]byte, runIDLength/2)
-	_, _ = rand.Read(randomBytes)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// crypto/rand.Read failure indicates a broken OS entropy source —
+		// a system-state bug, not a recoverable runtime condition.
+		panic("crypto/rand.Read failed: " + err.Error())
+	}
 	return hex.EncodeToString(randomBytes)
 }
 
 // Options captures everything the pipeline needs for one analyze invocation
 // (cli flags + resolved global config).
 type Options struct {
-	Config      *config.Config
+	Config      *config.App
 	ProjectPath string
 	ProjectName string
 	ProviderID  string
@@ -80,7 +84,7 @@ type Options struct {
 	// LiveConfig, when non-nil, is consulted once at the top of Run and (if a
 	// non-nil snapshot is present) replaces Config for the remainder of this
 	// invocation. Lets the daemon hot-swap config without rebuilding Options.
-	LiveConfig *atomic.Pointer[config.Config]
+	LiveConfig *atomic.Pointer[config.App]
 }
 
 // Result bundles the metrics + paths the analyze command surfaces.
@@ -93,7 +97,7 @@ type Result struct {
 	MessagesRead    int
 	CacheHit        bool
 	ProviderID      string
-	NoMistakes      bool
+	MistakesFound   bool
 }
 
 // errProviderNotRegistered surfaces the spec §13 hard-fail when the resolved
@@ -102,7 +106,7 @@ var errProviderNotRegistered = errors.New("provider not registered")
 
 // resolveExecutionMode picks Sequential vs Parallel from CLI override > config.
 // Logs a fallback warning when parallel was requested but the provider lacks support.
-func resolveExecutionMode(appConfig *config.Config, opts Options, provider analyzer.Provider, logger *logging.Logger) analyzer.ExecutionMode {
+func resolveExecutionMode(appConfig *config.App, opts Options, provider analyzer.Provider, logger *logging.Logger) analyzer.ExecutionMode {
 	requested := analyzer.ModeSequential
 	if opts.ParallelOverride || strings.EqualFold(appConfig.Analyzer.Execution.Mode, config.ExecutionModeParallel) {
 		requested = analyzer.ModeParallel
@@ -118,49 +122,11 @@ func resolveExecutionMode(appConfig *config.Config, opts Options, provider analy
 }
 
 // resolveMaxConcurrency: CLI override > config; 0 = let pool pick len(chunks).
-func resolveMaxConcurrency(appConfig *config.Config, opts Options) int {
+func resolveMaxConcurrency(appConfig *config.App, opts Options) int {
 	if opts.MaxConcurrencyOverride > 0 {
 		return opts.MaxConcurrencyOverride
 	}
 	return appConfig.Analyzer.Execution.MaxConcurrency
-}
-
-// recordProviderSuccess: Runs++, LastSuccessUTC = now, clear LastError.
-// Caller persists state.
-func recordProviderSuccess(currentState *state.State, providerID string, tokens int64) {
-	if currentState == nil || strings.TrimSpace(providerID) == "" {
-		return
-	}
-	if currentState.ProviderUsage == nil {
-		currentState.ProviderUsage = map[string]state.ProviderUsage{}
-	}
-	usage := currentState.ProviderUsage[providerID]
-	usage.Runs++
-	if tokens > 0 {
-		usage.TotalTokens += tokens
-	}
-	usage.LastSuccessUTC = time.Now().UTC()
-	usage.LastError = ""
-	currentState.ProviderUsage[providerID] = usage
-}
-
-// recordProviderFailure: Timeouts++ on DeadlineExceeded, else Failures++.
-// Caller persists state.
-func recordProviderFailure(currentState *state.State, providerID string, err error) {
-	if currentState == nil || strings.TrimSpace(providerID) == "" || err == nil {
-		return
-	}
-	if currentState.ProviderUsage == nil {
-		currentState.ProviderUsage = map[string]state.ProviderUsage{}
-	}
-	usage := currentState.ProviderUsage[providerID]
-	if errors.Is(err, context.DeadlineExceeded) {
-		usage.Timeouts++
-	} else {
-		usage.Failures++
-	}
-	usage.LastError = state.TruncateError(err.Error())
-	currentState.ProviderUsage[providerID] = usage
 }
 
 // runCtx bundles the per-invocation context shared by pipeline helpers.
@@ -213,13 +179,13 @@ type discoveryResult struct {
 	providerID    string
 	providerBlock config.ProviderBlock
 	projectFile   *config.ProjectFileConfig
-	appConfig     *config.Config
-	sources       []chat.ChatSource
+	appConfig     *config.App
+	sources       []chat.Source
 }
 
 // runDiscovery resolves paths, loads project config, discovers chat sources,
 // and applies lookback filtering.
-func runDiscovery(opts Options, appConfig *config.Config, logger *logging.Logger) (discoveryResult, error) {
+func runDiscovery(opts Options, appConfig *config.App, logger *logging.Logger) (discoveryResult, error) {
 	var discovery discoveryResult
 	discovery.appConfig = appConfig
 
@@ -331,7 +297,7 @@ func runCaching(opts Options, discovery discoveryResult, currentState *state.Sta
 // transcriptResult holds the output of the transcript preparation stage.
 type transcriptResult struct {
 	blocks          []ProviderBlock
-	sourcesUsed     []chat.ChatSource
+	sourcesUsed     []chat.Source
 	messageCount    int
 	warnings        []string
 	chunks          []analyzer.Chunk
@@ -347,7 +313,7 @@ type transcriptResult struct {
 // runTranscriptPrep loads rule packs, builds redacted transcripts, and packs
 // chunks. Returns zeroMessages=true when the preflight check finds no readable
 // messages (caller should save state and return early).
-func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.ChatSource, logger *logging.Logger) (transcriptResult, bool, error) {
+func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.Source, logger *logging.Logger) (transcriptResult, bool, error) {
 	var transcript transcriptResult
 
 	rulePacks := mergeRulePacks(discovery.appConfig, discovery.projectFile)
@@ -361,26 +327,26 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.C
 	}
 
 	includeSubagents := discovery.appConfig.Analyzer.IncludeSubagentTranscripts != nil && *discovery.appConfig.Analyzer.IncludeSubagentTranscripts
-	blocks, sourcesUsed, messageCount, warnings, redactionTotal, err := buildProviderBlocks(sources, redactor, logger, includeSubagents)
+	tb, err := buildProviderBlocks(sources, redactor, logger, includeSubagents)
 	if err != nil {
 		return transcript, false, err
 	}
 	transcriptBytes := 0
-	for _, b := range blocks {
+	for _, b := range tb.blocks {
 		transcriptBytes += b.Bytes()
 	}
-	logger.Info("transcript built", logging.Any("sources_used", len(sourcesUsed)), logging.Any("messages", messageCount), logging.Any("transcript_bytes", transcriptBytes), logging.Any("redaction_hits", redactionTotal))
+	logger.Info("transcript built", logging.Any("sources_used", len(tb.sourcesUsed)), logging.Any("messages", tb.messageCount), logging.Any("transcript_bytes", transcriptBytes), logging.Any("redaction_hits", tb.redactionHits))
 
-	if messageCount == 0 {
+	if tb.messageCount == 0 {
 		logger.Info("preflight skip",
 			logging.Any("reason", "no readable chat messages"),
 			logging.Any("sources_discovered", len(sources)),
 		)
 		return transcriptResult{
-			sourcesUsed:    sourcesUsed,
+			sourcesUsed:    tb.sourcesUsed,
 			messageCount:   0,
-			warnings:       append(warnings, "no readable messages in discovered chats"),
-			redactionTotal: redactionTotal,
+			warnings:       append(tb.warnings, "no readable messages in discovered chats"),
+			redactionTotal: tb.redactionHits,
 			rulePacks:      rulePacks,
 		}, true, nil
 	}
@@ -389,7 +355,7 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.C
 	if opts.MaxChunkBytesOverrideSet {
 		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
 	}
-	chunks, chunkWarnings := PackChunks(blocks, chunkCfg, opts.Since)
+	chunks, chunkWarnings := PackChunks(tb.blocks, chunkCfg, opts.Since)
 	if len(chunks) == 0 {
 		return transcript, false, fmt.Errorf("chunker produced zero chunks despite non-empty transcript")
 	}
@@ -405,15 +371,15 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.C
 		logging.Any("max_chunk_bytes", chunkCfg.MaxChunkBytes),
 		logging.Any("hard_splits", totalSplits),
 	)
-	warnings = append(warnings, chunkWarnings...)
+	tb.warnings = append(tb.warnings, chunkWarnings...)
 
 	return transcriptResult{
-		blocks:          blocks,
-		sourcesUsed:     sourcesUsed,
-		messageCount:    messageCount,
-		warnings:        warnings,
+		blocks:          tb.blocks,
+		sourcesUsed:     tb.sourcesUsed,
+		messageCount:    tb.messageCount,
+		warnings:        tb.warnings,
 		chunks:          chunks,
-		redactionTotal:  redactionTotal,
+		redactionTotal:  tb.redactionHits,
 		transcriptBytes: transcriptBytes,
 		rulePacks:       rulePacks,
 		redactor:        redactor,
@@ -445,6 +411,12 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 	}
 
 	cfg, findingsPath, binaryPath, buildErr := buildPhase2Config(mode)
+	// Track the MCP config path separately so cleanup can remove it even
+	// when cfg is nil'd after a build error (the file may already exist).
+	var mcpConfigPath string
+	if cfg != nil && cfg.MCP != nil {
+		mcpConfigPath = cfg.MCP.ConfigFilePath
+	}
 	if buildErr != nil {
 		logger.Warn("phase 2 tool wiring failed — falling back to inline JSON",
 			logging.Any("mode", string(mode)),
@@ -472,8 +444,8 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 				logger.Warn("remove findings temp file failed", logging.Any("err", err))
 			}
 		}
-		if cfg != nil && cfg.MCP != nil && cfg.MCP.ConfigFilePath != "" {
-			if err := os.Remove(cfg.MCP.ConfigFilePath); err != nil && !os.IsNotExist(err) {
+		if mcpConfigPath != "" {
+			if err := os.Remove(mcpConfigPath); err != nil && !os.IsNotExist(err) {
 				logger.Warn("remove mcp config temp file failed", logging.Any("err", err))
 			}
 		}
@@ -490,7 +462,7 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 // buildSessionFactories creates the Phase 1 and Phase 2 session factory
 // functions. Phase 1 sessions never see MCP/CLI tool wiring so a rogue
 // Phase 1 model cannot pollute the findings file.
-func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger) (phase1, phase2 func() (analyzer.Session, error)) {
+func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger, redactor *analyzer.Redactor) (phase1, phase2 func() (analyzer.Session, error)) {
 	systemMsg := analyzer.BuildReadOnlySystemMessage(discovery.projectPath, runID)
 	phase1 = func() (analyzer.Session, error) {
 		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
@@ -504,7 +476,7 @@ func buildSessionFactories(ctx context.Context, provider analyzer.Provider, disc
 		if err != nil {
 			return nil, err
 		}
-		return analyzer.NewLoggingSession(raw, logger, discovery.providerID), nil
+		return analyzer.NewLoggingSessionWithRedactor(raw, logger, discovery.providerID, redactor), nil
 	}
 	if phase2Cfg == nil {
 		return phase1, phase1
@@ -522,7 +494,7 @@ func buildSessionFactories(ctx context.Context, provider analyzer.Provider, disc
 		if err != nil {
 			return nil, err
 		}
-		return analyzer.NewLoggingSession(raw, logger, discovery.providerID), nil
+		return analyzer.NewLoggingSessionWithRedactor(raw, logger, discovery.providerID, redactor), nil
 	}
 	return phase1, phase2
 }
@@ -563,7 +535,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	if err := provider.Start(startCtx); err != nil {
 		startCancel()
 		_ = provider.Close()
-		recordProviderFailure(currentState, discovery.providerID, err)
+		currentState.RecordProviderFailure(discovery.providerID, err)
 		runContext.persistFailureState(err, logger)
 		return analysis, fmt.Errorf("start provider %q: %w (%s)", discovery.providerID, err, config.RemediationMessage(discovery.providerID))
 	}
@@ -584,7 +556,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	p2, p2Cleanup := setupPhase2Transport(ctx, opts, discovery.providerID, opts.Events, logger)
 	defer p2Cleanup()
 
-	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, providerCfg.Sandbox, runID, logger)
+	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, providerCfg.Sandbox, runID, logger, transcript.redactor)
 
 	existingFindingHashes := collectDismissedHashes(currentState)
 	phaseReq := analyzer.PhaseRequest{
@@ -645,7 +617,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 			logger.Info("cached Phase 1 mistakes for next run", logging.Any("mistakes", len(pipelineResult.Mistakes)))
 		}
 		_ = provider.Close()
-		recordProviderFailure(currentState, discovery.providerID, err)
+		currentState.RecordProviderFailure(discovery.providerID, err)
 		runContext.persistFailureState(err, logger)
 		return analysis, fmt.Errorf("run analyzer: %w", err)
 	}
@@ -683,8 +655,8 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 
 	if len(analysis.result.Mistakes) == 0 {
 		warnings = append(warnings, "no recurring mistakes found")
-		pipelineResult.NoMistakes = true
 	}
+	pipelineResult.MistakesFound = len(analysis.result.Mistakes) > 0
 
 	generateResult, err := output.GenerateTodos(discovery.projectName, analysis.result.Findings, output.GenerateOptions{
 		OutputRoot:   discovery.outputRoot,
@@ -710,7 +682,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 	for _, cat := range analysis.result.CompletedCategories {
 		currentState.LastRunPerCategory[cat] = now
 	}
-	recordProviderSuccess(currentState, discovery.providerID, 0)
+	currentState.RecordProviderSuccess(discovery.providerID, 0)
 
 	if currentState.UsageStats == nil {
 		currentState.UsageStats = map[string]int64{}
@@ -746,7 +718,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 		FindingsNew:   pipelineResult.Findings,
 		FindingsTotal: len(currentState.FindingHashes),
 		Tokens:        0,
-		RunMillis:     time.Since(runStart).Milliseconds(),
+		RunDurationMillis: time.Since(runStart).Milliseconds(),
 		PerCategory:   perCategory,
 	}); err != nil {
 		logger.Warn("history update failed", logging.Any("err", err))
@@ -843,7 +815,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			MessagesRead:    0,
 			Warnings:        len(transcript.warnings),
 			TodosPath:       todosOutputPath(discovery.outputRoot, discovery.projectName),
-			NoMistakes:      true,
+			MistakesFound:   false,
 		}, nil
 	}
 

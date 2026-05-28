@@ -66,7 +66,7 @@ func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
 		t.Fatalf("expected 6 sources, got %d", len(sources))
 	}
 
-	byPath := make(map[string]ChatSource, len(sources))
+	byPath := make(map[string]Source, len(sources))
 	for _, source := range sources {
 		byPath[source.Path] = source
 	}
@@ -146,7 +146,7 @@ func TestDiscoverCodexSessionsIncludesArchivedSessions(t *testing.T) {
 		t.Fatalf("expected 2 Codex sources, got %d", len(sources))
 	}
 
-	byPath := make(map[string]ChatSource, len(sources))
+	byPath := make(map[string]Source, len(sources))
 	for _, source := range sources {
 		byPath[source.Path] = source
 	}
@@ -225,7 +225,7 @@ func TestDiscoverChatsUsesClaudeConfigDirWhenSet(t *testing.T) {
 		t.Fatalf("DiscoverChats returned error: %v", err)
 	}
 
-	byPath := make(map[string]ChatSource, len(sources))
+	byPath := make(map[string]Source, len(sources))
 	for _, source := range sources {
 		byPath[source.Path] = source
 	}
@@ -582,7 +582,7 @@ func TestExtractClaudeParentID(t *testing.T) {
 	}
 }
 
-func assertSource(t *testing.T, byPath map[string]ChatSource, path string, expectedTool SourceType, expectedModTime time.Time) {
+func assertSource(t *testing.T, byPath map[string]Source, path string, expectedTool SourceType, expectedModTime time.Time) {
 	t.Helper()
 
 	source, ok := byPath[path]
@@ -1695,7 +1695,7 @@ func TestCopilotProviderSizeBytes(t *testing.T) {
 	provider, _ := ProviderFor(SourceTypeCopilotSessionJSONL)
 	path := filepath.Join(t.TempDir(), "test.jsonl")
 	writeFixtureFile(t, path, "hello")
-	size, err := provider.SizeBytes(ChatSource{Path: path, Tool: SourceTypeCopilotSessionJSONL})
+	size, err := provider.SizeBytes(Source{Path: path, Tool: SourceTypeCopilotSessionJSONL})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1708,7 +1708,7 @@ func TestCopilotProviderDeleteSource(t *testing.T) {
 	provider, _ := ProviderFor(SourceTypeCopilotSessionJSONL)
 	path := filepath.Join(t.TempDir(), "to-delete.jsonl")
 	writeFixtureFile(t, path, "content")
-	err := provider.DeleteSource(ChatSource{Path: path, Tool: SourceTypeCopilotSessionJSONL})
+	err := provider.DeleteSource(Source{Path: path, Tool: SourceTypeCopilotSessionJSONL})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1721,7 +1721,7 @@ func TestClaudeProviderDeleteSource(t *testing.T) {
 	provider, _ := ProviderFor(SourceTypeClaudeCodeSession)
 	path := filepath.Join(t.TempDir(), "to-delete.jsonl")
 	writeFixtureFile(t, path, "content")
-	err := provider.DeleteSource(ChatSource{Path: path, Tool: SourceTypeClaudeCodeSession})
+	err := provider.DeleteSource(Source{Path: path, Tool: SourceTypeClaudeCodeSession})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1734,7 +1734,7 @@ func TestCodebuffProviderSizeBytes(t *testing.T) {
 	provider, _ := ProviderFor(SourceTypeCodebuffSession)
 	path := filepath.Join(t.TempDir(), "test.json")
 	writeFixtureFile(t, path, `[]`)
-	size, err := provider.SizeBytes(ChatSource{Path: path, Tool: SourceTypeCodebuffSession})
+	size, err := provider.SizeBytes(Source{Path: path, Tool: SourceTypeCodebuffSession})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1747,7 +1747,7 @@ func TestCodebuffProviderDeleteSource(t *testing.T) {
 	provider, _ := ProviderFor(SourceTypeCodebuffSession)
 	path := filepath.Join(t.TempDir(), "to-delete.json")
 	writeFixtureFile(t, path, `[]`)
-	err := provider.DeleteSource(ChatSource{Path: path, Tool: SourceTypeCodebuffSession})
+	err := provider.DeleteSource(Source{Path: path, Tool: SourceTypeCodebuffSession})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -114,6 +114,18 @@ func TestMergeWithProcessEnv(t *testing.T) {
 }
 
 func TestMergeWithProcessEnv_EmptyValueSemantics(t *testing.T) {
+	// Save and restore original environment
+	origEnv := os.Environ()
+	defer func() {
+		os.Clearenv()
+		for _, kv := range origEnv {
+			parts := strings.SplitN(kv, "=", 2)
+			if len(parts) == 2 {
+				os.Setenv(parts[0], parts[1])
+			}
+		}
+	}()
+
 	os.Clearenv()
 	os.Setenv("CLAUDECODE", "active")
 	os.Setenv("KEEP_ME", "value")

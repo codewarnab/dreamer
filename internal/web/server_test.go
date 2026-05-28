@@ -31,7 +31,7 @@ func newTestLogger(t *testing.T) *logging.Logger {
 func boolPtr(b bool) *bool { return &b }
 
 func TestServer_StartAndServeIndex(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Web:    config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
 		Daemon: config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
@@ -67,7 +67,7 @@ func TestServer_StartAndServeIndex(t *testing.T) {
 }
 
 func TestServer_IndexCarriesCSRFAndOverlayBanner(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Web:    config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
 		Daemon: config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
@@ -115,7 +115,7 @@ func TestServer_BindInUseReturnsError(t *testing.T) {
 	}
 	defer l.Close()
 	port := l.Addr().(*net.TCPAddr).Port
-	cfg := &config.Config{
+	cfg := &config.App{
 		Web:    config.WebConfig{Port: port, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
 		Daemon: config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
@@ -126,8 +126,8 @@ func TestServer_BindInUseReturnsError(t *testing.T) {
 }
 
 func TestServer_CurrentConfigUsesAtomicPointer(t *testing.T) {
-	var ptr atomic.Pointer[config.Config]
-	initial := &config.Config{Web: config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)}, Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	var ptr atomic.Pointer[config.App]
+	initial := &config.App{Web: config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)}, Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
 	ptr.Store(initial)
 	srv, err := NewServer(Options{Config: initial, Logger: newTestLogger(t), Events: pipeline.NewEventBus(), ConfigPtr: &ptr})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestServer_CurrentConfigUsesAtomicPointer(t *testing.T) {
 	if srv.currentConfig() != initial {
 		t.Fatalf("currentConfig != initial")
 	}
-	next := &config.Config{Web: config.WebConfig{Port: 0, Host: "localhost", LogTailKB: 9, Enabled: boolPtr(true)}, Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	next := &config.App{Web: config.WebConfig{Port: 0, Host: "localhost", LogTailKB: 9, Enabled: boolPtr(true)}, Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
 	ptr.Store(next)
 	if srv.currentConfig() != next {
 		t.Fatalf("currentConfig did not pick up CAS swap")
@@ -146,7 +146,7 @@ func TestServer_CurrentConfigUsesAtomicPointer(t *testing.T) {
 func TestServer_RoutesAllHandlers(t *testing.T) {
 	outRoot := t.TempDir()
 	projPath := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: projPath, Since: "24h"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outRoot},
 		Web:      config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
@@ -204,7 +204,7 @@ func TestServer_RoutesAllHandlers(t *testing.T) {
 func TestServer_RoutesEverySPAPath(t *testing.T) {
 	outRoot := t.TempDir()
 	projPath := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p", Path: projPath}},
 		Daemon:   config.DaemonConfig{OutputRoot: outRoot},
 		Web:      config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
@@ -245,7 +245,7 @@ func TestServer_RoutesEverySPAPath(t *testing.T) {
 }
 
 func TestServer_HealthEndpoint(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Web:    config.WebConfig{Port: 0, Host: "127.0.0.1", LogTailKB: 1, Enabled: boolPtr(true)},
 		Daemon: config.DaemonConfig{OutputRoot: t.TempDir()},
 	}

@@ -3,6 +3,7 @@ package codebuffsdk
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -65,7 +66,15 @@ func TestStartAuthFailure(t *testing.T) {
 }
 
 func TestStartUnreachable(t *testing.T) {
-	p, err := New(Options{BaseURL: "http://127.0.0.1:1", APIKey: "test-key"})
+	// Bind a port, then close it — guaranteed free at that moment.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+
+	p, err := New(Options{BaseURL: "http://" + addr, APIKey: "test-key"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -247,26 +256,19 @@ func TestProviderRegistered(t *testing.T) {
 func TestAPIKeyFromEnv(t *testing.T) {
 	t.Setenv("MY_CODEBUFF_KEY", "env-key-123")
 
-	p, err := New(Options{APIKey: resolveAPIKey(analyzer.ProviderConfig{
+	key := resolveAPIKey(analyzer.ProviderConfig{
 		APIKeyEnv: "MY_CODEBUFF_KEY",
-	})})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	// Verify it didn't error — the key was resolved from env.
-	if p == nil {
-		t.Fatal("expected non-nil provider")
+	})
+	if key != "env-key-123" {
+		t.Fatalf("resolveAPIKey from env = %q, want %q", key, "env-key-123")
 	}
 }
 
 func TestAPIKeyPasswordFallback(t *testing.T) {
-	p, err := New(Options{APIKey: resolveAPIKey(analyzer.ProviderConfig{
+	key := resolveAPIKey(analyzer.ProviderConfig{
 		Password: "password-key",
-	})})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if p == nil {
-		t.Fatal("expected non-nil provider")
+	})
+	if key != "password-key" {
+		t.Fatalf("resolveAPIKey from password = %q, want %q", key, "password-key")
 	}
 }

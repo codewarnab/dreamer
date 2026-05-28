@@ -118,8 +118,8 @@ func (m *mockExecutor) Run(ctx context.Context, jobID string) (backgroundjobs.Ru
 
 // --- Helpers ---
 
-func testConfig() *config.Config {
-	return &config.Config{
+func testConfig() *config.App {
+	return &config.App{
 		Projects: []config.ProjectConfig{
 			{Name: "proj-a", Path: "/tmp/proj-a"},
 		},

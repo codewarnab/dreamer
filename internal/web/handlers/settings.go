@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -60,7 +61,7 @@ func sanitizeProviderSecrets(m map[string]any) {
 			continue
 		}
 		if pwd, ok := block["password"].(string); ok && pwd != "" {
-			block["password"] = "***redacted***"
+			block["password"] = redactedPlaceholder
 		}
 		env, ok := block["env"].(map[string]any)
 		if !ok {
@@ -68,8 +69,20 @@ func sanitizeProviderSecrets(m map[string]any) {
 		}
 		for k := range env {
 			upperKey := strings.ToUpper(k)
-			if strings.Contains(upperKey, "TOKEN") || strings.Contains(upperKey, "KEY") || strings.Contains(upperKey, "SECRET") || strings.Contains(upperKey, "PASSWORD") {
-				env[k] = "***redacted***"
+			if strings.Contains(upperKey, "TOKEN") || strings.Contains(upperKey, "KEY") ||
+				strings.Contains(upperKey, "SECRET") || strings.Contains(upperKey, "PASSWORD") ||
+				strings.Contains(upperKey, "AUTH") || strings.Contains(upperKey, "CREDENTIAL") ||
+				strings.Contains(upperKey, "BEARER") || strings.Contains(upperKey, "PRIVATE") {
+				env[k] = redactedPlaceholder
+			}
+		}
+		// Strip userinfo from URL fields (e.g. https://user:pass@host).
+		for _, urlKey := range []string{"base_url", "cli_url"} {
+			if u, ok := block[urlKey].(string); ok && u != "" {
+				if parsed, err := url.Parse(u); err == nil && parsed.User != nil {
+					parsed.User = nil
+					block[urlKey] = parsed.String()
+				}
 			}
 		}
 	}
@@ -118,6 +131,10 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Strip redacted placeholders so a GET→PUT round-trip cannot write
+	// "***redacted***" into the overlay, silently corrupting real secrets.
+	stripRedactedPlaceholders(body)
+
 	mergePartial(existing, body)
 
 	out, err := yaml.Marshal(existing)
@@ -143,6 +160,37 @@ func readJSONObject(r *http.Request) (map[string]any, error) {
 		return nil, fmt.Errorf("empty body")
 	}
 	return m, nil
+}
+
+const redactedPlaceholder = "***redacted***"
+
+// stripRedactedPlaceholders removes any provider env value or password
+// equal to the redacted placeholder that settingsGet uses in its response.
+// Without this, a GET→PUT round-trip writes the placeholder into the
+// overlay, silently corrupting whatever real secret was there.
+func stripRedactedPlaceholders(body map[string]any) {
+	providers, ok := body["providers"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, p := range providers {
+		block, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pwd, ok := block["password"].(string); ok && pwd == redactedPlaceholder {
+			delete(block, "password")
+		}
+		env, ok := block["env"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for k, v := range env {
+			if s, ok := v.(string); ok && s == redactedPlaceholder {
+				delete(env, k)
+			}
+		}
+	}
 }
 
 // mergePartial folds incoming into base. Maps merge recursively; nil values

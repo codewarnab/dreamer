@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/logging"
@@ -11,11 +12,14 @@ import (
 // the dreamer log. We log the full prompt and full response so that operators
 // can see exactly what was sent to the model. The wrapper is a transparent
 // pass-through aside from logging.
+//
+// Run is safe for concurrent use — runIndex uses atomic.Int64.
 type loggingSession struct {
 	inner    Session
 	logger   *logging.Logger
 	provider string
-	runIndex int
+	runIndex atomic.Int64
+	redactor *Redactor // optional; nil = no redaction of logged responses
 }
 
 // NewLoggingSession wraps an analyzer.Session so each Run call is logged with
@@ -24,9 +28,16 @@ func NewLoggingSession(inner Session, logger *logging.Logger, providerID string)
 	return &loggingSession{inner: inner, logger: logger, provider: providerID}
 }
 
+// NewLoggingSessionWithRedactor wraps an analyzer.Session like NewLoggingSession
+// but redacts secret-shaped patterns from the response body before logging.
+// Use this when a Redactor is available to prevent re-leakage of secrets that
+// the provider may echo back from the transcript.
+func NewLoggingSessionWithRedactor(inner Session, logger *logging.Logger, providerID string, redactor *Redactor) Session {
+	return &loggingSession{inner: inner, logger: logger, provider: providerID, redactor: redactor}
+}
+
 func (s *loggingSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-	s.runIndex++
-	idx := s.runIndex
+	idx := s.runIndex.Add(1)
 	s.logger.Info("provider call started", logging.Any("call", idx), logging.Any("provider", s.provider), logging.Any("timeout", timeout), logging.Any("prompt_bytes", len(prompt)))
 	start := time.Now()
 	out, err := s.inner.Run(ctx, prompt, timeout)
@@ -36,7 +47,11 @@ func (s *loggingSession) Run(ctx context.Context, prompt string, timeout time.Du
 		return out, err
 	}
 	s.logger.Info("provider call completed", logging.Any("call", idx), logging.Any("response_bytes", len(out)), logging.Any("elapsed", elapsed))
-	s.logger.Info("provider response", logging.Any("call", idx), logging.Any("body", out))
+	body := out
+	if s.redactor != nil {
+		body, _ = s.redactor.Redact(body)
+	}
+	s.logger.Debug("provider response", logging.Any("call", idx), logging.Any("body", body))
 	return out, nil
 }
 

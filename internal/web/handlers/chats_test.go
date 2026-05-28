@@ -15,6 +15,17 @@ import (
 	"dreamer/internal/state"
 )
 
+// setHomeForTest sets the home directory environment variables for the
+// current platform so os.UserHomeDir() returns fakeHome on both POSIX
+// (HOME) and Windows (USERPROFILE).
+func setHomeForTest(t *testing.T, fakeHome string) {
+	t.Helper()
+	t.Setenv("HOME", fakeHome)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", fakeHome)
+	}
+}
+
 func TestParseSinceWindow(t *testing.T) {
 	cases := []struct {
 		in        string
@@ -65,11 +76,8 @@ func TestChatsProjectName(t *testing.T) {
 // $HOME/.copilot/session-state matches — so we can seed it without caring
 // about the project path.
 func TestProjectChats_Discovery(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based fixture is POSIX-flavored; copilot discovery uses HomeDir")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -89,12 +97,12 @@ func TestProjectChats_Discovery(t *testing.T) {
 	}
 
 	projectPath := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{
 			{Name: "p1", Path: projectPath, Since: "24h"},
 		},
 	}
-	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/chats", nil))
@@ -127,11 +135,8 @@ func TestProjectChats_Discovery(t *testing.T) {
 }
 
 func TestProjectChats_ToolFilter(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based fixture is POSIX-flavored")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -140,10 +145,10 @@ func TestProjectChats_ToolFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p1", Path: t.TempDir(), Since: "lifetime"}},
 	}
-	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 
 	// Matching filter keeps the source.
 	rec := httptest.NewRecorder()
@@ -174,8 +179,8 @@ func TestProjectChats_ToolFilter(t *testing.T) {
 }
 
 func TestProjectChats_UnknownProject(t *testing.T) {
-	cfg := &config.Config{Projects: []config.ProjectConfig{{Name: "p1", Path: "/tmp/x"}}}
-	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Projects: []config.ProjectConfig{{Name: "p1", Path: "/tmp/x"}}}
+	h := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/chats", nil))
 	if rec.Code != http.StatusNotFound {
@@ -190,13 +195,13 @@ func TestProjectChats_UnknownProject(t *testing.T) {
 // discovery for non-home-rooted providers finds nothing, and the supplied
 // paths point outside the project — they must all be rejected.
 func TestDeleteProjectChat_PathInjection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeForTest(t, t.TempDir())
 	projectDir := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: projectDir}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 
 	cases := []struct {
 		name string
@@ -220,11 +225,11 @@ func TestDeleteProjectChat_PathInjection(t *testing.T) {
 }
 
 func TestDeleteProjectChat_EmptyPathReturns400(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(`{"path": ""}`))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -234,11 +239,11 @@ func TestDeleteProjectChat_EmptyPathReturns400(t *testing.T) {
 }
 
 func TestDeleteProjectChat_InvalidJSONReturns400(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(`not-json`))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -248,11 +253,11 @@ func TestDeleteProjectChat_InvalidJSONReturns400(t *testing.T) {
 }
 
 func TestDeleteProjectChat_UnknownProjectReturns404(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "other", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/missing/chats", strings.NewReader(`{"path":"/tmp/x"}`))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -265,12 +270,12 @@ func TestDeleteProjectChat_UnknownProjectReturns404(t *testing.T) {
 // the same per-path validation: every reported failure carries "not found"
 // when the supplied path is not in DiscoverChats output.
 func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cfg := &config.Config{
+	setHomeForTest(t, t.TempDir())
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.App { return cfg }})
 	body := `{"paths": ["/etc/passwd", "C:/Windows/System32/cmd.exe"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -291,11 +296,8 @@ func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
 // len(st.ChatHashes) stays authoritative for the overview-tab badge
 // without a re-analyze.
 func TestDeleteUpdatesChatHashes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based copilot fixture is POSIX-flavored")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -318,13 +320,13 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }, StateLock: NewProjectLock()})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
 
-	body := `{"path":"` + chatPath + `"}`
+	body := `{"path":"` + strings.ReplaceAll(chatPath, `\`, `\\`) + `"}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -351,11 +353,8 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 // the :bulk-delete endpoint: all successful paths drop from state in one
 // save.
 func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based copilot fixture is POSIX-flavored")
-	}
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setHomeForTest(t, fakeHome)
 
 	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
@@ -382,13 +381,13 @@ func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
 	}
-	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }, StateLock: NewProjectLock()})
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
 
-	body := `{"paths":["` + pathA + `","` + pathB + `"]}`
+	body := `{"paths":["` + strings.ReplaceAll(pathA, `\`, `\\`) + `","` + strings.ReplaceAll(pathB, `\`, `\\`) + `"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler(rec, req)

@@ -73,7 +73,7 @@ func TestResolveConfigPathWhitespaceOnly(t *testing.T) {
 }
 
 func TestLogDefaultedSinceNotices_NilLogger(t *testing.T) {
-	cfg := &config.Config{Notices: config.ConfigNotices{DefaultedSince: []string{"p1"}}}
+	cfg := &config.App{Notices: config.Notices{DefaultedSince: []string{"p1"}}}
 	// Should not panic.
 	logDefaultedSinceNotices(nil, cfg)
 }
@@ -91,7 +91,7 @@ func TestLogDefaultedSinceNotices_EmptyNotices(t *testing.T) {
 	}
 	defer logger.Close()
 
-	cfg := &config.Config{Notices: config.ConfigNotices{DefaultedSince: nil}}
+	cfg := &config.App{Notices: config.Notices{DefaultedSince: nil}}
 	// Should not panic and should produce no output.
 	logDefaultedSinceNotices(logger, cfg)
 }
@@ -104,7 +104,7 @@ func TestLogDefaultedSinceNotices_WithNotices(t *testing.T) {
 	}
 	defer logger.Close()
 
-	cfg := &config.Config{Notices: config.ConfigNotices{DefaultedSince: []string{"project1", "project2"}}}
+	cfg := &config.App{Notices: config.Notices{DefaultedSince: []string{"project1", "project2"}}}
 	logDefaultedSinceNotices(logger, cfg)
 
 	// Read log file and verify notice content was written.

@@ -290,7 +290,7 @@ func TestCheckJobConflict_NoConflict(t *testing.T) {
 	projectDir := t.TempDir()
 	outputRoot := t.TempDir()
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
 		Projects: []config.ProjectConfig{
 			{Name: "myproject", Path: projectDir},
@@ -334,7 +334,7 @@ func TestCheckJobConflict_ConflictingJobFound(t *testing.T) {
 		t.Fatalf("write jobs.json: %v", err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
 		Projects: []config.ProjectConfig{
 			{Name: "myproject", Path: absProject},
@@ -380,7 +380,7 @@ func TestCheckJobConflict_CompletedJobNoConflict(t *testing.T) {
 		t.Fatalf("write jobs.json: %v", err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Daemon: config.DaemonConfig{OutputRoot: outputRoot},
 		Projects: []config.ProjectConfig{
 			{Name: "myproject", Path: absProject},
@@ -508,7 +508,7 @@ func TestPrintAlreadyRunningBox(t *testing.T) {
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 
-	cfg := &config.Config{}
+	cfg := &config.App{}
 	printAlreadyRunningBox(cmd, 12345, "/tmp/dreamer.log", cfg)
 
 	output := buf.String()
@@ -525,7 +525,7 @@ func TestPrintStartedBox(t *testing.T) {
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Daemon: config.DaemonConfig{FrequencySeconds: 60},
 		Projects: []config.ProjectConfig{
 			{Name: "proj1", Path: "/tmp/proj1"},
