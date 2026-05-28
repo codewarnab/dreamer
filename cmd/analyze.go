@@ -100,7 +100,7 @@ func newAnalyzeCommand() *cobra.Command {
 				return nil
 			}
 
-			if runResult.NoMistakes {
+			if !runResult.MistakesFound {
 				cmd.Printf("no recurring mistakes found provider=%s todos=%s\n", runResult.ProviderID, runResult.TodosPath)
 				logger.Info("analyze no mistakes", logging.Any("provider", runResult.ProviderID))
 				return nil

@@ -32,7 +32,7 @@ const (
 type Logger struct {
 	mu        sync.Mutex
 	file      *os.File
-	logger    *slog.Logger
+	slog    *slog.Logger
 	level     slog.Level
 	path      string
 	maxSizeMB int
@@ -96,7 +96,7 @@ func New(outputRoot string, level string, maxSizeMB int) (*Logger, error) {
 		Level:       minLevel,
 		ReplaceAttr: replaceAttrLowerLevel,
 	})
-	return &Logger{file: file, logger: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
+	return &Logger{file: file, slog: slog.New(handler), level: minLevel, path: logPath, maxSizeMB: maxSizeMB}, nil
 }
 
 // Silent returns a logger that discards all output. Useful for CLI commands
@@ -105,117 +105,117 @@ func Silent() *Logger {
 	handler := slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
 		Level: slog.LevelError + 1, // above Error = nothing logged
 	})
-	return &Logger{logger: slog.New(handler), level: slog.LevelError + 1}
+	return &Logger{slog: slog.New(handler), level: slog.LevelError + 1}
 }
 
-// Path returns the absolute log file path used by this logger.
-func (logger *Logger) Path() string {
-	if logger == nil {
+// Path returns the absolute log file path used by this l.
+func (l *Logger) Path() string {
+	if l == nil {
 		return ""
 	}
-	return logger.path
+	return l.path
 }
 
 // Close flushes and closes the underlying log file. Subsequent
 // Info/Warn/Error/Debug calls become no-ops so racing callers cannot drive
 // writes through a closed file descriptor after the daemon has shut down.
-func (logger *Logger) Close() error {
-	if logger == nil {
+func (l *Logger) Close() error {
+	if l == nil {
 		return nil
 	}
-	logger.mu.Lock()
-	defer logger.mu.Unlock()
-	logger.logger = nil
-	if logger.file == nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.slog = nil
+	if l.file == nil {
 		return nil
 	}
-	err := logger.file.Close()
-	logger.file = nil
+	err := l.file.Close()
+	l.file = nil
 	return err
 }
 
 // Error records a command issue or failure.
-func (logger *Logger) Error(message string, attrs ...Attr) {
-	logger.write(slog.LevelError, message, attrs...)
+func (l *Logger) Error(message string, attrs ...Attr) {
+	l.write(slog.LevelError, message, attrs...)
 }
 
 // Warn records a recoverable issue that did not stop the command.
-func (logger *Logger) Warn(message string, attrs ...Attr) {
-	logger.write(slog.LevelWarn, message, attrs...)
+func (l *Logger) Warn(message string, attrs ...Attr) {
+	l.write(slog.LevelWarn, message, attrs...)
 }
 
 // Info records normal command progress.
-func (logger *Logger) Info(message string, attrs ...Attr) {
-	logger.write(slog.LevelInfo, message, attrs...)
+func (l *Logger) Info(message string, attrs ...Attr) {
+	l.write(slog.LevelInfo, message, attrs...)
 }
 
 // Debug records detailed troubleshooting information.
-func (logger *Logger) Debug(message string, attrs ...Attr) {
-	logger.write(slog.LevelDebug, message, attrs...)
+func (l *Logger) Debug(message string, attrs ...Attr) {
+	l.write(slog.LevelDebug, message, attrs...)
 }
 
-func (logger *Logger) write(level slog.Level, message string, attrs ...Attr) {
-	if logger == nil || level < logger.level {
+func (l *Logger) write(level slog.Level, message string, attrs ...Attr) {
+	if l == nil || level < l.level {
 		return
 	}
-	logger.mu.Lock()
-	defer logger.mu.Unlock()
-	if logger.logger == nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.slog == nil {
 		return
 	}
-	if logger.rotateIfNeededLocked() {
-		logger.rebuildHandlerLocked()
+	if l.rotateIfNeededLocked() {
+		l.rebuildHandlerLocked()
 	}
 	args := make([]any, 0, len(attrs))
 	for _, attr := range attrs {
 		args = append(args, attr)
 	}
-	logger.logger.Log(context.Background(), level, message, args...)
+	l.slog.Log(context.Background(), level, message, args...)
 }
 
 // rotateIfNeededLocked checks whether the log file exceeds the configured size
 // limit and rotates it by renaming the current file to .1 and opening a fresh
-// one. Returns true if rotation happened. Caller must hold logger.mu.
-func (logger *Logger) rotateIfNeededLocked() bool {
-	if logger.maxSizeMB <= 0 || logger.file == nil {
+// one. Returns true if rotation happened. Caller must hold l.mu.
+func (l *Logger) rotateIfNeededLocked() bool {
+	if l.maxSizeMB <= 0 || l.file == nil {
 		return false
 	}
-	fileInfo, err := logger.file.Stat()
-	if err != nil || fileInfo.Size() < int64(logger.maxSizeMB)*bytesPerMB {
+	fileInfo, err := l.file.Stat()
+	if err != nil || fileInfo.Size() < int64(l.maxSizeMB)*bytesPerMB {
 		return false
 	}
 
-	backupPath := filepath.Join(filepath.Dir(logger.path), backupLogFileName)
-	if err := logger.file.Close(); err != nil {
+	backupPath := filepath.Join(filepath.Dir(l.path), backupLogFileName)
+	if err := l.file.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "log rotation: close current log failed: %v\n", err)
 	}
 	_ = os.Remove(backupPath) // ignore "not exist"; permission errors are non-fatal
-	if err := os.Rename(logger.path, backupPath); err != nil {
-		fmt.Fprintf(os.Stderr, "log rotation: rename %s -> %s failed: %v\n", logger.path, backupPath, err)
+	if err := os.Rename(l.path, backupPath); err != nil {
+		fmt.Fprintf(os.Stderr, "log rotation: rename %s -> %s failed: %v\n", l.path, backupPath, err)
 	}
 
-	file, openErr := os.OpenFile(logger.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, openErr := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if openErr != nil {
-		logger.file = nil
+		l.file = nil
 		return true
 	}
-	logger.file = file
+	l.file = file
 	return true
 }
 
 // rebuildHandlerLocked creates a new slog handler that writes to the current
 // file (or stderr-only if rotation failed to reopen). Caller must hold
-// logger.mu.
-func (logger *Logger) rebuildHandlerLocked() {
+// l.mu.
+func (l *Logger) rebuildHandlerLocked() {
 	var writer io.Writer = os.Stderr
-	if logger.file != nil {
-		writer = io.MultiWriter(logger.file, os.Stderr)
+	if l.file != nil {
+		writer = io.MultiWriter(l.file, os.Stderr)
 	}
 	handler := slog.NewTextHandler(writer, &slog.HandlerOptions{
-		Level:       logger.level,
+		Level:       l.level,
 		ReplaceAttr: replaceAttrLowerLevel,
 	})
-	logger.logger = slog.New(handler)
+	l.slog = slog.New(handler)
 }
 
 // replaceAttrLowerLevel normalizes the level attribute to lowercase.

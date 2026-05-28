@@ -63,7 +63,7 @@ func newDaemonCommand() *cobra.Command {
 			defer func() { _ = logger.Close() }()
 
 			overrides := daemonOverrides{
-				parallel:       analyzerFlags.parallel,
+				forceParallel:       analyzerFlags.parallel,
 				maxConcurrency: analyzerFlags.jobs,
 			}
 			if cmd.Flags().Changed(flagChunkSize) {
@@ -125,7 +125,7 @@ func newDaemonCommand() *cobra.Command {
 
 // daemonOverrides carries CLI-level overrides that apply to every project per cycle.
 type daemonOverrides struct {
-	parallel         bool
+	forceParallel         bool
 	maxConcurrency   int
 	maxChunkBytes    int
 	maxChunkBytesSet bool
@@ -338,7 +338,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 }
 
 // runDaemonLoop runs the main daemon scheduling loop until ctx is cancelled.
-func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queue, cfg *config.App, frequency, retDur time.Duration, logger *logging.Logger, workers *workerPool) {
+func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queue, cfg *config.App, frequency, retention time.Duration, logger *logging.Logger, workers *workerPool) {
 	ticker := time.NewTicker(frequency)
 	defer ticker.Stop()
 
@@ -356,7 +356,7 @@ func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queu
 			cmd.Printf("daemon stopped\n")
 			return
 		case <-ticker.C:
-			queue.PruneHistory(retDur)
+			queue.PruneHistory(retention)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
 		}
 	}

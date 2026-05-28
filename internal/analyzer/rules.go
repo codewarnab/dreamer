@@ -134,9 +134,9 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 		return nil, err
 	}
 
-	categories := AllRuleCategories()
-	packs := make([]RulePack, 0, len(categories))
-	for _, category := range categories {
+	ruleCategories := AllRuleCategories()
+	packs := make([]RulePack, 0, len(ruleCategories))
+	for _, category := range ruleCategories {
 		pack, err := loadEmbeddedRulePack(category)
 		if err != nil {
 			return nil, err

@@ -93,7 +93,7 @@ type Result struct {
 	MessagesRead    int
 	CacheHit        bool
 	ProviderID      string
-	NoMistakes      bool
+	MistakesFound   bool
 }
 
 // errProviderNotRegistered surfaces the spec §13 hard-fail when the resolved
@@ -615,7 +615,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 
 	if len(analysis.result.Mistakes) == 0 {
 		warnings = append(warnings, "no recurring mistakes found")
-		pipelineResult.NoMistakes = true
+		pipelineResult.MistakesFound = false
 	}
 
 	generateResult, err := output.GenerateTodos(discovery.projectName, analysis.result.Findings, output.GenerateOptions{
@@ -774,7 +774,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 			MessagesRead:    0,
 			Warnings:        len(transcript.warnings),
 			TodosPath:       todosOutputPath(discovery.outputRoot, discovery.projectName),
-			NoMistakes:      true,
+			MistakesFound:   false,
 		}, nil
 	}
 

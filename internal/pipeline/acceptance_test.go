@@ -19,8 +19,8 @@ func TestPreflightShortCircuitForEmptyProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !res.NoMistakes {
-		t.Fatalf("res.NoMistakes = false, want true (preflight skip)")
+	if res.MistakesFound {
+		t.Fatalf("res.MistakesFound = true, want false (preflight skip)")
 	}
 	if res.SourcesAnalyzed != 0 || res.MessagesRead != 0 {
 		t.Fatalf("expected zero analyzed sources/messages, got %d / %d", res.SourcesAnalyzed, res.MessagesRead)

@@ -120,7 +120,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		Since:                  job.Since,
 		DiscoveryCache:         wp.cache,
 		Events:                 wp.events,
-		ParallelOverride:       wp.overrides.parallel,
+		ParallelOverride:       wp.overrides.forceParallel,
 		MaxConcurrencyOverride: wp.overrides.maxConcurrency,
 	}
 	if wp.overrides.maxChunkBytesSet {

@@ -91,8 +91,8 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	name, hash, tx := parseProjectHashTransition(r.URL.Path)
-	if name == "" || hash == "" || transition(tx) != want {
+	name, hash, transitionStr := parseProjectHashTransition(r.URL.Path)
+	if name == "" || hash == "" || transition(transitionStr) != want {
 		http.NotFound(w, r)
 		return
 	}
