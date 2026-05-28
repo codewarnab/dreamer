@@ -181,7 +181,8 @@ func (s *windowsScheduler) writeTask(ctx context.Context, taskPath string, xmlBy
 
 	_, err = s.runCmd(ctx, schtasksExe, "/Create", "/TN", taskPath, "/XML", tmpFile.Name(), "/F")
 	if err != nil {
-		return fmt.Errorf("schtasks /Create: %w", classifyScheduleError(err))
+		_, detail := classifyScheduleErrorWithDetail(err)
+		return fmt.Errorf("schtasks /Create: %w", detail)
 	}
 	return nil
 }
@@ -234,7 +235,9 @@ func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString(xml.Header)
+	// Note: xml.Header is intentionally omitted. schtasks.exe requires
+	// UTF-16LE when an XML declaration with encoding="UTF-8" is present.
+	// Omitting the declaration lets schtasks accept UTF-8 bytes as-is.
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("execute template: %w", err)
 	}
@@ -463,4 +466,14 @@ func classifyScheduleError(err error) scheduleErrorCategory {
 	default:
 		return scheduleErrUnknown
 	}
+}
+
+// classifyScheduleErrorWithDetail inspects a schtasks error and returns both
+// the category and a wrapped error that preserves the original message.
+func classifyScheduleErrorWithDetail(err error) (scheduleErrorCategory, error) {
+	if err == nil {
+		return scheduleErrNone, nil
+	}
+	cat := classifyScheduleError(err)
+	return cat, fmt.Errorf("%w: %s", cat, err.Error())
 }
