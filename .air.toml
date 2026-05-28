@@ -1,0 +1,22 @@
+# air live-reload config for dreamer daemon development
+# Install: go install github.com/air-verse/air@latest
+# Usage:   make dev  (or: air -c .air.toml)
+#
+# Builds to $GOPATH/bin so `dreamer` is on PATH from any directory.
+
+root = "."
+
+[build]
+  cmd = "go install -trimpath ."
+  bin = "dreamer.exe daemon"
+  delay = 1000
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "500ms"
+
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "vendor", ".gocache", "provider-codebase", ".claude"]
+  exclude_regex = ["_test\\.go$"]
+
+[misc]
+  clean_on_exit = true
