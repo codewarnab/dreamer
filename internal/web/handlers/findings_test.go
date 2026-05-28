@@ -63,7 +63,16 @@ func seedFindingsProject(t *testing.T) *config.App {
 		LastRunUTC:    now,
 		FindingHashes: []string{hashOpen, hashApplied, hashDismissed},
 		Findings: map[string]state.FindingState{
-			hashApplied:   {Status: state.FindingStatusApplied, AppliedAt: now.Add(-time.Hour)},
+			hashApplied: {
+				Status:    state.FindingStatusApplied,
+				AppliedAt: now.Add(-time.Hour),
+				ApplySpec: &state.FindingApplySpec{
+					TargetFile: "CLAUDE.md",
+					Strategy:   "append-section",
+					Anchor:     "Cache",
+					Snippet:    "Rules for cache.",
+				},
+			},
 			hashDismissed: {Status: state.FindingStatusDismissed, DismissedAt: now.Add(-2 * time.Hour)},
 		},
 	}
@@ -222,7 +231,8 @@ func TestFindingDetail_WithApplyHints_RendersDiff(t *testing.T) {
 	}
 	h := FindingDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
-	url := "/api/projects/proj-x/findings/" + hashOpen +
+	// Use hashApplied which has an ApplySpec in the seeded state.
+	url := "/api/projects/proj-x/findings/" + hashApplied +
 		"?target_file=CLAUDE.md&strategy=append-section&anchor=Cache&snippet=Rules%20for%20cache."
 	h(rec, httptest.NewRequest(http.MethodGet, url, nil))
 	if rec.Code != http.StatusOK {

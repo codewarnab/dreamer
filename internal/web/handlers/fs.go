@@ -5,12 +5,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"dreamer/internal/fsutil"
 )
 
 // FSExists returns an http.HandlerFunc for GET /api/fs/exists.
 // Reports whether a given absolute path exists and whether it is a
-// directory. Refuses to disclose any other filesystem information.
-func FSExists(_ Deps) http.HandlerFunc {
+// directory. Paths are restricted to configured project roots and the
+// daemon output root to prevent arbitrary filesystem enumeration.
+func FSExists(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -22,6 +25,10 @@ func FSExists(_ Deps) http.HandlerFunc {
 			return
 		}
 		abs := filepath.Clean(path)
+		if !fsPathAllowed(deps, abs) {
+			writeJSONError(w, http.StatusForbidden, "path outside configured project roots")
+			return
+		}
 		fi, err := os.Stat(abs)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -41,4 +48,24 @@ func FSExists(_ Deps) http.HandlerFunc {
 			"absolute": abs,
 		})
 	}
+}
+
+// fsPathAllowed returns true if abs is under any configured project root
+// or the daemon output root.
+func fsPathAllowed(deps Deps, abs string) bool {
+	cfg := deps.Config()
+	if cfg == nil {
+		return false
+	}
+	for _, p := range cfg.Projects {
+		if fsutil.PathWithinRoot(abs, p.Path) {
+			return true
+		}
+	}
+	if cfg.Daemon.OutputRoot != "" {
+		if fsutil.PathWithinRoot(abs, cfg.Daemon.OutputRoot) {
+			return true
+		}
+	}
+	return false
 }
