@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -24,9 +25,9 @@ const (
 	wizStepPath = iota
 	wizStepName
 	wizStepProvider
+	wizStepModel // model override (optional)
 	wizStepPrompt
 	wizStepPermissions   // file access level picker
-	wizStepWritablePaths // sub-step for selected_writes
 	wizStepScheduleKind
 	wizStepInterval  // sub-step for hourly
 	wizStepTimeOfDay // sub-step for daily/weekly
@@ -48,18 +49,19 @@ const (
 
 // jobWizardAnswers collects all values the wizard gathers.
 type jobWizardAnswers struct {
-	projectPath  string
-	name         string
-	providerID   string
-	prompt       string
-	fileAccess   string // read_only, selected_writes, full_workspace
-	writablePaths string // comma-separated, for selected_writes
-	scheduleKind string
-	every        string
-	timeOfDay    string
-	dayOfWeek    string
-	cron         string
-	timezone     string
+	projectPath   string
+	name          string
+	providerID    string
+	model         string
+	prompt        string
+	fileAccess    string // read_only, selected_writes, full_workspace
+	writablePaths string // comma-separated, for selected_writes (CLI only)
+	scheduleKind  string
+	every         string
+	timeOfDay     string
+	dayOfWeek     string
+	cron          string
+	timezone      string
 }
 
 // jobWizardModel is the bubbletea model for the interactive job creator.
@@ -69,9 +71,9 @@ type jobWizardModel struct {
 	pathInput        textinput.Model
 	nameInput        textinput.Model
 	providerList     list.Model
+	modelInput       textinput.Model
 	promptInput      textarea.Model
 	permissionsList  list.Model
-	writablePathsIn  textinput.Model
 	scheduleKindList list.Model
 	intervalList     list.Model
 	timeOfDayInput   textinput.Model
@@ -134,6 +136,14 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	providerList.SetShowHelp(false)
 	providerList.SetShowStatusBar(false)
 
+	// Step 3b: model override (optional).
+	modelIn := textinput.New()
+	modelIn.Placeholder = "default (provider auto-selects)"
+	modelIn.CharLimit = 128
+	if prefilled.model != "" {
+		modelIn.SetValue(prefilled.model)
+	}
+
 	// Step 4: prompt textarea.
 	promptTA := textarea.New()
 	promptTA.Placeholder = "Search GitHub for open issues labeled 'bounty'..."
@@ -145,10 +155,10 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	}
 
 	// Step 5: file access permissions picker.
+	// Only read_only is currently supported by the executor.
+	// selected_writes and full_workspace are planned but not yet implemented.
 	permissionItems := []list.Item{
 		providerItem{id: "read_only", title: "Read Only (Safe)", desc: "can read project files, cannot write anything"},
-		providerItem{id: "selected_writes", title: "Selected Writes", desc: "can read everything, write only to specific paths you choose"},
-		providerItem{id: "full_workspace", title: "Full Workspace", desc: "can read and write anywhere in the project"},
 	}
 	permList := list.New(permissionItems, compactDelegate{}, initialW-wizListPad, listHeight(len(permissionItems)))
 	permList.Title = "File Access"
@@ -158,21 +168,14 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	// Step 5b: writable paths text input (for selected_writes).
 	// TODO: implement @ mention-based file picker — typing '@' triggers a
 	// fuzzy file search scoped to the project directory. Selected files
-	// auto-insert as relative paths. Also validate that each entered path
-	// exists within the project root (filepath.EvalSymlinks + prefix check).
-	wpIn := textinput.New()
-	wpIn.Placeholder = "found-issues.md,output/"
-	wpIn.CharLimit = 2048
-	if prefilled.writablePaths != "" {
-		wpIn.SetValue(prefilled.writablePaths)
-	}
-
 	// Step 6a: schedule kind.
 	scheduleItems := []list.Item{
-		providerItem{id: "hourly", desc: "run every N minutes/hours"},
+		providerItem{id: "interval", desc: "run every N minutes/hours"},
 		providerItem{id: "daily", desc: "run once per day at a fixed time"},
 		providerItem{id: "weekly", desc: "run once per week on a chosen day"},
-		providerItem{id: "cron", title: "custom cron", desc: "advanced: 5-field cron expression"},
+	}
+	if runtime.GOOS != "windows" {
+		scheduleItems = append(scheduleItems, providerItem{id: "cron", title: "custom cron", desc: "advanced: 5-field cron expression"})
 	}
 	scheduleList := list.New(scheduleItems, compactDelegate{}, initialW-wizListPad, listHeight(len(scheduleItems)))
 	scheduleList.Title = "Schedule"
@@ -246,9 +249,9 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		pathInput:        pathIn,
 		nameInput:        nameIn,
 		providerList:     providerList,
+		modelInput:       modelIn,
 		promptInput:      promptTA,
 		permissionsList:  permList,
-		writablePathsIn:  wpIn,
 		scheduleKindList: scheduleList,
 		intervalList:     intervalList,
 		timeOfDayInput:   todIn,
@@ -297,7 +300,7 @@ func (m jobWizardModel) firstUnfilledStep() int {
 	}
 	// Schedule kind is set — check kind-specific sub-fields.
 	switch m.answers.scheduleKind {
-	case "hourly":
+	case "interval":
 		if m.answers.every == "" {
 			return wizStepInterval
 		}
@@ -368,12 +371,12 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.nameInput, cmd = m.nameInput.Update(msg)
 	case wizStepProvider:
 		m.providerList, cmd = m.providerList.Update(msg)
+	case wizStepModel:
+		m.modelInput, cmd = m.modelInput.Update(msg)
 	case wizStepPrompt:
 		m.promptInput, cmd = m.promptInput.Update(msg)
 	case wizStepPermissions:
 		m.permissionsList, cmd = m.permissionsList.Update(msg)
-	case wizStepWritablePaths:
-		m.writablePathsIn, cmd = m.writablePathsIn.Update(msg)
 	case wizStepScheduleKind:
 		m.scheduleKindList, cmd = m.scheduleKindList.Update(msg)
 	case wizStepInterval:
@@ -401,12 +404,12 @@ func (m jobWizardModel) advance() (tea.Model, tea.Cmd) {
 		return m.advanceFromName()
 	case wizStepProvider:
 		return m.advanceFromProvider()
+	case wizStepModel:
+		return m.advanceFromModel()
 	case wizStepPrompt:
 		return m.advanceFromPrompt()
 	case wizStepPermissions:
 		return m.advanceFromPermissions()
-	case wizStepWritablePaths:
-		return m.advanceFromWritablePaths()
 	case wizStepScheduleKind:
 		return m.advanceFromScheduleKind()
 	case wizStepInterval:
@@ -468,6 +471,13 @@ func (m jobWizardModel) advanceFromProvider() (tea.Model, tea.Cmd) {
 	if sel, ok := m.providerList.SelectedItem().(providerItem); ok {
 		m.answers.providerID = sel.id
 	}
+	m.modelInput.Focus()
+	m.step = wizStepModel
+	return m, nil
+}
+
+func (m jobWizardModel) advanceFromModel() (tea.Model, tea.Cmd) {
+	m.answers.model = strings.TrimSpace(m.modelInput.Value())
 	m.promptInput.Focus()
 	m.step = wizStepPrompt
 	return m, nil
@@ -490,21 +500,6 @@ func (m jobWizardModel) advanceFromPermissions() (tea.Model, tea.Cmd) {
 	if sel, ok := m.permissionsList.SelectedItem().(providerItem); ok {
 		m.answers.fileAccess = sel.id
 	}
-	if m.answers.fileAccess == "selected_writes" {
-		m.writablePathsIn.Focus()
-		m.step = wizStepWritablePaths
-		return m, nil
-	}
-	m.step = wizStepScheduleKind
-	return m, nil
-}
-
-func (m jobWizardModel) advanceFromWritablePaths() (tea.Model, tea.Cmd) {
-	v := strings.TrimSpace(m.writablePathsIn.Value())
-	if v == "" {
-		return m, nil // require at least one path
-	}
-	m.answers.writablePaths = v
 	m.step = wizStepScheduleKind
 	return m, nil
 }
@@ -514,7 +509,7 @@ func (m jobWizardModel) advanceFromScheduleKind() (tea.Model, tea.Cmd) {
 		m.answers.scheduleKind = sel.id
 	}
 	switch m.answers.scheduleKind {
-	case "hourly":
+	case "interval":
 		m.step = wizStepInterval
 	case "daily":
 		m.timeOfDayInput.Focus()
@@ -602,13 +597,13 @@ func (m jobWizardModel) goBack() (tea.Model, tea.Cmd) {
 	case wizStepProvider:
 		m.nameInput.Focus()
 		m.step = wizStepName
-	case wizStepPrompt:
+	case wizStepModel:
 		m.step = wizStepProvider
+	case wizStepPrompt:
+		m.step = wizStepModel
 	case wizStepPermissions:
 		m.promptInput.Focus()
 		m.step = wizStepPrompt
-	case wizStepWritablePaths:
-		m.step = wizStepPermissions
 	case wizStepScheduleKind:
 		m.step = wizStepPermissions
 	case wizStepInterval, wizStepTimeOfDay, wizStepDayOfWeek, wizStepCron:
@@ -628,7 +623,7 @@ func (m jobWizardModel) goBack() (tea.Model, tea.Cmd) {
 // schedule kind. Used by goBack() to reverse from timezone.
 func (m jobWizardModel) scheduleSubStep() int {
 	switch m.answers.scheduleKind {
-	case "hourly":
+	case "interval":
 		return wizStepInterval
 	case "daily":
 		m.timeOfDayInput.Focus()
@@ -659,20 +654,20 @@ func (m jobWizardModel) boxInnerWidth() int {
 // visualStepLabel returns "Step N/8 — Title" for the given step.
 func visualStepLabel(step int) string {
 	labels := map[int]string{
-		wizStepPath:          "Step 1/8 — Project Path",
-		wizStepName:          "Step 2/8 — Job Name",
-		wizStepProvider:      "Step 3/8 — Provider",
-		wizStepPrompt:        "Step 4/8 — Prompt",
-		wizStepPermissions:   "Step 5/8 — File Access",
-		wizStepWritablePaths: "Step 5/8 — Writable Paths",
-		wizStepScheduleKind:  "Step 6/8 — Schedule",
-		wizStepInterval:      "Step 6/8 — Repeat Interval",
-		wizStepTimeOfDay:     "Step 6/8 — Time of Day",
-		wizStepDayOfWeek:     "Step 6/8 — Day of Week",
-		wizStepCron:          "Step 6/8 — Cron Expression",
-		wizStepTimezone:      "Step 7/8 — Timezone",
-		wizStepCustomTz:      "Step 7/8 — Custom Timezone",
-		wizStepSummary:       "Step 8/8 — Summary",
+		wizStepPath:          "Step 1/9 — Project Path",
+		wizStepName:          "Step 2/9 — Job Name",
+		wizStepProvider:      "Step 3/9 — Provider",
+		wizStepModel:         "Step 3b/9 — Model",
+		wizStepPrompt:        "Step 4/9 — Prompt",
+		wizStepPermissions:   "Step 5/9 — File Access",
+		wizStepScheduleKind:  "Step 6/9 — Schedule",
+		wizStepInterval:      "Step 6b/9 — Repeat Interval",
+		wizStepTimeOfDay:     "Step 6b/9 — Time of Day",
+		wizStepDayOfWeek:     "Step 6b/9 — Day of Week",
+		wizStepCron:          "Step 6b/9 — Cron Expression",
+		wizStepTimezone:      "Step 7/9 — Timezone",
+		wizStepCustomTz:      "Step 7b/9 — Custom Timezone",
+		wizStepSummary:       "Step 8/9 — Summary",
 	}
 	if l, ok := labels[step]; ok {
 		return l
@@ -723,6 +718,11 @@ func (m jobWizardModel) View() string {
 			title, m.providerList.View(),
 			dimStyle.Render("[↑↓] navigate  •  [enter] select  •  [esc] back"))
 
+	case wizStepModel:
+		body = fmt.Sprintf("%s\n\nModel override (leave empty for provider default):\n\n%s\n\n%s",
+			title, m.modelInput.View(),
+			dimStyle.Render("[enter] next  •  [esc] back"))
+
 	case wizStepPrompt:
 		errLine := ""
 		if m.promptErr != "" {
@@ -736,11 +736,6 @@ func (m jobWizardModel) View() string {
 		body = fmt.Sprintf("%s\n\nWhat file access should this job have?\n\n%s\n\n%s",
 			title, m.permissionsList.View(),
 			dimStyle.Render("[↑↓] navigate  •  [enter] select  •  [esc] back"))
-
-	case wizStepWritablePaths:
-		body = fmt.Sprintf("%s\n\nWhich paths should be writable?\n(comma-separated, relative to project root)\n\n%s\n\n%s",
-			title, m.writablePathsIn.View(),
-			dimStyle.Render("[enter] next  •  [esc] back"))
 
 	case wizStepScheduleKind:
 		body = fmt.Sprintf("%s\n\nHow often should this run?\n\n%s\n\n%s",
@@ -832,7 +827,7 @@ func (m jobWizardModel) View() string {
 // describeSchedule returns a human-readable schedule description for the summary.
 func (m jobWizardModel) describeSchedule() string {
 	switch m.answers.scheduleKind {
-	case "hourly":
+	case "interval":
 		every := m.answers.every
 		if every == "" {
 			every = "1h"
@@ -863,13 +858,6 @@ func (m jobWizardModel) describePermissions() string {
 	switch m.answers.fileAccess {
 	case "read_only":
 		return "read-only"
-	case "selected_writes":
-		if m.answers.writablePaths != "" {
-			return fmt.Sprintf("selected writes (%s)", m.answers.writablePaths)
-		}
-		return "selected writes"
-	case "full_workspace":
-		return "full workspace"
 	default:
 		return m.answers.fileAccess
 	}
@@ -883,12 +871,13 @@ func jobAnswersToCreateInput(a jobWizardAnswers, defaultProvider string) createJ
 		providerID = defaultProvider
 	}
 	return createJobInput{
-		projectPath:  a.projectPath,
-		projectName:  pipeline.DeriveProjectName(a.projectPath, nil),
-		name:         a.name,
-		providerID:   providerID,
-		prompt:       a.prompt,
-		fileAccess:   a.fileAccess,
+		projectPath:   a.projectPath,
+		projectName:   pipeline.DeriveProjectName(a.projectPath, nil),
+		name:          a.name,
+		providerID:    providerID,
+		model:         a.model,
+		prompt:        a.prompt,
+		fileAccess:    a.fileAccess,
 		writablePaths: a.writablePaths,
 		schedule: backgroundjobs.ScheduleSpec{
 			Kind:      backgroundjobs.ScheduleKind(a.scheduleKind),
