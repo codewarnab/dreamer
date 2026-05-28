@@ -29,7 +29,7 @@ func defaultProviderFactory(id config.ProviderID, cfg analyzer.ProviderConfig) (
 // resolveOutputRoot determines the output root from --output-root flag,
 // falling back to config's output_root. Also returns the loaded config
 // so callers that need it don't load config a second time.
-func resolveOutputRoot(cmd *cobra.Command, resolvedConfigPath string) (string, *config.Config, error) {
+func resolveOutputRoot(cmd *cobra.Command, resolvedConfigPath string) (string, *config.App, error) {
 	if flag := cmd.Flag(outputRootFlag); flag != nil && flag.Changed {
 		abs, err := filepath.Abs(flag.Value.String())
 		// Still need to load config for callers that use it.
@@ -481,8 +481,12 @@ func newJobsCreateCommand() *cobra.Command {
 				providerID = defaultProvider
 			}
 
-			// Build schedule.
+			// Build schedule. Normalize user-facing "interval" to the
+			// stored constant value (ScheduleInterval = "hourly").
 			kind := backgroundjobs.ScheduleKind(scheduleKind)
+			if kind == "interval" {
+				kind = backgroundjobs.ScheduleInterval
+			}
 			schedule := backgroundjobs.ScheduleSpec{
 				Kind:      kind,
 				Every:     every,

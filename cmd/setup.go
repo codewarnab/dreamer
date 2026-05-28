@@ -60,20 +60,20 @@ type setupAnswers struct {
 	projectSince string
 }
 
-type providerItem struct {
+type selectItem struct {
 	id    string
 	desc  string
 	title string // display override; falls back to id when empty
 }
 
-func (p providerItem) Title() string {
+func (p selectItem) Title() string {
 	if p.title != "" {
 		return p.title
 	}
 	return p.id
 }
-func (p providerItem) Description() string { return p.desc }
-func (p providerItem) FilterValue() string { return p.id }
+func (p selectItem) Description() string { return p.desc }
+func (p selectItem) FilterValue() string { return p.id }
 
 // compactDelegate renders one row per item ("id  description") so a list
 // of N items occupies exactly N lines plus the title. Avoids the default
@@ -84,7 +84,7 @@ func (compactDelegate) Height() int                             { return 1 }
 func (compactDelegate) Spacing() int                            { return 0 }
 func (compactDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 func (compactDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	it, ok := item.(providerItem)
+	it, ok := item.(selectItem)
 	if !ok {
 		return
 	}
@@ -139,7 +139,7 @@ type setupModel struct {
 // prefillFromConfig pulls defaults out of an existing config so re-running
 // setup --force pre-fills every prompt with the prior value. Only fields the
 // loader/wizard understand are read; everything else stays at its zero value.
-func prefillFromConfig(prior *config.Config) setupAnswers {
+func prefillFromConfig(prior *config.App) setupAnswers {
 	a := setupAnswers{
 		provider:    config.DefaultProviderID,
 		frequency:   3600,
@@ -185,19 +185,19 @@ func prefillFromConfig(prior *config.Config) setupAnswers {
 	return a
 }
 
-// providerItems builds the setup wizard's provider list from the analyzer
+// selectItems builds the setup wizard's provider list from the analyzer
 // registry so it stays in sync when new providers are added.
-func providerItems() []list.Item {
+func selectItems() []list.Item {
 	meta := analyzer.RegisteredProviderMeta()
 	items := make([]list.Item, 0, len(meta))
 	for _, m := range meta {
-		items = append(items, providerItem{id: string(m.ID), desc: m.DisplayName})
+		items = append(items, selectItem{id: string(m.ID), desc: m.DisplayName})
 	}
 	return items
 }
 
 func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel {
-	providers := providerItems()
+	providers := selectItems()
 	// Use a sensible initial width; WindowSizeMsg will update it.
 	initialW := 80
 	providerList := list.New(providers, compactDelegate{}, initialW-20, listHeight(len(providers)))
@@ -222,10 +222,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 
 	// Advanced inputs.
 	levels := []list.Item{
-		providerItem{id: "error"},
-		providerItem{id: "warn"},
-		providerItem{id: "info"},
-		providerItem{id: "debug"},
+		selectItem{id: "error"},
+		selectItem{id: "warn"},
+		selectItem{id: "info"},
+		selectItem{id: "debug"},
 	}
 	logLevelList := list.New(levels, compactDelegate{}, initialW-20, listHeight(len(levels)))
 	logLevelList.Title = "6/10 - Log level"
@@ -267,10 +267,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 	}
 
 	sinces := []list.Item{
-		providerItem{id: "24h"},
-		providerItem{id: "7d"},
-		providerItem{id: "30d"},
-		providerItem{id: "lifetime"},
+		selectItem{id: "24h"},
+		selectItem{id: "7d"},
+		selectItem{id: "30d"},
+		selectItem{id: "lifetime"},
 	}
 	sinceList := list.New(sinces, compactDelegate{}, 60, listHeight(len(sinces)))
 	sinceList.Title = "10/10 - Project lookback (since)"
@@ -474,13 +474,13 @@ func (m setupModel) goBack() (tea.Model, tea.Cmd) {
 func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
-		if sel, ok := m.providerList.SelectedItem().(providerItem); ok {
+		if sel, ok := m.providerList.SelectedItem().(selectItem); ok {
 			m.answers.provider = sel.id
 		}
 		models := defaultModelsFor(m.answers.provider)
 		items := make([]list.Item, len(models))
 		for i, mm := range models {
-			items[i] = providerItem{id: mm}
+			items[i] = selectItem{id: mm}
 		}
 		ml := list.New(items, compactDelegate{}, m.providerList.Width(), listHeight(len(items)))
 		ml.Title = "2/5 - Model for " + m.answers.provider
@@ -492,7 +492,7 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		}
 		m.step = stepModel
 	case stepModel:
-		if sel, ok := m.modelList.SelectedItem().(providerItem); ok {
+		if sel, ok := m.modelList.SelectedItem().(selectItem); ok {
 			m.answers.model = sel.id
 		}
 		m.freqInput.Focus()
@@ -514,7 +514,7 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	case stepStartupYN:
 		m.step = m.afterStartupStep()
 	case stepLogLevel:
-		if sel, ok := m.logLevelList.SelectedItem().(providerItem); ok {
+		if sel, ok := m.logLevelList.SelectedItem().(selectItem); ok {
 			m.answers.logLevel = sel.id
 		}
 		m.ruleTimeoutInput.Focus()
@@ -575,7 +575,7 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		m.answers.projectName = name
 		m.step = stepProjectSince
 	case stepProjectSince:
-		if sel, ok := m.projectSinceList.SelectedItem().(providerItem); ok {
+		if sel, ok := m.projectSinceList.SelectedItem().(selectItem); ok {
 			m.answers.projectSince = sel.id
 		}
 		m.step = stepSummary
@@ -766,7 +766,7 @@ func buildConfigYAML(a setupAnswers) []byte {
 		// Template parse/execute failures are programmer errors; fall back
 		// to a minimal struct-marshalled config so the wizard still writes
 		// something valid rather than silently producing an empty file.
-		cfg := config.Config{
+		cfg := config.App{
 			DefaultProvider: a.provider,
 			Daemon: config.DaemonConfig{
 				FrequencySeconds: a.frequency,
@@ -801,7 +801,7 @@ func newSetupCommand() *cobra.Command {
 			// Pre-fill from prior config when re-running with --force.
 			var prefilled setupAnswers
 			if data, err := os.ReadFile(cfgPath); err == nil {
-				var prior config.Config
+				var prior config.App
 				if yaml.Unmarshal(data, &prior) == nil {
 					prefilled = prefillFromConfig(&prior)
 				}

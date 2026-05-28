@@ -168,45 +168,45 @@ func parseCron(expr string) (cronFields, error) {
 
 // parseCronField parses a single cron field into a sorted slice of valid values.
 // Supports: *, */N, N, N-M, N,M.
-func parseCronField(field string, min, max int) ([]int, error) {
+func parseCronField(field string, lo, hi int) ([]int, error) {
 	if field == "*" {
-		return cronRange(min, max), nil
+		return cronRange(lo, hi), nil
 	}
 	if strings.HasPrefix(field, "*/") {
-		return parseCronStep(field[2:], min, max)
+		return parseCronStep(field[2:], lo, hi)
 	}
-	return parseCronParts(field, min, max)
+	return parseCronParts(field, lo, hi)
 }
 
-// cronRange returns all integers in [min, max].
-func cronRange(min, max int) []int {
-	result := make([]int, max-min+1)
+// cronRange returns all integers in [lo, hi].
+func cronRange(lo, hi int) []int {
+	result := make([]int, hi-lo+1)
 	for i := range result {
-		result[i] = min + i
+		result[i] = lo + i
 	}
 	return result
 }
 
 // parseCronStep handles */N step syntax.
-func parseCronStep(stepStr string, min, max int) ([]int, error) {
+func parseCronStep(stepStr string, lo, hi int) ([]int, error) {
 	step, err := parseCronInt(stepStr)
 	if err != nil || step < 1 {
 		return nil, fmt.Errorf("invalid step %q", stepStr)
 	}
 	var result []int
-	for i := min; i <= max; i += step {
+	for i := lo; i <= hi; i += step {
 		result = append(result, i)
 	}
 	return result, nil
 }
 
 // parseCronParts handles comma-separated parts (N, N-M, N,M).
-func parseCronParts(field string, min, max int) ([]int, error) {
+func parseCronParts(field string, lo, hi int) ([]int, error) {
 	parts := strings.Split(field, ",")
 	var result []int
 	seen := make(map[int]bool)
 	for _, part := range parts {
-		vals, err := parseCronPart(strings.TrimSpace(part), min, max)
+		vals, err := parseCronPart(strings.TrimSpace(part), lo, hi)
 		if err != nil {
 			return nil, err
 		}
@@ -225,40 +225,40 @@ func parseCronParts(field string, min, max int) ([]int, error) {
 }
 
 // parseCronPart handles a single part: either a range (N-M) or a single value (N).
-func parseCronPart(part string, min, max int) ([]int, error) {
+func parseCronPart(part string, lo, hi int) ([]int, error) {
 	if strings.Contains(part, "-") {
-		return parseCronRange(part, min, max)
+		return parseCronRange(part, lo, hi)
 	}
 	val, err := parseCronInt(part)
 	if err != nil {
 		return nil, fmt.Errorf("invalid value %q: %w", part, err)
 	}
-	if val < min || val > max {
-		return nil, fmt.Errorf("value %d out of bounds [%d,%d]", val, min, max)
+	if val < lo || val > hi {
+		return nil, fmt.Errorf("value %d out of bounds [%d,%d]", val, lo, hi)
 	}
 	return []int{val}, nil
 }
 
 // parseCronRange handles N-M range syntax.
-func parseCronRange(part string, min, max int) ([]int, error) {
+func parseCronRange(part string, lo, hi int) ([]int, error) {
 	bounds := strings.SplitN(part, "-", 2)
 	if len(bounds) != 2 {
 		return nil, fmt.Errorf("invalid range %q", part)
 	}
-	lo, err := parseCronInt(bounds[0])
+	rangeStart, err := parseCronInt(bounds[0])
 	if err != nil {
 		return nil, fmt.Errorf("invalid range start %q: %w", bounds[0], err)
 	}
-	hi, err := parseCronInt(bounds[1])
+	rangeEnd, err := parseCronInt(bounds[1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid range end %q: %w", bounds[1], err)
 	}
-	if lo < min || hi > max || lo > hi {
-		return nil, fmt.Errorf("range %d-%d out of bounds [%d,%d]", lo, hi, min, max)
+	if rangeStart < lo || rangeEnd > hi || rangeStart > rangeEnd {
+		return nil, fmt.Errorf("range %d-%d out of bounds [%d,%d]", rangeStart, rangeEnd, lo, hi)
 	}
-	result := make([]int, hi-lo+1)
+	result := make([]int, rangeEnd-rangeStart+1)
 	for i := range result {
-		result[i] = lo + i
+		result[i] = rangeStart + i
 	}
 	return result, nil
 }
@@ -340,9 +340,9 @@ func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, err
 	return time.Time{}, fmt.Errorf("no matching cron time in next 366 days")
 }
 
-// isWildcard checks if a cron field contains every value in the range [min, max].
-func isWildcard(values []int, min, max int) bool {
-	return len(values) == max-min+1 && values[0] == min && values[len(values)-1] == max
+// isWildcard checks if a cron field contains every value in the range [lo, hi].
+func isWildcard(values []int, lo, hi int) bool {
+	return len(values) == hi-lo+1 && values[0] == lo && values[len(values)-1] == hi
 }
 
 // intSliceContains checks if a sorted int slice contains a value.

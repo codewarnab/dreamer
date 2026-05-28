@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/config"
@@ -25,7 +26,8 @@ const workerIdleInterval = 1 * time.Second
 type workerPool struct {
 	ctx        context.Context
 	queue      *jobqueue.Queue
-	cfg        *config.Config
+	cfg        *config.App
+	live       *atomic.Pointer[config.App]
 	logger     *logging.Logger
 	cache      *pipeline.DiscoveryCache
 	stateCache *state.StateCache
@@ -35,11 +37,12 @@ type workerPool struct {
 }
 
 // newWorkerPool creates a pool that will spawn MaxConcurrent workers.
-func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, logger *logging.Logger, cache *pipeline.DiscoveryCache, stateCache *state.StateCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
+func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.App, live *atomic.Pointer[config.App], logger *logging.Logger, cache *pipeline.DiscoveryCache, stateCache *state.StateCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
 	return &workerPool{
 		ctx:        ctx,
 		queue:      queue,
 		cfg:        cfg,
+		live:       live,
 		logger:     logger,
 		cache:      cache,
 		stateCache: stateCache,
@@ -97,7 +100,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		logging.Any("worker", workerID),
 	)
 
-	maxDur, durErr := resolveMaxDuration(job, wp.cfg)
+	maxDur, durErr := wp.cfg.ResolveMaxDuration(job.Project)
 	if durErr != nil {
 		// Should never happen — config validation rejects bad durations at
 		// load time. Log and fail the job rather than silently fall back so
@@ -112,6 +115,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 
 	opts := pipeline.Options{
 		Config:                 wp.cfg,
+		LiveConfig:             wp.live,
 		ProjectPath:            job.ProjectPath,
 		ProjectName:            job.Project,
 		ProviderID:             job.Provider,
@@ -120,7 +124,7 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 		DiscoveryCache:         wp.cache,
 		StateCache:             wp.stateCache,
 		Events:                 wp.events,
-		ParallelOverride:       wp.overrides.parallel,
+		ParallelOverride:       wp.overrides.forceParallel,
 		MaxConcurrencyOverride: wp.overrides.maxConcurrency,
 	}
 	if wp.overrides.maxChunkBytesSet {
@@ -150,13 +154,6 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 			logging.Any("sources", result.SourcesAnalyzed),
 		)
 	}
-}
-
-// resolveMaxDuration returns the per-project or global max analysis duration.
-// Returns the underlying error so callers can surface regressions in config
-// validation rather than papering over them with an 8h default.
-func resolveMaxDuration(job *jobqueue.Job, cfg *config.Config) (time.Duration, error) {
-	return cfg.ResolveMaxDuration(job.Project)
 }
 
 // recoverStaleJobs cleans up running jobs left over from a prior daemon run.

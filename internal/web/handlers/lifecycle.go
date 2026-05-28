@@ -91,8 +91,8 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	name, hash, tx := parseProjectHashTransition(r.URL.Path)
-	if name == "" || hash == "" || transition(tx) != want {
+	name, hash, transitionStr := parseProjectHashTransition(r.URL.Path)
+	if name == "" || hash == "" || transition(transitionStr) != want {
 		http.NotFound(w, r)
 		return
 	}
@@ -155,7 +155,7 @@ func Apply(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusConflict, "finding already applied; undo first before re-applying")
 			return
 		}
-		rev, err := apply.Apply(apply.ApplyRequest{
+		rev, err := apply.Apply(apply.Request{
 			ProjectRoot: proj.Path,
 			TargetFile:  spec.TargetFile,
 			Strategy:    spec.Strategy,
@@ -184,6 +184,16 @@ func Apply(deps Deps) http.HandlerFunc {
 		findingState.ProjectName = name
 		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
+			// The file write already succeeded via apply.Apply above.
+			// Log at error level so operators can detect the partial-success
+			// window where the target file is modified but no reversal is
+			// persisted — undo will be impossible until state is repaired.
+			publish(deps.Events, "apply.state_save_failed", map[string]any{
+				"project": name,
+				"hash":    hash,
+				"target":  rev.Path,
+				"error":   err.Error(),
+			})
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -227,7 +237,12 @@ func Undo(deps Deps) http.HandlerFunc {
 			}
 			return
 		}
-		delete(st.Findings, hash)
+		// Clear the applied state but keep the entry (and its ApplySpec)
+		// so a future re-apply is possible without re-running analysis.
+		findingState.Status = ""
+		findingState.AppliedAt = time.Time{}
+		findingState.AppliedReversal = nil
+		st.Findings[hash] = findingState
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -267,7 +282,7 @@ func Dismiss(deps Deps) http.HandlerFunc {
 		if deps.StateCache != nil {
 			deps.StateCache.Invalidate(name)
 		}
-		publish(deps.Events, pipeline.EventFindingDismiss, map[string]any{
+		publish(deps.Events, pipeline.EventFindingDismissed, map[string]any{
 			"project": name,
 			"hash":    hash,
 		})
@@ -298,7 +313,7 @@ func Resolve(deps Deps) http.HandlerFunc {
 		if deps.StateCache != nil {
 			deps.StateCache.Invalidate(name)
 		}
-		publish(deps.Events, pipeline.EventFindingResolve, map[string]any{
+		publish(deps.Events, pipeline.EventFindingResolved, map[string]any{
 			"project": name,
 			"hash":    hash,
 		})

@@ -21,6 +21,10 @@ type stateCacheEntry struct {
 // Entries are validated by comparing os.Stat mtime+size against the cached
 // values. Invalidate drops an entry so the next read re-fetches from disk.
 // Thread-safe; designed for concurrent web handler use.
+//
+// NOTE: GetState/GetHistory return cached pointers directly (no copy).
+// Callers must treat returned values as read-only. Mutating a returned
+// *State or *History corrupts the cache without holding the lock.
 type StateCache struct {
 	mu    sync.RWMutex
 	items map[string]*stateCacheEntry
@@ -53,7 +57,23 @@ func (sc *StateCache) GetState(outputRoot, projectName string) (*State, error) {
 	}
 	sc.mu.RUnlock()
 
-	// Cache miss — read from disk.
+	// Cache miss — hold write lock for the entire Load+Stat sequence
+	// to prevent a concurrent Save+Invalidate from causing a TOCTOU
+	// where we store old data with new mtime/size.
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// Double-check: another goroutine may have populated the entry
+	// while we waited for the lock.
+	entry, ok = sc.items[projectName]
+	if ok && entry.state != nil {
+		if info, statErr := os.Stat(statePath); statErr == nil {
+			if info.ModTime().Equal(entry.stateMod) && info.Size() == entry.stateSize {
+				return entry.state, nil
+			}
+		}
+	}
+
 	st, err := Load(outputRoot, projectName)
 	if err != nil {
 		return nil, err
@@ -64,7 +84,6 @@ func (sc *StateCache) GetState(outputRoot, projectName string) (*State, error) {
 		return st, nil // stat failed; return the loaded state without caching
 	}
 
-	sc.mu.Lock()
 	existing := sc.items[projectName]
 	if existing == nil {
 		existing = &stateCacheEntry{}
@@ -73,7 +92,6 @@ func (sc *StateCache) GetState(outputRoot, projectName string) (*State, error) {
 	existing.stateMod = info.ModTime()
 	existing.stateSize = info.Size()
 	sc.items[projectName] = existing
-	sc.mu.Unlock()
 
 	return st, nil
 }
@@ -100,7 +118,20 @@ func (sc *StateCache) GetHistory(outputRoot, projectName string) (*History, erro
 	}
 	sc.mu.RUnlock()
 
-	// Cache miss — read from disk.
+	// Cache miss — hold write lock for the entire Load+Stat sequence.
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// Double-check after acquiring write lock.
+	entry, ok = sc.items[projectName]
+	if ok && entry.history != nil {
+		if info, statErr := os.Stat(histPath); statErr == nil {
+			if info.ModTime().Equal(entry.histMod) && info.Size() == entry.histSize {
+				return entry.history, nil
+			}
+		}
+	}
+
 	hist, err := LoadHistory(outputRoot, projectName)
 	if err != nil {
 		return nil, err
@@ -111,7 +142,6 @@ func (sc *StateCache) GetHistory(outputRoot, projectName string) (*History, erro
 		return hist, nil // stat failed; return loaded history without caching
 	}
 
-	sc.mu.Lock()
 	existing := sc.items[projectName]
 	if existing == nil {
 		existing = &stateCacheEntry{}
@@ -120,7 +150,6 @@ func (sc *StateCache) GetHistory(outputRoot, projectName string) (*History, erro
 	existing.histMod = info.ModTime()
 	existing.histSize = info.Size()
 	sc.items[projectName] = existing
-	sc.mu.Unlock()
 
 	return hist, nil
 }

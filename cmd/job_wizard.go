@@ -219,9 +219,9 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 5: file access permissions picker.
 	permissionItems := []list.Item{
-		providerItem{id: "read_only", title: "Read Only (Safe)", desc: "can read project files, cannot write anything"},
-		providerItem{id: "selected_writes", title: "Selected Writes", desc: "write access to specific files you choose"},
-		providerItem{id: "full_workspace", title: "Full Workspace", desc: "write access to entire project (not recommended)"},
+		selectItem{id: "read_only", title: "Read Only (Safe)", desc: "can read project files, cannot write anything"},
+		selectItem{id: "selected_writes", title: "Selected Writes", desc: "write access to specific files you choose"},
+		selectItem{id: "full_workspace", title: "Full Workspace", desc: "write access to entire project (not recommended)"},
 	}
 	permList := list.New(permissionItems, compactDelegate{}, initialW-wizListPad, listHeight(len(permissionItems)))
 	permList.Title = "File Access"
@@ -238,12 +238,12 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	fp := newFilePickerModel(projectRoot, initialW-wizListPad)
 	// Step 6a: schedule kind.
 	scheduleItems := []list.Item{
-		providerItem{id: "interval", desc: "run every N minutes/hours"},
-		providerItem{id: "daily", desc: "run once per day at a fixed time"},
-		providerItem{id: "weekly", desc: "run once per week on a chosen day"},
+		selectItem{id: "interval", desc: "run every N minutes/hours"},
+		selectItem{id: "daily", desc: "run once per day at a fixed time"},
+		selectItem{id: "weekly", desc: "run once per week on a chosen day"},
 	}
 	if runtime.GOOS != "windows" {
-		scheduleItems = append(scheduleItems, providerItem{id: "cron", title: "custom cron", desc: "advanced: 5-field cron expression"})
+		scheduleItems = append(scheduleItems, selectItem{id: "cron", title: "custom cron", desc: "advanced: 5-field cron expression"})
 	}
 	scheduleList := list.New(scheduleItems, compactDelegate{}, initialW-wizListPad, listHeight(len(scheduleItems)))
 	scheduleList.Title = "Schedule"
@@ -252,14 +252,14 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 6a: interval picker (hourly).
 	intervalItems := []list.Item{
-		providerItem{id: "2h", desc: "every 2 hours"},
-		providerItem{id: "1h", desc: "every hour (default)"},
-		providerItem{id: "45m", desc: "every 45 minutes"},
-		providerItem{id: "30m", desc: "every 30 minutes"},
-		providerItem{id: "20m", desc: "every 20 minutes"},
-		providerItem{id: "15m", desc: "every 15 minutes"},
-		providerItem{id: "10m", desc: "every 10 minutes"},
-		providerItem{id: "5m", desc: "every 5 minutes"},
+		selectItem{id: "2h", desc: "every 2 hours"},
+		selectItem{id: "1h", desc: "every hour (default)"},
+		selectItem{id: "45m", desc: "every 45 minutes"},
+		selectItem{id: "30m", desc: "every 30 minutes"},
+		selectItem{id: "20m", desc: "every 20 minutes"},
+		selectItem{id: "15m", desc: "every 15 minutes"},
+		selectItem{id: "10m", desc: "every 10 minutes"},
+		selectItem{id: "5m", desc: "every 5 minutes"},
 	}
 	intervalList := list.New(intervalItems, compactDelegate{}, initialW-wizListPad, listHeight(len(intervalItems)))
 	intervalList.Title = "Repeat interval"
@@ -278,13 +278,13 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 6c: day-of-week picker.
 	dowItems := []list.Item{
-		providerItem{id: "monday"},
-		providerItem{id: "tuesday"},
-		providerItem{id: "wednesday"},
-		providerItem{id: "thursday"},
-		providerItem{id: "friday"},
-		providerItem{id: "saturday"},
-		providerItem{id: "sunday"},
+		selectItem{id: "monday"},
+		selectItem{id: "tuesday"},
+		selectItem{id: "wednesday"},
+		selectItem{id: "thursday"},
+		selectItem{id: "friday"},
+		selectItem{id: "saturday"},
+		selectItem{id: "sunday"},
 	}
 	dowList := list.New(dowItems, compactDelegate{}, initialW-wizListPad, listHeight(len(dowItems)))
 	dowList.Title = "Day of week"
@@ -560,7 +560,7 @@ func (m jobWizardModel) advanceFromName() (tea.Model, tea.Cmd) {
 }
 
 func (m jobWizardModel) advanceFromProvider() (tea.Model, tea.Cmd) {
-	if sel, ok := m.providerList.SelectedItem().(providerItem); ok {
+	if sel, ok := m.providerList.SelectedItem().(selectItem); ok {
 		m.answers.providerID = sel.id
 	}
 	m.modelInput.Focus()
@@ -589,7 +589,7 @@ func (m jobWizardModel) advanceFromPrompt() (tea.Model, tea.Cmd) {
 }
 
 func (m jobWizardModel) advanceFromPermissions() (tea.Model, tea.Cmd) {
-	if sel, ok := m.permissionsList.SelectedItem().(providerItem); ok {
+	if sel, ok := m.permissionsList.SelectedItem().(selectItem); ok {
 		m.answers.fileAccess = sel.id
 	}
 	switch m.answers.fileAccess {
@@ -615,7 +615,7 @@ func (m jobWizardModel) advanceFromWritablePaths() (tea.Model, tea.Cmd) {
 }
 
 func (m jobWizardModel) advanceFromScheduleKind() (tea.Model, tea.Cmd) {
-	if sel, ok := m.scheduleKindList.SelectedItem().(providerItem); ok {
+	if sel, ok := m.scheduleKindList.SelectedItem().(selectItem); ok {
 		m.answers.scheduleKind = sel.id
 	}
 	switch m.answers.scheduleKind {
@@ -634,7 +634,7 @@ func (m jobWizardModel) advanceFromScheduleKind() (tea.Model, tea.Cmd) {
 }
 
 func (m jobWizardModel) advanceFromInterval() (tea.Model, tea.Cmd) {
-	if sel, ok := m.intervalList.SelectedItem().(providerItem); ok {
+	if sel, ok := m.intervalList.SelectedItem().(selectItem); ok {
 		m.answers.every = sel.id
 	}
 	m.step = wizStepTimezone
@@ -651,7 +651,7 @@ func (m jobWizardModel) advanceFromTimeOfDay() (tea.Model, tea.Cmd) {
 }
 
 func (m jobWizardModel) advanceFromDayOfWeek() (tea.Model, tea.Cmd) {
-	if sel, ok := m.dayOfWeekList.SelectedItem().(providerItem); ok {
+	if sel, ok := m.dayOfWeekList.SelectedItem().(selectItem); ok {
 		m.answers.dayOfWeek = sel.id
 	}
 	m.timeOfDayInput.Focus()
@@ -669,7 +669,7 @@ func (m jobWizardModel) advanceFromCron() (tea.Model, tea.Cmd) {
 }
 
 func (m jobWizardModel) advanceFromTimezone() (tea.Model, tea.Cmd) {
-	if sel, ok := m.timezoneList.SelectedItem().(providerItem); ok {
+	if sel, ok := m.timezoneList.SelectedItem().(selectItem); ok {
 		if sel.id == "custom" {
 			m.customTimezone = true
 			m.customTzInput.Focus()
@@ -997,6 +997,12 @@ func jobAnswersToCreateInput(a jobWizardAnswers, defaultProvider string) createJ
 	if providerID == "" {
 		providerID = defaultProvider
 	}
+	// Normalize user-facing "interval" to the stored constant
+	// (ScheduleInterval = "hourly").
+	kind := backgroundjobs.ScheduleKind(a.scheduleKind)
+	if kind == "interval" {
+		kind = backgroundjobs.ScheduleInterval
+	}
 	return createJobInput{
 		projectPath:   a.projectPath,
 		projectName:   pipeline.DeriveProjectName(a.projectPath, nil),
@@ -1007,7 +1013,7 @@ func jobAnswersToCreateInput(a jobWizardAnswers, defaultProvider string) createJ
 		fileAccess:    a.fileAccess,
 		writablePaths: a.writablePaths,
 		schedule: backgroundjobs.ScheduleSpec{
-			Kind:      backgroundjobs.ScheduleKind(a.scheduleKind),
+			Kind:      kind,
 			Every:     a.every,
 			TimeOfDay: a.timeOfDay,
 			DayOfWeek: a.dayOfWeek,
@@ -1025,7 +1031,7 @@ func backgroundSafeProviderItems() []list.Item {
 	items := make([]list.Item, 0, len(meta))
 	for _, m := range meta {
 		if m.Capabilities.BackgroundSafe {
-			items = append(items, providerItem{id: string(m.ID), desc: m.DisplayName})
+			items = append(items, selectItem{id: string(m.ID), desc: m.DisplayName})
 		}
 	}
 	return items
@@ -1148,19 +1154,19 @@ func mergeWizardDraft(draft, cliOverrides jobWizardAnswers) jobWizardAnswers {
 // timezoneItems returns common timezone entries plus a "custom..." option.
 func timezoneItems() []list.Item {
 	return []list.Item{
-		providerItem{id: "Asia/Kolkata", desc: "IST, UTC+5:30"},
-		providerItem{id: "America/New_York", desc: "ET, UTC-5 / EDT UTC-4"},
-		providerItem{id: "America/Chicago", desc: "CT, UTC-6 / CDT UTC-5"},
-		providerItem{id: "America/Denver", desc: "MT, UTC-7 / MDT UTC-6"},
-		providerItem{id: "America/Los_Angeles", desc: "PT, UTC-8 / PDT UTC-7"},
-		providerItem{id: "Europe/London", desc: "GMT, UTC+0 / BST UTC+1"},
-		providerItem{id: "Europe/Berlin", desc: "CET, UTC+1 / CEST UTC+2"},
-		providerItem{id: "Europe/Paris", desc: "CET, UTC+1 / CEST UTC+2"},
-		providerItem{id: "Asia/Tokyo", desc: "JST, UTC+9"},
-		providerItem{id: "Asia/Shanghai", desc: "CST, UTC+8"},
-		providerItem{id: "Asia/Singapore", desc: "SGT, UTC+8"},
-		providerItem{id: "Australia/Sydney", desc: "AEST, UTC+10 / AEDT UTC+11"},
-		providerItem{id: "UTC", desc: "UTC+0"},
-		providerItem{id: "custom", desc: "type any IANA timezone"},
+		selectItem{id: "Asia/Kolkata", desc: "IST, UTC+5:30"},
+		selectItem{id: "America/New_York", desc: "ET, UTC-5 / EDT UTC-4"},
+		selectItem{id: "America/Chicago", desc: "CT, UTC-6 / CDT UTC-5"},
+		selectItem{id: "America/Denver", desc: "MT, UTC-7 / MDT UTC-6"},
+		selectItem{id: "America/Los_Angeles", desc: "PT, UTC-8 / PDT UTC-7"},
+		selectItem{id: "Europe/London", desc: "GMT, UTC+0 / BST UTC+1"},
+		selectItem{id: "Europe/Berlin", desc: "CET, UTC+1 / CEST UTC+2"},
+		selectItem{id: "Europe/Paris", desc: "CET, UTC+1 / CEST UTC+2"},
+		selectItem{id: "Asia/Tokyo", desc: "JST, UTC+9"},
+		selectItem{id: "Asia/Shanghai", desc: "CST, UTC+8"},
+		selectItem{id: "Asia/Singapore", desc: "SGT, UTC+8"},
+		selectItem{id: "Australia/Sydney", desc: "AEST, UTC+10 / AEDT UTC+11"},
+		selectItem{id: "UTC", desc: "UTC+0"},
+		selectItem{id: "custom", desc: "type any IANA timezone"},
 	}
 }

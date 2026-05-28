@@ -64,7 +64,7 @@ func newDaemonCommand() *cobra.Command {
 			defer func() { _ = logger.Close() }()
 
 			overrides := daemonOverrides{
-				parallel:       analyzerFlags.parallel,
+				forceParallel:       analyzerFlags.parallel,
 				maxConcurrency: analyzerFlags.jobs,
 			}
 			if cmd.Flags().Changed(flagChunkSize) {
@@ -94,11 +94,11 @@ func newDaemonCommand() *cobra.Command {
 
 			stateCache := state.NewStateCache()
 
-			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, stateCache, events, overrides)
-			workers.Start()
-
-			var live atomic.Pointer[config.Config]
+			var live atomic.Pointer[config.App]
 			live.Store(cfg)
+
+			workers := newWorkerPool(ctx, queue, cfg, &live, logger, discoveryCache, stateCache, events, overrides)
+			workers.Start()
 			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath, stateCache)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
@@ -128,7 +128,7 @@ func newDaemonCommand() *cobra.Command {
 
 // daemonOverrides carries CLI-level overrides that apply to every project per cycle.
 type daemonOverrides struct {
-	parallel         bool
+	forceParallel         bool
 	maxConcurrency   int
 	maxChunkBytes    int
 	maxChunkBytesSet bool
@@ -136,7 +136,7 @@ type daemonOverrides struct {
 
 // loadDaemonConfig resolves the config path, loads config with overlay, and
 // creates the logger. Returns the config, logger, and any error.
-func loadDaemonConfig(configPath, overlayPath string) (*config.Config, *logging.Logger, error) {
+func loadDaemonConfig(configPath, overlayPath string) (*config.App, *logging.Logger, error) {
 	cfg, err := config.LoadConfigWithOverlay(configPath, overlayPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load config %q: %w", configPath, err)
@@ -152,7 +152,7 @@ func loadDaemonConfig(configPath, overlayPath string) (*config.Config, *logging.
 // initDaemonRuntime acquires the daemon lock, sets up signal-aware context,
 // creates the job queue with recovery, and initializes the discovery cache
 // and event bus. Returns cleanup functions that the caller must defer.
-func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logging.Logger) (
+func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging.Logger) (
 	ctx context.Context, stop context.CancelFunc,
 	queue *jobqueue.Queue, discoveryCache *pipeline.DiscoveryCache,
 	events *pipeline.EventBus, releaseLock func(), err error,
@@ -164,7 +164,13 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 	}
 
 	lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
-	stalePID, _ := fsutil.ReadLockPID(lockPath)
+	stalePID, readErr := fsutil.ReadLockPID(lockPath)
+	if readErr != nil {
+		logger.Warn("read lock PID failed; stale-job recovery will reap unconditionally",
+			logging.Any("lock_path", lockPath),
+			logging.Any("err", readErr),
+		)
+	}
 	releaseLock, err = fsutil.AcquireLock(lockPath, logger)
 	if err != nil {
 		return
@@ -189,7 +195,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 }
 
 // startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
-func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string, stateCache *state.StateCache) <-chan struct{} {
+func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointer[config.App], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string, stateCache *state.StateCache) <-chan struct{} {
 	done := make(chan struct{})
 	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
 		close(done)
@@ -204,7 +210,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		return nil
 	}
 
-	runner := web.NewRunner(func(projectName string) (string, bool) {
+	enqueueRun := func(projectName string) (string, bool, error) {
 		curCfg := live.Load()
 		var proj config.ProjectConfig
 		found := false
@@ -216,7 +222,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 			}
 		}
 		if !found {
-			return "", false
+			return "", false, nil
 		}
 		job := queue.Enqueue(proj.Name, jobqueue.EnqueueConfig{
 			ProjectPath: proj.Path,
@@ -224,10 +230,10 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 			Since:       proj.Since,
 		})
 		if job == nil {
-			return "", false
+			return "", false, nil
 		}
-		return job.ID, true
-	}, logger)
+		return job.ID, true, nil
+	}
 
 	// Wire background job dependencies for the web UI.
 	outputRoot := cfg.Daemon.OutputRoot
@@ -307,9 +313,10 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		Config:      cfg,
 		Logger:      logger,
 		Events:      events,
+		ShutdownCtx: ctx,
 		ConfigPtr:   live,
 		OverlayPath: overlayPath,
-		Runner:      runner,
+		EnqueueRun:  enqueueRun,
 		RestartHook: restartHook,
 		Activity:    activity,
 		StateCache:  stateCache,
@@ -336,7 +343,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 }
 
 // runDaemonLoop runs the main daemon scheduling loop until ctx is cancelled.
-func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queue, cfg *config.Config, frequency, retDur time.Duration, logger *logging.Logger, workers *workerPool) {
+func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queue, cfg *config.App, frequency, retention time.Duration, logger *logging.Logger, workers *workerPool) {
 	ticker := time.NewTicker(frequency)
 	defer ticker.Stop()
 
@@ -354,7 +361,7 @@ func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queu
 			cmd.Printf("daemon stopped\n")
 			return
 		case <-ticker.C:
-			queue.PruneHistory(retDur)
+			queue.PruneHistory(retention)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
 		}
 	}
@@ -365,7 +372,7 @@ func runDaemonLoop(ctx context.Context, cmd *cobra.Command, queue *jobqueue.Queu
 // reload it CAS-swaps the live config pointer and publishes a config.reloaded
 // event via the bus. Reload failures leave the prior pointer value active and
 // are logged at info level; they never crash the daemon.
-func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pipeline.EventBus, live *atomic.Pointer[config.Config], configPath, overlayPath string) {
+func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pipeline.EventBus, live *atomic.Pointer[config.App], configPath, overlayPath string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		logger.Error("config watcher init failed", logging.Any("err", err))
@@ -427,6 +434,22 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 			case ev, ok := <-watcher.Events:
 				if !ok {
 					return
+				}
+				// Re-add watch if the watched directory's content was
+				// renamed or removed (editor temp-and-rename can
+				// invalidate the fsnotify watch). Run in a goroutine
+				// so the sleep doesn't block reading other events.
+				if ev.Op&(fsnotify.Rename|fsnotify.Remove) != 0 {
+					dir := ev.Name
+					if _, isWatched := watched[dir]; isWatched {
+						go func(d string) {
+							time.Sleep(100 * time.Millisecond)
+							_ = watcher.Remove(d)
+							if err := watcher.Add(d); err != nil {
+								logger.Warn("config watcher re-add failed", logging.Any("dir", d), logging.Any("err", err))
+							}
+						}(dir)
+					}
 				}
 				if ev.Op&fsnotify.Write == 0 && ev.Op&fsnotify.Create == 0 {
 					continue

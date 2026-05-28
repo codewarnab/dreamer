@@ -32,7 +32,7 @@ type cacheKeyStats struct {
 // source is present but its file hash fails, the prior key is preserved so
 // state.ChatHashes is not clobbered on assignment (B1). Sources absent from
 // `sources` are intentionally dropped, pruning stale entries (B26).
-func computeCacheKeys(sources []chat.ChatSource, prior map[string]string, repoHeadSHA string, logger *logging.Logger) (map[string]string, cacheKeyStats) {
+func computeCacheKeys(sources []chat.Source, prior map[string]string, repoHeadSHA string, logger *logging.Logger) (map[string]string, cacheKeyStats) {
 	out := make(map[string]string, len(sources))
 	stats := cacheKeyStats{}
 	for _, src := range sources {
@@ -254,6 +254,10 @@ func phase1CacheKey(chatHashes map[string]string, repoHeadSHA string, packs []an
 
 // mistakesToCached converts analyzer Mistakes to the serializable CachedMistake
 // form, keyed by category ID string.
+// mistakesToCached converts analyzer mistakes to cache-friendly state types.
+// NOTE: Only the four fields below are mapped. If analyzer.Mistake gains new
+// fields, this conversion will silently drop them. Update both directions
+// (mistakesToCached + cachedToMistakes) when extending Mistake.
 func mistakesToCached(mistakes map[analyzer.RuleCategory][]analyzer.Mistake) map[string][]state.CachedMistake {
 	out := make(map[string][]state.CachedMistake, len(mistakes))
 	for cat, list := range mistakes {

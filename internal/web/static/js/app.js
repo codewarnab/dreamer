@@ -51,11 +51,11 @@ document.addEventListener("alpine:init", function () {
         es.addEventListener("finding.undone", function (ev) {
           self._dispatch("finding.undone", ev);
         });
-        es.addEventListener("finding.dismiss", function (ev) {
-          self._dispatch("finding.dismiss", ev);
+        es.addEventListener("finding.dismissed", function (ev) {
+          self._dispatch("finding.dismissed", ev);
         });
-        es.addEventListener("finding.resolve", function (ev) {
-          self._dispatch("finding.resolve", ev);
+        es.addEventListener("finding.resolved", function (ev) {
+          self._dispatch("finding.resolved", ev);
         });
         es.addEventListener("chat.deleted", function (ev) {
           self._dispatch("chat.deleted", ev);

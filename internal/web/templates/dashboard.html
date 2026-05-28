@@ -143,8 +143,8 @@ window.dashboardPage = function () {
       this._sseUnsub.push(sse.on("run.done", refresh));
       this._sseUnsub.push(sse.on("run.start", refresh));
       this._sseUnsub.push(sse.on("finding.applied", refresh));
-      this._sseUnsub.push(sse.on("finding.dismiss", refresh));
-      this._sseUnsub.push(sse.on("finding.resolve", refresh));
+      this._sseUnsub.push(sse.on("finding.dismissed", refresh));
+      this._sseUnsub.push(sse.on("finding.resolved", refresh));
     },
     destroy: function () {
       this._sseUnsub.forEach(function (fn) { fn(); });

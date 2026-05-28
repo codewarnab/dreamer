@@ -17,6 +17,7 @@ import (
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
+	"dreamer/internal/pipeline"
 )
 
 const (
@@ -121,7 +122,7 @@ func resolveProviderMeta(deps JobDeps, id string) *backgroundjobs.ProviderMeta {
 
 // validateCreatePayload validates the create/preview payload and resolves
 // the project path. Returns the resolved path and any warnings.
-func validateCreatePayload(cfg *config.Config, payload createPayload, lookup func(string) *backgroundjobs.ProviderMeta) (projectPath string, warnings []string, err error) {
+func validateCreatePayload(cfg *config.App, payload createPayload, lookup func(string) *backgroundjobs.ProviderMeta) (projectPath string, warnings []string, err error) {
 	// 1. Prompt required, max 16 KiB.
 	if strings.TrimSpace(payload.Prompt) == "" {
 		return "", nil, fmt.Errorf("prompt is required")
@@ -164,7 +165,7 @@ func validateCreatePayload(cfg *config.Config, payload createPayload, lookup fun
 
 // resolveProjectPath validates project_name against the config's project list.
 // Rejects names not in config.Projects to prevent path traversal.
-func resolveProjectPath(cfg *config.Config, projectName string) (string, error) {
+func resolveProjectPath(cfg *config.App, projectName string) (string, error) {
 	if projectName == "" {
 		if len(cfg.Projects) == 0 {
 			return "", fmt.Errorf("no projects configured; pass project_name explicitly")
@@ -416,7 +417,7 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			})
 		}
 
-		publishJobEvent(deps.Jobs.Events, "job.created", map[string]any{
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobCreated, map[string]any{
 			"job_id": jobID,
 		})
 
@@ -749,7 +750,7 @@ func JobDelete(deps Deps) http.HandlerFunc {
 			})
 		}
 
-		publishJobEvent(deps.Jobs.Events, "job.deleted", map[string]any{
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobDeleted, map[string]any{
 			"job_id": jobID,
 		})
 
@@ -797,24 +798,24 @@ func JobRunNow(deps Deps) http.HandlerFunc {
 			"status":   "running",
 		})
 
-		publishJobEvent(deps.Jobs.Events, "job.run.start", map[string]any{
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunStart, map[string]any{
 			"job_id": jobID,
 		})
 
 		go func() {
 			defer releaseRun(jobID)
 
-			result, err := deps.Jobs.Executor.Run(context.Background(), jobID)
+			result, err := deps.Jobs.Executor.Run(deps.ShutdownCtx, jobID)
 			if err != nil {
 				deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
-				publishJobEvent(deps.Jobs.Events, "job.run.done", map[string]any{
+				publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
 					"job_id": jobID,
 					"status": "failed",
 				})
 				return
 			}
 
-			publishJobEvent(deps.Jobs.Events, "job.run.done", map[string]any{
+			publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
 				"job_id":          jobID,
 				"run_id":          result.Record.ID,
 				"status":          string(result.Record.Status),
@@ -886,9 +887,9 @@ func JobSetEnabled(deps Deps, enabled bool) http.HandlerFunc {
 			})
 		}
 
-		pubEvt := "job.resumed"
+		pubEvt := pipeline.EventJobResumed
 		if !enabled {
-			pubEvt = "job.paused"
+			pubEvt = pipeline.EventJobPaused
 		}
 		publishJobEvent(deps.Jobs.Events, pubEvt, map[string]any{
 			"job_id": jobID,
