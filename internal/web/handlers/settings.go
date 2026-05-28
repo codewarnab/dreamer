@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -68,8 +69,20 @@ func sanitizeProviderSecrets(m map[string]any) {
 		}
 		for k := range env {
 			upperKey := strings.ToUpper(k)
-			if strings.Contains(upperKey, "TOKEN") || strings.Contains(upperKey, "KEY") || strings.Contains(upperKey, "SECRET") || strings.Contains(upperKey, "PASSWORD") {
+			if strings.Contains(upperKey, "TOKEN") || strings.Contains(upperKey, "KEY") ||
+				strings.Contains(upperKey, "SECRET") || strings.Contains(upperKey, "PASSWORD") ||
+				strings.Contains(upperKey, "AUTH") || strings.Contains(upperKey, "CREDENTIAL") ||
+				strings.Contains(upperKey, "BEARER") || strings.Contains(upperKey, "PRIVATE") {
 				env[k] = redactedPlaceholder
+			}
+		}
+		// Strip userinfo from URL fields (e.g. https://user:pass@host).
+		for _, urlKey := range []string{"base_url", "cli_url"} {
+			if u, ok := block[urlKey].(string); ok && u != "" {
+				if parsed, err := url.Parse(u); err == nil && parsed.User != nil {
+					parsed.User = nil
+					block[urlKey] = parsed.String()
+				}
 			}
 		}
 	}

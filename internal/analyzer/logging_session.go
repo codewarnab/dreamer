@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"dreamer/internal/logging"
@@ -12,13 +13,12 @@ import (
 // can see exactly what was sent to the model. The wrapper is a transparent
 // pass-through aside from logging.
 //
-// Not safe for concurrent Run calls — the session pool single-flights
-// sessions today, but callers that bypass the pool must serialize access.
+// Run is safe for concurrent use — runIndex uses atomic.Int64.
 type loggingSession struct {
 	inner    Session
 	logger   *logging.Logger
 	provider string
-	runIndex int
+	runIndex atomic.Int64
 	redactor *Redactor // optional; nil = no redaction of logged responses
 }
 
@@ -37,8 +37,7 @@ func NewLoggingSessionWithRedactor(inner Session, logger *logging.Logger, provid
 }
 
 func (s *loggingSession) Run(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
-	s.runIndex++
-	idx := s.runIndex
+	idx := s.runIndex.Add(1)
 	s.logger.Info("provider call started", logging.Any("call", idx), logging.Any("provider", s.provider), logging.Any("timeout", timeout), logging.Any("prompt_bytes", len(prompt)))
 	start := time.Now()
 	out, err := s.inner.Run(ctx, prompt, timeout)

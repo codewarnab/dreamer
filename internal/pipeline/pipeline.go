@@ -450,7 +450,7 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 // buildSessionFactories creates the Phase 1 and Phase 2 session factory
 // functions. Phase 1 sessions never see MCP/CLI tool wiring so a rogue
 // Phase 1 model cannot pollute the findings file.
-func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger) (phase1, phase2 func() (analyzer.Session, error)) {
+func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger, redactor *analyzer.Redactor) (phase1, phase2 func() (analyzer.Session, error)) {
 	systemMsg := analyzer.BuildReadOnlySystemMessage(discovery.projectPath, runID)
 	phase1 = func() (analyzer.Session, error) {
 		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
@@ -464,7 +464,7 @@ func buildSessionFactories(ctx context.Context, provider analyzer.Provider, disc
 		if err != nil {
 			return nil, err
 		}
-		return analyzer.NewLoggingSession(raw, logger, discovery.providerID), nil
+		return analyzer.NewLoggingSessionWithRedactor(raw, logger, discovery.providerID, redactor), nil
 	}
 	if phase2Cfg == nil {
 		return phase1, phase1
@@ -482,7 +482,7 @@ func buildSessionFactories(ctx context.Context, provider analyzer.Provider, disc
 		if err != nil {
 			return nil, err
 		}
-		return analyzer.NewLoggingSession(raw, logger, discovery.providerID), nil
+		return analyzer.NewLoggingSessionWithRedactor(raw, logger, discovery.providerID, redactor), nil
 	}
 	return phase1, phase2
 }
@@ -543,7 +543,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	p2, p2Cleanup := setupPhase2Transport(ctx, opts, discovery.providerID, opts.Events, logger)
 	defer p2Cleanup()
 
-	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, providerCfg.Sandbox, runID, logger)
+	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, providerCfg.Sandbox, runID, logger, transcript.redactor)
 
 	existingFindingHashes := collectDismissedHashes(currentState)
 	phaseReq := analyzer.PhaseRequest{
