@@ -18,6 +18,7 @@ import (
 	"dreamer/internal/logging"
 	"dreamer/internal/mcpserver"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
 	"dreamer/internal/web"
 	"dreamer/internal/web/handlers"
 	"github.com/fsnotify/fsnotify"
@@ -91,12 +92,14 @@ func newDaemonCommand() *cobra.Command {
 				logger.Info("swept stale phase-2 findings temp files", logging.Any("count", swept))
 			}
 
-			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, events, overrides)
+			stateCache := state.NewStateCache()
+
+			workers := newWorkerPool(ctx, queue, cfg, logger, discoveryCache, stateCache, events, overrides)
 			workers.Start()
 
 			var live atomic.Pointer[config.Config]
 			live.Store(cfg)
-			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath)
+			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath, stateCache)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
@@ -186,7 +189,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.Config, logger *logg
 }
 
 // startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
-func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string) <-chan struct{} {
+func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Pointer[config.Config], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string, stateCache *state.StateCache) <-chan struct{} {
 	done := make(chan struct{})
 	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
 		close(done)
@@ -309,6 +312,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.Config, live *atomic.Poi
 		Runner:      runner,
 		RestartHook: restartHook,
 		Activity:    activity,
+		StateCache:  stateCache,
 		Jobs:        jobsDeps,
 	})
 	if srvErr != nil {

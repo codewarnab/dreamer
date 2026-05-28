@@ -70,6 +70,10 @@ type Options struct {
 	// the expensive HashFile loop when source files haven't changed. Nil disables caching.
 	DiscoveryCache *DiscoveryCache
 
+	// StateCache, when non-nil, is invalidated after each state.Save
+	// so concurrent web handler reads see the new data.
+	StateCache *state.StateCache
+
 	// Events, when non-nil, receives run.start/run.done events.
 	Events *EventBus
 
@@ -167,6 +171,7 @@ type runCtx struct {
 	state      *state.State
 	packs      []analyzer.RulePack
 	providerID string
+	stateCache *state.StateCache // nil = skip invalidation
 }
 
 // persistFailureState saves currentState on a failure path; logs but does
@@ -182,6 +187,9 @@ func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
 			logging.Any("cause", cause),
 		)
 	}
+	if rc.stateCache != nil {
+		rc.stateCache.Invalidate(rc.project)
+	}
 }
 
 // savePrunedState prunes stale entries (B28/B29) then writes state. Used by
@@ -190,7 +198,11 @@ func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
 func (rc *runCtx) savePrunedState() error {
 	pruneLastRunPerCategory(rc.state.LastRunPerCategory, rc.packs)
 	pruneProviderUsage(rc.state.ProviderUsage, rc.providerID)
-	return state.Save(rc.outputRoot, rc.project, rc.state)
+	err := state.Save(rc.outputRoot, rc.project, rc.state)
+	if err == nil && rc.stateCache != nil {
+		rc.stateCache.Invalidate(rc.project)
+	}
+	return err
 }
 
 // discoveryResult holds the output of the discovery stage.
@@ -786,6 +798,7 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		state:      currentState,
 		packs:      transcript.rulePacks,
 		providerID: discovery.providerID,
+		stateCache: opts.StateCache,
 	}
 
 	if zeroMessages {
