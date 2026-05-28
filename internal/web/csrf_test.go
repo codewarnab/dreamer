@@ -90,6 +90,19 @@ func TestCSRF_OpaqueOriginRejected(t *testing.T) {
 	}
 }
 
+func TestCSRF_WrongTokenRejected(t *testing.T) {
+	tok := MintCSRFToken()
+	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
+	r.Header.Set("Origin", "http://127.0.0.1:7777")
+	r.Header.Set("X-Dreamer-CSRF", "0000000000000000000000000000000000000000000000000000000000000000")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatalf("status = %d, want 403", w.Code)
+	}
+}
+
 func TestCSRF_GetBypassesCheck(t *testing.T) {
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))

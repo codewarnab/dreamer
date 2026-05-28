@@ -2,6 +2,7 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"net/url"
@@ -11,7 +12,9 @@ import (
 // process lifetime and renders it into the SPA shell.
 func MintCSRFToken() string {
 	buf := make([]byte, 32)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		panic("web: failed to read crypto/rand for CSRF token: " + err.Error())
+	}
 	return hex.EncodeToString(buf)
 }
 
@@ -25,7 +28,7 @@ func CSRFMiddleware(token string, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get("X-Dreamer-CSRF") != token {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Dreamer-CSRF")), []byte(token)) != 1 {
 			http.Error(w, "CSRF token missing or wrong", http.StatusForbidden)
 			return
 		}
