@@ -536,14 +536,33 @@ func runInteractiveCreate(cmd *cobra.Command, outputRoot, configPath, defaultPro
 		prefilled.projectPath = projectPath
 	}
 
-	answers, confirmed, err := runJobWizard(prefilled)
+	// Load any saved draft from a previous interrupted wizard run.
+	draftPath := wizardDraftPath(outputRoot)
+	draft, err := loadWizardDraft(draftPath)
+	if err != nil {
+		// Non-fatal — log and continue with fresh wizard.
+		fmt.Fprintf(os.Stderr, "warning: could not load wizard draft: %v\n", err)
+	}
+
+	// Merge: draft provides defaults, CLI flags override.
+	merged := mergeWizardDraft(draft, prefilled)
+
+	answers, confirmed, err := runJobWizard(merged)
 	if err != nil {
 		return err
 	}
 	if !confirmed {
-		cmd.Println("job creation cancelled.")
+		// Save partial state so the user can resume next time.
+		if saveErr := saveWizardDraft(draftPath, answers); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not save wizard draft: %v\n", saveErr)
+		} else {
+			cmd.Println("wizard draft saved — your entries will be pre-filled next time.")
+		}
 		return nil
 	}
+
+	// Job created — clean up any leftover draft.
+	_ = deleteWizardDraft(draftPath)
 
 	return createAndSaveJob(cmd, outputRoot, configPath, jobAnswersToCreateInput(answers, defaultProvider), false)
 }
