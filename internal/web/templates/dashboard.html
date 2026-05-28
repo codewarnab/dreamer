@@ -72,21 +72,6 @@
     <div x-show="projects.length === 0" style="color: var(--text-secondary);">no projects configured.</div>
   </div>
 
-  <div class="card" style="margin-bottom: var(--space-4);" x-show="projects.length > 0">
-    <div class="kicker">projects</div>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
-      <template x-for="p in projects" :key="p.name">
-        <a :href="'/projects/' + p.name" class="stat-card" style="text-decoration: none; cursor: pointer;">
-          <div class="stat-label" x-text="p.name"></div>
-          <div class="stat-value" style="font-size: 24px;" x-text="p.findings_open ?? 0"></div>
-          <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);">
-            <span x-text="p.last_run_utc ? timeAgo(p.last_run_utc) : 'never run'"></span>
-          </div>
-        </a>
-      </template>
-    </div>
-  </div>
-
   <div class="card" style="margin-bottom: var(--space-4);">
     <div class="kicker">live activity</div>
     <div class="activity-strip">

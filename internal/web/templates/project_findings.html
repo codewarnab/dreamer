@@ -42,7 +42,7 @@
       <div class="kicker">finding</div>
       <h2 class="headline-lg" x-text="active?.category"></h2>
       <p class="body" x-text="active?.summary"></p>
-      <pre x-show="active?.diff_preview" x-html="diffHtml()" style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; max-height: 400px; overflow-y: auto;"></pre>
+      <pre x-show="active?.diff_preview" x-html="diffHtml()" class="diff-preview" style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; max-height: 400px; overflow-y: auto;"></pre>
       <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3);">
         <button class="btn btn--primary" @click="act('apply')" x-show="active?.apply_eligible">apply</button>
         <button class="btn btn--ghost" @click="act('dismiss')">dismiss</button>
