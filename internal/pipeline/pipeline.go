@@ -678,7 +678,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 		FindingsNew:   pipelineResult.Findings,
 		FindingsTotal: len(currentState.FindingHashes),
 		Tokens:        0,
-		RunMillis:     time.Since(runStart).Milliseconds(),
+		RunDurationMillis: time.Since(runStart).Milliseconds(),
 		PerCategory:   perCategory,
 	}); err != nil {
 		logger.Warn("history update failed", logging.Any("err", err))

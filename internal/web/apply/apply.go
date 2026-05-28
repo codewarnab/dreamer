@@ -41,8 +41,8 @@ func IsTargetTooLarge(err error) bool { return errors.Is(err, ErrTargetTooLarge)
 func IsTargetChanged(err error) bool  { return errors.Is(err, ErrTargetChanged) }
 func IsContainment(err error) bool    { return errors.Is(err, ErrContainment) }
 
-// ApplyRequest carries the inputs to one apply operation.
-type ApplyRequest struct {
+// Request carries the inputs to one apply operation.
+type Request struct {
 	ProjectRoot string
 	TargetFile  string // repo-relative path from the rule pack
 	Strategy    string
@@ -54,7 +54,7 @@ type ApplyRequest struct {
 // containment-checked), reads the existing contents, applies the
 // strategy, atomically writes the result, and returns a FindingReversal
 // capable of undoing the write.
-func Apply(req ApplyRequest) (*state.FindingReversal, error) {
+func Apply(req Request) (*state.FindingReversal, error) {
 	absRoot, err := filepath.EvalSymlinks(req.ProjectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
@@ -98,7 +98,7 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 // Preview returns the pre- and post-image bytes that Apply would write,
 // without performing any write or recording a reversal. The same
 // containment, symlink, and size checks as Apply are enforced.
-func Preview(req ApplyRequest) (preImage []byte, postImage []byte, finalStrategy string, err error) {
+func Preview(req Request) (preImage []byte, postImage []byte, finalStrategy string, err error) {
 	absRoot, err := filepath.EvalSymlinks(req.ProjectRoot)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)

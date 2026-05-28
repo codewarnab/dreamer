@@ -7,7 +7,7 @@ import (
 
 func TestHistory_UpdateToday_CreatesAndIncrements(t *testing.T) {
 	dir := t.TempDir()
-	if err := UpdateHistoryToday(dir, "proj", "2026-05-20", DaySummaryDelta{Runs: 1, FindingsNew: 3, PerCategory: map[string]int{"doc": 2, "test": 1}, RunMillis: 12000}); err != nil {
+	if err := UpdateHistoryToday(dir, "proj", "2026-05-20", DaySummaryDelta{Runs: 1, FindingsNew: 3, PerCategory: map[string]int{"doc": 2, "test": 1}, RunDurationMillis: 12000}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	history, err := LoadHistory(dir, "proj")
@@ -17,10 +17,10 @@ func TestHistory_UpdateToday_CreatesAndIncrements(t *testing.T) {
 	if len(history.Days) != 1 || history.Days[0].Date != "2026-05-20" {
 		t.Fatalf("days = %+v", history.Days)
 	}
-	if history.Days[0].Runs != 1 || history.Days[0].FindingsNew != 3 || history.Days[0].AvgRunMillis != 12000 {
+	if history.Days[0].Runs != 1 || history.Days[0].FindingsNew != 3 || history.Days[0].AvgRunDurationMillis != 12000 {
 		t.Fatalf("day = %+v", history.Days[0])
 	}
-	if err := UpdateHistoryToday(dir, "proj", "2026-05-20", DaySummaryDelta{Runs: 1, FindingsNew: 2, PerCategory: map[string]int{"doc": 1}, RunMillis: 18000}); err != nil {
+	if err := UpdateHistoryToday(dir, "proj", "2026-05-20", DaySummaryDelta{Runs: 1, FindingsNew: 2, PerCategory: map[string]int{"doc": 1}, RunDurationMillis: 18000}); err != nil {
 		t.Fatalf("update 2: %v", err)
 	}
 	history, err = LoadHistory(dir, "proj")
@@ -30,8 +30,8 @@ func TestHistory_UpdateToday_CreatesAndIncrements(t *testing.T) {
 	if history.Days[0].Runs != 2 || history.Days[0].FindingsNew != 5 || history.Days[0].PerCategory["doc"] != 3 {
 		t.Fatalf("merged day = %+v", history.Days[0])
 	}
-	if history.Days[0].AvgRunMillis != 15000 {
-		t.Fatalf("avg = %d, want 15000", history.Days[0].AvgRunMillis)
+	if history.Days[0].AvgRunDurationMillis != 15000 {
+		t.Fatalf("avg = %d, want 15000", history.Days[0].AvgRunDurationMillis)
 	}
 }
 
@@ -45,7 +45,7 @@ func TestHistory_PrunesPast90Days(t *testing.T) {
 	if err := SaveHistory(dir, "proj", history); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if err := UpdateHistoryToday(dir, "proj", "2026-04-15", DaySummaryDelta{Runs: 1, RunMillis: 1000, PerCategory: map[string]int{"doc": 1}}); err != nil {
+	if err := UpdateHistoryToday(dir, "proj", "2026-04-15", DaySummaryDelta{Runs: 1, RunDurationMillis: 1000, PerCategory: map[string]int{"doc": 1}}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	loaded, err := LoadHistory(dir, "proj")

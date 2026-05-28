@@ -155,7 +155,7 @@ func Apply(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusConflict, "finding already applied; undo first before re-applying")
 			return
 		}
-		rev, err := apply.Apply(apply.ApplyRequest{
+		rev, err := apply.Apply(apply.Request{
 			ProjectRoot: proj.Path,
 			TargetFile:  spec.TargetFile,
 			Strategy:    spec.Strategy,

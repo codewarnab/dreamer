@@ -44,12 +44,12 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 	phase1Pool := NewSessionPool(poolCap, rc.Phase1Factory())
 	defer phase1Pool.Close()
 
-	mistakesByCategory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, chunkInputs, req)
+	mistakesByCategoryegory, completedChunks, p1Warnings, err := o.runPhase1(ctx, rc, phase1Pool, builder, chunkInputs, req)
 	analysisResult := AnalysisResult{Warnings: p1Warnings}
 	if err != nil {
 		return analysisResult, err
 	}
-	analysisResult.Mistakes = orderedByCategory(mistakesByCategory, enabled)
+	analysisResult.Mistakes = orderedByCategory(mistakesByCategoryegory, enabled)
 
 	if req.DryRun || len(analysisResult.Mistakes) == 0 {
 		if completedChunks == len(chunkInputs.Chunks) {
@@ -63,7 +63,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
 	defer phase2Pool.Close()
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategory, chunkInputs.RuleTimeoutSecs, req)
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategoryegory, chunkInputs.RuleTimeoutSecs, req)
 	analysisResult.Warnings = append(analysisResult.Warnings, p2Warnings...)
 	if err != nil {
 		return analysisResult, err
@@ -84,7 +84,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 
 type chunkResult struct {
 	index         int
-	mistakesByCat map[RuleCategory][]Mistake
+	mistakesByCategory map[RuleCategory][]Mistake
 	summary       string
 	warnings      []string
 	err           error
@@ -153,7 +153,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 				return nil
 			}
 			parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
-			chunkRes := chunkResult{index: i, mistakesByCat: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
+			chunkRes := chunkResult{index: i, mistakesByCategory: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
 			if parseErr != nil {
 				chunkRes.warnings = append(chunkRes.warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
 			}
@@ -178,7 +178,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 		if strings.TrimSpace(chunkRes.summary) == "" {
 			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d returned empty summary", chunkRes.index))
 		}
-		mergeMistakes(mistakes, chunkRes.mistakesByCat)
+		mergeMistakes(mistakes, chunkRes.mistakesByCategory)
 		completed++
 	}
 	if gErr != nil && errs.Is(gErr, errs.KindRateLimit) {

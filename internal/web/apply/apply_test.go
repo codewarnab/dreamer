@@ -21,7 +21,7 @@ func TestApply_AppendSection_AppendsWhenAnchorMissing(t *testing.T) {
 	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	rev, err := Apply(ApplyRequest{
+	rev, err := Apply(Request{
 		ProjectRoot: dir, TargetFile: "CLAUDE.md",
 		Strategy: "append-section", Anchor: "Cache", Snippet: "Rules for cache.",
 	})
@@ -51,7 +51,7 @@ func TestApply_AppendSection_PromotesToReplaceWhenAnchorExists(t *testing.T) {
 	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	rev, err := Apply(ApplyRequest{
+	rev, err := Apply(Request{
 		ProjectRoot: dir, TargetFile: "CLAUDE.md",
 		Strategy: "append-section", Anchor: "Cache", Snippet: "Rules for cache.",
 	})
@@ -75,7 +75,7 @@ func TestApply_AppendSection_PromotesToReplaceWhenAnchorExists(t *testing.T) {
 
 func TestApply_RejectsTargetOutsideProjectRoot(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Apply(ApplyRequest{
+	_, err := Apply(Request{
 		ProjectRoot: dir, TargetFile: "../escape.md",
 		Strategy: "append-file", Snippet: "x",
 	})
@@ -94,7 +94,7 @@ func TestApply_RejectsOversize(t *testing.T) {
 	if err := os.WriteFile(target, big, 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, err := Apply(ApplyRequest{
+	_, err := Apply(Request{
 		ProjectRoot: dir, TargetFile: "big.txt",
 		Strategy: "append-file", Snippet: "x",
 	})
@@ -110,7 +110,7 @@ func TestUndo_RestoresPreImageWhenPostSHAUnchanged(t *testing.T) {
 	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	rev, err := Apply(ApplyRequest{ProjectRoot: dir, TargetFile: "x.md", Strategy: "append-file", Snippet: "world\n"})
+	rev, err := Apply(Request{ProjectRoot: dir, TargetFile: "x.md", Strategy: "append-file", Snippet: "world\n"})
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestPreview_ReturnsTransformedPostBytes(t *testing.T) {
 	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	pre, post, strat, err := Preview(ApplyRequest{
+	pre, post, strat, err := Preview(Request{
 		ProjectRoot: dir, TargetFile: "CLAUDE.md",
 		Strategy: "append-section", Anchor: "Cache", Snippet: "Rules for cache.",
 	})
@@ -156,7 +156,7 @@ func TestPreview_ReturnsTransformedPostBytes(t *testing.T) {
 
 func TestPreview_RejectsContainmentEscape(t *testing.T) {
 	dir := t.TempDir()
-	_, _, _, err := Preview(ApplyRequest{
+	_, _, _, err := Preview(Request{
 		ProjectRoot: dir, TargetFile: "../escape.md",
 		Strategy: "append-file", Snippet: "x",
 	})
@@ -178,7 +178,7 @@ func TestApply_RejectsParentSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	_, err := Apply(ApplyRequest{
+	_, err := Apply(Request{
 		ProjectRoot: root, TargetFile: "escape/pwned.md",
 		Strategy: "append-file", Snippet: "x\n",
 	})
@@ -196,7 +196,7 @@ func TestUndo_RefusesWhenTargetModifiedExternally(t *testing.T) {
 	if err := os.WriteFile(target, []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	rev, err := Apply(ApplyRequest{ProjectRoot: dir, TargetFile: "x.md", Strategy: "append-file", Snippet: "world\n"})
+	rev, err := Apply(Request{ProjectRoot: dir, TargetFile: "x.md", Strategy: "append-file", Snippet: "world\n"})
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}

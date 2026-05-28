@@ -187,16 +187,16 @@ func TestAcceptance_V15(t *testing.T) {
 		// Seed 7 days inside the 7-day window so they contribute to
 		// avg_run_seconds: 1 run/day with progressively larger durations.
 		now := time.Now().UTC()
-		var totalRunMillis int64
+		var totalRunDurationMillis int64
 		var totalRuns int64
 		for i := 0; i < 7; i++ {
 			date := now.AddDate(0, 0, -i).Format("2006-01-02")
 			runMillis := int64(10000 + i*2000)
-			delta := state.DaySummaryDelta{Runs: 1, RunMillis: runMillis, PerCategory: map[string]int{"doc": 1}}
+			delta := state.DaySummaryDelta{Runs: 1, RunDurationMillis: runMillis, PerCategory: map[string]int{"doc": 1}}
 			if err := state.UpdateHistoryToday(root, name, date, delta); err != nil {
 				t.Fatalf("seed %s: %v", date, err)
 			}
-			totalRunMillis += runMillis
+			totalRunDurationMillis += runMillis
 			totalRuns++
 		}
 		if err := state.Save(root, name, &state.State{Version: state.StateVersion}); err != nil {
@@ -224,7 +224,7 @@ func TestAcceptance_V15(t *testing.T) {
 		if len(resp.Sparkline30d) != 7 {
 			t.Fatalf("sparkline_30d len=%d want 7; days=%+v", len(resp.Sparkline30d), resp.Sparkline30d)
 		}
-		wantAvg := int(totalRunMillis / totalRuns / 1000)
+		wantAvg := int(totalRunDurationMillis / totalRuns / 1000)
 		if resp.Stats.AvgRunSeconds != wantAvg {
 			t.Errorf("avg_run_seconds=%d want %d (weighted mean)", resp.Stats.AvgRunSeconds, wantAvg)
 		}

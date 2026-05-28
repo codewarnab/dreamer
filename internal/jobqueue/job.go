@@ -7,20 +7,20 @@ import (
 	"time"
 )
 
-// JobStatus represents the lifecycle state of an analysis job.
-type JobStatus string
+// Status represents the lifecycle state of an analysis job.
+type Status string
 
 const (
-	StatusPending   JobStatus = "pending"   // enqueued, waiting for worker
-	StatusRunning   JobStatus = "running"   // worker assigned, pipeline active
-	StatusCompleted JobStatus = "completed" // pipeline finished successfully
-	StatusFailed    JobStatus = "failed"    // pipeline errored
-	StatusTimedOut  JobStatus = "timed_out" // max_analysis_duration exceeded
-	StatusCancelled JobStatus = "cancelled" // daemon shutdown, context cancelled
+	StatusPending   Status = "pending"   // enqueued, waiting for worker
+	StatusRunning   Status = "running"   // worker assigned, pipeline active
+	StatusCompleted Status = "completed" // pipeline finished successfully
+	StatusFailed    Status = "failed"    // pipeline errored
+	StatusTimedOut  Status = "timed_out" // max_analysis_duration exceeded
+	StatusCancelled Status = "cancelled" // daemon shutdown, context cancelled
 )
 
 // terminalStatuses lists all statuses that represent a finished job.
-var terminalStatuses = map[JobStatus]bool{
+var terminalStatuses = map[Status]bool{
 	StatusCompleted: true,
 	StatusFailed:    true,
 	StatusTimedOut:  true,
@@ -28,7 +28,7 @@ var terminalStatuses = map[JobStatus]bool{
 }
 
 // IsTerminal reports whether this status represents a finished job.
-func (s JobStatus) IsTerminal() bool {
+func (s Status) IsTerminal() bool {
 	return terminalStatuses[s]
 }
 
@@ -37,7 +37,7 @@ type Job struct {
 	ID            string        `json:"id"`
 	Project       string        `json:"project"`
 	ProjectPath   string        `json:"project_path"`
-	Status        JobStatus     `json:"status"`
+	Status        Status     `json:"status"`
 	EnqueuedAt    time.Time     `json:"enqueued_at"`
 	StartedAt     *time.Time    `json:"started_at,omitempty"`
 	FinishedAt    *time.Time    `json:"finished_at,omitempty"`
@@ -77,7 +77,7 @@ func (j *Job) markRunning() {
 }
 
 // markFinished transitions the job to a terminal status with metrics.
-func (j *Job) markFinished(status JobStatus, errMsg string, findings, messages, sources int) {
+func (j *Job) markFinished(status Status, errMsg string, findings, messages, sources int) {
 	now := time.Now().UTC()
 	j.Status = status
 	j.FinishedAt = &now

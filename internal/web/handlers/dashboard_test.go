@@ -49,8 +49,8 @@ func TestDashboard_AggregatesAcrossProjects(t *testing.T) {
 		},
 	}
 	histA := &state.History{Version: 1, Days: []state.DaySummary{
-		{Date: yesterday, Runs: 2, FindingsNew: 3, Tokens: 100, AvgRunMillis: 5000, PerCategory: map[string]int{"doc": 2}},
-		{Date: today, Runs: 1, FindingsNew: 1, Tokens: 50, AvgRunMillis: 2000, PerCategory: map[string]int{"doc": 1}},
+		{Date: yesterday, Runs: 2, FindingsNew: 3, Tokens: 100, AvgRunDurationMillis: 5000, PerCategory: map[string]int{"doc": 2}},
+		{Date: today, Runs: 1, FindingsNew: 1, Tokens: 50, AvgRunDurationMillis: 2000, PerCategory: map[string]int{"doc": 1}},
 	}}
 
 	stB := &state.State{
@@ -67,7 +67,7 @@ func TestDashboard_AggregatesAcrossProjects(t *testing.T) {
 		},
 	}
 	histB := &state.History{Version: 1, Days: []state.DaySummary{
-		{Date: today, Runs: 1, FindingsNew: 2, Tokens: 25, AvgRunMillis: 1000, PerCategory: map[string]int{"sec": 5}},
+		{Date: today, Runs: 1, FindingsNew: 2, Tokens: 25, AvgRunDurationMillis: 1000, PerCategory: map[string]int{"sec": 5}},
 	}}
 
 	seedProject(t, root, "proj-a", stA, histA)
