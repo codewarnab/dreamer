@@ -430,6 +430,19 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 				if !ok {
 					return
 				}
+				// Re-add watch if the directory itself was renamed or
+				// removed (editor temp-and-rename can invalidate the
+				// watch on the parent directory).
+				if ev.Op&(fsnotify.Rename|fsnotify.Remove) != 0 {
+					dir := filepath.Dir(ev.Name)
+					if _, isWatched := watched[dir]; isWatched {
+						time.Sleep(100 * time.Millisecond)
+						_ = watcher.Remove(dir)
+						if err := watcher.Add(dir); err != nil {
+							logger.Warn("config watcher re-add failed", logging.Any("dir", dir), logging.Any("err", err))
+						}
+					}
+				}
 				if ev.Op&fsnotify.Write == 0 && ev.Op&fsnotify.Create == 0 {
 					continue
 				}
