@@ -12,7 +12,7 @@ import (
 	"dreamer/internal/state"
 )
 
-func buildProjectsCfg(t *testing.T) *config.Config {
+func buildProjectsCfg(t *testing.T) *config.App {
 	t.Helper()
 	root := t.TempDir()
 	root, _ = filepath.Abs(root)
@@ -39,7 +39,7 @@ func buildProjectsCfg(t *testing.T) *config.Config {
 	if err := state.Save(root, "proj-b", stB); err != nil {
 		t.Fatal(err)
 	}
-	return &config.Config{
+	return &config.App{
 		Projects: []config.ProjectConfig{
 			{Name: "proj-a", Path: "/tmp/proj-a", Since: "2026-01-01"},
 			{Name: "proj-b", Path: "/tmp/proj-b"},
@@ -50,7 +50,7 @@ func buildProjectsCfg(t *testing.T) *config.Config {
 
 func TestProjectsList(t *testing.T) {
 	cfg := buildProjectsCfg(t)
-	h := ProjectsList(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectsList(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects", nil))
 	if rec.Code != http.StatusOK {
@@ -91,7 +91,7 @@ func TestProjectsList(t *testing.T) {
 
 func TestProjectDetail_Found(t *testing.T) {
 	cfg := buildProjectsCfg(t)
-	h := ProjectDetail(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-a", nil))
 	if rec.Code != http.StatusOK {
@@ -108,7 +108,7 @@ func TestProjectDetail_Found(t *testing.T) {
 
 func TestProjectDetail_Unknown(t *testing.T) {
 	cfg := buildProjectsCfg(t)
-	h := ProjectDetail(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope", nil))
 	if rec.Code != http.StatusNotFound {
@@ -118,7 +118,7 @@ func TestProjectDetail_Unknown(t *testing.T) {
 
 func TestProjectDetail_RejectSubpath(t *testing.T) {
 	cfg := buildProjectsCfg(t)
-	h := ProjectDetail(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-a/findings", nil))
 	if rec.Code != http.StatusNotFound {

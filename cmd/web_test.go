@@ -16,7 +16,7 @@ import (
 func TestResolveWebPort_PrefersPortFile(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "web.port"), []byte("12345\n"), 0o644)
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: dir}, Web: config.WebConfig{Port: 7777}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: dir}, Web: config.WebConfig{Port: 7777}}
 	got, _ := resolveWebPort(cfg)
 	if got != 12345 {
 		t.Fatalf("got %d want 12345", got)
@@ -24,7 +24,7 @@ func TestResolveWebPort_PrefersPortFile(t *testing.T) {
 }
 
 func TestResolveWebPort_FallsBackToConfigPort(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}, Web: config.WebConfig{Port: 7777}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}, Web: config.WebConfig{Port: 7777}}
 	got, _ := resolveWebPort(cfg)
 	if got != 7777 {
 		t.Fatalf("got %d want 7777", got)
@@ -32,7 +32,7 @@ func TestResolveWebPort_FallsBackToConfigPort(t *testing.T) {
 }
 
 func TestResolveWebPort_DefaultsTo7777(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
 	got, _ := resolveWebPort(cfg)
 	if got != 7777 {
 		t.Fatalf("got %d want 7777", got)

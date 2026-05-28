@@ -206,7 +206,7 @@ func TestRunReturnsCacheHitWhenSourcesAndRepoAreUnchanged(t *testing.T) {
 	}
 }
 
-func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg *config.Config) {
+func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg *config.App) {
 	t.Helper()
 
 	home := t.TempDir()
@@ -227,7 +227,7 @@ func newPipelineFixture(t *testing.T) (projectDir string, outputRoot string, cfg
 	}
 
 	outputRoot = t.TempDir()
-	cfg = &config.Config{
+	cfg = &config.App{
 		DefaultProvider: fakeProviderID,
 		Daemon: config.DaemonConfig{
 			FrequencySeconds: 60,

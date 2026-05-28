@@ -287,7 +287,7 @@ func TestIsLifetimeSince(t *testing.T) {
 func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	cliBlock := ProviderBlock{Model: "gpt-cli"}
 	projectBlock := ProviderBlock{Model: "gpt-project"}
-	cfg := &Config{
+	cfg := &App{
 		DefaultProvider: "gemini-cli",
 		Providers: map[string]ProviderBlock{
 			"copilot-sdk": cliBlock,
@@ -358,7 +358,7 @@ func writeConfigFile(t *testing.T, path string, cfg map[string]any) {
 }
 
 func TestWebConfig_DefaultsWhenUnset(t *testing.T) {
-	cfg := &Config{}
+	cfg := &App{}
 	applyDefaults(cfg)
 	if cfg.Web.Enabled == nil || *cfg.Web.Enabled != true {
 		t.Fatalf("Web.Enabled = %v, want true", cfg.Web.Enabled)
@@ -376,7 +376,7 @@ func TestWebConfig_DefaultsWhenUnset(t *testing.T) {
 
 func TestWebConfig_ExplicitFalseEnabledSurvives(t *testing.T) {
 	f := false
-	cfg := &Config{Web: WebConfig{Enabled: &f}}
+	cfg := &App{Web: WebConfig{Enabled: &f}}
 	applyDefaults(cfg)
 	if cfg.Web.Enabled == nil || *cfg.Web.Enabled != false {
 		t.Fatalf("Web.Enabled = %v, want false (preserved)", cfg.Web.Enabled)
@@ -387,7 +387,7 @@ func TestValidate_RejectsNonLoopbackWebHost(t *testing.T) {
 	cases := []string{"0.0.0.0", "192.168.1.1", "example.com"}
 	for _, host := range cases {
 		t.Run(host, func(t *testing.T) {
-			cfg := &Config{
+			cfg := &App{
 				Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir()},
 				Web:    WebConfig{Host: host, Port: 7777, LogTailKB: 1},
 			}
@@ -407,7 +407,7 @@ func TestValidate_AcceptsLoopbackWebHost(t *testing.T) {
 	cases := []string{"127.0.0.1", "localhost", "::1"}
 	for _, host := range cases {
 		t.Run(host, func(t *testing.T) {
-			cfg := &Config{
+			cfg := &App{
 				Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir()},
 				Web:    WebConfig{Host: host, Port: 7777, LogTailKB: 1},
 			}
@@ -419,8 +419,8 @@ func TestValidate_AcceptsLoopbackWebHost(t *testing.T) {
 	}
 }
 
-func TestConfigNotices_OverlayFieldsExist(t *testing.T) {
-	n := ConfigNotices{}
+func TestNotices_OverlayFieldsExist(t *testing.T) {
+	n := Notices{}
 	n.OverlayApplied = true
 	n.OverlayParseError = "boom"
 	n.RestartRequired = []string{"web.port"}
@@ -639,7 +639,7 @@ func TestLoadProjectFileConfig_ValidFile(t *testing.T) {
 }
 
 func TestResolveMaxDuration_ProjectOverride(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Daemon:   DaemonConfig{MaxAnalysisDuration: "8h"},
 		Projects: []ProjectConfig{{Name: "fast", MaxAnalysisDuration: "30m"}},
 	}
@@ -653,7 +653,7 @@ func TestResolveMaxDuration_ProjectOverride(t *testing.T) {
 }
 
 func TestResolveMaxDuration_DaemonDefault(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Daemon:   DaemonConfig{MaxAnalysisDuration: "4h"},
 		Projects: []ProjectConfig{{Name: "normal"}},
 	}
@@ -667,7 +667,7 @@ func TestResolveMaxDuration_DaemonDefault(t *testing.T) {
 }
 
 func TestResolveMaxDuration_InvalidDuration(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Daemon: DaemonConfig{MaxAnalysisDuration: "not-a-duration"},
 	}
 	_, err := cfg.ResolveMaxDuration("anything")
@@ -850,7 +850,7 @@ func TestValidateWebHost_Localhost(t *testing.T) {
 }
 
 func TestResolveProviderConfig_FallbackToDefault(t *testing.T) {
-	cfg := &Config{DefaultProvider: ""}
+	cfg := &App{DefaultProvider: ""}
 	id, _ := cfg.ResolveProviderConfig(nil, "")
 	if id != DefaultProviderID {
 		t.Fatalf("id = %q, want %q (default fallback)", id, DefaultProviderID)
@@ -885,7 +885,7 @@ func TestLoadProjectFileConfig_InvalidYAML(t *testing.T) {
 
 func TestValidateConfig_RejectsInvalidProjectDuration(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir, MaxAnalysisDuration: "bad"},
 		},
@@ -898,7 +898,7 @@ func TestValidateConfig_RejectsInvalidProjectDuration(t *testing.T) {
 
 func TestValidateConfig_Valid(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir, MaxAnalysisDuration: "30m"},
 		},
@@ -911,7 +911,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 }
 
 func TestValidateConfig_RejectsEmptyProjectPath(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: ""},
 		},
@@ -924,7 +924,7 @@ func TestValidateConfig_RejectsEmptyProjectPath(t *testing.T) {
 
 func TestValidateConfig_RejectsRelativeOutputRoot(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir},
 		},
@@ -937,7 +937,7 @@ func TestValidateConfig_RejectsRelativeOutputRoot(t *testing.T) {
 
 func TestValidateConfig_RejectsInvalidRetention(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir},
 		},

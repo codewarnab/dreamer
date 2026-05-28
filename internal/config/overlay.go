@@ -27,7 +27,7 @@ func GlobalOverlayPath() (string, error) {
 // fails to parse is captured in Notices.OverlayParseError and the base
 // config is returned unmodified so the daemon keeps running on malformed
 // overlay.
-func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
+func LoadConfigWithOverlay(basePath, overlayPath string) (*App, error) {
 	baseConfig, err := LoadConfig(basePath)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 	if len(overlayBytes) == 0 {
 		return baseConfig, nil
 	}
-	var overlay Config
+	var overlay App
 	if err := yaml.Unmarshal(overlayBytes, &overlay); err != nil {
 		baseConfig.Notices.OverlayParseError = fmt.Sprintf("overlay %q parse error: %v", overlayPath, err)
 		return baseConfig, nil
@@ -74,7 +74,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*Config, error) {
 //   - Maps (providers, analyzer.rules): per-key, overlay value wins.
 //   - Lists (projects, redaction.patterns): overlay replaces entire list
 //     when non-empty.
-func mergeOverlay(base, overlay *Config) {
+func mergeOverlay(base, overlay *App) {
 	if overlay.DefaultProvider != "" {
 		base.DefaultProvider = overlay.DefaultProvider
 	}

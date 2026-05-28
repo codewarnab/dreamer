@@ -10,7 +10,7 @@ import (
 
 // enqueueMissingJobs enqueues a pending job for every configured project that
 // does not already have an active (pending or running) job in the queue.
-func enqueueMissingJobs(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, logger *logging.Logger) {
+func enqueueMissingJobs(ctx context.Context, queue *jobqueue.Queue, cfg *config.App, logger *logging.Logger) {
 	for _, project := range cfg.Projects {
 		if ctx.Err() != nil {
 			return
@@ -31,7 +31,7 @@ func enqueueMissingJobs(ctx context.Context, queue *jobqueue.Queue, cfg *config.
 
 // resolveProvider returns the best-fit provider id for a project by looking
 // up the project-specific config file, then falling back to the global default.
-func resolveProvider(cfg *config.Config, project config.ProjectConfig) string {
+func resolveProvider(cfg *config.App, project config.ProjectConfig) string {
 	pfc, _ := config.LoadProjectFileConfig(project.Path)
 	if pfc != nil && pfc.Provider != "" {
 		return pfc.Provider

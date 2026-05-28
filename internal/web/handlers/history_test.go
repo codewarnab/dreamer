@@ -22,11 +22,11 @@ func TestProjectHistory_ReturnsSavedDays(t *testing.T) {
 	if err := state.SaveHistory(root, "p1", h); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p1", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: root},
 	}
-	handler := ProjectHistory(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectHistory(Deps{Config: func() *config.App { return cfg }})
 
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/history", nil))
@@ -54,11 +54,11 @@ func TestProjectHistory_DaysCap(t *testing.T) {
 	if err := state.SaveHistory(root, "p1", h); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p1", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: root},
 	}
-	handler := ProjectHistory(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectHistory(Deps{Config: func() *config.App { return cfg }})
 
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/history?days=2", nil))
@@ -77,11 +77,11 @@ func TestProjectHistory_DaysCap(t *testing.T) {
 
 func TestProjectHistory_MissingFileReturnsEmpty(t *testing.T) {
 	root := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p1", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: root},
 	}
-	handler := ProjectHistory(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectHistory(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/history", nil))
 	if rec.Code != http.StatusOK {
@@ -95,11 +95,11 @@ func TestProjectHistory_MissingFileReturnsEmpty(t *testing.T) {
 }
 
 func TestProjectHistory_UnknownProject(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p1", Path: "/tmp/x"}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectHistory(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectHistory(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	handler(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/history", nil))
 	if rec.Code != http.StatusNotFound {

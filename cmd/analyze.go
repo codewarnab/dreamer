@@ -148,7 +148,7 @@ func commandContext(cmd *cobra.Command) context.Context {
 // checkJobConflict loads the job queue and checks whether a running or
 // pending job exists for the given project path. Returns an empty string
 // if no conflict; otherwise a human-readable error message.
-func checkJobConflict(appConfig *config.Config, projectPath string) string {
+func checkJobConflict(appConfig *config.App, projectPath string) string {
 	storePath := filepath.Join(appConfig.Daemon.OutputRoot, "jobs.json")
 	queue := jobqueue.New(jobqueue.Options{StorePath: storePath})
 	if err := queue.Recover(); err != nil {

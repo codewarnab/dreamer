@@ -35,13 +35,13 @@ const (
 
 // Options bundles the dependencies a Server needs.
 type Options struct {
-	Config *config.Config
+	Config *config.App
 	Logger *logging.Logger
 	Events *pipeline.EventBus
 	// ConfigPtr, when non-nil, provides the live (atomically swappable) config
 	// used by handlers that must see post-overlay-reload values. Nil-safe: when
 	// unset, Server.currentConfig falls back to Options.Config.
-	ConfigPtr *atomic.Pointer[config.Config]
+	ConfigPtr *atomic.Pointer[config.App]
 
 	// OverlayPath is the absolute path to ui-overrides.yaml used by the
 	// settings PUT handler. Empty disables overlay writes.
@@ -124,7 +124,7 @@ func (s *Server) CSRFToken() string { return s.csrfToken }
 
 // currentConfig returns the live config when an atomic pointer is wired in,
 // otherwise the static Options.Config snapshot captured at construction.
-func (s *Server) currentConfig() *config.Config {
+func (s *Server) currentConfig() *config.App {
 	if s.opts.ConfigPtr != nil {
 		if cfg := s.opts.ConfigPtr.Load(); cfg != nil {
 			return cfg

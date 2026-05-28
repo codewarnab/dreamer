@@ -68,8 +68,8 @@ func TestStartConfigWatcher_PublishesOnWrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var live atomic.Pointer[config.Config]
-	live.Store(&config.Config{})
+	var live atomic.Pointer[config.App]
+	live.Store(&config.App{})
 	startConfigWatcher(ctx, logger, events, &live, configPath, overlayPath)
 
 	// Give the watcher a moment to register.
@@ -112,8 +112,8 @@ func TestStartConfigWatcher_SwapsLiveConfig(t *testing.T) {
 	sub := events.Subscribe(4)
 	defer events.Unsubscribe(sub)
 
-	var live atomic.Pointer[config.Config]
-	live.Store(&config.Config{DefaultProvider: "copilot"})
+	var live atomic.Pointer[config.App]
+	live.Store(&config.App{DefaultProvider: "copilot"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

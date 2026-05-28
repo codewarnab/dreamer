@@ -19,7 +19,7 @@ import (
 // a func to return the live (post-overlay-reload) snapshot. Events is the
 // shared pub-sub used by lifecycle handlers to publish finding.* events.
 type Deps struct {
-	Config         func() *config.Config
+	Config         func() *config.App
 	Events         *pipeline.EventBus
 	Logger         *logging.Logger
 	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
@@ -91,7 +91,7 @@ type providerCount struct {
 }
 
 // buildDashboard aggregates state.json + history.json across every project.
-func buildDashboard(cfg *config.Config) dashboardResponse {
+func buildDashboard(cfg *config.App) dashboardResponse {
 	out := dashboardResponse{
 		PerCategory:         map[string]int{},
 		TopMistakeProviders: []providerCount{},

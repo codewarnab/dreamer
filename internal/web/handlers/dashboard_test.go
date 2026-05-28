@@ -73,7 +73,7 @@ func TestDashboard_AggregatesAcrossProjects(t *testing.T) {
 	seedProject(t, root, "proj-a", stA, histA)
 	seedProject(t, root, "proj-b", stB, histB)
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{
 			{Name: "proj-a", Path: t.TempDir()},
 			{Name: "proj-b", Path: t.TempDir()},
@@ -84,7 +84,7 @@ func TestDashboard_AggregatesAcrossProjects(t *testing.T) {
 		},
 	}
 
-	h := Dashboard(Deps{Config: func() *config.Config { return cfg }})
+	h := Dashboard(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 	h(rec, req)
@@ -143,14 +143,14 @@ func TestDashboard_AggregatesAcrossProjects(t *testing.T) {
 }
 
 func TestDashboard_UsesRecentActivity(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
 	at := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
 	events := []pipeline.Event{
 		{Type: "run.start", At: at, Payload: map[string]any{"project": "p"}},
 		{Type: "run.done", At: at.Add(time.Minute), Payload: map[string]any{"project": "p"}},
 	}
 	h := Dashboard(Deps{
-		Config:         func() *config.Config { return cfg },
+		Config:         func() *config.App { return cfg },
 		RecentActivity: func() []pipeline.Event { return events },
 	})
 	rec := httptest.NewRecorder()
@@ -179,8 +179,8 @@ func TestDashboard_UsesRecentActivity(t *testing.T) {
 }
 
 func TestDashboard_MethodNotAllowed(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
-	h := Dashboard(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	h := Dashboard(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/dashboard", nil)
 	h(rec, req)

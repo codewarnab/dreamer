@@ -89,12 +89,12 @@ func TestProjectChats_Discovery(t *testing.T) {
 	}
 
 	projectPath := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{
 			{Name: "p1", Path: projectPath, Since: "24h"},
 		},
 	}
-	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p1/chats", nil))
@@ -140,10 +140,10 @@ func TestProjectChats_ToolFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p1", Path: t.TempDir(), Since: "lifetime"}},
 	}
-	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 
 	// Matching filter keeps the source.
 	rec := httptest.NewRecorder()
@@ -174,8 +174,8 @@ func TestProjectChats_ToolFilter(t *testing.T) {
 }
 
 func TestProjectChats_UnknownProject(t *testing.T) {
-	cfg := &config.Config{Projects: []config.ProjectConfig{{Name: "p1", Path: "/tmp/x"}}}
-	h := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Projects: []config.ProjectConfig{{Name: "p1", Path: "/tmp/x"}}}
+	h := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/chats", nil))
 	if rec.Code != http.StatusNotFound {
@@ -192,11 +192,11 @@ func TestProjectChats_UnknownProject(t *testing.T) {
 func TestDeleteProjectChat_PathInjection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	projectDir := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: projectDir}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 
 	cases := []struct {
 		name string
@@ -220,11 +220,11 @@ func TestDeleteProjectChat_PathInjection(t *testing.T) {
 }
 
 func TestDeleteProjectChat_EmptyPathReturns400(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(`{"path": ""}`))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -234,11 +234,11 @@ func TestDeleteProjectChat_EmptyPathReturns400(t *testing.T) {
 }
 
 func TestDeleteProjectChat_InvalidJSONReturns400(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(`not-json`))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -248,11 +248,11 @@ func TestDeleteProjectChat_InvalidJSONReturns400(t *testing.T) {
 }
 
 func TestDeleteProjectChat_UnknownProjectReturns404(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "other", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }})
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/missing/chats", strings.NewReader(`{"path":"/tmp/x"}`))
 	rec := httptest.NewRecorder()
 	handler(rec, req)
@@ -266,11 +266,11 @@ func TestDeleteProjectChat_UnknownProjectReturns404(t *testing.T) {
 // when the supplied path is not in DiscoverChats output.
 func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
-	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }})
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.App { return cfg }})
 	body := `{"paths": ["/etc/passwd", "C:/Windows/System32/cmd.exe"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -318,11 +318,11 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
 	}
-	handler := ProjectChats(Deps{Config: func() *config.Config { return cfg }, StateLock: NewProjectLock()})
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
 
 	body := `{"path":"` + chatPath + `"}`
 	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
@@ -382,11 +382,11 @@ func TestBulkDeleteUpdatesChatHashes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir(), Since: "lifetime"}},
 		Daemon:   config.DaemonConfig{OutputRoot: outputRoot},
 	}
-	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.Config { return cfg }, StateLock: NewProjectLock()})
+	handler := ProjectChatsBulkDelete(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
 
 	body := `{"paths":["` + pathA + `","` + pathB + `"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/proj/chats:bulk-delete", strings.NewReader(body))

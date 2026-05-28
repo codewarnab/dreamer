@@ -9,12 +9,12 @@ import (
 )
 
 func TestRun_AcceptedReturns202(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
 	deps := Deps{
-		Config:     func() *config.Config { return cfg },
+		Config:     func() *config.App { return cfg },
 		EnqueueRun: func(name string) (string, bool, error) { return "rid", true, nil },
 	}
 	r := httptest.NewRequest("POST", "/api/projects/proj/run", nil)
@@ -26,12 +26,12 @@ func TestRun_AcceptedReturns202(t *testing.T) {
 }
 
 func TestRun_ConflictReturns409(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
 	deps := Deps{
-		Config:     func() *config.Config { return cfg },
+		Config:     func() *config.App { return cfg },
 		EnqueueRun: func(name string) (string, bool, error) { return "", false, nil },
 	}
 	r := httptest.NewRequest("POST", "/api/projects/proj/run", nil)
@@ -43,12 +43,12 @@ func TestRun_ConflictReturns409(t *testing.T) {
 }
 
 func TestRun_UnknownProject404(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "other", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
 	}
 	deps := Deps{
-		Config:     func() *config.Config { return cfg },
+		Config:     func() *config.App { return cfg },
 		EnqueueRun: func(name string) (string, bool, error) { return "id", true, nil },
 	}
 	r := httptest.NewRequest("POST", "/api/projects/proj/run", nil)

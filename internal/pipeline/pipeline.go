@@ -52,7 +52,7 @@ func generateRunID() string {
 // Options captures everything the pipeline needs for one analyze invocation
 // (cli flags + resolved global config).
 type Options struct {
-	Config      *config.Config
+	Config      *config.App
 	ProjectPath string
 	ProjectName string
 	ProviderID  string
@@ -80,7 +80,7 @@ type Options struct {
 	// LiveConfig, when non-nil, is consulted once at the top of Run and (if a
 	// non-nil snapshot is present) replaces Config for the remainder of this
 	// invocation. Lets the daemon hot-swap config without rebuilding Options.
-	LiveConfig *atomic.Pointer[config.Config]
+	LiveConfig *atomic.Pointer[config.App]
 }
 
 // Result bundles the metrics + paths the analyze command surfaces.
@@ -102,7 +102,7 @@ var errProviderNotRegistered = errors.New("provider not registered")
 
 // resolveExecutionMode picks Sequential vs Parallel from CLI override > config.
 // Logs a fallback warning when parallel was requested but the provider lacks support.
-func resolveExecutionMode(appConfig *config.Config, opts Options, provider analyzer.Provider, logger *logging.Logger) analyzer.ExecutionMode {
+func resolveExecutionMode(appConfig *config.App, opts Options, provider analyzer.Provider, logger *logging.Logger) analyzer.ExecutionMode {
 	requested := analyzer.ModeSequential
 	if opts.ParallelOverride || strings.EqualFold(appConfig.Analyzer.Execution.Mode, config.ExecutionModeParallel) {
 		requested = analyzer.ModeParallel
@@ -118,7 +118,7 @@ func resolveExecutionMode(appConfig *config.Config, opts Options, provider analy
 }
 
 // resolveMaxConcurrency: CLI override > config; 0 = let pool pick len(chunks).
-func resolveMaxConcurrency(appConfig *config.Config, opts Options) int {
+func resolveMaxConcurrency(appConfig *config.App, opts Options) int {
 	if opts.MaxConcurrencyOverride > 0 {
 		return opts.MaxConcurrencyOverride
 	}
@@ -167,13 +167,13 @@ type discoveryResult struct {
 	providerID    string
 	providerBlock config.ProviderBlock
 	projectFile   *config.ProjectFileConfig
-	appConfig     *config.Config
+	appConfig     *config.App
 	sources       []chat.Source
 }
 
 // runDiscovery resolves paths, loads project config, discovers chat sources,
 // and applies lookback filtering.
-func runDiscovery(opts Options, appConfig *config.Config, logger *logging.Logger) (discoveryResult, error) {
+func runDiscovery(opts Options, appConfig *config.App, logger *logging.Logger) (discoveryResult, error) {
 	var discovery discoveryResult
 	discovery.appConfig = appConfig
 

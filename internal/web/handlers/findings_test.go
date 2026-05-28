@@ -23,7 +23,7 @@ const (
 	hashDismissed = "3333333333333333333333333333333333333333333333333333333333333333"
 )
 
-func seedFindingsProject(t *testing.T) *config.Config {
+func seedFindingsProject(t *testing.T) *config.App {
 	t.Helper()
 	root := t.TempDir()
 	projDir := filepath.Join(root, "proj-x")
@@ -70,7 +70,7 @@ func seedFindingsProject(t *testing.T) *config.Config {
 	if err := state.Save(root, "proj-x", st); err != nil {
 		t.Fatal(err)
 	}
-	return &config.Config{
+	return &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj-x", Path: projDir}},
 		Daemon:   config.DaemonConfig{OutputRoot: root, FrequencySeconds: 3600},
 	}
@@ -89,7 +89,7 @@ func decodeFindings(t *testing.T, body []byte) []FindingView {
 
 func TestProjectFindings_NoFilter_HidesDismissed(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectFindings(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-x/findings", nil))
 	if rec.Code != http.StatusOK {
@@ -136,7 +136,7 @@ func TestProjectFindings_NoFilter_HidesDismissed(t *testing.T) {
 
 func TestProjectFindings_StatusOpenFilter(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectFindings(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-x/findings?status=open", nil))
 	views := decodeFindings(t, rec.Body.Bytes())
@@ -147,7 +147,7 @@ func TestProjectFindings_StatusOpenFilter(t *testing.T) {
 
 func TestProjectFindings_StatusDismissedFilter(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectFindings(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-x/findings?status=dismissed", nil))
 	views := decodeFindings(t, rec.Body.Bytes())
@@ -161,7 +161,7 @@ func TestProjectFindings_StatusDismissedFilter(t *testing.T) {
 
 func TestProjectFindings_CategoryFilter(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectFindings(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-x/findings?category=lint%20rule", nil))
 	views := decodeFindings(t, rec.Body.Bytes())
@@ -172,7 +172,7 @@ func TestProjectFindings_CategoryFilter(t *testing.T) {
 
 func TestProjectFindings_UnknownProject(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectFindings(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/nope/findings", nil))
 	if rec.Code != http.StatusNotFound {
@@ -182,7 +182,7 @@ func TestProjectFindings_UnknownProject(t *testing.T) {
 
 func TestFindingDetail_ReturnsView(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := FindingDetail(Deps{Config: func() *config.Config { return cfg }})
+	h := FindingDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-x/findings/"+hashApplied, nil))
 	if rec.Code != http.StatusOK {
@@ -220,7 +220,7 @@ func TestFindingDetail_WithApplyHints_RendersDiff(t *testing.T) {
 	if err := os.WriteFile(targetAbs, []byte("# Doc\n\nIntro.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h := FindingDetail(Deps{Config: func() *config.Config { return cfg }})
+	h := FindingDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	url := "/api/projects/proj-x/findings/" + hashOpen +
 		"?target_file=CLAUDE.md&strategy=append-section&anchor=Cache&snippet=Rules%20for%20cache."
@@ -251,7 +251,7 @@ func TestFindingDetail_WithApplyHints_RendersDiff(t *testing.T) {
 
 func TestFindingDetail_UnknownHash(t *testing.T) {
 	cfg := seedFindingsProject(t)
-	h := FindingDetail(Deps{Config: func() *config.Config { return cfg }})
+	h := FindingDetail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet,
 		"/api/projects/proj-x/findings/deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil))
@@ -262,12 +262,12 @@ func TestFindingDetail_UnknownHash(t *testing.T) {
 
 func TestProjectFindings_MissingTodosFile(t *testing.T) {
 	root := t.TempDir()
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p", Path: root}},
 		Daemon:   config.DaemonConfig{OutputRoot: root},
 	}
 	// No todos.md and no state.json — should return empty list, not error.
-	h := ProjectFindings(Deps{Config: func() *config.Config { return cfg }})
+	h := ProjectFindings(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/p/findings", nil))
 	if rec.Code != http.StatusOK {

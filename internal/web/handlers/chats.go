@@ -371,7 +371,7 @@ func dispatchDelete(deps Deps, projectName string, source chat.Source) error {
 	return nil
 }
 
-func findProjectByName(cfg *config.Config, name string) *config.ProjectConfig {
+func findProjectByName(cfg *config.App, name string) *config.ProjectConfig {
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == name {
 			return &cfg.Projects[i]

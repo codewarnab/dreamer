@@ -155,11 +155,11 @@ func TestAcceptance_V15(t *testing.T) {
 		if err := state.Save(root, "proj-z", st); err != nil {
 			t.Fatalf("save state: %v", err)
 		}
-		cfg := &config.Config{
+		cfg := &config.App{
 			Projects: []config.ProjectConfig{{Name: "proj-z", Path: projDir}},
 			Daemon:   config.DaemonConfig{OutputRoot: root, FrequencySeconds: 3600},
 		}
-		h := handlers.ProjectFindings(handlers.Deps{Config: func() *config.Config { return cfg }})
+		h := handlers.ProjectFindings(handlers.Deps{Config: func() *config.App { return cfg }})
 		rec := httptest.NewRecorder()
 		h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-z/findings?status=resolved", nil))
 		if rec.Code != http.StatusOK {
@@ -202,11 +202,11 @@ func TestAcceptance_V15(t *testing.T) {
 		if err := state.Save(root, name, &state.State{Version: state.StateVersion}); err != nil {
 			t.Fatalf("save state: %v", err)
 		}
-		cfg := &config.Config{
+		cfg := &config.App{
 			Projects: []config.ProjectConfig{{Name: name, Path: t.TempDir()}},
 			Daemon:   config.DaemonConfig{OutputRoot: root, FrequencySeconds: 3600},
 		}
-		h := handlers.Dashboard(handlers.Deps{Config: func() *config.Config { return cfg }})
+		h := handlers.Dashboard(handlers.Deps{Config: func() *config.App { return cfg }})
 		rec := httptest.NewRecorder()
 		h(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard", nil))
 		if rec.Code != http.StatusOK {

@@ -25,8 +25,8 @@ const workerIdleInterval = 1 * time.Second
 type workerPool struct {
 	ctx       context.Context
 	queue     *jobqueue.Queue
-	cfg       *config.Config
-	live      *atomic.Pointer[config.Config]
+	cfg       *config.App
+	live      *atomic.Pointer[config.App]
 	logger    *logging.Logger
 	cache     *pipeline.DiscoveryCache
 	events    *pipeline.EventBus
@@ -35,7 +35,7 @@ type workerPool struct {
 }
 
 // newWorkerPool creates a pool that will spawn MaxConcurrent workers.
-func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.Config, live *atomic.Pointer[config.Config], logger *logging.Logger, cache *pipeline.DiscoveryCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
+func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.App, live *atomic.Pointer[config.App], logger *logging.Logger, cache *pipeline.DiscoveryCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
 	return &workerPool{
 		ctx:       ctx,
 		queue:     queue,

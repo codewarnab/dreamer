@@ -106,7 +106,7 @@ func waitForLockfile(lockPath string, timeout time.Duration) int {
 	return 0
 }
 
-func printAlreadyRunningBox(cmd *cobra.Command, pid int, logPath string, cfg *config.Config) {
+func printAlreadyRunningBox(cmd *cobra.Command, pid int, logPath string, cfg *config.App) {
 	pidStr := fmt.Sprintf("PID: %d", pid)
 	lines := []string{
 		"daemon is already running",
@@ -122,7 +122,7 @@ func printAlreadyRunningBox(cmd *cobra.Command, pid int, logPath string, cfg *co
 	printBox(cmd, lines)
 }
 
-func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.Config) {
+func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.App) {
 	pidStr := fmt.Sprintf("PID: %d", pid)
 	lines := []string{
 		"daemon started in background",

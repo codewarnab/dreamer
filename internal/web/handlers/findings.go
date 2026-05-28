@@ -131,7 +131,7 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 	return latest, all, nil
 }
 
-func findProject(cfg *config.Config, name string) (config.ProjectConfig, bool) {
+func findProject(cfg *config.App, name string) (config.ProjectConfig, bool) {
 	for _, p := range cfg.Projects {
 		if p.Name == name {
 			return p, true
