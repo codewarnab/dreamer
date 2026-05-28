@@ -95,6 +95,26 @@ Per-source decoders that return `[]ChatMessage{Role, Content, Timestamp}`. Each 
 - Todos live at `<daemon.output_root>/<project>/todos.md`. Existing finding hashes are re-extracted from prior file contents (`### Heading` + `- [ ] desc <!-- dreamer:finding:<hex> -->`) so re-runs are idempotent across both new and pre-existing entries.
 - State at `<output_root>/<project>/state.json` (same root as todos). The `--output-dir` flag overrides `daemon.output_root` for a single `analyze` run.
 
+### Sandbox (`internal/sandbox/`)
+
+OS-level sandboxing for provider child processes. The `sandbox.Config` struct carries all settings:
+
+- `Mode` — `auto` (OS sandbox if available), `true` (required, error if unavailable), `false` (off).
+- `ProjectDir` — directory the child must not write to (deny-write ACL / read-only bind).
+- `WritableDirs` — paths the child may write to (output, temp, config home).
+- `ProjectWrite` — when true, adds ProjectDir to WritableDirs (analysis mode off).
+- `Network` — `isolated` (default, --unshare-net on Linux, deny network* on macOS) or `open`.
+- `Seccomp` — `off`, `minimal` (default, blocks ptrace), `full` (blocks escalation syscalls). Linux only.
+- `Resources` — rlimits: `memory_mb` (RLIMIT_AS, default 2048), `processes` (RLIMIT_NPROC, default 64), `fds` (RLIMIT_NOFILE, default 256).
+
+Config flows: `config.yaml sandbox:` → `config.SandboxConfig` → `analyzer.ProviderConfig` → `sandbox.Config` (CLI harness / ACP transport).
+
+Per-platform backends:
+- `linux.go` / `linux_bwrap.go` — bubblewrap: --ro-bind / /, --unshare-{user,pid,net}, --rlimit, --seccomp fd.
+- `darwin.go` / `darwin_seatbelt.go` — sandbox-exec SBPL: read-only FS, (deny network*), no Mach services.
+- `windows.go` / `windows_sid.go` — WRITE_RESTRICTED token + per-project SID deny-write ACL + Job Object cleanup. Network isolation errors on Windows.
+- `none.go` — no-op fallback for unsupported platforms.
+
 ### Web subsystem (`internal/web/`) [v1.5]
 
 The daemon spawns an embedded HTTP server bound to `127.0.0.1:<web.port>` (default 7777, configurable via the top-level `web:` config block — `enabled` defaults to true, `host` is loopback-only). Spec: `doc/spec.v1.5.md`. Layout:
