@@ -3,7 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -70,7 +70,7 @@ func RunMCPServer(outputPath string) error {
 	if err := s.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		// Context cancellation from signal is expected shutdown.
 		if ctx.Err() != nil {
-			log.Printf("MCP server shut down (signal)")
+			slog.Info("MCP server shut down (signal)")
 			return nil
 		}
 		return fmt.Errorf("MCP server run: %w", err)

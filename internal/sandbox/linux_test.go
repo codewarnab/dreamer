@@ -17,28 +17,28 @@ import (
 // --- buildBwrapArgs tests ---
 
 func TestBuildBwrapArgs_ReadOnlyRoot(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsContiguousSequence(args, "--ro-bind", "/", "/") {
 		t.Errorf("expected --ro-bind / / in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_DevMount(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsContiguousSequence(args, "--dev", "/dev") {
 		t.Errorf("expected --dev /dev in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_ProcMount(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsContiguousSequence(args, "--proc", "/proc") {
 		t.Errorf("expected --proc /proc in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_TmpfsWithSize(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	// --size <bytes> must immediately precede --tmpfs /tmp.
 	// bwrap consumes next_size_arg from --size when it hits --tmpfs.
 	expectedBytes := strconv.Itoa(tmpfsSizeBytes)
@@ -56,42 +56,42 @@ func TestBuildBwrapArgs_TmpfsSizeBytesValue(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_VarTmpSymlink(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsContiguousSequence(args, "--symlink", "/tmp", "/var/tmp") {
 		t.Errorf("expected --symlink /tmp /var/tmp in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_NewSession(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsFlag(args, "--new-session") {
 		t.Errorf("expected --new-session in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_DieWithParent(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsFlag(args, "--die-with-parent") {
 		t.Errorf("expected --die-with-parent in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_UnshareUser(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsFlag(args, "--unshare-user") {
 		t.Errorf("expected --unshare-user in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_UnsharePid(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if !containsFlag(args, "--unshare-pid") {
 		t.Errorf("expected --unshare-pid in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_NoNetworkIsolation(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	if containsFlag(args, "--unshare-net") {
 		t.Errorf("--unshare-net should not be present (breaks CLI providers): %v", args)
 	}
@@ -99,14 +99,14 @@ func TestBuildBwrapArgs_NoNetworkIsolation(t *testing.T) {
 
 func TestBuildBwrapArgs_WritableDirs(t *testing.T) {
 	resolved := []string{"/home/user/.provider"}
-	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil, 0)
 	if !containsContiguousSequence(args, "--bind", "/home/user/.provider", "/home/user/.provider") {
 		t.Errorf("expected --bind /home/user/.provider in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_EmptyWritableDirs(t *testing.T) {
-	args := buildBwrapArgs(Config{WritableDirs: nil}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{WritableDirs: nil}, "/project", nil, "/bin/ls", nil, 0)
 	for i, a := range args {
 		if a == "--bind" {
 			t.Errorf("unexpected --bind at index %d with empty writable dirs: %v", i, args)
@@ -118,7 +118,7 @@ func TestBuildBwrapArgs_DeduplicateWritableDirs(t *testing.T) {
 	dir := t.TempDir()
 	// Both entries resolve to the same directory.
 	resolved := []string{dir, dir}
-	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil, 0)
 	bindCount := 0
 	for _, a := range args {
 		if a == "--bind" {
@@ -131,14 +131,14 @@ func TestBuildBwrapArgs_DeduplicateWritableDirs(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_Chdir(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/resolved/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/resolved/project", nil, "/bin/ls", nil, 0)
 	if !containsContiguousSequence(args, "--chdir", "/resolved/project") {
 		t.Errorf("expected --chdir /resolved/project in args: %v", args)
 	}
 }
 
 func TestBuildBwrapArgs_CommandSeparator(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/usr/bin/claude", []string{"--flag", "val"})
+	args := buildBwrapArgs(Config{}, "/project", nil, "/usr/bin/claude", []string{"--flag", "val"}, 0)
 	sepIdx := -1
 	for i, a := range args {
 		if a == "--" {
@@ -156,7 +156,7 @@ func TestBuildBwrapArgs_CommandSeparator(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_NilOriginalArgs(t *testing.T) {
-	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
 	sepIdx := -1
 	for i, a := range args {
 		if a == "--" {
@@ -178,7 +178,7 @@ func TestBuildBwrapArgs_MaxWritableDirs(t *testing.T) {
 	for i := range dirs {
 		dirs[i] = filepath.Join("/home/user", "bwrap-test-dirs", string(rune('a'+i%26))+string(rune('0'+i/26)))
 	}
-	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil, 0)
 	bindCount := 0
 	for _, a := range args {
 		if a == "--bind" {
@@ -195,7 +195,7 @@ func TestBuildBwrapArgs_MaxWritableDirs(t *testing.T) {
 func TestBuildBwrapArgs_SkipsTmpBind(t *testing.T) {
 	// /tmp in resolvedDirs should be skipped since --tmpfs /tmp covers it.
 	dirs := []string{"/tmp", "/home/user/.provider"}
-	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil, 0)
 	bindCount := 0
 	for _, a := range args {
 		if a == "--bind" {
@@ -209,7 +209,7 @@ func TestBuildBwrapArgs_SkipsTmpBind(t *testing.T) {
 
 func TestBuildBwrapArgs_SkipsTmpSubdirBind(t *testing.T) {
 	dirs := []string{"/tmp/some-provider-cache"}
-	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil, 0)
 	for i, a := range args {
 		if a == "--bind" {
 			t.Errorf("unexpected --bind at index %d (path under /tmp should be skipped): %v", i, args)
@@ -220,7 +220,7 @@ func TestBuildBwrapArgs_SkipsTmpSubdirBind(t *testing.T) {
 func TestBuildBwrapArgs_SkipsVarTmpBind(t *testing.T) {
 	// /var/tmp is covered by --symlink /tmp /var/tmp, so it must be skipped.
 	dirs := []string{"/var/tmp", "/home/user/.provider"}
-	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil)
+	args := buildBwrapArgs(Config{}, "/project", dirs, "/bin/ls", nil, 0)
 	for i, a := range args {
 		if a == "--bind" && i+1 < len(args) && (args[i+1] == "/var/tmp" || strings.HasPrefix(args[i+1], "/var/tmp/")) {
 			t.Errorf("unexpected --bind for /var/tmp at index %d: %v", i, args)

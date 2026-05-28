@@ -4,6 +4,13 @@
 // The profile uses (allow default) as the base policy with selective
 // (deny file-write*) and (deny file-link) for project directory protection.
 //
+// DEPRECATION NOTE: Apple has deprecated sandbox-exec and it may be removed
+// in a future macOS release. If sandbox-exec becomes unavailable, the
+// available() check will return false and callers will fall back to the
+// provider's native sandbox (if any) or run unsandboxed. A future migration
+// to EndpointSecurity or App Sandbox entitlements would require a signed
+// helper binary, which is out of scope for the current implementation.
+//
 // File layout:
 //
 //	darwin.go           — Available(), prepare(), resolveWritableDirs(), postStart()
@@ -107,7 +114,7 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	}
 
 	// Build profile and args.
-	profile := buildSeatbeltProfile(writableDirs)
+	profile := buildSeatbeltProfile(cfg, writableDirs)
 	originalBinary := cmd.Path
 	var originalArgs []string
 	if len(cmd.Args) > 1 {

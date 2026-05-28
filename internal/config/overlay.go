@@ -119,6 +119,7 @@ func mergeOverlay(base, overlay *App) {
 	}
 	mergeAnalyzer(&base.Analyzer, &overlay.Analyzer)
 	mergeWeb(&base.Web, &overlay.Web)
+	mergeSandbox(&base.Sandbox, &overlay.Sandbox)
 }
 
 func mergeAnalyzer(base, overlay *AnalyzerConfig) {
@@ -167,6 +168,30 @@ func mergeWeb(base, overlay *WebConfig) {
 	}
 	if overlay.LogTailKB != 0 {
 		base.LogTailKB = overlay.LogTailKB
+	}
+}
+
+func mergeSandbox(base, overlay *SandboxConfig) {
+	if overlay.ProjectWrite != nil {
+		base.ProjectWrite = overlay.ProjectWrite
+	}
+	if overlay.Network != "" {
+		base.Network = overlay.Network
+	}
+	if overlay.Seccomp != "" {
+		base.Seccomp = overlay.Seccomp
+	}
+	if overlay.SIDExpiryDays != 0 {
+		base.SIDExpiryDays = overlay.SIDExpiryDays
+	}
+	if overlay.Resources.MemoryMB != 0 {
+		base.Resources.MemoryMB = overlay.Resources.MemoryMB
+	}
+	if overlay.Resources.Processes != 0 {
+		base.Resources.Processes = overlay.Resources.Processes
+	}
+	if overlay.Resources.FDs != 0 {
+		base.Resources.FDs = overlay.Resources.FDs
 	}
 }
 

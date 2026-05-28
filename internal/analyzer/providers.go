@@ -68,6 +68,22 @@ type ProviderConfig struct {
 	// Sandbox is the raw "sandbox" config value ("auto", "true", "false",
 	// or empty for default). Parsed by the sandbox package.
 	Sandbox string
+
+	// SandboxProjectWrite adds ProjectDir to the writable list when true.
+	SandboxProjectWrite bool
+	// SandboxNetwork is the network isolation mode ("isolated" or "open").
+	SandboxNetwork string
+	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
+	SandboxSeccomp string
+	// SandboxResources configures OS resource caps.
+	SandboxResources SandboxResourceLimits
+}
+
+// SandboxResourceLimits mirrors sandbox.ResourceLimits for config transport.
+type SandboxResourceLimits struct {
+	MemoryMB  int
+	Processes int
+	FDs       int
 }
 
 // ProviderFactory builds a Provider instance.

@@ -31,10 +31,18 @@ var providerSpec = &cliharness.Spec{
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderOpenClaudeCLI, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
 		return New(cliharness.Options{
-			Command:      providerConfig.Command,
-			Env:          providerConfig.Env,
-			Model:        providerConfig.Model,
-			DefaultModel: providerConfig.DefaultModel,
+			Command:             providerConfig.Command,
+			Env:                 providerConfig.Env,
+			Model:               providerConfig.Model,
+			DefaultModel:        providerConfig.DefaultModel,
+			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
+			SandboxNetwork:      providerConfig.SandboxNetwork,
+			SandboxSeccomp:      providerConfig.SandboxSeccomp,
+			SandboxResources: cliharness.SandboxResourceLimits{
+				MemoryMB:  providerConfig.SandboxResources.MemoryMB,
+				Processes: providerConfig.SandboxResources.Processes,
+				FDs:       providerConfig.SandboxResources.FDs,
+			},
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

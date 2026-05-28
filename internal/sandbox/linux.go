@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 // Available reports whether bubblewrap sandboxing is supported on this
@@ -57,13 +58,39 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		originalArgs = cmd.Args[1:]
 	}
 
+	// Compile seccomp BPF filter and create a memfd for --seccomp.
+	var seccompFD uintptr
+	if cfg.Seccomp != SeccompOff {
+		var profile SeccompProfile
+		switch cfg.Seccomp {
+		case SeccompFull:
+			profile = profileFull
+		default:
+			profile = profileMinimal
+		}
+		raw, err := compileSeccompBPF(profile)
+		if err != nil {
+			return nil, fmt.Errorf("seccomp compile: %w", err)
+		}
+		fd, err := createSeccompFD(raw)
+		if err != nil {
+			return nil, fmt.Errorf("seccomp fd: %w", err)
+		}
+		seccompFD = fd
+	}
+
 	cmd.Path = bwrapBinPath
 	cmd.Args = append(
 		[]string{bwrapBinPath},
-		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs)...,
+		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs, seccompFD)...,
 	)
 
-	return func() {}, nil
+	cleanup = func() {
+		if seccompFD > 0 {
+			syscall.Close(int(seccompFD))
+		}
+	}
+	return cleanup, nil
 }
 
 // postStart is a no-op on Linux. Unlike Windows (where Job Objects manage

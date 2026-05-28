@@ -54,6 +54,20 @@ type Options struct {
 	// The ACP provider spawns a long-lived child process; the sandbox is
 	// applied at process start time.
 	Sandbox string
+
+	// SandboxNetwork is the network isolation mode ("isolated" or "open").
+	SandboxNetwork string
+	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
+	SandboxSeccomp string
+	// SandboxResources configures OS resource caps.
+	SandboxResources SandboxResourceLimits
+}
+
+// SandboxResourceLimits mirrors sandbox.ResourceLimits for config transport.
+type SandboxResourceLimits struct {
+	MemoryMB  int
+	Processes int
+	FDs       int
 }
 
 // New returns an analyzer.Provider that drives an ACP agent over stdio.
@@ -65,22 +79,28 @@ func New(options Options) (analyzer.Provider, error) {
 		return nil, errors.New("acpcore: Command is required")
 	}
 	return &provider{
-		id:             options.ID,
-		command:        append([]string(nil), options.Command...),
-		env:            copyStringMap(options.Env),
-		defaultModel:   strings.TrimSpace(options.DefaultModel),
-		modelFallbacks: append([]string(nil), options.ModelFallbacks...),
-		sandboxMode:    options.Sandbox,
+		id:               options.ID,
+		command:          append([]string(nil), options.Command...),
+		env:              copyStringMap(options.Env),
+		defaultModel:     strings.TrimSpace(options.DefaultModel),
+		modelFallbacks:   append([]string(nil), options.ModelFallbacks...),
+		sandboxMode:      options.Sandbox,
+		sandboxNetwork:   options.SandboxNetwork,
+		sandboxSeccomp:   options.SandboxSeccomp,
+		sandboxResources: options.SandboxResources,
 	}, nil
 }
 
 type provider struct {
-	id             string
-	command        []string
-	env            map[string]string
-	defaultModel   string
-	modelFallbacks []string
-	sandboxMode    string
+	id               string
+	command          []string
+	env              map[string]string
+	defaultModel     string
+	modelFallbacks   []string
+	sandboxMode      string
+	sandboxNetwork   string
+	sandboxSeccomp   string
+	sandboxResources SandboxResourceLimits
 
 	mu         sync.Mutex
 	transport  *transport
@@ -108,7 +128,7 @@ func (p *provider) Start(ctx context.Context) error {
 	if p.started {
 		return nil
 	}
-	t, err := dialStdio(ctx, p.id, p.command, p.env, p.sandboxMode)
+	t, err := dialStdio(ctx, p.id, p.command, p.env, p.sandboxMode, p.sandboxNetwork, p.sandboxSeccomp, p.sandboxResources)
 	if err != nil {
 		return fmt.Errorf("acpcore: spawn %v: %w", p.command, err)
 	}

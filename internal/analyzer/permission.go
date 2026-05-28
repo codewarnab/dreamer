@@ -94,24 +94,26 @@ func validateURL(req PermissionRequest) PermissionDecision {
 	if lower == "localhost" || strings.HasSuffix(lower, ".local") {
 		return PermissionDecision{Reason: fmt.Sprintf("URL targets local hostname %q", hostname)}
 	}
-	// Resolve and check all IPs. Deny if any resolved IP is restricted.
-	//
-	// NOTE: This check is performed at permission-decision time. The provider's
-	// HTTP client performs its own DNS resolution when dialing. A malicious DNS
-	// server with a short TTL can return different IPs for the two lookups (DNS
-	// rebinding). Fully preventing this requires pinning the dial to the
-	// resolved IP via a custom Dialer.Control, which is not yet implemented.
+	// Resolve DNS once and pin the approved IP. The caller MUST dial
+	// ApprovedIP directly (not the hostname) to prevent DNS rebinding.
+	// A malicious DNS server with a short TTL could return a safe IP at
+	// permission time and a restricted IP at dial time.
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
-		// DNS failure — deny (fail closed).
 		return PermissionDecision{Reason: fmt.Sprintf("DNS lookup for %q failed: %v", hostname, err)}
 	}
+	if len(ips) == 0 {
+		return PermissionDecision{Reason: fmt.Sprintf("DNS lookup for %q returned no addresses", hostname)}
+	}
+	// Deny if ANY resolved IP is restricted (defense-in-depth).
 	for _, ip := range ips {
 		if isRestrictedIP(ip) {
 			return PermissionDecision{Reason: fmt.Sprintf("hostname %q resolves to restricted IP %s", hostname, ip)}
 		}
 	}
-	return PermissionDecision{Approved: true}
+	// Return the first resolved IP for pinning. Callers use this
+	// instead of the hostname to make DNS rebinding ineffective.
+	return PermissionDecision{Approved: true, ApprovedIP: ips[0].String()}
 }
 
 // cgnatRange covers Carrier-Grade NAT (RFC 6598) which is not included in

@@ -65,6 +65,7 @@ type App struct {
 	Providers       map[string]ProviderBlock `yaml:"providers" json:"providers"`
 	Analyzer        AnalyzerConfig           `yaml:"analyzer" json:"analyzer"`
 	Web             WebConfig                `yaml:"web,omitempty" json:"web,omitempty"`
+	Sandbox         SandboxConfig            `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
 
 	// Notices collects soft signals discovered during config load. Not
 	// serialized; callers (cmd/analyze.go, cmd/daemon.go) log them at
@@ -109,6 +110,22 @@ type LoggingConfig struct {
 // RedactionConfig configures the secret-redaction pass.
 type RedactionConfig struct {
 	Patterns []string `yaml:"patterns,omitempty" json:"patterns,omitempty"`
+}
+
+// SandboxConfig configures OS-level sandbox hardening.
+type SandboxConfig struct {
+	ProjectWrite  *bool                `yaml:"project_write,omitempty" json:"project_write,omitempty"`
+	Network       string               `yaml:"network,omitempty" json:"network,omitempty"`
+	Seccomp       string               `yaml:"seccomp,omitempty" json:"seccomp,omitempty"`
+	Resources     SandboxResources     `yaml:"resources,omitempty" json:"resources,omitempty"`
+	SIDExpiryDays int                  `yaml:"sid_expiry_days,omitempty" json:"sid_expiry_days,omitempty"`
+}
+
+// SandboxResources configures OS resource caps for sandboxed processes.
+type SandboxResources struct {
+	MemoryMB  int `yaml:"memory_mb,omitempty" json:"memory_mb,omitempty"`
+	Processes int `yaml:"processes,omitempty" json:"processes,omitempty"`
+	FDs       int `yaml:"fds,omitempty" json:"fds,omitempty"`
 }
 
 // ProviderBlock is a per-provider configuration entry under `providers:`.

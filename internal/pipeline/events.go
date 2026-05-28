@@ -1,7 +1,7 @@
 package pipeline
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,7 +77,7 @@ func (b *EventBus) Publish(e Event) {
 		default: // drop on full
 			total := b.drops.Add(1)
 			if total%100 == 1 {
-				log.Printf("eventbus: %d events dropped (slow subscriber)", total)
+				slog.Warn("eventbus: events dropped (slow subscriber)", "total", total)
 			}
 		}
 	}

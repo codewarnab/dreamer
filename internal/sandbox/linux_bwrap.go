@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // bwrapBin is the bubblewrap binary name looked up in PATH.
@@ -39,17 +40,31 @@ var procVersionPath = "/proc/version"
 // these would override the tmpfs/symlink and expose the host filesystem.
 var tmpPaths = []string{"/tmp", "/var/tmp"}
 
+var (
+	bwrapOnce sync.Once
+	bwrapCached string
+)
+
 // bwrapPath returns the absolute path to the bwrap binary, or "" if not
-// found. Reads exec.LookPath each call — the OS page cache absorbs the
-// cost. This avoids sync.Once which makes detection logic untestable
-// from the public API (the cached value from the first test that runs
-// silently determines outcomes for all subsequent tests).
+// found. The result is cached after the first call via sync.Once.
+// Call ResetBwrapPathCache() in tests that need to re-detect bwrap
+// after modifying PATH or installing/uninstalling bwrap.
 func bwrapPath() string {
-	p, err := exec.LookPath(bwrapBin)
-	if err != nil {
-		return ""
-	}
-	return p
+	bwrapOnce.Do(func() {
+		p, err := exec.LookPath(bwrapBin)
+		if err == nil {
+			bwrapCached = p
+		}
+	})
+	return bwrapCached
+}
+
+// ResetBwrapPathCache clears the cached bwrap path so the next call to
+// bwrapPath() re-runs exec.LookPath. Only needed in tests that modify
+// PATH or install/uninstall bwrap between test cases.
+func ResetBwrapPathCache() {
+	bwrapOnce = sync.Once{}
+	bwrapCached = ""
 }
 
 // userNamespacesEnabled checks whether unprivileged user namespaces are
@@ -126,7 +141,7 @@ var readFile = func(path string) ([]byte, error) {
 // So --size must precede --tmpfs, and we must NOT emit a --bind for
 // paths under /tmp or /var/tmp (which would replace the tmpfs with
 // the host path).
-func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, originalBinary string, originalArgs []string) []string {
+func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, originalBinary string, originalArgs []string, seccompFD uintptr) []string {
 	args := []string{
 		// Prevent TIOCSTI terminal injection.
 		"--new-session",
@@ -147,6 +162,27 @@ func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, origin
 		"--size", strconv.Itoa(tmpfsSizeBytes), "--tmpfs", "/tmp",
 		// Redirect /var/tmp into sandbox tmpfs.
 		"--symlink", "/tmp", "/var/tmp",
+	}
+
+	// Network isolation: remove network stack when not explicitly open.
+	if cfg.Network != NetworkOpen {
+		args = append(args, "--unshare-net")
+	}
+
+	// Resource limits (rlimits).
+	if cfg.Resources.MemoryMB > 0 {
+		args = append(args, "--rlimit", "RLIMIT_AS", fmt.Sprintf("%d", int64(cfg.Resources.MemoryMB)*1024*1024))
+	}
+	if cfg.Resources.Processes > 0 {
+		args = append(args, "--rlimit", "RLIMIT_NPROC", fmt.Sprintf("%d", cfg.Resources.Processes))
+	}
+	if cfg.Resources.FDs > 0 {
+		args = append(args, "--rlimit", "RLIMIT_NOFILE", fmt.Sprintf("%d", cfg.Resources.FDs))
+	}
+
+	// Seccomp BPF filter. FD is passed as-is; bwrap reads it after fork.
+	if seccompFD > 0 {
+		args = append(args, "--seccomp", fmt.Sprintf("%d", seccompFD))
 	}
 
 	// Deduplicate and bind-mount writable directories. resolvedDirs
