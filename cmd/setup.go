@@ -61,11 +61,17 @@ type setupAnswers struct {
 }
 
 type providerItem struct {
-	id   string
-	desc string
+	id    string
+	desc  string
+	title string // display override; falls back to id when empty
 }
 
-func (p providerItem) Title() string       { return p.id }
+func (p providerItem) Title() string {
+	if p.title != "" {
+		return p.title
+	}
+	return p.id
+}
 func (p providerItem) Description() string { return p.desc }
 func (p providerItem) FilterValue() string { return p.id }
 
@@ -82,14 +88,15 @@ func (compactDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	if !ok {
 		return
 	}
-	line := it.id
+	display := it.Title()
+	line := display
 	if it.desc != "" {
 		line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#949494")).Render(it.desc)
 	}
 	cursor := "  "
 	if index == m.Index() {
 		cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Render("> ")
-		line = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Bold(true).Render(it.id)
+		line = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Bold(true).Render(display)
 		if it.desc != "" {
 			line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#e9e9e9")).Render(it.desc)
 		}
@@ -184,7 +191,7 @@ func providerItems() []list.Item {
 	meta := analyzer.RegisteredProviderMeta()
 	items := make([]list.Item, 0, len(meta))
 	for _, m := range meta {
-		items = append(items, providerItem{string(m.ID), m.DisplayName})
+		items = append(items, providerItem{id: string(m.ID), desc: m.DisplayName})
 	}
 	return items
 }
@@ -215,10 +222,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 
 	// Advanced inputs.
 	levels := []list.Item{
-		providerItem{"error", ""},
-		providerItem{"warn", ""},
-		providerItem{"info", ""},
-		providerItem{"debug", ""},
+		providerItem{id: "error"},
+		providerItem{id: "warn"},
+		providerItem{id: "info"},
+		providerItem{id: "debug"},
 	}
 	logLevelList := list.New(levels, compactDelegate{}, initialW-20, listHeight(len(levels)))
 	logLevelList.Title = "6/10 - Log level"
@@ -260,10 +267,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 	}
 
 	sinces := []list.Item{
-		providerItem{"24h", ""},
-		providerItem{"7d", ""},
-		providerItem{"30d", ""},
-		providerItem{"lifetime", ""},
+		providerItem{id: "24h"},
+		providerItem{id: "7d"},
+		providerItem{id: "30d"},
+		providerItem{id: "lifetime"},
 	}
 	sinceList := list.New(sinces, compactDelegate{}, 60, listHeight(len(sinces)))
 	sinceList.Title = "10/10 - Project lookback (since)"
@@ -473,7 +480,7 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		models := defaultModelsFor(m.answers.provider)
 		items := make([]list.Item, len(models))
 		for i, mm := range models {
-			items[i] = providerItem{mm, ""}
+			items[i] = providerItem{id: mm}
 		}
 		ml := list.New(items, compactDelegate{}, m.providerList.Width(), listHeight(len(items)))
 		ml.Title = "2/5 - Model for " + m.answers.provider
