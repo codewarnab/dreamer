@@ -241,13 +241,19 @@ func phase1CacheKey(chatHashes map[string]string, repoHeadSHA string, packs []an
 		fmt.Fprintf(h, "%s=%s\n", p, chatHashes[p])
 	}
 	fmt.Fprintf(h, "repo_head=%s\n", repoHeadSHA)
-	// Include enabled categories and their prompt templates so config
-	// changes invalidate the cache.
+	// Include enabled categories and their Phase 1 prompt components so
+	// config changes invalidate the cache. Only Phase 1 inputs are hashed;
+	// Phase 2 fields (e.g. GuardrailPromptTemplate) are excluded because
+	// they don't affect the cached Phase 1 output.
 	for _, p := range packs {
 		if !p.Enabled {
 			continue
 		}
-		fmt.Fprintf(h, "pack=%s|tpl=%s|guard=%s\n", p.Category, p.MistakePromptTemplate, p.GuardrailPromptTemplate)
+		fmt.Fprintf(h, "pack=%s|tpl=%s|preamble=%s|desc=%s|schema=%s\n",
+			p.Category, p.MistakePromptTemplate,
+			p.EffectivePhase1Preamble(),
+			p.EffectivePhase1CategoryDescription(),
+			p.EffectivePhase1ResponseSchema())
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

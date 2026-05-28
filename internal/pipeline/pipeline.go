@@ -608,8 +608,11 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	}
 	if err != nil {
 		// If Phase 1 produced mistakes but Phase 2 (or later) failed,
-		// cache the Phase 1 results for the next run.
-		if len(pipelineResult.Mistakes) > 0 {
+		// cache the Phase 1 results for the next run — but only when
+		// every chunk completed successfully. Partial results from
+		// failed/parse-failed chunks would silently drop those chunks
+		// on replay since the cache key won't change.
+		if len(pipelineResult.Mistakes) > 0 && pipelineResult.Phase1Complete {
 			savePhase1Cache(currentState, mistakesFromResult(pipelineResult), p1CacheKey)
 			if saveErr := runContext.savePrunedState(); saveErr != nil {
 				logger.Warn("save Phase 1 cache failed", logging.Any("err", saveErr))

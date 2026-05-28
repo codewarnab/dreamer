@@ -50,6 +50,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 		return analysisResult, err
 	}
 	analysisResult.Mistakes = orderedByCategory(mistakesByCategory, enabled)
+	analysisResult.Phase1Complete = completedChunks == len(chunkInputs.Chunks)
 
 	if req.DryRun || len(analysisResult.Mistakes) == 0 {
 		if completedChunks == len(chunkInputs.Chunks) {
