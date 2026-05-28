@@ -2,6 +2,7 @@ package openclaudecli
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -82,7 +83,7 @@ func TestCustomCommandOverridesDefaults(t *testing.T) {
 	defer p.Close()
 
 	cmd := p.(*provider).p.Command
-	if len(cmd) != len(custom) {
+	if !reflect.DeepEqual(cmd, custom) {
 		t.Fatalf("custom command not applied: got %v, want %v", cmd, custom)
 	}
 }
