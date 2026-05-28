@@ -774,46 +774,53 @@ func JobRunNow(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusConflict, "run already in progress")
 			return
 		}
-		defer releaseRun(jobID)
 
 		// Verify job exists.
 		state, err := deps.Jobs.Store.Load()
 		if err != nil {
+			releaseRun(jobID)
 			deps.Logger.Error("job run load", logging.ErrAttr(err)...)
 			writeJSONError(w, http.StatusInternalServerError, "failed to load job")
 			return
 		}
 		job, ok := state.Jobs[jobID]
 		if !ok {
+			releaseRun(jobID)
 			writeJSONError(w, http.StatusNotFound, "job not found")
 			return
 		}
+
+		// Return 202 Accepted immediately; execute in background.
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"job_id":   jobID,
+			"job_name": sanitizeName(job.Name),
+			"status":   "running",
+		})
 
 		publishJobEvent(deps.Jobs.Events, "job.run.start", map[string]any{
 			"job_id": jobID,
 		})
 
-		result, err := deps.Jobs.Executor.Run(r.Context(), jobID)
-		if err != nil {
-			deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
-			writeJSONError(w, http.StatusInternalServerError, "job execution failed")
-			return
-		}
+		go func() {
+			defer releaseRun(jobID)
 
-		publishJobEvent(deps.Jobs.Events, "job.run.done", map[string]any{
-			"job_id":          jobID,
-			"run_id":          result.Record.ID,
-			"status":          string(result.Record.Status),
-			"duration_millis": result.Record.DurationMillis,
-		})
+			result, err := deps.Jobs.Executor.Run(context.Background(), jobID)
+			if err != nil {
+				deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
+				publishJobEvent(deps.Jobs.Events, "job.run.done", map[string]any{
+					"job_id": jobID,
+					"status": "failed",
+				})
+				return
+			}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"run_id":          result.Record.ID,
-			"status":          string(result.Record.Status),
-			"job_id":          jobID,
-			"job_name":        sanitizeName(job.Name),
-			"duration_millis": result.Record.DurationMillis,
-		})
+			publishJobEvent(deps.Jobs.Events, "job.run.done", map[string]any{
+				"job_id":          jobID,
+				"run_id":          result.Record.ID,
+				"status":          string(result.Record.Status),
+				"duration_millis": result.Record.DurationMillis,
+			})
+		}()
 	}
 }
 
@@ -1139,7 +1146,10 @@ func buildScheduleSummary(s backgroundjobs.ScheduleSpec) string {
 		tz = "UTC"
 	}
 	switch s.Kind {
-	case backgroundjobs.ScheduleHourly:
+	case backgroundjobs.ScheduleInterval:
+		if s.Every != "" {
+			return fmt.Sprintf("Every %s", s.Every)
+		}
 		return "Every hour"
 	case backgroundjobs.ScheduleDaily:
 		return fmt.Sprintf("Daily at %s %s", s.TimeOfDay, tz)

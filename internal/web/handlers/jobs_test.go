@@ -276,7 +276,7 @@ func TestJobCreate_EmptyPromptReturns400(t *testing.T) {
 	body := createPayload{
 		Prompt:     "",
 		ProviderID: "claude-cli",
-		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleHourly},
+		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval},
 	}
 	r := httptest.NewRequest("POST", "/api/jobs", jsonBody(body))
 	w := httptest.NewRecorder()
@@ -318,7 +318,7 @@ func TestJobCreate_UnknownProviderReturns400(t *testing.T) {
 	body := createPayload{
 		Prompt:     "do something",
 		ProviderID: "nonexistent",
-		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleHourly},
+		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval},
 	}
 	r := httptest.NewRequest("POST", "/api/jobs", jsonBody(body))
 	w := httptest.NewRecorder()
@@ -346,7 +346,7 @@ func TestJobCreate_JobLimitReachedReturns400(t *testing.T) {
 		Prompt:      "do something",
 		ProjectName: "proj-a",
 		ProviderID:  "claude-cli",
-		Schedule:    backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleHourly, Timezone: "UTC"},
+		Schedule:    backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
 	}
 	r := httptest.NewRequest("POST", "/api/jobs", jsonBody(body))
 	w := httptest.NewRecorder()
@@ -504,7 +504,7 @@ func TestJobRunNow_HappyPath(t *testing.T) {
 	w := httptest.NewRecorder()
 	JobRunNow(deps)(w, r)
 
-	if w.Code != http.StatusOK {
+	if w.Code != http.StatusAccepted {
 		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
 	}
 
@@ -512,12 +512,14 @@ func TestJobRunNow_HappyPath(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["run_id"] != runID {
-		t.Fatalf("expected run_id=%s, got %v", runID, resp["run_id"])
+	if resp["job_id"] != "abc123def4567890" {
+		t.Fatalf("expected job_id=abc123def4567890, got %v", resp["job_id"])
 	}
-	if resp["status"] != "completed" {
-		t.Fatalf("expected status=completed, got %v", resp["status"])
+	if resp["status"] != "running" {
+		t.Fatalf("expected status=running, got %v", resp["status"])
 	}
+	// Allow background goroutine to complete.
+	time.Sleep(50 * time.Millisecond)
 }
 
 func TestJobRunNow_ConflictReturns409(t *testing.T) {
@@ -759,7 +761,7 @@ func TestRouteJobs_CollectionEndpoint(t *testing.T) {
 		Prompt:     "test",
 		ProjectName: "proj-a",
 		ProviderID: "claude-cli",
-		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleHourly, Timezone: "UTC"},
+		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
 	}
 	r2 := httptest.NewRequest("POST", "/api/jobs", jsonBody(body))
 	w2 := httptest.NewRecorder()
@@ -815,8 +817,8 @@ func TestRouteJobs_DispatchToRun(t *testing.T) {
 	w := httptest.NewRecorder()
 	RouteJobs(deps)(w, r)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -942,7 +944,7 @@ func TestRouteJobs_DispatchToPreview(t *testing.T) {
 		Prompt:     "test",
 		ProjectName: "proj-a",
 		ProviderID: "claude-cli",
-		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleHourly, Timezone: "UTC"},
+		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
 	}
 	r := httptest.NewRequest("POST", "/api/jobs/preview", jsonBody(body))
 	w := httptest.NewRecorder()
@@ -1038,7 +1040,7 @@ func TestBuildScheduleSummary(t *testing.T) {
 		spec backgroundjobs.ScheduleSpec
 		want string
 	}{
-		{"hourly", backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleHourly}, "Every hour"},
+		{"hourly", backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval}, "Every hour"},
 		{"daily", backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleDaily, TimeOfDay: "09:00", Timezone: "UTC"}, "Daily at 09:00 UTC"},
 		{"weekly", backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleWeekly, DayOfWeek: "monday", TimeOfDay: "10:00", Timezone: "US/Eastern"}, "Weekly on monday at 10:00 US/Eastern"},
 		{"cron", backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleCron, Cron: "*/5 * * * *", Timezone: "UTC"}, "Cron: */5 * * * * (UTC)"},
