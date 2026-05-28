@@ -61,6 +61,20 @@ Only write files allowed by the configured Dreamer permissions.
 Do not ask interactive questions.
 If the task cannot be completed, explain why in the final output.`
 
+// buildBackgroundSystemMessage returns the system message augmented with
+// allowed write paths when the job has selected_writes access.
+func buildBackgroundSystemMessage(job *Job) string {
+	msg := backgroundSystemMessage
+	if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
+		msg += "\n\nYou may write to these specific files only:\n"
+		for _, p := range job.Permissions.WritablePaths {
+			msg += "  - " + p + "\n"
+		}
+		msg += "Do not write to any other files."
+	}
+	return msg
+}
+
 // GenerateRunID returns a random hex run ID with "r" prefix to visually
 // distinguish from job IDs (which are bare 16-hex-char).
 func GenerateRunID() (string, error) {
@@ -239,8 +253,8 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 	sessionCfg := analyzer.SessionConfig{
 		WorkingDirectory: job.ProjectPath,
 		Model:            providerCfg.Model,
-		ReadOnly:         true,
-		SystemMessage:    backgroundSystemMessage,
+		ReadOnly:         job.Permissions.FileAccess == FileAccessReadOnly,
+		SystemMessage:    buildBackgroundSystemMessage(job),
 		RunID:            runID,
 	}
 
@@ -306,9 +320,19 @@ func (e *Executor) validateJob(job *Job, jobID string) (skipped bool, result Run
 		return false, RunResult{}, fmt.Errorf("provider %q is not safe for background execution", job.ProviderID)
 	}
 
-	// Only read_only file access is supported.
-	if job.Permissions.FileAccess != FileAccessReadOnly {
-		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only is allowed", job.Permissions.FileAccess)
+	// Validate file access mode.
+	switch job.Permissions.FileAccess {
+	case FileAccessReadOnly:
+		// ok
+	case FileAccessSelectedWrites:
+		if len(job.Permissions.WritablePaths) == 0 {
+			return false, RunResult{}, fmt.Errorf("selected_writes requires at least one writable path")
+		}
+		if err := ValidateWritablePaths(job.ProjectPath, job.Permissions.WritablePaths); err != nil {
+			return false, RunResult{}, fmt.Errorf("invalid writable paths: %w", err)
+		}
+	default:
+		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only and selected_writes are allowed", job.Permissions.FileAccess)
 	}
 
 	return false, RunResult{}, nil

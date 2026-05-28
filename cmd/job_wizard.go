@@ -29,7 +29,8 @@ const (
 	wizStepProvider
 	wizStepModel // model override (optional)
 	wizStepPrompt
-	wizStepPermissions   // file access level picker
+	wizStepPermissions    // file access level picker
+	wizStepWritablePaths  // @ mention file picker (selected_writes only)
 	wizStepScheduleKind
 	wizStepInterval  // sub-step for hourly
 	wizStepTimeOfDay // sub-step for daily/weekly
@@ -134,6 +135,7 @@ type jobWizardModel struct {
 	modelInput       textinput.Model
 	promptInput      textarea.Model
 	permissionsList  list.Model
+	filePicker       filePickerModel
 	scheduleKindList list.Model
 	intervalList     list.Model
 	timeOfDayInput   textinput.Model
@@ -216,19 +218,24 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	}
 
 	// Step 5: file access permissions picker.
-	// Only read_only is currently supported by the executor.
-	// selected_writes and full_workspace are planned but not yet implemented.
 	permissionItems := []list.Item{
 		providerItem{id: "read_only", title: "Read Only (Safe)", desc: "can read project files, cannot write anything"},
+		providerItem{id: "selected_writes", title: "Selected Writes", desc: "write access to specific files you choose"},
+		providerItem{id: "full_workspace", title: "Full Workspace", desc: "write access to entire project (not recommended)"},
 	}
 	permList := list.New(permissionItems, compactDelegate{}, initialW-wizListPad, listHeight(len(permissionItems)))
 	permList.Title = "File Access"
 	permList.SetShowHelp(false)
 	permList.SetShowStatusBar(false)
 
-	// Step 5b: writable paths text input (for selected_writes).
-	// TODO: implement @ mention-based file picker — typing '@' triggers a
-	// fuzzy file search scoped to the project directory. Selected files
+	// Step 5b: @ mention file picker (for selected_writes).
+	projectRoot := prefilled.projectPath
+	if projectRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			projectRoot = cwd
+		}
+	}
+	fp := newFilePickerModel(projectRoot, initialW-wizListPad)
 	// Step 6a: schedule kind.
 	scheduleItems := []list.Item{
 		providerItem{id: "interval", desc: "run every N minutes/hours"},
@@ -304,6 +311,11 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	customTZIn.Placeholder = "America/Los_Angeles"
 	customTZIn.CharLimit = 128
 
+	// Pre-select files if navigating back with existing writablePaths.
+	if prefilled.writablePaths != "" {
+		fp = fp.Preselected(strings.Split(prefilled.writablePaths, ","))
+	}
+
 	m := jobWizardModel{
 		step:             wizStepPath,
 		answers:          prefilled,
@@ -313,6 +325,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		modelInput:       modelIn,
 		promptInput:      promptTA,
 		permissionsList:  permList,
+		filePicker:       fp,
 		scheduleKindList: scheduleList,
 		intervalList:     intervalList,
 		timeOfDayInput:   todIn,
@@ -355,6 +368,9 @@ func (m jobWizardModel) firstUnfilledStep() int {
 	}
 	if m.answers.fileAccess == "" {
 		return wizStepPermissions
+	}
+	if m.answers.fileAccess == "selected_writes" && m.answers.writablePaths == "" {
+		return wizStepWritablePaths
 	}
 	if m.answers.scheduleKind == "" {
 		return wizStepScheduleKind
@@ -400,6 +416,11 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.step == wizStepPrompt {
 				break
 			}
+			// File picker: enter selects a match when dropdown is open.
+			if m.step == wizStepWritablePaths && m.filePicker.dropdownOpen {
+				m.filePicker, _ = m.filePicker.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				return m, nil
+			}
 			// Custom tz text input: enter advances.
 			if m.step == wizStepCustomTz {
 				return m.advance()
@@ -408,6 +429,11 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+enter", "tab":
 			if m.step == wizStepPrompt {
 				return m.advance()
+			}
+			// File picker: tab selects a match when dropdown is open.
+			if m.step == wizStepWritablePaths && m.filePicker.dropdownOpen {
+				m.filePicker, _ = m.filePicker.Update(tea.KeyMsg{Type: tea.KeyTab})
+				return m, nil
 			}
 		}
 	case tea.WindowSizeMsg:
@@ -421,6 +447,7 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dayOfWeekList.SetWidth(inner)
 		m.timezoneList.SetWidth(inner)
 		m.promptInput.SetWidth(inner)
+		m.filePicker, _ = m.filePicker.Update(tea.WindowSizeMsg{Width: inner, Height: typed.Height})
 	}
 
 	// Route message to the active widget.
@@ -438,6 +465,8 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.promptInput, cmd = m.promptInput.Update(msg)
 	case wizStepPermissions:
 		m.permissionsList, cmd = m.permissionsList.Update(msg)
+	case wizStepWritablePaths:
+		m.filePicker, cmd = m.filePicker.Update(msg)
 	case wizStepScheduleKind:
 		m.scheduleKindList, cmd = m.scheduleKindList.Update(msg)
 	case wizStepInterval:
@@ -471,6 +500,8 @@ func (m jobWizardModel) advance() (tea.Model, tea.Cmd) {
 		return m.advanceFromPrompt()
 	case wizStepPermissions:
 		return m.advanceFromPermissions()
+	case wizStepWritablePaths:
+		return m.advanceFromWritablePaths()
 	case wizStepScheduleKind:
 		return m.advanceFromScheduleKind()
 	case wizStepInterval:
@@ -561,6 +592,24 @@ func (m jobWizardModel) advanceFromPermissions() (tea.Model, tea.Cmd) {
 	if sel, ok := m.permissionsList.SelectedItem().(providerItem); ok {
 		m.answers.fileAccess = sel.id
 	}
+	switch m.answers.fileAccess {
+	case "selected_writes":
+		m.step = wizStepWritablePaths
+		return m, m.filePicker.Init()
+	default:
+		m.step = wizStepScheduleKind
+	}
+	return m, nil
+}
+
+func (m jobWizardModel) advanceFromWritablePaths() (tea.Model, tea.Cmd) {
+	// Collect selected files from the file picker.
+	paths := m.filePicker.SelectedPaths()
+	if len(paths) == 0 {
+		// Require at least one writable path.
+		return m, nil
+	}
+	m.answers.writablePaths = strings.Join(paths, ",")
 	m.step = wizStepScheduleKind
 	return m, nil
 }
@@ -665,8 +714,14 @@ func (m jobWizardModel) goBack() (tea.Model, tea.Cmd) {
 	case wizStepPermissions:
 		m.promptInput.Focus()
 		m.step = wizStepPrompt
-	case wizStepScheduleKind:
+	case wizStepWritablePaths:
 		m.step = wizStepPermissions
+	case wizStepScheduleKind:
+		if m.answers.fileAccess == "selected_writes" {
+			m.step = wizStepWritablePaths
+		} else {
+			m.step = wizStepPermissions
+		}
 	case wizStepInterval, wizStepTimeOfDay, wizStepDayOfWeek, wizStepCron:
 		m.step = wizStepScheduleKind
 	case wizStepTimezone:
@@ -721,6 +776,7 @@ func visualStepLabel(step int) string {
 		wizStepModel:         "Step 3b/9 — Model",
 		wizStepPrompt:        "Step 4/9 — Prompt",
 		wizStepPermissions:   "Step 5/9 — File Access",
+		wizStepWritablePaths: "Step 5b/9 — Writable Files",
 		wizStepScheduleKind:  "Step 6/9 — Schedule",
 		wizStepInterval:      "Step 6b/9 — Repeat Interval",
 		wizStepTimeOfDay:     "Step 6b/9 — Time of Day",
@@ -797,6 +853,11 @@ func (m jobWizardModel) View() string {
 		body = fmt.Sprintf("%s\n\nWhat file access should this job have?\n\n%s\n\n%s",
 			title, m.permissionsList.View(),
 			dimStyle.Render("[↑↓] navigate  •  [enter] select  •  [esc] back"))
+
+	case wizStepWritablePaths:
+		help := dimStyle.Render("[@] search files  •  [↑↓] navigate  •  [enter] select  •  [esc] back")
+		body = fmt.Sprintf("%s\n\nSelect files to grant write access:\n\n%s\n\n%s",
+			title, m.filePicker.View(), help)
 
 	case wizStepScheduleKind:
 		body = fmt.Sprintf("%s\n\nHow often should this run?\n\n%s\n\n%s",
@@ -919,6 +980,11 @@ func (m jobWizardModel) describePermissions() string {
 	switch m.answers.fileAccess {
 	case "read_only":
 		return "read-only"
+	case "selected_writes":
+		paths := strings.Split(m.answers.writablePaths, ",")
+		return fmt.Sprintf("selected writes (%d files)", len(paths))
+	case "full_workspace":
+		return "full workspace (read-write)"
 	default:
 		return m.answers.fileAccess
 	}

@@ -249,7 +249,24 @@ func TestExecutor_Run_ProviderNotBackgroundSafe(t *testing.T) {
 	}
 }
 
-func TestExecutor_Run_WriteModeRejected(t *testing.T) {
+func TestExecutor_Run_FullWorkspaceRejected(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, _ := newTestExecutor(t, provider)
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Permissions.FileAccess = FileAccessFullWorkspace
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err == nil {
+		t.Fatal("expected error for full_workspace mode")
+	}
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("error = %q, want contains 'not supported'", err.Error())
+	}
+}
+
+func TestExecutor_Run_SelectedWritesNoPaths(t *testing.T) {
 	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
 	executor, store, _ := newTestExecutor(t, provider)
 
@@ -259,10 +276,28 @@ func TestExecutor_Run_WriteModeRejected(t *testing.T) {
 
 	_, err := executor.Run(context.Background(), job.ID)
 	if err == nil {
-		t.Fatal("expected error for write mode")
+		t.Fatal("expected error for selected_writes with no writable paths")
 	}
-	if !strings.Contains(err.Error(), "not supported") {
-		t.Errorf("error = %q, want contains 'not supported'", err.Error())
+	if !strings.Contains(err.Error(), "requires at least one writable path") {
+		t.Errorf("error = %q, want contains 'requires at least one writable path'", err.Error())
+	}
+}
+
+func TestExecutor_Run_SelectedWritesInvalidPaths(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, _ := newTestExecutor(t, provider)
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Permissions.FileAccess = FileAccessSelectedWrites
+	job.Permissions.WritablePaths = []string{"../../../etc/passwd"}
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err == nil {
+		t.Fatal("expected error for invalid writable paths")
+	}
+	if !strings.Contains(err.Error(), "invalid writable paths") {
+		t.Errorf("error = %q, want contains 'invalid writable paths'", err.Error())
 	}
 }
 

@@ -472,6 +472,9 @@ func newJobsCreateCommand() *cobra.Command {
 			if writablePaths != "" && fileAccess != "selected_writes" {
 				return fmt.Errorf("--writable-paths requires --file-access selected_writes")
 			}
+			if fileAccess == "selected_writes" && writablePaths == "" {
+				return fmt.Errorf("--writable-paths is required when --file-access is selected_writes")
+			}
 
 			// Resolve provider.
 			if providerID == "" {
