@@ -270,6 +270,9 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 	if err := backgroundjobs.ValidateSchedule(input.schedule); err != nil {
 		return fmt.Errorf("invalid schedule: %w", err)
 	}
+	if input.schedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+		return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
+	}
 
 	// Build job.
 	now := time.Now().UTC()
@@ -458,9 +461,6 @@ func newJobsCreateCommand() *cobra.Command {
 			}
 			if every != "" && scheduleKind != "interval" {
 				return fmt.Errorf("--every is only valid with --schedule interval")
-			}
-			if scheduleKind == "cron" && runtime.GOOS == "windows" {
-				return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
 			}
 			if fileAccess != "" {
 				switch fileAccess {
