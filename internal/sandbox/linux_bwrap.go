@@ -226,11 +226,13 @@ func isTmpfsPath(p string) bool {
 // validateWritableDir checks that a writable directory is safe to mount
 // inside the sandbox. It rejects paths that are "/" (entire host FS),
 // ancestors of or equal to projectDir, or outside the allowed roots.
+// When projectWrite is true, the dir == projectDir check is skipped
+// (the user explicitly opted into writable project mode).
 //
 // The ".." check is defense-in-depth: callers should already resolve
 // via filepath.Abs (which normalizes ".."), but we reject it explicitly
 // in case a caller passes an unresolved path.
-func validateWritableDir(dir, projectDir string, allowedRoots []string) error {
+func validateWritableDir(dir, projectDir string, allowedRoots []string, projectWrite bool) error {
 	if dir == "/" {
 		return fmt.Errorf("sandbox: refusing to mount entire host filesystem as writable")
 	}
@@ -241,7 +243,8 @@ func validateWritableDir(dir, projectDir string, allowedRoots []string) error {
 	// The dir must not be projectDir itself or an ancestor of projectDir.
 	// Either would make the project tree writable, defeating the
 	// deny-write ACL that the sandbox is designed to enforce.
-	if dir == projectDir || isAncestor(dir, projectDir) {
+	// Skip when projectWrite is true — user explicitly opted in.
+	if !projectWrite && (dir == projectDir || isAncestor(dir, projectDir)) {
 		return fmt.Errorf("sandbox: writable dir %q overlaps with project dir %s (project must remain read-only)", dir, projectDir)
 	}
 	// The dir must be under one of the allowed roots.
@@ -280,7 +283,7 @@ func isAncestor(ancestor, path string) bool {
 // resolveAndValidateWritableDirs resolves each writable dir to absolute
 // + EvalSymlinks, validates containment, and creates it if needed.
 // Returns the resolved paths for buildBwrapArgs.
-func resolveAndValidateWritableDirs(writableDirs []string, projectDir string) ([]string, error) {
+func resolveAndValidateWritableDirs(writableDirs []string, projectDir string, projectWrite bool) ([]string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = ""
@@ -317,7 +320,7 @@ func resolveAndValidateWritableDirs(writableDirs []string, projectDir string) ([
 		if err != nil {
 			resolvedDir = absDir
 		}
-		if err := validateWritableDir(resolvedDir, projectDir, allowedRoots); err != nil {
+		if err := validateWritableDir(resolvedDir, projectDir, allowedRoots, projectWrite); err != nil {
 			return nil, err
 		}
 		if err := os.MkdirAll(resolvedDir, 0o755); err != nil {

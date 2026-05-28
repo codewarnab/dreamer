@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"dreamer/internal/config"
+	"dreamer/internal/sandbox"
 )
 
 // ErrUnavailable: provider can no longer serve the current pipeline.Run.
@@ -76,14 +77,7 @@ type ProviderConfig struct {
 	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
 	SandboxSeccomp string
 	// SandboxResources configures OS resource caps.
-	SandboxResources SandboxResourceLimits
-}
-
-// SandboxResourceLimits mirrors sandbox.ResourceLimits for config transport.
-type SandboxResourceLimits struct {
-	MemoryMB  int
-	Processes int
-	FDs       int
+	SandboxResources sandbox.ResourceLimits
 }
 
 // ProviderFactory builds a Provider instance.

@@ -52,10 +52,17 @@ func TestBuildSeatbeltProfile_AllowsDevNull(t *testing.T) {
 	}
 }
 
-func TestBuildSeatbeltProfile_NoNetworkDeny(t *testing.T) {
+func TestBuildSeatbeltProfile_NetworkDeny(t *testing.T) {
 	profile := buildSeatbeltProfile(Config{}, nil)
+	if !strings.Contains(profile, "(deny network") {
+		t.Fatal("profile should deny network with default config (NetworkIsolated)")
+	}
+}
+
+func TestBuildSeatbeltProfile_NetworkOpen(t *testing.T) {
+	profile := buildSeatbeltProfile(Config{Network: NetworkOpen}, nil)
 	if strings.Contains(profile, "(deny network") {
-		t.Fatal("profile should not deny network")
+		t.Fatal("profile should not deny network when Network=open")
 	}
 }
 

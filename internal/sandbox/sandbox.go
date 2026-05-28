@@ -72,6 +72,10 @@ type Config struct {
 
 	// Resources configures OS resource caps (Linux rlimits).
 	Resources ResourceLimits
+
+	// SIDExpiryDays overrides the default SID file expiry (7 days).
+	// Only used on Windows. 0 means use DefaultSIDExpiryDays.
+	SIDExpiryDays int
 }
 
 // ResourceLimits configures OS resource caps for the sandboxed process.

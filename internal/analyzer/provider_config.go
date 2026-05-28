@@ -1,6 +1,9 @@
 package analyzer
 
-import "dreamer/internal/config"
+import (
+	"dreamer/internal/config"
+	"dreamer/internal/sandbox"
+)
 
 // ProviderConfigFromBlock builds a ProviderConfig from a config.ProviderBlock,
 // applying per-provider defaults (model, sandbox) from the config package.
@@ -21,7 +24,7 @@ func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sand
 		SandboxProjectWrite: sandboxCfg.ProjectWrite != nil && *sandboxCfg.ProjectWrite,
 		SandboxNetwork:      sandboxCfg.Network,
 		SandboxSeccomp:      sandboxCfg.Seccomp,
-		SandboxResources: SandboxResourceLimits{
+		SandboxResources: sandbox.ResourceLimits{
 			MemoryMB:  sandboxCfg.Resources.MemoryMB,
 			Processes: sandboxCfg.Resources.Processes,
 			FDs:       sandboxCfg.Resources.FDs,

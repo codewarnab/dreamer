@@ -46,7 +46,7 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 
 	// Resolve and validate writable dirs once. buildBwrapArgs receives
 	// pre-resolved paths and is a pure string-assembly function.
-	resolvedDirs, err := resolveAndValidateWritableDirs(cfg.WritableDirs, projectDir)
+	resolvedDirs, err := resolveAndValidateWritableDirs(cfg.WritableDirs, projectDir, cfg.ProjectWrite)
 	if err != nil {
 		return nil, err
 	}

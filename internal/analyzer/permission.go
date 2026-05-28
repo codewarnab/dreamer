@@ -111,8 +111,11 @@ func validateURL(req PermissionRequest) PermissionDecision {
 			return PermissionDecision{Reason: fmt.Sprintf("hostname %q resolves to restricted IP %s", hostname, ip)}
 		}
 	}
-	// Return the first resolved IP for pinning. Callers use this
-	// instead of the hostname to make DNS rebinding ineffective.
+	// Return the first resolved IP for pinning. Currently stored on
+	// the decision but not consumed by callers (acpcore, copilotsdk)
+	// because the HTTP client is controlled by the SDK/agent, not by
+	// dreamer. A future SDK version or custom dialer could use this
+	// to make DNS rebinding ineffective.
 	return PermissionDecision{Approved: true, ApprovedIP: ips[0].String()}
 }
 

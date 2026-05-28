@@ -90,10 +90,17 @@ func TestBuildBwrapArgs_UnsharePid(t *testing.T) {
 	}
 }
 
-func TestBuildBwrapArgs_NoNetworkIsolation(t *testing.T) {
+func TestBuildBwrapArgs_NetworkIsolation(t *testing.T) {
 	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0)
+	if !containsFlag(args, "--unshare-net") {
+		t.Errorf("expected --unshare-net with default config (NetworkIsolated): %v", args)
+	}
+}
+
+func TestBuildBwrapArgs_NetworkOpen(t *testing.T) {
+	args := buildBwrapArgs(Config{Network: NetworkOpen}, "/project", nil, "/bin/ls", nil, 0)
 	if containsFlag(args, "--unshare-net") {
-		t.Errorf("--unshare-net should not be present (breaks CLI providers): %v", args)
+		t.Errorf("--unshare-net should not be present when Network=open: %v", args)
 	}
 }
 
@@ -338,7 +345,7 @@ func TestIsTmpfsPath_PrefixCollision(t *testing.T) {
 // --- validateWritableDir tests ---
 
 func TestValidateWritableDir_RejectsRoot(t *testing.T) {
-	err := validateWritableDir("/", "/project", []string{"/home"})
+	err := validateWritableDir("/", "/project", []string{"/home"}, false)
 	if err == nil {
 		t.Error("expected error for root path")
 	}
@@ -348,7 +355,7 @@ func TestValidateWritableDir_RejectsRoot(t *testing.T) {
 }
 
 func TestValidateWritableDir_RejectsDotDot(t *testing.T) {
-	err := validateWritableDir("/home/user/../etc", "/project", []string{"/tmp"})
+	err := validateWritableDir("/home/user/../etc", "/project", []string{"/tmp"}, false)
 	if err == nil {
 		t.Error("expected error for path with ..")
 	}
@@ -358,7 +365,7 @@ func TestValidateWritableDir_RejectsDotDot(t *testing.T) {
 }
 
 func TestValidateWritableDir_RejectsAncestorOfProject(t *testing.T) {
-	err := validateWritableDir("/home/user", "/home/user/project", []string{"/home/user"})
+	err := validateWritableDir("/home/user", "/home/user/project", []string{"/home/user"}, false)
 	if err == nil {
 		t.Error("expected error when writable dir is ancestor of project dir")
 	}
@@ -369,7 +376,7 @@ func TestValidateWritableDir_RejectsAncestorOfProject(t *testing.T) {
 
 func TestValidateWritableDir_RejectsProjectDirItself(t *testing.T) {
 	// Passing projectDir itself as writable defeats the deny-write ACL.
-	err := validateWritableDir("/home/user/project", "/home/user/project", []string{"/home/user/project"})
+	err := validateWritableDir("/home/user/project", "/home/user/project", []string{"/home/user/project"}, false)
 	if err == nil {
 		t.Error("expected error when writable dir equals project dir")
 	}
@@ -379,7 +386,7 @@ func TestValidateWritableDir_RejectsProjectDirItself(t *testing.T) {
 }
 
 func TestValidateWritableDir_RejectsOutsideAllowedRoots(t *testing.T) {
-	err := validateWritableDir("/etc/something", "/project", []string{"/tmp", "/home"})
+	err := validateWritableDir("/etc/something", "/project", []string{"/tmp", "/home"}, false)
 	if err == nil {
 		t.Error("expected error for path outside allowed roots")
 	}
@@ -389,7 +396,7 @@ func TestValidateWritableDir_RejectsOutsideAllowedRoots(t *testing.T) {
 }
 
 func TestValidateWritableDir_AllowsSubpath(t *testing.T) {
-	err := validateWritableDir("/home/user/.claude", "/project", []string{"/home"})
+	err := validateWritableDir("/home/user/.claude", "/project", []string{"/home"}, false)
 	if err != nil {
 		t.Errorf("expected no error for valid subpath, got: %v", err)
 	}
@@ -399,14 +406,14 @@ func TestValidateWritableDir_AllowsSubpathOfProjectDir(t *testing.T) {
 	// allowedRoots should use the project dir itself, not the subdir,
 	// to match production behavior (resolveAndValidateWritableDirs
 	// passes projectDir as an allowed root).
-	err := validateWritableDir("/home/user/project/output", "/home/user/project", []string{"/home/user/project"})
+	err := validateWritableDir("/home/user/project/output", "/home/user/project", []string{"/home/user/project"}, false)
 	if err != nil {
 		t.Errorf("expected no error for subdir of project dir, got: %v", err)
 	}
 }
 
 func TestValidateWritableDir_AllowsEqualPath(t *testing.T) {
-	err := validateWritableDir("/tmp", "/project", []string{"/tmp"})
+	err := validateWritableDir("/tmp", "/project", []string{"/tmp"}, false)
 	if err != nil {
 		t.Errorf("expected no error for equal path, got: %v", err)
 	}

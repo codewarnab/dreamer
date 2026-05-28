@@ -4,6 +4,7 @@ import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/providers/acpcore"
 	"dreamer/internal/config"
+	"dreamer/internal/sandbox"
 )
 
 const ID = "gemini-acp"
@@ -20,10 +21,11 @@ func init() {
 			Env:              providerConfig.Env,
 			DefaultModel:     providerConfig.DefaultModel,
 			ModelFallbacks:   config.DefaultModelFallbacks[config.ProviderGeminiACP],
-			Sandbox:          providerConfig.Sandbox,
-			SandboxNetwork:   providerConfig.SandboxNetwork,
-			SandboxSeccomp:   providerConfig.SandboxSeccomp,
-			SandboxResources: acpcore.SandboxResourceLimits{
+			Sandbox:             providerConfig.Sandbox,
+			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
+			SandboxNetwork:      providerConfig.SandboxNetwork,
+			SandboxSeccomp:      providerConfig.SandboxSeccomp,
+			SandboxResources: sandbox.ResourceLimits{
 				MemoryMB:  providerConfig.SandboxResources.MemoryMB,
 				Processes: providerConfig.SandboxResources.Processes,
 				FDs:       providerConfig.SandboxResources.FDs,

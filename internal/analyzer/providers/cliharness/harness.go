@@ -68,14 +68,7 @@ type Options struct {
 	SandboxProjectWrite bool
 	SandboxNetwork      string
 	SandboxSeccomp      string
-	SandboxResources    SandboxResourceLimits
-}
-
-// SandboxResourceLimits mirrors sandbox.ResourceLimits for config transport.
-type SandboxResourceLimits struct {
-	MemoryMB  int
-	Processes int
-	FDs       int
+	SandboxResources    sandbox.ResourceLimits
 }
 
 // Provider holds per-instance state shared across sessions for one provider.

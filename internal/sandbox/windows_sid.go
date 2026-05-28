@@ -27,8 +27,9 @@ type sidAndAttrs struct {
 // createCapabilitySID loads or creates a persistent capability SID for the
 // given workspace directory. The SID is stored in ~/.dreamer/.sandbox/.
 // Each workspace gets a unique SID keyed by a SHA-256 hash of the canonical
-// workspace path.
-func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
+// workspace path. expiryDays controls how long unused SID files are kept;
+// pass 0 to use DefaultSIDExpiryDays.
+func createCapabilitySID(workspaceDir string, expiryDays int) (*windows.SID, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: get home dir: %w", err)
@@ -40,7 +41,10 @@ func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
 
 	// Prune stale SID files before creating a new one. Errors are
 	// non-fatal — cleanup is best-effort.
-	pruneOrphanSIDs(dir, DefaultSIDExpiryDays)
+	if expiryDays <= 0 {
+		expiryDays = DefaultSIDExpiryDays
+	}
+	pruneOrphanSIDs(dir, expiryDays)
 
 	h := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(workspaceDir))))
 	path := filepath.Join(dir, hex.EncodeToString(h[:8])+".sid")

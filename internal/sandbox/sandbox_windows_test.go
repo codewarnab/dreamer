@@ -58,6 +58,7 @@ func integrationTestRunChild(t *testing.T) {
 		ProjectDir:   projectDir,
 		Mode:         ModeAuto,
 		WritableDirs: []string{writableDir},
+		Network:      NetworkOpen, // Windows doesn't support network isolation
 	}
 
 	prepCleanup, err := Prepare(cmd, cfg)
@@ -87,7 +88,7 @@ func integrationTestRunChild(t *testing.T) {
 // TestCreateCapabilitySID verifies that the SID file is created and loaded.
 func TestCreateCapabilitySID(t *testing.T) {
 	dir := t.TempDir()
-	sid, err := createCapabilitySID(dir)
+	sid, err := createCapabilitySID(dir, 0)
 	if err != nil {
 		t.Fatalf("createCapabilitySID: %v", err)
 	}
@@ -96,7 +97,7 @@ func TestCreateCapabilitySID(t *testing.T) {
 	}
 
 	// Loading the same dir again should return the same SID.
-	sid2, err := createCapabilitySID(dir)
+	sid2, err := createCapabilitySID(dir, 0)
 	if err != nil {
 		t.Fatalf("createCapabilitySID (2nd call): %v", err)
 	}
@@ -110,13 +111,13 @@ func TestCreateCapabilitySID_DifferentDirs(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
-	sid1, err := createCapabilitySID(dir1)
+	sid1, err := createCapabilitySID(dir1, 0)
 	if err != nil {
-		t.Fatalf("createCapabilitySID(dir1): %v", err)
+		t.Fatalf("createCapabilitySID(dir1, 0): %v", err)
 	}
-	sid2, err := createCapabilitySID(dir2)
+	sid2, err := createCapabilitySID(dir2, 0)
 	if err != nil {
-		t.Fatalf("createCapabilitySID(dir2): %v", err)
+		t.Fatalf("createCapabilitySID(dir2, 0): %v", err)
 	}
 	if sid1.String() == sid2.String() {
 		t.Errorf("different dirs should get different SIDs, both got %s", sid1.String())

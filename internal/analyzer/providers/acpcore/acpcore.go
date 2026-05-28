@@ -19,6 +19,7 @@ import (
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
 	"dreamer/internal/fsutil"
+	"dreamer/internal/sandbox"
 )
 
 // ErrTransportClosed: ACP child process exited before/during a session.Run.
@@ -55,19 +56,17 @@ type Options struct {
 	// applied at process start time.
 	Sandbox string
 
+	// SandboxProjectWrite makes the project dir writable. ACP providers
+	// don't know the project dir at spawn time, so this field is stored
+	// for future use when per-session sandboxing is implemented.
+	SandboxProjectWrite bool
+
 	// SandboxNetwork is the network isolation mode ("isolated" or "open").
 	SandboxNetwork string
 	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
 	SandboxSeccomp string
 	// SandboxResources configures OS resource caps.
-	SandboxResources SandboxResourceLimits
-}
-
-// SandboxResourceLimits mirrors sandbox.ResourceLimits for config transport.
-type SandboxResourceLimits struct {
-	MemoryMB  int
-	Processes int
-	FDs       int
+	SandboxResources sandbox.ResourceLimits
 }
 
 // New returns an analyzer.Provider that drives an ACP agent over stdio.
@@ -79,15 +78,16 @@ func New(options Options) (analyzer.Provider, error) {
 		return nil, errors.New("acpcore: Command is required")
 	}
 	return &provider{
-		id:               options.ID,
-		command:          append([]string(nil), options.Command...),
-		env:              copyStringMap(options.Env),
-		defaultModel:     strings.TrimSpace(options.DefaultModel),
-		modelFallbacks:   append([]string(nil), options.ModelFallbacks...),
-		sandboxMode:      options.Sandbox,
-		sandboxNetwork:   options.SandboxNetwork,
-		sandboxSeccomp:   options.SandboxSeccomp,
-		sandboxResources: options.SandboxResources,
+		id:                  options.ID,
+		command:             append([]string(nil), options.Command...),
+		env:                 copyStringMap(options.Env),
+		defaultModel:        strings.TrimSpace(options.DefaultModel),
+		modelFallbacks:      append([]string(nil), options.ModelFallbacks...),
+		sandboxMode:         options.Sandbox,
+		sandboxProjectWrite: options.SandboxProjectWrite,
+		sandboxNetwork:      options.SandboxNetwork,
+		sandboxSeccomp:      options.SandboxSeccomp,
+		sandboxResources:    options.SandboxResources,
 	}, nil
 }
 
@@ -97,10 +97,11 @@ type provider struct {
 	env              map[string]string
 	defaultModel     string
 	modelFallbacks   []string
-	sandboxMode      string
-	sandboxNetwork   string
-	sandboxSeccomp   string
-	sandboxResources SandboxResourceLimits
+	sandboxMode         string
+	sandboxProjectWrite bool
+	sandboxNetwork      string
+	sandboxSeccomp      string
+	sandboxResources    sandbox.ResourceLimits
 
 	mu         sync.Mutex
 	transport  *transport
@@ -128,7 +129,7 @@ func (p *provider) Start(ctx context.Context) error {
 	if p.started {
 		return nil
 	}
-	t, err := dialStdio(ctx, p.id, p.command, p.env, p.sandboxMode, p.sandboxNetwork, p.sandboxSeccomp, p.sandboxResources)
+	t, err := dialStdio(ctx, p.id, p.command, p.env, p.sandboxMode, p.sandboxProjectWrite, p.sandboxNetwork, p.sandboxSeccomp, p.sandboxResources)
 	if err != nil {
 		return fmt.Errorf("acpcore: spawn %v: %w", p.command, err)
 	}

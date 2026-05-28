@@ -10,6 +10,7 @@ import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/providers/cliharness"
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/sandbox"
 )
 
 const ID = "claude-cli"
@@ -38,7 +39,7 @@ func init() {
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxNetwork:      providerConfig.SandboxNetwork,
 			SandboxSeccomp:      providerConfig.SandboxSeccomp,
-			SandboxResources: cliharness.SandboxResourceLimits{
+			SandboxResources: sandbox.ResourceLimits{
 				MemoryMB:  providerConfig.SandboxResources.MemoryMB,
 				Processes: providerConfig.SandboxResources.Processes,
 				FDs:       providerConfig.SandboxResources.FDs,

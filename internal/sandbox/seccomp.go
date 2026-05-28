@@ -55,7 +55,13 @@ type SyscallRule struct {
 // compileSeccompBPF compiles a SeccompProfile into raw BPF instructions
 // suitable for passing to bwrap via --seccomp fd.
 func compileSeccompBPF(profile SeccompProfile) ([]bpf.RawInstruction, error) {
-	const maxRules = 128
+	// maxRules caps the number of syscall rules. BPF skip distances are
+	// encoded as uint8, so the maximum skip is 255. With 2 instructions
+	// per rule + 2 terminal instructions (ALLOW + KILL), the first rule's
+	// skip = totalLen - 2 - 0 = 2*(maxRules+1). For skip <= 255 we need
+	// maxRules <= 126; we use 127 as a safe ceiling (skip=256 would
+	// overflow uint8 to 0, making the first rule a no-op).
+	const maxRules = 127
 	if len(profile.Rules) > maxRules {
 		return nil, fmt.Errorf("seccomp: too many rules (%d, max %d)", len(profile.Rules), maxRules)
 	}
@@ -80,7 +86,11 @@ func compileSeccompBPF(profile SeccompProfile) ([]bpf.RawInstruction, error) {
 	totalLen := len(insns)
 	for i := range insns {
 		if ji, ok := insns[i].(bpf.JumpIf); ok {
-			ji.SkipTrue = uint8(totalLen - 2 - i)
+			skip := totalLen - 2 - i
+			if skip > 255 {
+				skip = 255 // clamp to uint8 max
+			}
+			ji.SkipTrue = uint8(skip)
 			insns[i] = ji
 		}
 	}
@@ -129,7 +139,10 @@ func createSeccompFD(raw []bpf.RawInstruction) (uintptr, error) {
 	}
 
 	// Seek back to start for bwrap to read.
-	syscall.Syscall(syscall.SYS_LSEEK, fd, 0, 0)
+	if _, _, errno := syscall.Syscall(syscall.SYS_LSEEK, fd, 0, 0); errno != 0 {
+		syscall.Close(int(fd))
+		return 0, fmt.Errorf("lseek seccomp fd: %v", errno)
+	}
 
 	return fd, nil
 }
@@ -153,6 +166,7 @@ var (
 			{Name: "chroot", NR: syscall.SYS_CHROOT},
 			{Name: "reboot", NR: syscall.SYS_REBOOT},
 			{Name: "setns", NR: sysSetns},
+			{Name: "unshare", NR: syscall.SYS_UNSHARE},
 		},
 	}
 )
