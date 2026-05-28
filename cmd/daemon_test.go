@@ -72,8 +72,10 @@ func TestStartConfigWatcher_PublishesOnWrite(t *testing.T) {
 	live.Store(&config.App{})
 	startConfigWatcher(ctx, logger, events, &live, configPath, overlayPath)
 
-	// Give the watcher a moment to register.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the fsnotify watcher to register. A ready-channel from
+	// startConfigWatcher would be cleaner; for now, a generous sleep
+	// avoids flakes on slow CI (especially Windows fsnotify).
+	time.Sleep(200 * time.Millisecond)
 
 	// Append a benign byte to trigger a WRITE event.
 	if err := os.WriteFile(configPath, append(baseYAML, '\n'), 0o644); err != nil {
@@ -119,7 +121,7 @@ func TestStartConfigWatcher_SwapsLiveConfig(t *testing.T) {
 	defer cancel()
 
 	startConfigWatcher(ctx, logger, events, &live, configPath, overlayPath)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Write an overlay that flips default_provider.
 	overlay := []byte("default_provider: claude-cli\n")
