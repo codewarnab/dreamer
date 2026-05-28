@@ -280,16 +280,22 @@ const taskXMLTemplate = `<Task version="1.2" xmlns="http://schemas.microsoft.com
 func buildTriggerXML(spec ScheduleSpec) (string, error) {
 	switch spec.Kind {
 	case ScheduleHourly:
-		return `<CalendarTrigger>
+		interval := "PT1H"
+		if spec.Every != "" {
+			if d, err := parseEveryDuration(spec.Every); err == nil {
+				interval = durationToISO8601(d)
+			}
+		}
+		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>2026-01-01T00:00:00</StartBoundary>
       <Enabled>true</Enabled>
       <Repetition>
-        <Interval>PT1H</Interval>
+        <Interval>%s</Interval>
       </Repetition>
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, nil
+    </CalendarTrigger>`, interval), nil
 
 	case ScheduleDaily:
 		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)

@@ -206,3 +206,31 @@ func TestBuildTaskXML_DescriptionEscaped(t *testing.T) {
 		t.Error("Description should contain the job ID")
 	}
 }
+
+func TestBuildTriggerXML_HourlyEvery(t *testing.T) {
+	tests := []struct {
+		name         string
+		every        string
+		wantInterval string
+	}{
+		{"default", "", "PT1H"},
+		{"5m", "5m", "PT5M"},
+		{"15m", "15m", "PT15M"},
+		{"45m", "45m", "PT45M"},
+		{"2h", "2h", "PT2H"},
+		{"90m", "90m", "PT90M"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every, Timezone: "UTC"}
+			xmlStr, err := buildTriggerXML(spec)
+			if err != nil {
+				t.Fatalf("buildTriggerXML error: %v", err)
+			}
+			want := "<Interval>" + tt.wantInterval + "</Interval>"
+			if !strings.Contains(xmlStr, want) {
+				t.Errorf("buildTriggerXML(every=%q)\n  got:  %s\n  want: %s", tt.every, xmlStr, want)
+			}
+		})
+	}
+}

@@ -353,3 +353,123 @@ func TestLaunchAgentPlist_UnmarshalCalendarInterval(t *testing.T) {
 		t.Errorf("Minute = %d, want 30", p.StartCalendarInterval[0].Minute)
 	}
 }
+
+func TestBuildCalendarIntervals_HourlyEvery(t *testing.T) {
+	tests := []struct {
+		name      string
+		every     string
+		wantNil   bool
+	}{
+		{"default", "", false},
+		{"5m", "5m", true},
+		{"15m", "15m", true},
+		{"2h", "2h", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every}
+			intervals := buildCalendarIntervals(spec)
+			if tt.wantNil {
+				if intervals != nil {
+					t.Errorf("buildCalendarIntervals(every=%q) = %v, want nil", tt.every, intervals)
+				}
+			} else {
+				if len(intervals) != 1 {
+					t.Errorf("buildCalendarIntervals(every=%q) len = %d, want 1", tt.every, len(intervals))
+				}
+			}
+		})
+	}
+}
+
+func TestLaunchAgentPlist_MarshalStartInterval(t *testing.T) {
+	plist := launchAgentPlist{
+		Version: "1.0",
+		Label:   "com.dreamer.background.test",
+		ProgramArguments: []string{
+			"/usr/local/bin/dreamer", "jobs", "run", "test",
+		},
+		WorkingDirectory: "/tmp/test",
+		StartInterval:    900, // 15 minutes
+		StandardOutPath:  "/tmp/stdout.log",
+		StandardErrorPath: "/tmp/stderr.log",
+		Disabled:         false,
+	}
+
+	data, err := xml.MarshalIndent(plist, "", "  ")
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	xmlStr := string(data)
+	if !contains(xmlStr, "<integer>900</integer>") {
+		t.Errorf("Marshal should contain <integer>900</integer>, got: %s", xmlStr)
+	}
+	// Should NOT contain StartCalendarInterval.
+	if contains(xmlStr, "StartCalendarInterval") {
+		t.Errorf("Marshal should not contain StartCalendarInterval, got: %s", xmlStr)
+	}
+}
+
+func TestLaunchAgentPlist_UnmarshalStartInterval(t *testing.T) {
+	xmlData := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>test.label</string>
+	<key>StartInterval</key>
+	<integer>900</integer>
+</dict>
+</plist>`
+
+	var p launchAgentPlist
+	if err := xml.Unmarshal([]byte(xmlData), &p); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if p.StartInterval != 900 {
+		t.Errorf("StartInterval = %d, want 900", p.StartInterval)
+	}
+}
+
+func TestLaunchAgentPlist_MarshalUnmarshalStartIntervalRoundTrip(t *testing.T) {
+	original := launchAgentPlist{
+		Version: "1.0",
+		Label:   "com.dreamer.background.test",
+		ProgramArguments: []string{
+			"/usr/local/bin/dreamer", "jobs", "run", "test",
+		},
+		WorkingDirectory: "/tmp/test",
+		StartInterval:    900,
+		StandardOutPath:  "/tmp/stdout.log",
+		StandardErrorPath: "/tmp/stderr.log",
+	}
+
+	data, err := xml.MarshalIndent(original, "", "  ")
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var roundTripped launchAgentPlist
+	if err := xml.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if roundTripped.StartInterval != original.StartInterval {
+		t.Errorf("StartInterval = %d, want %d", roundTripped.StartInterval, original.StartInterval)
+	}
+}
+
+// contains is a simple helper for test assertions.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

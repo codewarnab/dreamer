@@ -109,7 +109,11 @@ func (s *darwinScheduler) Inspect(_ context.Context, jobID string) (ScheduleHeal
 
 	health.Enabled = !plist.Disabled
 
-	if len(plist.StartCalendarInterval) > 0 {
+	if plist.StartInterval > 0 {
+		// Interval-based: next run is now + interval (approximate).
+		next := time.Now().Add(time.Duration(plist.StartInterval) * time.Second)
+		health.NextRunTime = &next
+	} else if len(plist.StartCalendarInterval) > 0 {
 		cal := plist.StartCalendarInterval[0]
 		now := time.Now()
 		next := computeNextCalendarRun(now, cal.Hour, cal.Minute, cal.Weekday)
@@ -184,15 +188,20 @@ func (s *darwinScheduler) writePlist(params ScheduleParams) (string, error) {
 
 	calIntervals := buildCalendarIntervals(params.Schedule)
 	disabled := !params.Enabled
+	startInterval := 0
+	if params.Schedule.Kind == ScheduleHourly && params.Schedule.Every != "" {
+		startInterval = int(EveryDuration(params.Schedule).Seconds())
+	}
 
 	plist := launchAgentPlist{
-		Label:                s.label(params.JobID),
-		ProgramArguments:     append([]string{s.cfg.ExecutablePath}, runArgsFor(params.JobID, s.cfg.ConfigPath)...),
-		WorkingDirectory:     s.cfg.StoreDir,
+		Label:                 s.label(params.JobID),
+		ProgramArguments:      append([]string{s.cfg.ExecutablePath}, runArgsFor(params.JobID, s.cfg.ConfigPath)...),
+		WorkingDirectory:      s.cfg.StoreDir,
 		StartCalendarInterval: calIntervals,
-		StandardOutPath:      filepath.Join(s.cfg.StoreDir, params.JobID+".stdout.log"),
-		StandardErrorPath:    filepath.Join(s.cfg.StoreDir, params.JobID+".stderr.log"),
-		Disabled:             disabled,
+		StartInterval:         startInterval,
+		StandardOutPath:       filepath.Join(s.cfg.StoreDir, params.JobID+".stdout.log"),
+		StandardErrorPath:     filepath.Join(s.cfg.StoreDir, params.JobID+".stderr.log"),
+		Disabled:              disabled,
 	}
 
 	data, err := xml.MarshalIndent(plist, "", "  ")
@@ -239,6 +248,7 @@ type launchAgentPlist struct {
 	ProgramArguments      []string           `xml:"-"`
 	WorkingDirectory      string             `xml:"-"`
 	StartCalendarInterval []calendarInterval `xml:"-"`
+	StartInterval         int                `xml:"-"` // seconds; 0 means unused
 	StandardOutPath       string             `xml:"-"`
 	StandardErrorPath     string             `xml:"-"`
 	Disabled              bool               `xml:"-"`
@@ -420,6 +430,8 @@ func (p *launchAgentPlist) unmarshalDict(d *xml.Decoder, _ xml.StartElement) err
 			p.WorkingDirectory, err = readPlistString(d, valStart)
 		case "StartCalendarInterval":
 			p.StartCalendarInterval, err = readPlistCalendarArray(d, valStart)
+		case "StartInterval":
+			p.StartInterval, err = readPlistInt(d, valStart)
 		case "StandardOutPath":
 			p.StandardOutPath, err = readPlistString(d, valStart)
 		case "StandardErrorPath":
@@ -436,6 +448,28 @@ func (p *launchAgentPlist) unmarshalDict(d *xml.Decoder, _ xml.StartElement) err
 			return err
 		}
 	}
+}
+
+// readPlistInt reads an <integer> value.
+func readPlistInt(d *xml.Decoder, _ xml.StartElement) (int, error) {
+	tok, err := d.Token()
+	if err != nil {
+		return 0, err
+	}
+	if cd, ok := tok.(xml.CharData); ok {
+		n := 0
+		fmt.Sscanf(string(cd), "%d", &n)
+		// Skip end element.
+		if _, err := d.Token(); err != nil {
+			return 0, err
+		}
+		return n, nil
+	}
+	// End element or empty.
+	if _, ok := tok.(xml.EndElement); ok {
+		return 0, nil
+	}
+	return 0, nil
 }
 
 // readPlistString reads a <string> value.
@@ -600,8 +634,14 @@ func (p launchAgentPlist) MarshalXML(e *xml.Encoder, start xml.StartElement) err
 	if err := writePlistString(e, "WorkingDirectory", p.WorkingDirectory); err != nil {
 		return err
 	}
-	if err := writePlistCalendarArray(e, "StartCalendarInterval", p.StartCalendarInterval); err != nil {
-		return err
+	if p.StartInterval > 0 {
+		if err := writePlistInt(e, "StartInterval", p.StartInterval); err != nil {
+			return err
+		}
+	} else if len(p.StartCalendarInterval) > 0 {
+		if err := writePlistCalendarArray(e, "StartCalendarInterval", p.StartCalendarInterval); err != nil {
+			return err
+		}
 	}
 	if err := writePlistString(e, "StandardOutPath", p.StandardOutPath); err != nil {
 		return err
@@ -619,9 +659,13 @@ func (p launchAgentPlist) MarshalXML(e *xml.Encoder, start xml.StartElement) err
 }
 
 // buildCalendarIntervals converts a ScheduleSpec to plist calendar intervals.
+// Returns nil when StartInterval should be used instead (Every is set).
 func buildCalendarIntervals(spec ScheduleSpec) []calendarInterval {
 	switch spec.Kind {
 	case ScheduleHourly:
+		if spec.Every != "" {
+			return nil // StartInterval handles the scheduling
+		}
 		return []calendarInterval{{Hour: -1, Minute: 0, Weekday: -1}} // every hour at :00
 	case ScheduleDaily:
 		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)

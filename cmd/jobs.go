@@ -244,6 +244,7 @@ func newJobsCreateCommand() *cobra.Command {
 		providerID   string
 		model        string
 		scheduleKind string
+		every        string
 		timeOfDay    string
 		dayOfWeek    string
 		cron         string
@@ -283,6 +284,9 @@ func newJobsCreateCommand() *cobra.Command {
 			if timezone == "" {
 				timezone = "UTC"
 			}
+			if every != "" && scheduleKind != "hourly" {
+				return fmt.Errorf("--every is only valid with --schedule hourly")
+			}
 
 			// Resolve provider: --provider flag → config default → fallback.
 			if providerID == "" {
@@ -305,6 +309,7 @@ func newJobsCreateCommand() *cobra.Command {
 			kind := backgroundjobs.ScheduleKind(scheduleKind)
 			schedule := backgroundjobs.ScheduleSpec{
 				Kind:      kind,
+				Every:     every,
 				TimeOfDay: timeOfDay,
 				DayOfWeek: dayOfWeek,
 				Cron:      cron,
@@ -407,6 +412,7 @@ func newJobsCreateCommand() *cobra.Command {
 	command.Flags().StringVar(&providerID, "provider", "", "Analyzer provider ID (default: config default).")
 	command.Flags().StringVarP(&model, "model", "m", "", "Override model for this job.")
 	command.Flags().StringVarP(&scheduleKind, "schedule", "s", "daily", "Schedule kind: hourly|daily|weekly|cron.")
+	command.Flags().StringVar(&every, "every", "", "Repeat interval for hourly schedule (e.g. 5m, 15m, 2h). Default: 1h.")
 	command.Flags().StringVar(&timeOfDay, "time-of-day", "09:00", "Time of day for daily/weekly (HH:MM).")
 	command.Flags().StringVar(&dayOfWeek, "day-of-week", "", "Day of week for weekly schedule.")
 	command.Flags().StringVar(&cron, "cron", "", "Cron expression for cron schedule (5 fields, e.g. '0 9 * * 1').")

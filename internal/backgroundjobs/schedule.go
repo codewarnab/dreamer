@@ -21,7 +21,11 @@ var validDayOfWeek = map[string]time.Weekday{
 func ValidateSchedule(s ScheduleSpec) error {
 	switch s.Kind {
 	case ScheduleHourly:
-		// no extra validation
+		if s.Every != "" {
+			if _, err := parseEveryDuration(s.Every); err != nil {
+				return fmt.Errorf("invalid every %q: %w", s.Every, err)
+			}
+		}
 	case ScheduleDaily:
 		if s.TimeOfDay == "" {
 			return fmt.Errorf("daily schedule requires time_of_day")
@@ -53,6 +57,10 @@ func ValidateSchedule(s ScheduleSpec) error {
 		return fmt.Errorf("unknown schedule kind %q", s.Kind)
 	}
 
+	if s.Every != "" && s.Kind != ScheduleHourly {
+		return fmt.Errorf("--every is only valid with hourly schedule")
+	}
+
 	if s.Timezone == "" {
 		return fmt.Errorf("timezone is required")
 	}
@@ -73,7 +81,13 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 
 	switch s.Kind {
 	case ScheduleHourly:
-		return now.Add(1 * time.Hour), nil
+		interval := 1 * time.Hour
+		if s.Every != "" {
+			if d, err := parseEveryDuration(s.Every); err == nil {
+				interval = d
+			}
+		}
+		return now.Add(interval), nil
 	case ScheduleDaily:
 		// Error ignored: ValidateSchedule rejects invalid TimeOfDay before
 		// NextRun is ever called. A corrupted store value silently yields
@@ -346,6 +360,12 @@ func intSliceContains(s []int, v int) bool {
 func executionTimeLimit(spec ScheduleSpec) string {
 	switch spec.Kind {
 	case ScheduleHourly:
+		if spec.Every != "" {
+			if d, err := parseEveryDuration(spec.Every); err == nil {
+				// Cap at the interval so the job finishes before the next trigger.
+				return durationToISO8601(d)
+			}
+		}
 		return "PT55M"
 	case ScheduleDaily, ScheduleWeekly:
 		return "PT2H"
@@ -354,4 +374,40 @@ func executionTimeLimit(spec ScheduleSpec) string {
 	default:
 		return "PT1H"
 	}
+}
+
+// parseEveryDuration parses and validates an --every duration string.
+// Accepts Go duration strings (e.g. "5m", "15m", "2h", "90m").
+// Rejects values < 1 minute and > 23 hours.
+func parseEveryDuration(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse duration %q: expected Go duration like 5m, 15m, 2h", s)
+	}
+	if d < 1*time.Minute {
+		return 0, fmt.Errorf("minimum interval is 1m, got %v", d)
+	}
+	if d > 23*time.Hour {
+		return 0, fmt.Errorf("maximum interval is 23h, got %v", d)
+	}
+	return d, nil
+}
+
+// EveryDuration returns the parsed Every duration, or 1 hour as default.
+func EveryDuration(spec ScheduleSpec) time.Duration {
+	if spec.Every != "" {
+		if d, err := parseEveryDuration(spec.Every); err == nil {
+			return d
+		}
+	}
+	return 1 * time.Hour
+}
+
+// durationToISO8601 converts a Go duration to ISO 8601 format (PT{N}H or PT{N}M).
+func durationToISO8601(d time.Duration) string {
+	totalMinutes := int(d.Minutes())
+	if totalMinutes >= 60 && totalMinutes%60 == 0 {
+		return fmt.Sprintf("PT%dH", totalMinutes/60)
+	}
+	return fmt.Sprintf("PT%dM", totalMinutes)
 }

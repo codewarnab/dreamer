@@ -125,3 +125,96 @@ func TestBuildServiceUnit_PathsWithSpaces(t *testing.T) {
 		t.Error("ExecStart should escape % as %%")
 	}
 }
+
+func TestBuildTimerUnit_HourlyEvery(t *testing.T) {
+	s := &linuxScheduler{
+		cfg:    SchedulerConfig{StoreDir: t.TempDir()},
+		logger: logging.Silent(),
+	}
+
+	tests := []struct {
+		name           string
+		every          string
+		wantUnitActive string
+	}{
+		{"default", "", ""},
+		{"5m", "5m", "OnUnitActiveSec=5min"},
+		{"15m", "15m", "OnUnitActiveSec=15min"},
+		{"2h", "2h", "OnUnitActiveSec=2h"},
+		{"90m", "90m", "OnUnitActiveSec=90min"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := ScheduleParams{
+				JobID:    "testjob",
+				Schedule: ScheduleSpec{Kind: ScheduleHourly, Every: tt.every, Timezone: "UTC"},
+				Name:     "Test Job",
+				Enabled:  true,
+			}
+			unit := s.buildTimerUnit(params)
+			if tt.wantUnitActive != "" {
+				if !strings.Contains(unit, tt.wantUnitActive) {
+					t.Errorf("buildTimerUnit(every=%q)\n  got:  %s\n  want: %s", tt.every, unit, tt.wantUnitActive)
+				}
+				// Should NOT contain OnCalendar when Every is set.
+				if strings.Contains(unit, "OnCalendar=") {
+					t.Errorf("buildTimerUnit(every=%q) should not contain OnCalendar", tt.every)
+				}
+				// Should contain OnBootSec for interval-based timers.
+				if !strings.Contains(unit, "OnBootSec=1min") {
+					t.Errorf("buildTimerUnit(every=%q) should contain OnBootSec=1min", tt.every)
+				}
+			} else {
+				// Default: should use OnCalendar.
+				if !strings.Contains(unit, "OnCalendar=*-*-* *:00:00") {
+					t.Errorf("buildTimerUnit(default) should contain OnCalendar")
+				}
+			}
+		})
+	}
+}
+
+func TestTimeoutSec_HourlyEvery(t *testing.T) {
+	tests := []struct {
+		name  string
+		every string
+		want  int
+	}{
+		{"default", "", 3300},
+		{"5m", "5m", 300},
+		{"15m", "15m", 900},
+		{"2h", "2h", 7200},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every}
+			got := timeoutSec(spec)
+			if got != tt.want {
+				t.Errorf("timeoutSec(every=%q) = %d, want %d", tt.every, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDurationToSystemdSpan(t *testing.T) {
+	tests := []struct {
+		name string
+		d    string
+		want string
+	}{
+		{"5m", "5m", "5min"},
+		{"15m", "15m", "15min"},
+		{"1h", "1h", "1h"},
+		{"2h", "2h", "2h"},
+		{"90m", "90m", "90min"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d, _ := parseEveryDuration(tt.d)
+			got := durationToSystemdSpan(d)
+			if got != tt.want {
+				t.Errorf("durationToSystemdSpan(%v) = %q, want %q", d, got, tt.want)
+			}
+		})
+	}
+}
