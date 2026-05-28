@@ -67,6 +67,10 @@ window.projectOverviewPage = function () {
     },
     _sseUnsub: [],
     _bindSSE: function () {
+      // Unsubscribe any previously bound handlers to prevent listener leak
+      // when load() triggers _bindSSE multiple times.
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
       var self = this;
       var sse = Alpine.store("sse");
       this._sseUnsub.push(sse.on("run.done", function (p) {
