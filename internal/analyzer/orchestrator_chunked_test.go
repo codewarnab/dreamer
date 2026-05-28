@@ -679,3 +679,80 @@ func sliceMistakesEqual(a, b []Mistake) bool {
 	}
 	return true
 }
+
+func TestRunPhase2OnlyProducesFindings(t *testing.T) {
+	cap := &capturedTranscript{}
+	sess := newCapturingSession(func(p string) (string, error) {
+		return phase2Reply(map[string][]map[string]any{
+			"test": {{"category": "test", "mistake": "cached-m", "guardrail": map[string]any{"kind": "test", "tool": "go test", "rule": "r"}, "confidence": 0.9}},
+		}), nil
+	}, cap)
+
+	rc := RunConfig{Phase2SessionFactory: func() (Session, error) { return sess, nil }}
+	mistakes := map[RuleCategory][]Mistake{
+		RuleCategoryTest: {{Category: RuleCategoryTest, Summary: "cached-m", EvidenceExcerpt: "e", Confidence: 0.9}},
+	}
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+
+	res, err := orch.RunPhase2Only(context.Background(), rc, mistakes, 10, PhaseRequest{ProjectRoot: "/repo"})
+	if err != nil {
+		t.Fatalf("RunPhase2Only: %v", err)
+	}
+	if got := atomic.LoadInt32(&cap.callCount); got != 1 {
+		t.Fatalf("call count = %d, want 1 (phase-2 only)", got)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("len(Findings) = %d, want 1", len(res.Findings))
+	}
+	if len(res.Mistakes) != 1 {
+		t.Fatalf("len(Mistakes) = %d, want 1 (passed through)", len(res.Mistakes))
+	}
+	if len(res.CompletedCategories) != 1 || res.CompletedCategories[0] != "test" {
+		t.Fatalf("CompletedCategories = %v, want [test]", res.CompletedCategories)
+	}
+}
+
+func TestRunPhase2OnlySkipsWhenDryRun(t *testing.T) {
+	sess := &fakeSession{handler: func(p string) (string, error) {
+		t.Fatal("session should not be called in dry run")
+		return "", nil
+	}}
+	rc := RunConfig{Phase2SessionFactory: func() (Session, error) { return sess, nil }}
+	mistakes := map[RuleCategory][]Mistake{
+		RuleCategoryTest: {{Category: RuleCategoryTest, Summary: "m", Confidence: 0.9}},
+	}
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+
+	res, err := orch.RunPhase2Only(context.Background(), rc, mistakes, 10, PhaseRequest{ProjectRoot: "/repo", DryRun: true})
+	if err != nil {
+		t.Fatalf("RunPhase2Only dry run: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("dry run should produce no findings, got %d", len(res.Findings))
+	}
+}
+
+func TestRunPhase2OnlyRequiresFactory(t *testing.T) {
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+	_, err := orch.RunPhase2Only(context.Background(), RunConfig{}, nil, 10, PhaseRequest{ProjectRoot: "/repo"})
+	if err == nil {
+		t.Fatal("expected error when no session factory provided")
+	}
+}
+
+func TestRunPhase2OnlySkipsWhenNoMistakes(t *testing.T) {
+	sess := &fakeSession{handler: func(p string) (string, error) {
+		t.Fatal("session should not be called when no mistakes")
+		return "", nil
+	}}
+	rc := RunConfig{Phase2SessionFactory: func() (Session, error) { return sess, nil }}
+	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
+
+	res, err := orch.RunPhase2Only(context.Background(), rc, nil, 10, PhaseRequest{ProjectRoot: "/repo"})
+	if err != nil {
+		t.Fatalf("RunPhase2Only: %v", err)
+	}
+	if len(res.Findings) != 0 {
+		t.Fatalf("no mistakes should produce no findings, got %d", len(res.Findings))
+	}
+}
