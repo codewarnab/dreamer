@@ -31,7 +31,7 @@ type Job struct {
 type ScheduleKind string
 
 const (
-	ScheduleHourly ScheduleKind = "hourly"
+	ScheduleInterval ScheduleKind = "hourly" // flexible repeat interval (e.g. every 5m)
 	ScheduleDaily  ScheduleKind = "daily"
 	ScheduleWeekly ScheduleKind = "weekly"
 	ScheduleCron   ScheduleKind = "cron"

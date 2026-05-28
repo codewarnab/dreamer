@@ -12,7 +12,7 @@ import (
 )
 
 func TestBuildCalendarIntervals_Hourly(t *testing.T) {
-	spec := ScheduleSpec{Kind: ScheduleHourly}
+	spec := ScheduleSpec{Kind: ScheduleInterval}
 	intervals := buildCalendarIntervals(spec)
 	if len(intervals) != 1 {
 		t.Fatalf("got %d intervals, want 1", len(intervals))
@@ -153,7 +153,7 @@ func TestDarwinScheduler_Install_UsesGetuid(t *testing.T) {
 
 	params := ScheduleParams{
 		JobID:    "aabbccdd11223344",
-		Schedule: ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"},
+		Schedule: ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
 		Name:     "Test Job",
 		Enabled:  true,
 	}
@@ -367,7 +367,7 @@ func TestBuildCalendarIntervals_HourlyEvery(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every}
+			spec := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every}
 			intervals := buildCalendarIntervals(spec)
 			if tt.wantNil {
 				if intervals != nil {

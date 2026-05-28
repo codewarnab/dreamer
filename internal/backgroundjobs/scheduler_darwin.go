@@ -189,7 +189,7 @@ func (s *darwinScheduler) writePlist(params ScheduleParams) (string, error) {
 	calIntervals := buildCalendarIntervals(params.Schedule)
 	disabled := !params.Enabled
 	startInterval := 0
-	if params.Schedule.Kind == ScheduleHourly && params.Schedule.Every != "" {
+	if params.Schedule.Kind == ScheduleInterval && params.Schedule.Every != "" {
 		startInterval = int(EveryDuration(params.Schedule).Seconds())
 	}
 
@@ -662,7 +662,7 @@ func (p launchAgentPlist) MarshalXML(e *xml.Encoder, start xml.StartElement) err
 // Returns nil when StartInterval should be used instead (Every is set).
 func buildCalendarIntervals(spec ScheduleSpec) []calendarInterval {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		if spec.Every != "" {
 			return nil // StartInterval handles the scheduling
 		}

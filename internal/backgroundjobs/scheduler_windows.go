@@ -282,7 +282,7 @@ const taskXMLTemplate = `<Task version="1.2" xmlns="http://schemas.microsoft.com
 // buildTriggerXML returns the trigger XML fragment for a schedule kind.
 func buildTriggerXML(spec ScheduleSpec) (string, error) {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		interval := "PT1H"
 		if spec.Every != "" {
 			if d, err := parseEveryDuration(spec.Every); err == nil {

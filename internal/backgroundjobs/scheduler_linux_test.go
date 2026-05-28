@@ -10,7 +10,7 @@ import (
 )
 
 func TestScheduleToOnCalendar_Hourly(t *testing.T) {
-	spec := ScheduleSpec{Kind: ScheduleHourly}
+	spec := ScheduleSpec{Kind: ScheduleInterval}
 	got := scheduleToOnCalendar(spec)
 	if got != "*-*-* *:00:00" {
 		t.Errorf("scheduleToOnCalendar(hourly) = %q, want *-*-* *:00:00", got)
@@ -61,7 +61,7 @@ func TestWeekdayToSystemdDay(t *testing.T) {
 }
 
 func TestTimeoutSec_Hourly(t *testing.T) {
-	spec := ScheduleSpec{Kind: ScheduleHourly}
+	spec := ScheduleSpec{Kind: ScheduleInterval}
 	got := timeoutSec(spec)
 	if got != 3300 { // 55 minutes
 		t.Errorf("timeoutSec(hourly) = %d, want 3300", got)
@@ -77,7 +77,7 @@ func TestTimeoutSec_Daily(t *testing.T) {
 }
 
 func TestRandomizedDelaySec(t *testing.T) {
-	got := randomizedDelaySec(ScheduleSpec{Kind: ScheduleHourly})
+	got := randomizedDelaySec(ScheduleSpec{Kind: ScheduleInterval})
 	if got != 300 { // 5 minutes
 		t.Errorf("randomizedDelaySec(hourly) = %d, want 300", got)
 	}
@@ -96,7 +96,7 @@ func TestBuildServiceUnit_PathsWithSpaces(t *testing.T) {
 
 	params := ScheduleParams{
 		JobID:    "aabbccdd11223344",
-		Schedule: ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"},
+		Schedule: ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
 		Name:     "Test Job",
 		Enabled:  true,
 	}
@@ -147,7 +147,7 @@ func TestBuildTimerUnit_HourlyEvery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := ScheduleParams{
 				JobID:    "testjob",
-				Schedule: ScheduleSpec{Kind: ScheduleHourly, Every: tt.every, Timezone: "UTC"},
+				Schedule: ScheduleSpec{Kind: ScheduleInterval, Every: tt.every, Timezone: "UTC"},
 				Name:     "Test Job",
 				Enabled:  true,
 			}
@@ -187,7 +187,7 @@ func TestTimeoutSec_HourlyEvery(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every}
+			spec := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every}
 			got := timeoutSec(spec)
 			if got != tt.want {
 				t.Errorf("timeoutSec(every=%q) = %d, want %d", tt.every, got, tt.want)

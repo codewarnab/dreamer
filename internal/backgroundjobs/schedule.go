@@ -20,7 +20,7 @@ var validDayOfWeek = map[string]time.Weekday{
 // ValidateSchedule checks that a ScheduleSpec is well-formed.
 func ValidateSchedule(s ScheduleSpec) error {
 	switch s.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		if s.Every != "" {
 			if _, err := parseEveryDuration(s.Every); err != nil {
 				return fmt.Errorf("invalid every %q: %w", s.Every, err)
@@ -57,8 +57,8 @@ func ValidateSchedule(s ScheduleSpec) error {
 		return fmt.Errorf("unknown schedule kind %q", s.Kind)
 	}
 
-	if s.Every != "" && s.Kind != ScheduleHourly {
-		return fmt.Errorf("--every is only valid with hourly schedule")
+	if s.Every != "" && s.Kind != ScheduleInterval {
+		return fmt.Errorf("--every is only valid with interval schedule")
 	}
 
 	if s.Timezone == "" {
@@ -80,7 +80,7 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 	localNow := now.In(loc)
 
 	switch s.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		interval := 1 * time.Hour
 		if s.Every != "" {
 			if d, err := parseEveryDuration(s.Every); err == nil {
@@ -359,7 +359,7 @@ func intSliceContains(s []int, v int) bool {
 // Shared across platforms — used by Windows Task Scheduler and systemd timeout.
 func executionTimeLimit(spec ScheduleSpec) string {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		if spec.Every != "" {
 			if d, err := parseEveryDuration(spec.Every); err == nil {
 				// Cap at the interval so the job finishes before the next trigger.

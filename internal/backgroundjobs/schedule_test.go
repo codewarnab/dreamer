@@ -7,7 +7,7 @@ import (
 
 func TestValidateSchedule_Hourly(t *testing.T) {
 	s := ScheduleSpec{
-		Kind:     ScheduleHourly,
+		Kind:     ScheduleInterval,
 		Timezone: "UTC",
 	}
 	if err := ValidateSchedule(s); err != nil {
@@ -37,7 +37,7 @@ func TestValidateSchedule_HourlyEvery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := ScheduleSpec{
-				Kind:     ScheduleHourly,
+				Kind:     ScheduleInterval,
 				Every:    tt.every,
 				Timezone: "UTC",
 			}
@@ -179,7 +179,7 @@ func TestValidateSchedule_UnknownKind(t *testing.T) {
 
 func TestValidateSchedule_MissingTimezone(t *testing.T) {
 	s := ScheduleSpec{
-		Kind: ScheduleHourly,
+		Kind: ScheduleInterval,
 	}
 	if err := ValidateSchedule(s); err == nil {
 		t.Error("ValidateSchedule(no timezone) expected error")
@@ -188,7 +188,7 @@ func TestValidateSchedule_MissingTimezone(t *testing.T) {
 
 func TestValidateSchedule_InvalidTimezone(t *testing.T) {
 	s := ScheduleSpec{
-		Kind:     ScheduleHourly,
+		Kind:     ScheduleInterval,
 		Timezone: "Not/A/Timezone",
 	}
 	if err := ValidateSchedule(s); err == nil {
@@ -198,7 +198,7 @@ func TestValidateSchedule_InvalidTimezone(t *testing.T) {
 
 func TestNextRun_Hourly(t *testing.T) {
 	now := time.Date(2026, 5, 27, 14, 30, 0, 0, time.UTC)
-	s := ScheduleSpec{Kind: ScheduleHourly, Timezone: "UTC"}
+	s := ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"}
 	next, err := NextRun(s, now)
 	if err != nil {
 		t.Fatalf("NextRun(hourly) error: %v", err)
@@ -223,7 +223,7 @@ func TestNextRun_HourlyEvery(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every, Timezone: "UTC"}
+			s := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every, Timezone: "UTC"}
 			next, err := NextRun(s, now)
 			if err != nil {
 				t.Fatalf("NextRun(hourly, every=%s) error: %v", tt.every, err)
@@ -474,10 +474,10 @@ func TestEveryDuration(t *testing.T) {
 		spec ScheduleSpec
 		want time.Duration
 	}{
-		{"default", ScheduleSpec{Kind: ScheduleHourly}, 1 * time.Hour},
-		{"5m", ScheduleSpec{Kind: ScheduleHourly, Every: "5m"}, 5 * time.Minute},
-		{"2h", ScheduleSpec{Kind: ScheduleHourly, Every: "2h"}, 2 * time.Hour},
-		{"invalid falls back", ScheduleSpec{Kind: ScheduleHourly, Every: "bad"}, 1 * time.Hour},
+		{"default", ScheduleSpec{Kind: ScheduleInterval}, 1 * time.Hour},
+		{"5m", ScheduleSpec{Kind: ScheduleInterval, Every: "5m"}, 5 * time.Minute},
+		{"2h", ScheduleSpec{Kind: ScheduleInterval, Every: "2h"}, 2 * time.Hour},
+		{"invalid falls back", ScheduleSpec{Kind: ScheduleInterval, Every: "bad"}, 1 * time.Hour},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -525,7 +525,7 @@ func TestExecutionTimeLimit_HourlyEvery(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every}
+			spec := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every}
 			got := executionTimeLimit(spec)
 			if got != tt.want {
 				t.Errorf("executionTimeLimit(every=%q) = %q, want %q", tt.every, got, tt.want)

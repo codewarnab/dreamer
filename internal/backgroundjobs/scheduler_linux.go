@@ -184,7 +184,7 @@ func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
 	b.WriteString("Description=Timer for Dreamer background job " + params.JobID + "\n")
 	b.WriteString("\n[Timer]\n")
 
-	if params.Schedule.Kind == ScheduleHourly && params.Schedule.Every != "" {
+	if params.Schedule.Kind == ScheduleInterval && params.Schedule.Every != "" {
 		// Use interval-based triggering for custom Every intervals.
 		interval := durationToSystemdSpan(EveryDuration(params.Schedule))
 		b.WriteString("OnBootSec=1min\n")
@@ -226,7 +226,7 @@ func (s *linuxScheduler) buildServiceUnit(params ScheduleParams) string {
 // scheduleToOnCalendar converts a ScheduleSpec to a systemd OnCalendar expression.
 func scheduleToOnCalendar(spec ScheduleSpec) string {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		return "*-*-* *:00:00"
 	case ScheduleDaily:
 		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
@@ -270,7 +270,7 @@ func weekdayToSystemdDay(day string) string {
 // Prevents thundering herd for hourly jobs.
 func randomizedDelaySec(spec ScheduleSpec) int {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		return 300 // 5 min
 	case ScheduleDaily, ScheduleWeekly:
 		return 0
@@ -282,7 +282,7 @@ func randomizedDelaySec(spec ScheduleSpec) int {
 // timeoutSec returns the service timeout in seconds.
 func timeoutSec(spec ScheduleSpec) int {
 	switch spec.Kind {
-	case ScheduleHourly:
+	case ScheduleInterval:
 		if spec.Every != "" {
 			if d, err := parseEveryDuration(spec.Every); err == nil {
 				return int(d.Seconds())

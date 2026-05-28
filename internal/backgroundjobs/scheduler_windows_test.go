@@ -222,7 +222,7 @@ func TestBuildTriggerXML_HourlyEvery(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := ScheduleSpec{Kind: ScheduleHourly, Every: tt.every, Timezone: "UTC"}
+			spec := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every, Timezone: "UTC"}
 			xmlStr, err := buildTriggerXML(spec)
 			if err != nil {
 				t.Fatalf("buildTriggerXML error: %v", err)
