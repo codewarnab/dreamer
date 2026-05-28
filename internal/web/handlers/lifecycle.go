@@ -187,6 +187,9 @@ func Apply(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if deps.StateCache != nil {
+			deps.StateCache.Invalidate(name)
+		}
 		publish(deps.Events, pipeline.EventFindingApplied, map[string]any{
 			"project":  name,
 			"hash":     hash,
@@ -229,6 +232,9 @@ func Undo(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if deps.StateCache != nil {
+			deps.StateCache.Invalidate(name)
+		}
 		publish(deps.Events, pipeline.EventFindingUndone, map[string]any{
 			"project": name,
 			"hash":    hash,
@@ -258,6 +264,9 @@ func Dismiss(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if deps.StateCache != nil {
+			deps.StateCache.Invalidate(name)
+		}
 		publish(deps.Events, pipeline.EventFindingDismiss, map[string]any{
 			"project": name,
 			"hash":    hash,
@@ -285,6 +294,9 @@ func Resolve(deps Deps) http.HandlerFunc {
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if deps.StateCache != nil {
+			deps.StateCache.Invalidate(name)
 		}
 		publish(deps.Events, pipeline.EventFindingResolve, map[string]any{
 			"project": name,
@@ -323,6 +335,9 @@ func Undismiss(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if deps.StateCache != nil {
+			deps.StateCache.Invalidate(name)
+		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}
 }
@@ -350,6 +365,9 @@ func Unresolve(deps Deps) http.HandlerFunc {
 		if err := state.Save(appConfig.Daemon.OutputRoot, name, st); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if deps.StateCache != nil {
+			deps.StateCache.Invalidate(name)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}

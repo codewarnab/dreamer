@@ -19,6 +19,7 @@ import (
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
 	"dreamer/internal/web/handlers"
 )
 
@@ -54,6 +55,9 @@ type Options struct {
 	// Activity, when non-nil, provides a snapshot of recent pipeline events
 	// for the dashboard live_activity panel.
 	Activity *ActivityRing
+	// StateCache, when non-nil, is shared with handlers for read-through
+	// caching of state.json and history.json. Nil creates a fresh cache.
+	StateCache *state.StateCache
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs handlers.JobDeps
@@ -362,6 +366,11 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			return s.opts.RestartHook()
 		},
 		StateLock: handlers.NewProjectLock(),
+	}
+	if s.opts.StateCache != nil {
+		deps.StateCache = s.opts.StateCache
+	} else {
+		deps.StateCache = state.NewStateCache()
 	}
 
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

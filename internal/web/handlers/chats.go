@@ -340,6 +340,10 @@ func dropChatHashEntries(deps Deps, projectName string, paths []string) {
 		deps.Logger.Warn("save state after chat delete failed",
 			logging.Any("project", projectName),
 			logging.Any("err", err))
+		return
+	}
+	if deps.StateCache != nil {
+		deps.StateCache.Invalidate(projectName)
 	}
 }
 

@@ -47,7 +47,13 @@ func Providers(deps Deps) http.HandlerFunc {
 
 		merged := map[string]state.ProviderUsage{}
 		for _, p := range cfg.Projects {
-			st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
+			var st *state.State
+			var err error
+			if deps.StateCache != nil {
+				st, err = deps.StateCache.GetState(cfg.Daemon.OutputRoot, p.Name)
+			} else {
+				st, err = state.Load(cfg.Daemon.OutputRoot, p.Name)
+			}
 			if err != nil || st == nil {
 				continue
 			}
