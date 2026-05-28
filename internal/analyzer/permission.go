@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -37,7 +39,7 @@ func DecidePermission(req PermissionRequest, normalizedRoot string) PermissionDe
 	case PermissionKindRead:
 		return decideFilesystem(req, normalizedRoot)
 	case PermissionKindURL:
-		return PermissionDecision{Approved: true}
+		return validateURL(req)
 	case PermissionKindShell:
 		if !shellRequestReadOnly(req) {
 			return PermissionDecision{Reason: "shell request is not read-only"}
@@ -51,6 +53,65 @@ func DecidePermission(req PermissionRequest, normalizedRoot string) PermissionDe
 	default:
 		return PermissionDecision{Reason: fmt.Sprintf("permission kind %q is not allowed in read-only analysis mode", req.Kind)}
 	}
+}
+
+// validateURL checks URL permission requests against SSRF risks.
+// Only http/https schemes are allowed. Loopback, link-local, and private
+// IP ranges are denied to prevent access to cloud metadata services and
+// internal network endpoints.
+func validateURL(req PermissionRequest) PermissionDecision {
+	var rawURL string
+	if req.Path != nil && *req.Path != "" {
+		rawURL = *req.Path
+	} else if len(req.PossiblePaths) > 0 {
+		rawURL = req.PossiblePaths[0]
+	}
+	if rawURL == "" {
+		// Provider didn't supply a URL; cannot block what we can't see.
+		return PermissionDecision{Approved: true}
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return PermissionDecision{Reason: fmt.Sprintf("URL %q is not parseable: %v", rawURL, err)}
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return PermissionDecision{Reason: fmt.Sprintf("URL scheme %q is not allowed; only http/https permitted", parsed.Scheme)}
+	}
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return PermissionDecision{Reason: "URL has no hostname"}
+	}
+	// Check if hostname is an IP literal.
+	if ip := net.ParseIP(hostname); ip != nil {
+		if ip.IsLoopback() {
+			return PermissionDecision{Reason: fmt.Sprintf("URL targets loopback IP %s", ip)}
+		}
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return PermissionDecision{Reason: fmt.Sprintf("URL targets link-local IP %s", ip)}
+		}
+		if ip.IsPrivate() {
+			return PermissionDecision{Reason: fmt.Sprintf("URL targets private IP %s", ip)}
+		}
+		return PermissionDecision{Approved: true}
+	}
+	// Hostname is a domain name. Block common metadata/local names.
+	lower := strings.ToLower(hostname)
+	if lower == "localhost" || strings.HasSuffix(lower, ".local") {
+		return PermissionDecision{Reason: fmt.Sprintf("URL targets local hostname %q", hostname)}
+	}
+	// Resolve and check all IPs. Deny if any resolved IP is restricted.
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		// DNS failure — deny (fail closed).
+		return PermissionDecision{Reason: fmt.Sprintf("DNS lookup for %q failed: %v", hostname, err)}
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+			return PermissionDecision{Reason: fmt.Sprintf("hostname %q resolves to restricted IP %s", hostname, ip)}
+		}
+	}
+	return PermissionDecision{Approved: true}
 }
 
 func decideFilesystem(req PermissionRequest, normalizedRoot string) PermissionDecision {
