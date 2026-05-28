@@ -15,6 +15,7 @@ func sha(data []byte) string {
 }
 
 func TestApply_AppendSection_AppendsWhenAnchorMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "CLAUDE.md")
 	original := "# Doc\n\nIntro.\n"
@@ -45,6 +46,7 @@ func TestApply_AppendSection_AppendsWhenAnchorMissing(t *testing.T) {
 }
 
 func TestApply_AppendSection_PromotesToReplaceWhenAnchorExists(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "CLAUDE.md")
 	original := "# Doc\n\n## Cache\n\nOld rules.\n\n## After\n\nz\n"
@@ -74,6 +76,7 @@ func TestApply_AppendSection_PromotesToReplaceWhenAnchorExists(t *testing.T) {
 }
 
 func TestApply_RejectsTargetOutsideProjectRoot(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_, err := Apply(Request{
 		ProjectRoot: dir, TargetFile: "../escape.md",
@@ -88,6 +91,7 @@ func TestApply_RejectsTargetOutsideProjectRoot(t *testing.T) {
 }
 
 func TestApply_RejectsOversize(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "big.txt")
 	big := make([]byte, MaxApplyTargetBytes+1)
@@ -104,6 +108,7 @@ func TestApply_RejectsOversize(t *testing.T) {
 }
 
 func TestUndo_RestoresPreImageWhenPostSHAUnchanged(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "x.md")
 	original := "hello\n"
@@ -124,6 +129,7 @@ func TestUndo_RestoresPreImageWhenPostSHAUnchanged(t *testing.T) {
 }
 
 func TestPreview_ReturnsTransformedPostBytes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "CLAUDE.md")
 	original := "# Doc\n\nIntro.\n"
@@ -155,6 +161,7 @@ func TestPreview_ReturnsTransformedPostBytes(t *testing.T) {
 }
 
 func TestPreview_RejectsContainmentEscape(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_, _, _, err := Preview(Request{
 		ProjectRoot: dir, TargetFile: "../escape.md",
@@ -166,6 +173,7 @@ func TestPreview_RejectsContainmentEscape(t *testing.T) {
 }
 
 func TestApply_RejectsParentSymlinkEscape(t *testing.T) {
+	t.Parallel()
 	// Containment must not be defeated by a parent directory symlink
 	// pointing outside the project root for a target that does not yet
 	// exist (EvalSymlinks(abs) returns ENOENT so the resolved path
@@ -191,6 +199,7 @@ func TestApply_RejectsParentSymlinkEscape(t *testing.T) {
 }
 
 func TestUndo_RefusesWhenTargetModifiedExternally(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "x.md")
 	if err := os.WriteFile(target, []byte("hello\n"), 0o644); err != nil {

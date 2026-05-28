@@ -8,6 +8,7 @@ import (
 )
 
 func TestCSRF_PostWithoutTokenIsRejected(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
@@ -22,6 +23,7 @@ func TestCSRF_PostWithoutTokenIsRejected(t *testing.T) {
 }
 
 func TestCSRF_PostWithTokenAndLoopbackOriginAccepted(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
@@ -35,6 +37,7 @@ func TestCSRF_PostWithTokenAndLoopbackOriginAccepted(t *testing.T) {
 }
 
 func TestCSRF_NonLoopbackOriginRejected(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
@@ -48,6 +51,7 @@ func TestCSRF_NonLoopbackOriginRejected(t *testing.T) {
 }
 
 func TestCSRF_PostWithoutOriginOrRefererRejected(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
@@ -60,6 +64,7 @@ func TestCSRF_PostWithoutOriginOrRefererRejected(t *testing.T) {
 }
 
 func TestCSRF_PostWithRefererFallback(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
@@ -73,6 +78,7 @@ func TestCSRF_PostWithRefererFallback(t *testing.T) {
 }
 
 func TestCSRF_OpaqueOriginRejected(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	// "null", file://, data: all parse to an empty hostname via
@@ -91,6 +97,7 @@ func TestCSRF_OpaqueOriginRejected(t *testing.T) {
 }
 
 func TestCSRF_WrongTokenRejected(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	r := httptest.NewRequest("POST", "/api/x", strings.NewReader("{}"))
@@ -104,6 +111,7 @@ func TestCSRF_WrongTokenRejected(t *testing.T) {
 }
 
 func TestCSRF_GetBypassesCheck(t *testing.T) {
+	t.Parallel()
 	tok := MintCSRFToken()
 	h := CSRFMiddleware(tok, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	r := httptest.NewRequest("GET", "/", nil)
