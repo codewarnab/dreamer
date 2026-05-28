@@ -102,19 +102,23 @@ func TestDiscoveryCacheUpdate_ThenCheck(t *testing.T) {
 func TestDiscoveryCacheConcurrent(t *testing.T) {
 	c := NewDiscoveryCache()
 	now := time.Now()
+	sources := []chat.Source{{Path: "/a", Tool: "tool", ModifiedTime: now}}
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			sources := []chat.Source{{Path: "/a", Tool: "tool", ModifiedTime: now}}
 			c.Update("/project", sources, "sha")
 		}()
 		go func() {
 			defer wg.Done()
-			sources := []chat.Source{{Path: "/a", Tool: "tool", ModifiedTime: now}}
 			c.Check("/project", sources, "sha")
 		}()
 	}
 	wg.Wait()
+	// After concurrent updates, a final Check with the last-written state
+	// should return true (cache is consistent, not corrupted).
+	if !c.Check("/project", sources, "sha") {
+		t.Fatal("concurrent Update/Check corrupted the cache")
+	}
 }

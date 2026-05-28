@@ -50,7 +50,15 @@ func TestCustomBaseURL(t *testing.T) {
 }
 
 func TestHealthCheckFailure(t *testing.T) {
-	p, err := New(Options{BaseURL: "http://127.0.0.1:1"}) // unlikely to be listening
+	// Bind a port, then close it — guaranteed free at that moment.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+
+	p, err := New(Options{BaseURL: "http://" + addr})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
