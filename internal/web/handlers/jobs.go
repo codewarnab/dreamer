@@ -804,6 +804,15 @@ func JobRunNow(deps Deps) http.HandlerFunc {
 
 		go func() {
 			defer releaseRun(jobID)
+			defer func() {
+				if r := recover(); r != nil {
+					deps.Logger.Error("job run panic", logging.Any("panic", r))
+					publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
+						"job_id": jobID,
+						"status": "failed",
+					})
+				}
+			}()
 
 			result, err := deps.Jobs.Executor.Run(deps.ShutdownCtx, jobID)
 			if err != nil {
