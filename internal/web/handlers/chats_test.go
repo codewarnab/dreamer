@@ -195,7 +195,7 @@ func TestProjectChats_UnknownProject(t *testing.T) {
 // discovery for non-home-rooted providers finds nothing, and the supplied
 // paths point outside the project — they must all be rejected.
 func TestDeleteProjectChat_PathInjection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeForTest(t, t.TempDir())
 	projectDir := t.TempDir()
 	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: projectDir}},
@@ -270,7 +270,7 @@ func TestDeleteProjectChat_UnknownProjectReturns404(t *testing.T) {
 // the same per-path validation: every reported failure carries "not found"
 // when the supplied path is not in DiscoverChats output.
 func TestBulkDeleteProjectChats_PathInjection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeForTest(t, t.TempDir())
 	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "proj", Path: t.TempDir()}},
 		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},

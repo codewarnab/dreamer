@@ -18,7 +18,7 @@ var providerSpec = &cliharness.Spec{
 	ID:              ID,
 	ErrPrefix:       "claude-cli",
 	DefaultCommand:  defaultCommand,
-	StartErr:        cliharness.StartErrPlain("claude-cli"),
+	StartErr:        cliharness.StartErrNotInstalled("Install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate."),
 	CmdStartErr:     cliharness.CmdStartErrPlain("claude-cli"),
 	WorkingDirFlag:  "--add-dir",
 	ConfigDir:       cliharness.ConfigDirFromEnv("CLAUDE_CONFIG_DIR", ".claude"),

@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/analyzer/providers/cliharness"
+	"dreamer/internal/errs"
 	"dreamer/internal/sandbox"
 )
 
@@ -170,8 +172,15 @@ func TestStart_NonExistentBinary(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-existent binary")
 	}
-	if !strings.Contains(err.Error(), "not found in PATH") {
-		t.Errorf("error missing PATH hint: %v", err)
+	var tagged *errs.Error
+	if !errors.As(err, &tagged) {
+		t.Fatalf("expected errs.Error, got %T: %v", err, err)
+	}
+	if tagged.Kind != errs.KindNotInstalled {
+		t.Errorf("error kind = %q, want %q", tagged.Kind, errs.KindNotInstalled)
+	}
+	if !strings.Contains(tagged.Hint, "npm i -g @anthropic-ai/claude-code") {
+		t.Errorf("error missing install hint: hint=%q", tagged.Hint)
 	}
 }
 

@@ -615,8 +615,8 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 
 	if len(analysis.result.Mistakes) == 0 {
 		warnings = append(warnings, "no recurring mistakes found")
-		pipelineResult.MistakesFound = false
 	}
+	pipelineResult.MistakesFound = len(analysis.result.Mistakes) > 0
 
 	generateResult, err := output.GenerateTodos(discovery.projectName, analysis.result.Findings, output.GenerateOptions{
 		OutputRoot:   discovery.outputRoot,

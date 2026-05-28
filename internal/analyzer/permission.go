@@ -84,14 +84,8 @@ func validateURL(req PermissionRequest) PermissionDecision {
 	}
 	// Check if hostname is an IP literal.
 	if ip := net.ParseIP(hostname); ip != nil {
-		if ip.IsLoopback() {
-			return PermissionDecision{Reason: fmt.Sprintf("URL targets loopback IP %s", ip)}
-		}
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return PermissionDecision{Reason: fmt.Sprintf("URL targets link-local IP %s", ip)}
-		}
-		if ip.IsPrivate() {
-			return PermissionDecision{Reason: fmt.Sprintf("URL targets private IP %s", ip)}
+		if isRestrictedIP(ip) {
+			return PermissionDecision{Reason: fmt.Sprintf("URL targets restricted IP %s", ip)}
 		}
 		return PermissionDecision{Approved: true}
 	}
@@ -101,17 +95,39 @@ func validateURL(req PermissionRequest) PermissionDecision {
 		return PermissionDecision{Reason: fmt.Sprintf("URL targets local hostname %q", hostname)}
 	}
 	// Resolve and check all IPs. Deny if any resolved IP is restricted.
+	//
+	// NOTE: This check is performed at permission-decision time. The provider's
+	// HTTP client performs its own DNS resolution when dialing. A malicious DNS
+	// server with a short TTL can return different IPs for the two lookups (DNS
+	// rebinding). Fully preventing this requires pinning the dial to the
+	// resolved IP via a custom Dialer.Control, which is not yet implemented.
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
 		// DNS failure — deny (fail closed).
 		return PermissionDecision{Reason: fmt.Sprintf("DNS lookup for %q failed: %v", hostname, err)}
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+		if isRestrictedIP(ip) {
 			return PermissionDecision{Reason: fmt.Sprintf("hostname %q resolves to restricted IP %s", hostname, ip)}
 		}
 	}
 	return PermissionDecision{Approved: true}
+}
+
+// cgnatRange covers Carrier-Grade NAT (RFC 6598) which is not included in
+// Go's IsPrivate() but should not be reachable from the analyzer.
+var cgnatRange = net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)}
+
+// isRestrictedIP returns true for IPs that must not be dialed by the analyzer:
+// loopback, link-local, private, unspecified (0.0.0.0 / ::), multicast,
+// and CGNAT (100.64.0.0/10). IPv4-mapped IPv6 addresses (e.g.
+// ::ffff:127.0.0.1) are checked after unwrapping to their IPv4 form.
+func isRestrictedIP(ip net.IP) bool {
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsPrivate() || ip.IsUnspecified() || ip.IsMulticast() || cgnatRange.Contains(ip)
 }
 
 func decideFilesystem(req PermissionRequest, normalizedRoot string) PermissionDecision {

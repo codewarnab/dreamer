@@ -178,10 +178,9 @@ func transform(pre, strategy, anchor, snippet string) (string, string, error) {
 		return snippet, strategy, nil
 	case "append-section":
 		header := "## " + anchor
-		// Only promote to replace-section when the header starts at a
-		// line boundary. A bare strings.Contains match could fire inside
-		// a fenced code block or table cell and destroy unrelated content.
-		if strings.Contains(pre, "\n"+header) || strings.HasPrefix(pre, header) {
+		// Only promote to replace-section when the header exists as a
+		// complete section heading (not a prefix of a longer heading).
+		if findHeader(pre, header) >= 0 {
 			out, err := replaceSection(pre, anchor, snippet)
 			return out, "replace-section", err
 		}
@@ -197,16 +196,36 @@ func transform(pre, strategy, anchor, snippet string) (string, string, error) {
 	}
 }
 
+// findHeader returns the byte offset of a markdown header in pre, or -1 if
+// not found. It matches only at line boundaries and requires the header to
+// be followed by a newline, space, tab, or EOF — so "## Cache" does not
+// match "## CacheBackend".
+func findHeader(pre, header string) int {
+	needle := "\n" + header
+	for start := 0; ; {
+		idx := strings.Index(pre[start:], needle)
+		if idx < 0 {
+			break
+		}
+		abs := start + idx + 1 // skip leading newline
+		end := abs + len(header)
+		if end >= len(pre) || pre[end] == '\n' || pre[end] == ' ' || pre[end] == '\t' {
+			return abs
+		}
+		start = end
+	}
+	if strings.HasPrefix(pre, header) {
+		end := len(header)
+		if end >= len(pre) || pre[end] == '\n' || pre[end] == ' ' || pre[end] == '\t' {
+			return 0
+		}
+	}
+	return -1
+}
+
 func replaceSection(pre, anchor, snippet string) (string, error) {
 	header := "## " + anchor
-	// Match only at line boundaries to avoid false positives inside code
-	// blocks, table cells, or HTML comments.
-	idx := strings.Index(pre, "\n"+header)
-	if idx >= 0 {
-		idx++ // skip the leading newline so pre[:idx] preserves the line
-	} else if strings.HasPrefix(pre, header) {
-		idx = 0
-	}
+	idx := findHeader(pre, header)
 	if idx < 0 {
 		return "", fmt.Errorf("%w: anchor %q", ErrAnchorMissing, anchor)
 	}

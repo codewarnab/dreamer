@@ -27,7 +27,7 @@ var providerSpec = &cliharness.Spec{
 	ID:              ID,
 	ErrPrefix:       "codex-cli",
 	DefaultCommand:  defaultCommand,
-	StartErr:        cliharness.StartErrPlain("codex-cli"),
+	StartErr:        cliharness.StartErrNotInstalled("Install the OpenAI Codex CLI (`npm i -g @openai/codex`) and run `codex login`."),
 	CmdStartErr:     cliharness.CmdStartErrPlain("codex-cli"),
 	WorkingDirFlag:  "--cd",
 	ConfigDir:       cliharness.ConfigDirHardcoded(".codex"),

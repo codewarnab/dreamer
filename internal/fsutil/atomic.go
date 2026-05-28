@@ -25,6 +25,11 @@ func WriteFileAtomic(path string, contentBytes []byte, perm os.FileMode) error {
 		return fmt.Errorf("open atomic temp in %q: %w", dir, err)
 	}
 	tempPath := file.Name()
+	if err := file.Chmod(perm); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("chmod atomic temp %q: %w", tempPath, err)
+	}
 	if _, err := file.Write(contentBytes); err != nil {
 		_ = file.Close()
 		_ = os.Remove(tempPath)

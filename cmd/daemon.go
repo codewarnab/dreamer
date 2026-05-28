@@ -430,17 +430,20 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 				if !ok {
 					return
 				}
-				// Re-add watch if the directory itself was renamed or
-				// removed (editor temp-and-rename can invalidate the
-				// watch on the parent directory).
+				// Re-add watch if the watched directory's content was
+				// renamed or removed (editor temp-and-rename can
+				// invalidate the fsnotify watch). Run in a goroutine
+				// so the sleep doesn't block reading other events.
 				if ev.Op&(fsnotify.Rename|fsnotify.Remove) != 0 {
-					dir := filepath.Dir(ev.Name)
+					dir := ev.Name
 					if _, isWatched := watched[dir]; isWatched {
-						time.Sleep(100 * time.Millisecond)
-						_ = watcher.Remove(dir)
-						if err := watcher.Add(dir); err != nil {
-							logger.Warn("config watcher re-add failed", logging.Any("dir", dir), logging.Any("err", err))
-						}
+						go func(d string) {
+							time.Sleep(100 * time.Millisecond)
+							_ = watcher.Remove(d)
+							if err := watcher.Add(d); err != nil {
+								logger.Warn("config watcher re-add failed", logging.Any("dir", d), logging.Any("err", err))
+							}
+						}(dir)
 					}
 				}
 				if ev.Op&fsnotify.Write == 0 && ev.Op&fsnotify.Create == 0 {
