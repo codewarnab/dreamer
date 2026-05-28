@@ -183,6 +183,34 @@ func TestIntegration_ModeOn_NoBwrap(t *testing.T) {
 	}
 }
 
+// TestIntegration_ModeOn_WrapsCmdWithBwrap verifies that Prepare with
+// ModeOn modifies cmd.Path to bwrap and returns a non-nil cleanup.
+func TestIntegration_ModeOn_WrapsCmdWithBwrap(t *testing.T) {
+	skipIfNoBwrap(t)
+
+	projectDir := t.TempDir()
+	cmd := exec.Command("echo", "hello")
+	cfg := Config{
+		ProjectDir:   projectDir,
+		WritableDirs: []string{t.TempDir()},
+		Mode:         ModeOn,
+	}
+
+	cleanup, err := Prepare(cmd, cfg)
+	if err != nil {
+		t.Fatalf("Prepare with ModeOn: %v", err)
+	}
+	defer cleanup()
+
+	if cleanup == nil {
+		t.Fatal("Prepare with ModeOn should return non-nil cleanup")
+	}
+	// Prepare should have replaced cmd.Path with the bwrap binary.
+	if !strings.Contains(cmd.Path, "bwrap") {
+		t.Fatalf("cmd.Path = %q, expected bwrap binary path", cmd.Path)
+	}
+}
+
 // TestIntegration_PostStart_NoOp verifies postStart is a no-op (no kernel
 // handles to release, unlike Windows Job Objects).
 func TestIntegration_PostStart_NoOp(t *testing.T) {
