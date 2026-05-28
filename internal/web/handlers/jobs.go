@@ -85,11 +85,11 @@ type EventSink struct {
 
 // createPayload is the parsed request body for job create/preview.
 type createPayload struct {
-	Name        string                     `json:"name"`
-	Prompt      string                     `json:"prompt"`
-	ProjectName string                     `json:"project_name"`
-	ProviderID  string                     `json:"provider_id"`
-	Model       string                     `json:"model"`
+	Name        string                      `json:"name"`
+	Prompt      string                      `json:"prompt"`
+	ProjectName string                      `json:"project_name"`
+	ProviderID  string                      `json:"provider_id"`
+	Model       string                      `json:"model"`
 	Schedule    backgroundjobs.ScheduleSpec `json:"schedule"`
 }
 
@@ -509,8 +509,8 @@ func JobHealth(deps Deps) http.HandlerFunc {
 
 		result := map[string]any{
 			"scheduling_available": deps.Jobs.Scheduler != nil,
-			"total_jobs":          len(state.Jobs),
-			"enabled_jobs":        enabledCount,
+			"total_jobs":           len(state.Jobs),
+			"enabled_jobs":         enabledCount,
 		}
 
 		// Per-job schedule health via scheduler Inspect.
@@ -665,18 +665,18 @@ func JobDetail(deps Deps) http.HandlerFunc {
 
 		// Build response without exposing project_path.
 		jobView := map[string]any{
-			"id":          job.ID,
-			"name":        sanitizeName(job.Name),
-			"prompt":      job.Prompt,
+			"id":           job.ID,
+			"name":         sanitizeName(job.Name),
+			"prompt":       job.Prompt,
 			"project_name": job.ProjectName,
-			"provider_id": job.ProviderID,
-			"model":       job.Model,
-			"schedule":    job.Schedule,
-			"enabled":     job.Enabled,
-			"created_at":  job.CreatedAt,
-			"updated_at":  job.UpdatedAt,
-			"permissions": job.Permissions,
-			"health":      job.Health,
+			"provider_id":  job.ProviderID,
+			"model":        job.Model,
+			"schedule":     job.Schedule,
+			"enabled":      job.Enabled,
+			"created_at":   job.CreatedAt,
+			"updated_at":   job.UpdatedAt,
+			"permissions":  job.Permissions,
+			"health":       job.Health,
 		}
 		if job.LastRunAt != nil {
 			jobView["last_run_at"] = job.LastRunAt

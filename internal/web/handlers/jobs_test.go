@@ -158,7 +158,7 @@ func makeJob(id, name string, enabled bool) *backgroundjobs.Job {
 		ProviderID: "claude-cli",
 		Enabled:    enabled,
 		Schedule: backgroundjobs.ScheduleSpec{
-			Kind:     backgroundjobs.ScheduleDaily,
+			Kind:      backgroundjobs.ScheduleDaily,
 			TimeOfDay: "09:00",
 			Timezone:  "UTC",
 		},
@@ -183,8 +183,8 @@ func TestJobList_ReturnsJobs(t *testing.T) {
 		Config: testConfig,
 		Logger: testLogger(),
 		Jobs: JobDeps{
-			Store:              store,
-			Runs:               &mockRunStore{},
+			Store:               store,
+			Runs:                &mockRunStore{},
 			ResolveProviderMeta: mockProviderLookup,
 		},
 	}
@@ -229,9 +229,9 @@ func TestJobCreate_HappyPath(t *testing.T) {
 		Config: testConfig,
 		Logger: testLogger(),
 		Jobs: JobDeps{
-			Store:              store,
-			Runs:               &mockRunStore{},
-			Audit:              audit,
+			Store:               store,
+			Runs:                &mockRunStore{},
+			Audit:               audit,
 			ResolveProviderMeta: mockProviderLookup,
 		},
 	}
@@ -241,7 +241,7 @@ func TestJobCreate_HappyPath(t *testing.T) {
 		ProjectName: "proj-a",
 		ProviderID:  "claude-cli",
 		Schedule: backgroundjobs.ScheduleSpec{
-			Kind:     backgroundjobs.ScheduleDaily,
+			Kind:      backgroundjobs.ScheduleDaily,
 			TimeOfDay: "09:00",
 			Timezone:  "UTC",
 		},
@@ -372,7 +372,7 @@ func TestJobPreview_HappyPath(t *testing.T) {
 		ProjectName: "proj-a",
 		ProviderID:  "claude-cli",
 		Schedule: backgroundjobs.ScheduleSpec{
-			Kind:     backgroundjobs.ScheduleDaily,
+			Kind:      backgroundjobs.ScheduleDaily,
 			TimeOfDay: "09:00",
 			Timezone:  "UTC",
 		},
@@ -408,8 +408,8 @@ func TestJobDetail_HappyPath(t *testing.T) {
 		Config: testConfig,
 		Logger: testLogger(),
 		Jobs: JobDeps{
-			Store:              store,
-			Runs:               &mockRunStore{},
+			Store:               store,
+			Runs:                &mockRunStore{},
 			ResolveProviderMeta: mockProviderLookup,
 		},
 	}
@@ -701,8 +701,8 @@ func TestJobRunDetail_NotFoundReturns404(t *testing.T) {
 		Config: testConfig,
 		Logger: testLogger(),
 		Jobs: JobDeps{
-			Store:              store,
-			Runs:               &mockRunStore{},
+			Store:               store,
+			Runs:                &mockRunStore{},
 			ResolveProviderMeta: mockProviderLookup,
 		},
 	}
@@ -758,10 +758,10 @@ func TestRouteJobs_CollectionEndpoint(t *testing.T) {
 
 	// POST /api/jobs -> create
 	body := createPayload{
-		Prompt:     "test",
+		Prompt:      "test",
 		ProjectName: "proj-a",
-		ProviderID: "claude-cli",
-		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
+		ProviderID:  "claude-cli",
+		Schedule:    backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
 	}
 	r2 := httptest.NewRequest("POST", "/api/jobs", jsonBody(body))
 	w2 := httptest.NewRecorder()
@@ -941,10 +941,10 @@ func TestRouteJobs_DispatchToPreview(t *testing.T) {
 	}
 
 	body := createPayload{
-		Prompt:     "test",
+		Prompt:      "test",
 		ProjectName: "proj-a",
-		ProviderID: "claude-cli",
-		Schedule:   backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
+		ProviderID:  "claude-cli",
+		Schedule:    backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleInterval, Timezone: "UTC"},
 	}
 	r := httptest.NewRequest("POST", "/api/jobs/preview", jsonBody(body))
 	w := httptest.NewRecorder()
@@ -1137,7 +1137,7 @@ func TestJobAuditLog_ReturnsEvents(t *testing.T) {
 
 	var resp struct {
 		Events []backgroundjobs.AuditEvent `json:"events"`
-		Total  int                          `json:"total"`
+		Total  int                         `json:"total"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -1172,7 +1172,7 @@ func TestJobAuditLog_RespectsLimit(t *testing.T) {
 
 	var resp struct {
 		Events []backgroundjobs.AuditEvent `json:"events"`
-		Total  int                          `json:"total"`
+		Total  int                         `json:"total"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
