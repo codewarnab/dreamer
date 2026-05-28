@@ -42,7 +42,7 @@
       <div class="kicker">finding</div>
       <h2 class="headline-lg" x-text="active?.category"></h2>
       <p class="body" x-text="active?.summary"></p>
-      <pre x-show="active?.diff_preview" x-text="active?.diff_preview" style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px;"></pre>
+      <pre x-show="active?.diff_preview" x-html="diffHtml()" style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; max-height: 400px; overflow-y: auto;"></pre>
       <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3);">
         <button class="btn btn--primary" @click="act('apply')" x-show="active?.apply_eligible">apply</button>
         <button class="btn btn--ghost" @click="act('dismiss')">dismiss</button>
@@ -60,6 +60,7 @@ window.projectFindingsPage = function () {
     findings: [],
     filter: "open",
     active: null,
+    _sseUnsub: [],
     load: async function () {
       const el = document.querySelector("[data-project]");
       this.name = el ? el.dataset.project : "";
@@ -68,10 +69,39 @@ window.projectFindingsPage = function () {
       if (!r.ok) return;
       const data = await r.json();
       this.findings = data.findings || data || [];
+      if (this._sseUnsub.length === 0) this._bindSSE();
+    },
+    _bindSSE: function () {
+      var self = this;
+      var sse = Alpine.store("sse");
+      var refresh = function (p) {
+        if (!p || p.project === self.name) self.load();
+      };
+      this._sseUnsub.push(sse.on("finding.applied", refresh));
+      this._sseUnsub.push(sse.on("finding.undone", refresh));
+      this._sseUnsub.push(sse.on("finding.dismiss", refresh));
+      this._sseUnsub.push(sse.on("finding.resolve", refresh));
+      this._sseUnsub.push(sse.on("run.done", refresh));
+    },
+    destroy: function () {
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
     },
     filtered: function () {
       if (this.filter === "all") return this.findings;
       return this.findings.filter(f => (f.status || "open") === this.filter);
+    },
+    diffHtml: function () {
+      if (!this.active || !this.active.diff_preview) return "";
+      var lines = this.active.diff_preview.split("\n");
+      var esc = function (s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      };
+      return lines.map(function (line) {
+        if (line.charAt(0) === "+") return '<span class="line-add">' + esc(line) + "</span>";
+        if (line.charAt(0) === "-") return '<span class="line-del">' + esc(line) + "</span>";
+        return esc(line);
+      }).join("\n");
     },
     open: async function (f) {
       const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/findings/" + encodeURIComponent(f.hash));
