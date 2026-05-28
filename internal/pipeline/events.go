@@ -1,7 +1,9 @@
 package pipeline
 
 import (
+	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,10 +29,12 @@ type Event struct {
 
 // EventBus is the in-process pub-sub used by the pipeline and HTTP
 // handlers to flow events to SSE subscribers. Slow subscribers drop
-// events (no back-pressure on the publisher).
+// events (no back-pressure on the publisher). DroppedEvents returns
+// the total number of events dropped across all subscribers.
 type EventBus struct {
 	mu          sync.RWMutex
 	subscribers []chan Event
+	drops       atomic.Int64
 }
 
 func NewEventBus() *EventBus { return &EventBus{} }
@@ -65,6 +69,16 @@ func (b *EventBus) Publish(e Event) {
 		select {
 		case ch <- e:
 		default: // drop on full
+			total := b.drops.Add(1)
+			if total%100 == 1 {
+				log.Printf("eventbus: %d events dropped (slow subscriber)", total)
+			}
 		}
 	}
+}
+
+// DroppedEvents returns the total number of events dropped because
+// subscriber buffers were full. Useful for operator observability.
+func (b *EventBus) DroppedEvents() int64 {
+	return b.drops.Load()
 }

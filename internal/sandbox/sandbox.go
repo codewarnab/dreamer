@@ -136,9 +136,20 @@ func BuildConfig(projectDir, providerHome, rawMode string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("sandbox: resolve home dir: %w", err)
 	}
+	writableDirs := []string{os.TempDir(), filepath.Join(home, providerHome)}
+	// Verify no writable dir contains or equals the project dir.
+	for _, wdir := range writableDirs {
+		absWdir, err := filepath.Abs(wdir)
+		if err != nil {
+			return Config{}, fmt.Errorf("sandbox: resolve writable dir %q: %w", wdir, err)
+		}
+		if absWdir == projectDir || strings.HasPrefix(projectDir, absWdir+string(filepath.Separator)) {
+			return Config{}, fmt.Errorf("sandbox: writable dir %q overlaps with project dir %q", wdir, projectDir)
+		}
+	}
 	return Config{
 		ProjectDir:   projectDir,
-		WritableDirs: []string{os.TempDir(), filepath.Join(home, providerHome)},
+		WritableDirs: writableDirs,
 		Mode:         mode,
 	}, nil
 }
