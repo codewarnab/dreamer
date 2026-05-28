@@ -23,10 +23,10 @@ const MaxApplyTargetBytes = 4 << 20
 // allowed to apply automatically (spec.v1.5 §6.4). Uses the canonical
 // category constants from the categories package.
 var EligibleCategories = map[string]bool{
-	string(categories.CategoryDoc):      true,
-	string(categories.CategoryLintRule): true,
-	string(categories.CategoryCICheck):  true,
-	string(categories.CategoryConfig):   true,
+	string(categories.Doc):      true,
+	string(categories.LintRule): true,
+	string(categories.CICheck):  true,
+	string(categories.Config):   true,
 }
 
 var (
@@ -41,8 +41,8 @@ func IsTargetTooLarge(err error) bool { return errors.Is(err, ErrTargetTooLarge)
 func IsTargetChanged(err error) bool  { return errors.Is(err, ErrTargetChanged) }
 func IsContainment(err error) bool    { return errors.Is(err, ErrContainment) }
 
-// ApplyRequest carries the inputs to one apply operation.
-type ApplyRequest struct {
+// Request carries the inputs to one apply operation.
+type Request struct {
 	ProjectRoot string
 	TargetFile  string // repo-relative path from the rule pack
 	Strategy    string
@@ -54,7 +54,7 @@ type ApplyRequest struct {
 // containment-checked), reads the existing contents, applies the
 // strategy, atomically writes the result, and returns a FindingReversal
 // capable of undoing the write.
-func Apply(req ApplyRequest) (*state.FindingReversal, error) {
+func Apply(req Request) (*state.FindingReversal, error) {
 	absRoot, err := filepath.EvalSymlinks(req.ProjectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
@@ -98,7 +98,7 @@ func Apply(req ApplyRequest) (*state.FindingReversal, error) {
 // Preview returns the pre- and post-image bytes that Apply would write,
 // without performing any write or recording a reversal. The same
 // containment, symlink, and size checks as Apply are enforced.
-func Preview(req ApplyRequest) (preImage []byte, postImage []byte, finalStrategy string, err error) {
+func Preview(req Request) (preImage []byte, postImage []byte, finalStrategy string, err error) {
 	absRoot, err := filepath.EvalSymlinks(req.ProjectRoot)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("resolve project root %q: %w", req.ProjectRoot, err)
@@ -149,14 +149,14 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	}
 	// Re-evaluate symlinks on rev.Path so a parent dir swapped into a
 	// symlink between apply and undo still gets caught by containment.
-	cleanPath := rev.Path
-	if resolved, resolveErr := filepath.EvalSymlinks(rev.Path); resolveErr == nil {
-		cleanPath = resolved
+	cleanPath, resolveErr := filepath.EvalSymlinks(rev.Path)
+	if resolveErr != nil {
+		return fmt.Errorf("resolve reversal path %q: %w", rev.Path, resolveErr)
 	}
 	if !fsutil.PathWithinRoot(cleanPath, absRoot) {
 		return fmt.Errorf("%w: reversal path %s", ErrContainment, rev.Path)
 	}
-	current, err := os.ReadFile(rev.Path)
+	current, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return fmt.Errorf("read current target: %w", err)
 	}
@@ -164,7 +164,7 @@ func Undo(projectRoot string, rev state.FindingReversal) error {
 	if hex.EncodeToString(curHash[:]) != rev.PostImageSHA256 {
 		return ErrTargetChanged
 	}
-	return fsutil.WriteFileAtomic(rev.Path, []byte(rev.PreImage), fsutil.FilePerms)
+	return fsutil.WriteFileAtomic(cleanPath, []byte(rev.PreImage), fsutil.FilePerms)
 }
 
 func transform(pre, strategy, anchor, snippet string) (string, string, error) {
@@ -178,7 +178,9 @@ func transform(pre, strategy, anchor, snippet string) (string, string, error) {
 		return snippet, strategy, nil
 	case "append-section":
 		header := "## " + anchor
-		if strings.Contains(pre, header) {
+		// Only promote to replace-section when the header exists as a
+		// complete section heading (not a prefix of a longer heading).
+		if findHeader(pre, header) >= 0 {
 			out, err := replaceSection(pre, anchor, snippet)
 			return out, "replace-section", err
 		}
@@ -194,9 +196,36 @@ func transform(pre, strategy, anchor, snippet string) (string, string, error) {
 	}
 }
 
+// findHeader returns the byte offset of a markdown header in pre, or -1 if
+// not found. It matches only at line boundaries and requires the header to
+// be followed by a newline, space, tab, or EOF — so "## Cache" does not
+// match "## CacheBackend".
+func findHeader(pre, header string) int {
+	needle := "\n" + header
+	for start := 0; ; {
+		idx := strings.Index(pre[start:], needle)
+		if idx < 0 {
+			break
+		}
+		abs := start + idx + 1 // skip leading newline
+		end := abs + len(header)
+		if end >= len(pre) || pre[end] == '\n' || pre[end] == ' ' || pre[end] == '\t' {
+			return abs
+		}
+		start = end
+	}
+	if strings.HasPrefix(pre, header) {
+		end := len(header)
+		if end >= len(pre) || pre[end] == '\n' || pre[end] == ' ' || pre[end] == '\t' {
+			return 0
+		}
+	}
+	return -1
+}
+
 func replaceSection(pre, anchor, snippet string) (string, error) {
 	header := "## " + anchor
-	idx := strings.Index(pre, header)
+	idx := findHeader(pre, header)
 	if idx < 0 {
 		return "", fmt.Errorf("%w: anchor %q", ErrAnchorMissing, anchor)
 	}

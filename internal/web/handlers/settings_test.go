@@ -14,7 +14,7 @@ import (
 )
 
 func TestSettings_GETSanitizesProviderEnv(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.App{
 		Providers: map[string]config.ProviderBlock{
 			"openclaude-cli": {
 				Password: "super-secret-password",
@@ -25,7 +25,7 @@ func TestSettings_GETSanitizesProviderEnv(t *testing.T) {
 			},
 		},
 	}
-	deps := Deps{Config: func() *config.Config { return cfg }}
+	deps := Deps{Config: func() *config.App { return cfg }}
 	r := httptest.NewRequest("GET", "/api/settings", nil)
 	w := httptest.NewRecorder()
 	Settings(deps)(w, r)
@@ -56,7 +56,7 @@ func TestSettings_PUTPartialMergePreservesOtherKeys(t *testing.T) {
 		t.Fatalf("seed overlay: %v", err)
 	}
 	deps := Deps{
-		Config:      func() *config.Config { return &config.Config{} },
+		Config:      func() *config.App { return &config.App{} },
 		OverlayPath: func() string { return overlayPath },
 	}
 	body := strings.NewReader(`{"logging":{"level":"debug"}}`)
@@ -86,7 +86,7 @@ func TestSettings_PUTNullClearsKey(t *testing.T) {
 		t.Fatalf("seed overlay: %v", err)
 	}
 	deps := Deps{
-		Config:      func() *config.Config { return &config.Config{} },
+		Config:      func() *config.App { return &config.App{} },
 		OverlayPath: func() string { return overlayPath },
 	}
 	body := strings.NewReader(`{"default_provider": null}`)
@@ -113,7 +113,7 @@ func TestSettings_PUTCreatesMissingOverlay(t *testing.T) {
 	dir := t.TempDir()
 	overlayPath := filepath.Join(dir, "ui-overrides.yaml")
 	deps := Deps{
-		Config:      func() *config.Config { return &config.Config{} },
+		Config:      func() *config.App { return &config.App{} },
 		OverlayPath: func() string { return overlayPath },
 	}
 	body := strings.NewReader(`{"logging":{"level":"warn"}}`)
@@ -134,7 +134,7 @@ func TestSettings_PUTRejectsRestrictedFields(t *testing.T) {
 			dir := t.TempDir()
 			overlayPath := filepath.Join(dir, "ui-overrides.yaml")
 			deps := Deps{
-				Config:      func() *config.Config { return &config.Config{} },
+				Config:      func() *config.App { return &config.App{} },
 				OverlayPath: func() string { return overlayPath },
 			}
 			var payload string

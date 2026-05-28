@@ -35,19 +35,21 @@ const (
 
 // Options bundles the dependencies a Server needs.
 type Options struct {
-	Config *config.Config
+	Config *config.App
 	Logger *logging.Logger
 	Events *pipeline.EventBus
 	// ConfigPtr, when non-nil, provides the live (atomically swappable) config
 	// used by handlers that must see post-overlay-reload values. Nil-safe: when
 	// unset, Server.currentConfig falls back to Options.Config.
-	ConfigPtr *atomic.Pointer[config.Config]
+	ConfigPtr *atomic.Pointer[config.App]
 
 	// OverlayPath is the absolute path to ui-overrides.yaml used by the
 	// settings PUT handler. Empty disables overlay writes.
 	OverlayPath string
-	// Runner, when non-nil, enqueues on-demand runs for the run handler.
-	Runner *Runner
+	// EnqueueRun, when non-nil, enqueues on-demand runs for the run handler.
+	// Returns (jobID, true, nil) on success; ("", false, nil) when a job is
+	// already active for the project (queue-level dedup).
+	EnqueueRun func(projectName string) (jobID string, accepted bool, err error)
 	// RestartHook, when non-nil, is invoked by /api/daemon/restart to trigger
 	// graceful daemon shutdown (e.g. cancel the signal context).
 	RestartHook func() error
@@ -122,7 +124,7 @@ func (s *Server) CSRFToken() string { return s.csrfToken }
 
 // currentConfig returns the live config when an atomic pointer is wired in,
 // otherwise the static Options.Config snapshot captured at construction.
-func (s *Server) currentConfig() *config.Config {
+func (s *Server) currentConfig() *config.App {
 	if s.opts.ConfigPtr != nil {
 		if cfg := s.opts.ConfigPtr.Load(); cfg != nil {
 			return cfg
@@ -350,10 +352,10 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			return s.opts.Activity.Snapshot()
 		},
 		EnqueueRun: func(name string) (string, bool, error) {
-			if s.opts.Runner == nil {
+			if s.opts.EnqueueRun == nil {
 				return "", false, fmt.Errorf("runner not configured")
 			}
-			return s.opts.Runner.Enqueue(name)
+			return s.opts.EnqueueRun(name)
 		},
 		RestartDaemon: func() error {
 			if s.opts.RestartHook == nil {

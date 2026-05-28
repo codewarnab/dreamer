@@ -23,9 +23,8 @@ func TestActivityRing_PushSnapshot(t *testing.T) {
 
 func TestActivityRing_TrimsAtCap(t *testing.T) {
 	r := NewActivityRing(3)
-	for i, n := range []string{"a", "b", "c", "d", "e"} {
-		_ = i
-		r.Push(pipeline.Event{Type: n})
+	for _, n := range []string{"a", "b", "c", "d", "e"} {
+		r.Push(pipeline.Event{Type: n, Payload: map[string]any{"id": n}})
 	}
 	snap := r.Snapshot()
 	if len(snap) != 3 {
@@ -33,6 +32,14 @@ func TestActivityRing_TrimsAtCap(t *testing.T) {
 	}
 	if snap[0].Type != "c" || snap[1].Type != "d" || snap[2].Type != "e" {
 		t.Errorf("snap = %+v, want c,d,e", snap)
+	}
+	// Verify each entry has a distinct payload (no shared-backing-slice aliasing).
+	for i := range snap {
+		for j := i + 1; j < len(snap); j++ {
+			if snap[i].Payload["id"] == snap[j].Payload["id"] {
+				t.Errorf("snap[%d] and snap[%d] share payload alias: %v", i, j, snap[i].Payload)
+			}
+		}
 	}
 }
 

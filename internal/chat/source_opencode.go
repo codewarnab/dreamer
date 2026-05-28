@@ -17,11 +17,11 @@ type openCodeProvider struct{}
 
 func (openCodeProvider) Type() SourceType { return SourceTypeOpenCodeSession }
 
-func (openCodeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (openCodeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverOpenCodeSessions(env, projectPath)
 }
 
-func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
 	if !ok {
 		return nil, nil
@@ -46,7 +46,7 @@ func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]C
 		return nil, fmt.Errorf("list opencode sessions: %w", err)
 	}
 
-	discovered := make([]ChatSource, 0, len(sessions))
+	discovered := make([]Source, 0, len(sessions))
 	for _, session := range sessions {
 		normalizedDir, ok := normalizeDiscoveryEvidencePath(session.Directory)
 		if !ok {
@@ -55,7 +55,7 @@ func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]C
 		if !pathWithinNormalizedRoot(normalizedDir, normalizedProjectPath) {
 			continue
 		}
-		discovered = append(discovered, ChatSource{
+		discovered = append(discovered, Source{
 			Path:         dbPath + sqliteSourcePathSeparator + session.ID,
 			Tool:         SourceTypeOpenCodeSession,
 			ModifiedTime: session.ModifiedTime,
@@ -65,7 +65,7 @@ func discoverOpenCodeSessions(env DiscoveryEnvironment, projectPath string) ([]C
 	return discovered, nil
 }
 
-func (openCodeProvider) DeleteSource(source ChatSource) error {
+func (openCodeProvider) DeleteSource(source Source) error {
 	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
 	if err := readers.DeleteOpenCodeSession(dbPath, sessionID); err != nil {
 		return fmt.Errorf("delete opencode chat source %q: %w", source.Path, err)
@@ -73,7 +73,7 @@ func (openCodeProvider) DeleteSource(source ChatSource) error {
 	return nil
 }
 
-func (openCodeProvider) SizeBytes(source ChatSource) (int64, error) {
+func (openCodeProvider) SizeBytes(source Source) (int64, error) {
 	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
 	return readers.OpenCodeReader{}.SessionSize(dbPath, sessionID)
 }
@@ -81,7 +81,7 @@ func (openCodeProvider) SizeBytes(source ChatSource) (int64, error) {
 // SizeBytesBatch groups sources by underlying database path and issues one
 // query per DB instead of one per session. Errors per DB are swallowed so a
 // single broken file does not blank out the entire chats list.
-func (openCodeProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
+func (openCodeProvider) SizeBytesBatch(sources []Source) map[string]int64 {
 	type sessionKey struct {
 		dbPath string
 		id     string
@@ -117,7 +117,7 @@ func (openCodeProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
 	return result
 }
 
-func (openCodeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (openCodeProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadOpenCodeMessages(dbPath, sessionID)
 	if err != nil {

@@ -44,9 +44,9 @@ func (c *capturedTranscript) record(prompt string) {
 	c.mu.Unlock()
 }
 
-func newCapturingSession(handler func(prompt string) (string, error), cap *capturedTranscript) *fakeSession {
+func newCapturingSession(handler func(prompt string) (string, error), captured *capturedTranscript) *fakeSession {
 	wrapped := func(p string) (string, error) {
-		cap.record(p)
+		captured.record(p)
 		return handler(p)
 	}
 	return &fakeSession{handler: wrapped}
@@ -90,7 +90,7 @@ func newPool(t *testing.T, sessions ...*fakeSession) *SessionPool {
 }
 
 func TestRunChunksSingleChunkExactlyTwoCalls(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "auditing chat transcripts") {
 			return phase1Reply("first chunk summary", map[string][]map[string]any{
@@ -100,7 +100,7 @@ func TestRunChunksSingleChunkExactlyTwoCalls(t *testing.T) {
 		return phase2Reply(map[string][]map[string]any{
 			"test": {{"category": "test", "mistake": "missing edge-case test", "guardrail": map[string]any{"kind": "test", "tool": "go test", "rule": "edge"}, "confidence": 0.9}},
 		}), nil
-	}, cap)
+	}, captured)
 
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Index: 0, Transcript: "hi", Bytes: 2, SourceLabels: []string{"codex"}}}}
@@ -110,7 +110,7 @@ func TestRunChunksSingleChunkExactlyTwoCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunChunks: %v", err)
 	}
-	if got := atomic.LoadInt32(&cap.callCount); got != 2 {
+	if got := atomic.LoadInt32(&captured.callCount); got != 2 {
 		t.Fatalf("call count = %d, want 2 (phase-1 + phase-2)", got)
 	}
 	if got, want := len(res.Findings), 1; got != want {
@@ -122,7 +122,7 @@ func TestRunChunksSingleChunkExactlyTwoCalls(t *testing.T) {
 }
 
 func TestRunChunksSequentialSummaryChaining(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	chunkSummaries := []string{"sum-0", "sum-1", "sum-2"}
 	chunkIdx := 0
 	sess := newCapturingSession(func(p string) (string, error) {
@@ -136,7 +136,7 @@ func TestRunChunksSequentialSummaryChaining(t *testing.T) {
 		return phase1Reply(s, map[string][]map[string]any{
 			"test": {{"category": "test", "summary": fmt.Sprintf("m%d", chunkIdx-1), "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
-	}, cap)
+	}, captured)
 
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
@@ -150,9 +150,9 @@ func TestRunChunksSequentialSummaryChaining(t *testing.T) {
 		t.Fatalf("RunChunks: %v", err)
 	}
 
-	cap.mu.Lock()
-	prompts := append([]string(nil), cap.allPrompts...)
-	cap.mu.Unlock()
+	captured.mu.Lock()
+	prompts := append([]string(nil), captured.allPrompts...)
+	captured.mu.Unlock()
 	if len(prompts) != 4 {
 		t.Fatalf("prompts = %d, want 4 (3 phase-1 + 1 phase-2)", len(prompts))
 	}
@@ -168,14 +168,14 @@ func TestRunChunksSequentialSummaryChaining(t *testing.T) {
 }
 
 func TestRunChunksParallelHasNoRollingContext(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	mk := func() *fakeSession {
 		return newCapturingSession(func(p string) (string, error) {
 			if strings.Contains(p, "synthesizing guardrails") {
 				return phase2Reply(map[string][]map[string]any{}), nil
 			}
 			return phase1Reply("s", map[string][]map[string]any{}), nil
-		}, cap)
+		}, captured)
 	}
 	pool := []*fakeSession{mk(), mk(), mk()}
 	rc := RunConfig{
@@ -198,9 +198,9 @@ func TestRunChunksParallelHasNoRollingContext(t *testing.T) {
 		t.Fatalf("RunChunks: %v", err)
 	}
 
-	cap.mu.Lock()
-	defer cap.mu.Unlock()
-	for i, p := range cap.allPrompts {
+	captured.mu.Lock()
+	defer captured.mu.Unlock()
+	for i, p := range captured.allPrompts {
 		if strings.Contains(p, "synthesizing guardrails") {
 			continue
 		}
@@ -211,7 +211,7 @@ func TestRunChunksParallelHasNoRollingContext(t *testing.T) {
 }
 
 func TestRunChunksSequentialMissingSummaryAborts(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	idx := 0
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
@@ -223,7 +223,7 @@ func TestRunChunksSequentialMissingSummaryAborts(t *testing.T) {
 			return `{"mistakes": {"test": []}}`, nil
 		}
 		return phase1Reply("ok", map[string][]map[string]any{}), nil
-	}, cap)
+	}, captured)
 
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
@@ -240,13 +240,13 @@ func TestRunChunksSequentialMissingSummaryAborts(t *testing.T) {
 	if !strings.Contains(err.Error(), "missing summary") {
 		t.Fatalf("err = %v, want missing-summary mention", err)
 	}
-	if got := atomic.LoadInt32(&cap.callCount); got != 1 {
+	if got := atomic.LoadInt32(&captured.callCount); got != 1 {
 		t.Fatalf("call count = %d, want 1 (chunk 0 only)", got)
 	}
 }
 
 func TestRunChunksSequentialFinalChunkSummaryOptional(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	idx := 0
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
@@ -258,7 +258,7 @@ func TestRunChunksSequentialFinalChunkSummaryOptional(t *testing.T) {
 			return `{"mistakes": {}}`, nil
 		}
 		return phase1Reply("s", map[string][]map[string]any{}), nil
-	}, cap)
+	}, captured)
 
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Index: 0, Transcript: "a"}, {Index: 1, Transcript: "b"}}}
@@ -271,7 +271,7 @@ func TestRunChunksSequentialFinalChunkSummaryOptional(t *testing.T) {
 }
 
 func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
 			return phase2Reply(map[string][]map[string]any{}), nil
@@ -279,7 +279,7 @@ func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
 		return phase1Reply("s", map[string][]map[string]any{
 			"test": {{"summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
-	}, cap)
+	}, captured)
 
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{
@@ -291,9 +291,9 @@ func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
 		t.Fatalf("RunChunks: %v", err)
 	}
 
-	cap.mu.Lock()
-	defer cap.mu.Unlock()
-	p2 := cap.allPrompts[1]
+	captured.mu.Lock()
+	defer captured.mu.Unlock()
+	p2 := captured.allPrompts[1]
 
 	// Phase 2 now contains tool-use instructions instead of file paths.
 	for _, want := range []string{"Grep(", "Read(", "Glob("} {
@@ -311,7 +311,7 @@ func TestRunChunksPhase2ToolUseInstructions(t *testing.T) {
 
 // 6-category single-chunk run = 2 calls (1 phase-1 + 1 phase-2).
 func TestRunChunksSixCategoriesExactlyTwoCalls(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
 			return phase2Reply(map[string][]map[string]any{}), nil
@@ -319,7 +319,7 @@ func TestRunChunksSixCategoriesExactlyTwoCalls(t *testing.T) {
 		return phase1Reply("s", map[string][]map[string]any{
 			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
-	}, cap)
+	}, captured)
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Index: 0, Transcript: "x"}}}
 	orch := &Orchestrator{Packs: minimalPacks(
@@ -329,29 +329,29 @@ func TestRunChunksSixCategoriesExactlyTwoCalls(t *testing.T) {
 	if _, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{}); err != nil {
 		t.Fatalf("RunChunks: %v", err)
 	}
-	if got := atomic.LoadInt32(&cap.callCount); got != 2 {
+	if got := atomic.LoadInt32(&captured.callCount); got != 2 {
 		t.Fatalf("call count = %d, want 2 (1 phase-1 + 1 phase-2)", got)
 	}
 }
 
 // K=1 chunk: no rolling_context regardless of mode.
 func TestRunChunksK1NoRollingContext(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
 			return phase2Reply(map[string][]map[string]any{}), nil
 		}
 		return phase1Reply("s", map[string][]map[string]any{}), nil
-	}, cap)
+	}, captured)
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{{Transcript: "x"}}}
 	orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}
 	if _, err := orch.RunChunks(context.Background(), rc, in, PhaseRequest{}); err != nil {
 		t.Fatalf("RunChunks: %v", err)
 	}
-	cap.mu.Lock()
-	defer cap.mu.Unlock()
-	for i, p := range cap.allPrompts {
+	captured.mu.Lock()
+	defer captured.mu.Unlock()
+	for i, p := range captured.allPrompts {
 		if strings.Contains(p, "rolling_context") {
 			t.Fatalf("K=1 prompt %d unexpectedly contains rolling_context", i)
 		}
@@ -361,7 +361,7 @@ func TestRunChunksK1NoRollingContext(t *testing.T) {
 // Parallel parity K>1 with no chaining: findings equal after sort.
 func TestRunChunksParallelParityK3NoChaining(t *testing.T) {
 	build := func(mode ExecutionMode) []Finding {
-		cap := &capturedTranscript{}
+		captured := &capturedTranscript{}
 		mk := func() *fakeSession {
 			return newCapturingSession(func(p string) (string, error) {
 				if strings.Contains(p, "synthesizing guardrails") {
@@ -375,7 +375,7 @@ func TestRunChunksParallelParityK3NoChaining(t *testing.T) {
 				return phase1Reply("ignored", map[string][]map[string]any{
 					"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 				}), nil
-			}, cap)
+			}, captured)
 		}
 		pool := []*fakeSession{mk(), mk(), mk(), mk()}
 		rc := RunConfig{Mode: mode, MaxConcurrency: 3, Phase1SessionFactory: func() (Session, error) {
@@ -403,7 +403,7 @@ func TestRunChunksParallelParityK3NoChaining(t *testing.T) {
 // Sequential: one chunk returns garbage JSON, another parses cleanly.
 // CompletedCategories must be empty because not all chunks parsed successfully.
 func TestRunChunksSequentialParseFailDoesNotMarkCompleted(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	idx := 0
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
@@ -417,7 +417,7 @@ func TestRunChunksSequentialParseFailDoesNotMarkCompleted(t *testing.T) {
 		return phase1Reply("s", map[string][]map[string]any{
 			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
-	}, cap)
+	}, captured)
 
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
@@ -438,7 +438,7 @@ func TestRunChunksSequentialParseFailDoesNotMarkCompleted(t *testing.T) {
 // Parallel: K=3 chunks; one returns garbage. CompletedCategories must be empty.
 func TestRunChunksParallelParseFailDoesNotMarkCompleted(t *testing.T) {
 	mk := func(badIndex int, at *int32) *fakeSession {
-		cap := &capturedTranscript{}
+		captured := &capturedTranscript{}
 		return newCapturingSession(func(p string) (string, error) {
 			if strings.Contains(p, "synthesizing guardrails") {
 				return phase2Reply(map[string][]map[string]any{}), nil
@@ -450,7 +450,7 @@ func TestRunChunksParallelParseFailDoesNotMarkCompleted(t *testing.T) {
 			return phase1Reply("s", map[string][]map[string]any{
 				"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 			}), nil
-		}, cap)
+		}, captured)
 	}
 	var counter int32
 	pool := []*fakeSession{mk(1, &counter), mk(1, &counter), mk(1, &counter), mk(1, &counter)}
@@ -481,7 +481,7 @@ func TestRunChunksParallelParseFailDoesNotMarkCompleted(t *testing.T) {
 
 // Sanity: when every chunk parses, all enabled categories are reported completed.
 func TestRunChunksSequentialAllParseMarksCompleted(t *testing.T) {
-	cap := &capturedTranscript{}
+	captured := &capturedTranscript{}
 	sess := newCapturingSession(func(p string) (string, error) {
 		if strings.Contains(p, "synthesizing guardrails") {
 			return phase2Reply(map[string][]map[string]any{}), nil
@@ -489,7 +489,7 @@ func TestRunChunksSequentialAllParseMarksCompleted(t *testing.T) {
 		return phase1Reply("s", map[string][]map[string]any{
 			"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 		}), nil
-	}, cap)
+	}, captured)
 	rc := RunConfig{Mode: ModeSequential, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 	in := ChunkInputs{Chunks: []Chunk{
 		{Index: 0, Transcript: "a"},
@@ -621,7 +621,7 @@ func sortFindings(f []Finding) {
 
 func TestRunChunksParallelParityK1(t *testing.T) {
 	mk := func(mode ExecutionMode) AnalysisResult {
-		cap := &capturedTranscript{}
+		captured := &capturedTranscript{}
 		sess := newCapturingSession(func(p string) (string, error) {
 			if strings.Contains(p, "synthesizing guardrails") {
 				return phase2Reply(map[string][]map[string]any{
@@ -631,7 +631,7 @@ func TestRunChunksParallelParityK1(t *testing.T) {
 			return phase1Reply("s", map[string][]map[string]any{
 				"test": {{"category": "test", "summary": "m", "evidence_excerpt": "e", "confidence": 0.9}},
 			}), nil
-		}, cap)
+		}, captured)
 		rc := RunConfig{Mode: mode, MaxConcurrency: 1, Phase1SessionFactory: func() (Session, error) { return sess, nil }}
 		in := ChunkInputs{Chunks: []Chunk{{Transcript: "x"}}}
 		orch := &Orchestrator{Packs: minimalPacks(RuleCategoryTest)}

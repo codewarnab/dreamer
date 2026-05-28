@@ -10,18 +10,18 @@ import (
 )
 
 func init() {
-	registerProvider(codebuffProvider{})
+	registerProvider(codebuffProvider{fileBackedProvider{sourceType: SourceTypeCodebuffSession}})
 }
 
-type codebuffProvider struct{}
+type codebuffProvider struct {
+	fileBackedProvider
+}
 
-func (codebuffProvider) Type() SourceType { return SourceTypeCodebuffSession }
-
-func (codebuffProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (codebuffProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverCodebuffSessions(env.HomeDir, env.CodebuffConfigDir, projectPath)
 }
 
-func discoverCodebuffSessions(homeDir string, configDir string, projectPath string) ([]ChatSource, error) {
+func discoverCodebuffSessions(homeDir string, configDir string, projectPath string) ([]Source, error) {
 	codebuffRoot := strings.TrimSpace(configDir)
 	if codebuffRoot == "" {
 		codebuffRoot = filepath.Join(strings.TrimSpace(homeDir), ".config", "manicode")
@@ -43,7 +43,7 @@ func discoverCodebuffSessions(homeDir string, configDir string, projectPath stri
 		return nil, fmt.Errorf("read codebuff projects dir %q: %w", projectsDir, err)
 	}
 
-	discovered := make([]ChatSource, 0)
+	discovered := make([]Source, 0)
 	for _, projectEntry := range projectEntries {
 		if !projectEntry.IsDir() {
 			continue
@@ -73,7 +73,7 @@ func discoverCodebuffSessions(homeDir string, configDir string, projectPath stri
 				}
 				return nil, fmt.Errorf("stat codebuff messages %q: %w", messagesPath, err)
 			}
-			discovered = append(discovered, ChatSource{
+			discovered = append(discovered, Source{
 				Path:         messagesPath,
 				Tool:         SourceTypeCodebuffSession,
 				ModifiedTime: info.ModTime(),
@@ -92,15 +92,7 @@ func codebuffProjectMatches(dirName string, projectBase string) bool {
 	return strings.EqualFold(strings.TrimSpace(dirName), strings.TrimSpace(projectBase))
 }
 
-func (codebuffProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (codebuffProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
-}
-
-func (codebuffProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (codebuffProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadCodebuffMessages(source.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read codebuff chat source %q: %w", source.Path, err)

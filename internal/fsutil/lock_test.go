@@ -1,7 +1,9 @@
 package fsutil
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -65,8 +67,15 @@ func TestAcquireLockCleansStaleLock(t *testing.T) {
 	lockPath := filepath.Join(dir, "test.lock")
 	logger := newTestLogger(t)
 
-	// Write a lock file with a PID that doesn't exist.
-	if err := os.WriteFile(lockPath, []byte("99999999\n1234567890\n"), 0o644); err != nil {
+	// Spawn a short-lived child, wait for it to exit, then use its PID
+	// as a guaranteed-stale lock holder.
+	cmd := exec.Command("go", "version")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run child: %v", err)
+	}
+	stalePID := cmd.Process.Pid
+
+	if err := os.WriteFile(lockPath, []byte(fmt.Sprintf("%d\n1234567890\n", stalePID)), 0o644); err != nil {
 		t.Fatalf("write stale lock: %v", err)
 	}
 

@@ -87,7 +87,7 @@ func ProjectDetail(deps Deps) http.HandlerFunc {
 	}
 }
 
-func projectRollup(cfg *config.Config, p config.ProjectConfig) ProjectRollup {
+func projectRollup(cfg *config.App, p config.ProjectConfig) ProjectRollup {
 	rollup := ProjectRollup{Name: p.Name, Path: p.Path, Since: p.Since}
 	st, err := state.Load(cfg.Daemon.OutputRoot, p.Name)
 	if err != nil || st == nil {

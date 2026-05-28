@@ -12,18 +12,18 @@ import (
 )
 
 func init() {
-	registerProvider(antigravityProvider{})
+	registerProvider(antigravityProvider{fileBackedProvider{sourceType: SourceTypeAntigravityGemini}})
 }
 
-type antigravityProvider struct{}
+type antigravityProvider struct {
+	fileBackedProvider
+}
 
-func (antigravityProvider) Type() SourceType { return SourceTypeAntigravityGemini }
-
-func (antigravityProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (antigravityProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverAntigravityGeminiSessions(env.HomeDir, projectPath, env.GeminiHomeDir)
 }
 
-func discoverAntigravityGeminiSessions(homeDir string, projectPath string, geminiHomeDir string) ([]ChatSource, error) {
+func discoverAntigravityGeminiSessions(homeDir string, projectPath string, geminiHomeDir string) ([]Source, error) {
 	type antigravityRoot struct {
 		path          string
 		requiresProbe bool
@@ -48,7 +48,7 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 		return nil, nil
 	}
 
-	discovered := make([]ChatSource, 0)
+	discovered := make([]Source, 0)
 	seen := map[string]struct{}{}
 	for _, root := range roots {
 		for _, conversationsDir := range []string{"conversations", "inbox"} {
@@ -76,15 +76,7 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 	return discovered, nil
 }
 
-func (antigravityProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
-
-func (antigravityProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
-}
-
-func (antigravityProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (antigravityProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".pb", ".pbtxt":
 		messages, err := readers.ReadProtobuf(source.Path)

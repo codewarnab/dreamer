@@ -6,11 +6,26 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+
+	"dreamer/internal/config"
 )
 
-func callFSExists(t *testing.T, q string) (*httptest.ResponseRecorder, map[string]any) {
+func testDepsForFS(t *testing.T, allowedPaths ...string) Deps {
 	t.Helper()
-	h := FSExists(Deps{})
+	projects := make([]config.ProjectConfig, len(allowedPaths))
+	for i, p := range allowedPaths {
+		projects[i] = config.ProjectConfig{Name: "proj", Path: p}
+	}
+	cfg := &config.App{
+		Projects: projects,
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+	return Deps{Config: func() *config.App { return cfg }}
+}
+
+func callFSExists(t *testing.T, deps Deps, q string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	h := FSExists(deps)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/fs/exists?"+q, nil)
 	h(rec, req)
@@ -23,7 +38,8 @@ func callFSExists(t *testing.T, q string) (*httptest.ResponseRecorder, map[strin
 
 func TestFSExists_ExistingDir(t *testing.T) {
 	dir := t.TempDir()
-	rec, body := callFSExists(t, "path="+dir)
+	deps := testDepsForFS(t, dir)
+	rec, body := callFSExists(t, deps, "path="+dir)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -39,8 +55,10 @@ func TestFSExists_ExistingDir(t *testing.T) {
 }
 
 func TestFSExists_Nonexistent(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	rec, body := callFSExists(t, "path="+missing)
+	dir := t.TempDir()
+	deps := testDepsForFS(t, dir)
+	missing := filepath.Join(dir, "does-not-exist")
+	rec, body := callFSExists(t, deps, "path="+missing)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
@@ -53,7 +71,8 @@ func TestFSExists_Nonexistent(t *testing.T) {
 }
 
 func TestFSExists_RelativeRejected(t *testing.T) {
-	rec, body := callFSExists(t, "path=relative/path")
+	deps := testDepsForFS(t)
+	rec, body := callFSExists(t, deps, "path=relative/path")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
@@ -63,11 +82,25 @@ func TestFSExists_RelativeRejected(t *testing.T) {
 }
 
 func TestFSExists_MethodNotAllowed(t *testing.T) {
-	h := FSExists(Deps{})
+	deps := testDepsForFS(t)
+	h := FSExists(deps)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/fs/exists", nil)
 	h(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+func TestFSExists_OutsideProjectRootRejected(t *testing.T) {
+	allowed := t.TempDir()
+	outside := t.TempDir() // different dir, not in project roots
+	deps := testDepsForFS(t, allowed)
+	rec, body := callFSExists(t, deps, "path="+outside)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if body["error"] != "path outside configured project roots" {
+		t.Errorf("error = %v, want 'path outside configured project roots'", body["error"])
 	}
 }

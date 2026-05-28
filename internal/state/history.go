@@ -30,7 +30,7 @@ type DaySummary struct {
 	FindingsNew   int            `json:"findings_new"`
 	FindingsTotal int            `json:"findings_total"`
 	Tokens        int64          `json:"tokens"`
-	AvgRunMillis  int64          `json:"avg_run_millis"`
+	AvgRunDurationMillis  int64          `json:"avg_run_millis"`
 	PerCategory   map[string]int `json:"per_category,omitempty"`
 }
 
@@ -40,7 +40,7 @@ type DaySummaryDelta struct {
 	FindingsNew   int
 	FindingsTotal int
 	Tokens        int64
-	RunMillis     int64
+	RunDurationMillis     int64
 	PerCategory   map[string]int
 }
 
@@ -123,7 +123,7 @@ func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryD
 	bucket.Tokens += delta.Tokens
 	if bucket.Runs > 0 {
 		// Rolling average across runs in this day.
-		bucket.AvgRunMillis = (bucket.AvgRunMillis*int64(priorRuns) + delta.RunMillis*int64(delta.Runs)) / int64(bucket.Runs)
+		bucket.AvgRunDurationMillis = (bucket.AvgRunDurationMillis*int64(priorRuns) + delta.RunDurationMillis*int64(delta.Runs)) / int64(bucket.Runs)
 	}
 	for category, count := range delta.PerCategory {
 		bucket.PerCategory[category] += count

@@ -20,12 +20,12 @@ var embeddedRulesFS embed.FS
 type RuleCategory = categories.Category
 
 const (
-	RuleCategoryLintRule         = categories.CategoryLintRule
-	RuleCategoryTest             = categories.CategoryTest
-	RuleCategoryCICheck          = categories.CategoryCICheck
-	RuleCategoryDoc              = categories.CategoryDoc
-	RuleCategoryConfig           = categories.CategoryConfig
-	RuleCategoryRefactorBoundary = categories.CategoryRefactorBoundary
+	RuleCategoryLintRule         = categories.LintRule
+	RuleCategoryTest             = categories.Test
+	RuleCategoryCICheck          = categories.CICheck
+	RuleCategoryDoc              = categories.Doc
+	RuleCategoryConfig           = categories.Config
+	RuleCategoryRefactorBoundary = categories.RefactorBoundary
 )
 
 // defaultRuleTimeoutSeconds is the fallback per-rule prompt timeout
@@ -134,9 +134,9 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 		return nil, err
 	}
 
-	categories := AllRuleCategories()
-	packs := make([]RulePack, 0, len(categories))
-	for _, category := range categories {
+	ruleCategories := AllRuleCategories()
+	packs := make([]RulePack, 0, len(ruleCategories))
+	for _, category := range ruleCategories {
 		pack, err := loadEmbeddedRulePack(category)
 		if err != nil {
 			return nil, err

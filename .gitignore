@@ -25,6 +25,7 @@ go.work.sum
 # Local tooling state
 .claude/
 .superpowers/
+.gocache/
 
 # Env
 .env

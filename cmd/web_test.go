@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,7 +14,7 @@ import (
 func TestResolveWebPort_PrefersPortFile(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "web.port"), []byte("12345\n"), 0o644)
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: dir}, Web: config.WebConfig{Port: 7777}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: dir}, Web: config.WebConfig{Port: 7777}}
 	got, _ := resolveWebPort(cfg)
 	if got != 12345 {
 		t.Fatalf("got %d want 12345", got)
@@ -24,7 +22,7 @@ func TestResolveWebPort_PrefersPortFile(t *testing.T) {
 }
 
 func TestResolveWebPort_FallsBackToConfigPort(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}, Web: config.WebConfig{Port: 7777}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}, Web: config.WebConfig{Port: 7777}}
 	got, _ := resolveWebPort(cfg)
 	if got != 7777 {
 		t.Fatalf("got %d want 7777", got)
@@ -32,7 +30,7 @@ func TestResolveWebPort_FallsBackToConfigPort(t *testing.T) {
 }
 
 func TestResolveWebPort_DefaultsTo7777(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
 	got, _ := resolveWebPort(cfg)
 	if got != 7777 {
 		t.Fatalf("got %d want 7777", got)
@@ -54,20 +52,8 @@ func TestProbeHealth_ReachesRealServer(t *testing.T) {
 }
 
 func TestProbeHealth_FailsWhenServerDown(t *testing.T) {
-	l := listenAndClose(t)
-	if err := probeHealth("http://"+l.Host+"/api/health", 50*time.Millisecond); err == nil {
+	// 192.0.2.0/24 is TEST-NET (RFC 5737) — guaranteed unroutable, no TOCTOU.
+	if err := probeHealth("http://192.0.2.1:1/api/health", 50*time.Millisecond); err == nil {
 		t.Fatalf("probe should have failed")
 	}
-}
-
-func listenAndClose(t *testing.T) *url.URL {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	addr := l.Addr().String()
-	_ = l.Close()
-	u, _ := url.Parse("http://" + addr)
-	return u
 }

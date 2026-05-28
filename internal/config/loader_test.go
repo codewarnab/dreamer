@@ -287,7 +287,7 @@ func TestIsLifetimeSince(t *testing.T) {
 func TestResolveProviderConfigPicksCLIOverProjectOverGlobal(t *testing.T) {
 	cliBlock := ProviderBlock{Model: "gpt-cli"}
 	projectBlock := ProviderBlock{Model: "gpt-project"}
-	cfg := &Config{
+	cfg := &App{
 		DefaultProvider: "gemini-cli",
 		Providers: map[string]ProviderBlock{
 			"copilot-sdk": cliBlock,
@@ -358,7 +358,7 @@ func writeConfigFile(t *testing.T, path string, cfg map[string]any) {
 }
 
 func TestWebConfig_DefaultsWhenUnset(t *testing.T) {
-	cfg := &Config{}
+	cfg := &App{}
 	applyDefaults(cfg)
 	if cfg.Web.Enabled == nil || *cfg.Web.Enabled != true {
 		t.Fatalf("Web.Enabled = %v, want true", cfg.Web.Enabled)
@@ -376,7 +376,7 @@ func TestWebConfig_DefaultsWhenUnset(t *testing.T) {
 
 func TestWebConfig_ExplicitFalseEnabledSurvives(t *testing.T) {
 	f := false
-	cfg := &Config{Web: WebConfig{Enabled: &f}}
+	cfg := &App{Web: WebConfig{Enabled: &f}}
 	applyDefaults(cfg)
 	if cfg.Web.Enabled == nil || *cfg.Web.Enabled != false {
 		t.Fatalf("Web.Enabled = %v, want false (preserved)", cfg.Web.Enabled)
@@ -387,7 +387,7 @@ func TestValidate_RejectsNonLoopbackWebHost(t *testing.T) {
 	cases := []string{"0.0.0.0", "192.168.1.1", "example.com"}
 	for _, host := range cases {
 		t.Run(host, func(t *testing.T) {
-			cfg := &Config{
+			cfg := &App{
 				Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir()},
 				Web:    WebConfig{Host: host, Port: 7777, LogTailKB: 1},
 			}
@@ -407,7 +407,7 @@ func TestValidate_AcceptsLoopbackWebHost(t *testing.T) {
 	cases := []string{"127.0.0.1", "localhost", "::1"}
 	for _, host := range cases {
 		t.Run(host, func(t *testing.T) {
-			cfg := &Config{
+			cfg := &App{
 				Daemon: DaemonConfig{FrequencySeconds: 60, OutputRoot: t.TempDir()},
 				Web:    WebConfig{Host: host, Port: 7777, LogTailKB: 1},
 			}
@@ -419,8 +419,8 @@ func TestValidate_AcceptsLoopbackWebHost(t *testing.T) {
 	}
 }
 
-func TestConfigNotices_OverlayFieldsExist(t *testing.T) {
-	n := ConfigNotices{}
+func TestNotices_OverlayFieldsExist(t *testing.T) {
+	n := Notices{}
 	n.OverlayApplied = true
 	n.OverlayParseError = "boom"
 	n.RestartRequired = []string{"web.port"}
@@ -639,7 +639,7 @@ func TestLoadProjectFileConfig_ValidFile(t *testing.T) {
 }
 
 func TestResolveMaxDuration_ProjectOverride(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Daemon:   DaemonConfig{MaxAnalysisDuration: "8h"},
 		Projects: []ProjectConfig{{Name: "fast", MaxAnalysisDuration: "30m"}},
 	}
@@ -653,7 +653,7 @@ func TestResolveMaxDuration_ProjectOverride(t *testing.T) {
 }
 
 func TestResolveMaxDuration_DaemonDefault(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Daemon:   DaemonConfig{MaxAnalysisDuration: "4h"},
 		Projects: []ProjectConfig{{Name: "normal"}},
 	}
@@ -667,7 +667,7 @@ func TestResolveMaxDuration_DaemonDefault(t *testing.T) {
 }
 
 func TestResolveMaxDuration_InvalidDuration(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Daemon: DaemonConfig{MaxAnalysisDuration: "not-a-duration"},
 	}
 	_, err := cfg.ResolveMaxDuration("anything")
@@ -685,7 +685,7 @@ func TestMergeProviderBlocks_OverlayWins(t *testing.T) {
 		Model: "claude-sonnet-4-5-20250929",
 		Env:   map[string]string{"FOO": "bar"},
 	}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Model != "claude-sonnet-4-5-20250929" {
 		t.Fatalf("Model = %q, want claude-sonnet-4-5-20250929", got.Model)
 	}
@@ -705,7 +705,7 @@ func TestMergeProviderBlocks_NilOverrideEnvPreservesBase(t *testing.T) {
 	override := ProviderBlock{
 		Model: "new-model",
 	}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Env["KEY"] != "val" {
 		t.Fatalf("Env[KEY] = %q, want val (preserved from base)", got.Env["KEY"])
 	}
@@ -715,7 +715,7 @@ func TestMergeProviderBlocks_UseLoggedInUserOverride(t *testing.T) {
 	f := false
 	base := ProviderBlock{}
 	override := ProviderBlock{UseLoggedInUser: &f}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.UseLoggedInUser == nil || *got.UseLoggedInUser != false {
 		t.Fatalf("UseLoggedInUser = %v, want false", got.UseLoggedInUser)
 	}
@@ -725,7 +725,7 @@ func TestMergeProviderBlocks_AutoStartOverride(t *testing.T) {
 	tVal := true
 	base := ProviderBlock{}
 	override := ProviderBlock{AutoStart: &tVal}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.AutoStart == nil || *got.AutoStart != true {
 		t.Fatalf("AutoStart = %v, want true", got.AutoStart)
 	}
@@ -734,7 +734,7 @@ func TestMergeProviderBlocks_AutoStartOverride(t *testing.T) {
 func TestMergeProviderBlocks_CopilotHomeOverride(t *testing.T) {
 	base := ProviderBlock{CopilotHome: "/old"}
 	override := ProviderBlock{CopilotHome: "/new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.CopilotHome != "/new" {
 		t.Fatalf("CopilotHome = %q, want /new", got.CopilotHome)
 	}
@@ -743,7 +743,7 @@ func TestMergeProviderBlocks_CopilotHomeOverride(t *testing.T) {
 func TestMergeProviderBlocks_CLIURLOverride(t *testing.T) {
 	base := ProviderBlock{CLIURL: "http://old"}
 	override := ProviderBlock{CLIURL: "http://new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.CLIURL != "http://new" {
 		t.Fatalf("CLIURL = %q, want http://new", got.CLIURL)
 	}
@@ -752,7 +752,7 @@ func TestMergeProviderBlocks_CLIURLOverride(t *testing.T) {
 func TestMergeProviderBlocks_CommandOverride(t *testing.T) {
 	base := ProviderBlock{Command: []string{"old"}}
 	override := ProviderBlock{Command: []string{"new", "cmd"}}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if len(got.Command) != 2 || got.Command[0] != "new" {
 		t.Fatalf("Command = %v, want [new cmd]", got.Command)
 	}
@@ -761,7 +761,7 @@ func TestMergeProviderBlocks_CommandOverride(t *testing.T) {
 func TestMergeProviderBlocks_EnvMerge(t *testing.T) {
 	base := ProviderBlock{Env: map[string]string{"A": "1", "B": "2"}}
 	override := ProviderBlock{Env: map[string]string{"B": "override", "C": "3"}}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Env["A"] != "1" || got.Env["B"] != "override" || got.Env["C"] != "3" {
 		t.Fatalf("Env = %v, want merged", got.Env)
 	}
@@ -770,7 +770,7 @@ func TestMergeProviderBlocks_EnvMerge(t *testing.T) {
 func TestMergeProviderBlocks_APIKeyEnvOverride(t *testing.T) {
 	base := ProviderBlock{APIKeyEnv: "OLD_KEY"}
 	override := ProviderBlock{APIKeyEnv: "NEW_KEY"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.APIKeyEnv != "NEW_KEY" {
 		t.Fatalf("APIKeyEnv = %q, want NEW_KEY", got.APIKeyEnv)
 	}
@@ -779,7 +779,7 @@ func TestMergeProviderBlocks_APIKeyEnvOverride(t *testing.T) {
 func TestMergeProviderBlocks_BaseURLOverride(t *testing.T) {
 	base := ProviderBlock{BaseURL: "http://old"}
 	override := ProviderBlock{BaseURL: "http://new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.BaseURL != "http://new" {
 		t.Fatalf("BaseURL = %q, want http://new", got.BaseURL)
 	}
@@ -788,7 +788,7 @@ func TestMergeProviderBlocks_BaseURLOverride(t *testing.T) {
 func TestMergeProviderBlocks_PasswordOverride(t *testing.T) {
 	base := ProviderBlock{Password: "old"}
 	override := ProviderBlock{Password: "new"}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Password != "new" {
 		t.Fatalf("Password = %q, want new", got.Password)
 	}
@@ -797,7 +797,7 @@ func TestMergeProviderBlocks_PasswordOverride(t *testing.T) {
 func TestMergeProviderBlocks_MaxInputTokensOverride(t *testing.T) {
 	base := ProviderBlock{MaxInputTokens: 100}
 	override := ProviderBlock{MaxInputTokens: 200}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.MaxInputTokens != 200 {
 		t.Fatalf("MaxInputTokens = %d, want 200", got.MaxInputTokens)
 	}
@@ -807,7 +807,7 @@ func TestMergeProviderBlocks_SandboxOverride(t *testing.T) {
 	mode := "true"
 	base := ProviderBlock{}
 	override := ProviderBlock{Sandbox: &mode}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Sandbox == nil || *got.Sandbox != "true" {
 		t.Fatalf("Sandbox = %v, want true", got.Sandbox)
 	}
@@ -825,7 +825,7 @@ func TestMergeProviderBlocks_EmptyOverridePreservesBase(t *testing.T) {
 		Command:     []string{"cmd"},
 	}
 	override := ProviderBlock{}
-	got := mergeProviderBlocks(base, override)
+	got := MergeProviderBlock(base, override)
 	if got.Model != "model" || got.CopilotHome != "/home" || got.CLIURL != "http://url" {
 		t.Fatal("base fields not preserved")
 	}
@@ -850,7 +850,7 @@ func TestValidateWebHost_Localhost(t *testing.T) {
 }
 
 func TestResolveProviderConfig_FallbackToDefault(t *testing.T) {
-	cfg := &Config{DefaultProvider: ""}
+	cfg := &App{DefaultProvider: ""}
 	id, _ := cfg.ResolveProviderConfig(nil, "")
 	if id != DefaultProviderID {
 		t.Fatalf("id = %q, want %q (default fallback)", id, DefaultProviderID)
@@ -885,7 +885,7 @@ func TestLoadProjectFileConfig_InvalidYAML(t *testing.T) {
 
 func TestValidateConfig_RejectsInvalidProjectDuration(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir, MaxAnalysisDuration: "bad"},
 		},
@@ -898,7 +898,7 @@ func TestValidateConfig_RejectsInvalidProjectDuration(t *testing.T) {
 
 func TestValidateConfig_Valid(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir, MaxAnalysisDuration: "30m"},
 		},
@@ -911,7 +911,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 }
 
 func TestValidateConfig_RejectsEmptyProjectPath(t *testing.T) {
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: ""},
 		},
@@ -924,7 +924,7 @@ func TestValidateConfig_RejectsEmptyProjectPath(t *testing.T) {
 
 func TestValidateConfig_RejectsRelativeOutputRoot(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir},
 		},
@@ -937,7 +937,7 @@ func TestValidateConfig_RejectsRelativeOutputRoot(t *testing.T) {
 
 func TestValidateConfig_RejectsInvalidRetention(t *testing.T) {
 	projectDir := t.TempDir()
-	cfg := &Config{
+	cfg := &App{
 		Projects: []ProjectConfig{
 			{Name: "p", Path: projectDir},
 		},

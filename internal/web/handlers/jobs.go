@@ -121,7 +121,7 @@ func resolveProviderMeta(deps JobDeps, id string) *backgroundjobs.ProviderMeta {
 
 // validateCreatePayload validates the create/preview payload and resolves
 // the project path. Returns the resolved path and any warnings.
-func validateCreatePayload(cfg *config.Config, payload createPayload, lookup func(string) *backgroundjobs.ProviderMeta) (projectPath string, warnings []string, err error) {
+func validateCreatePayload(cfg *config.App, payload createPayload, lookup func(string) *backgroundjobs.ProviderMeta) (projectPath string, warnings []string, err error) {
 	// 1. Prompt required, max 16 KiB.
 	if strings.TrimSpace(payload.Prompt) == "" {
 		return "", nil, fmt.Errorf("prompt is required")
@@ -164,7 +164,7 @@ func validateCreatePayload(cfg *config.Config, payload createPayload, lookup fun
 
 // resolveProjectPath validates project_name against the config's project list.
 // Rejects names not in config.Projects to prevent path traversal.
-func resolveProjectPath(cfg *config.Config, projectName string) (string, error) {
+func resolveProjectPath(cfg *config.App, projectName string) (string, error) {
 	if projectName == "" {
 		if len(cfg.Projects) == 0 {
 			return "", fmt.Errorf("no projects configured; pass project_name explicitly")

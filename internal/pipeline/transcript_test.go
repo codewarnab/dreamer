@@ -41,7 +41,7 @@ func TestReadMessagesFromSourceReadsVSCodeJSON(t *testing.T) {
 		t.Fatalf("write vscode json fixture: %v", err)
 	}
 
-	messages, err := readMessagesFromSource(chat.ChatSource{
+	messages, err := readMessagesFromSource(chat.Source{
 		Path: sourcePath,
 		Tool: chat.SourceTypeVSCodeChatSession,
 	})
@@ -62,7 +62,7 @@ func TestReadMessagesFromSourceReadsProtobuf(t *testing.T) {
 		t.Fatalf("write protobuf source fixture: %v", err)
 	}
 
-	messages, err := readMessagesFromSource(chat.ChatSource{
+	messages, err := readMessagesFromSource(chat.Source{
 		Path: sourcePath,
 		Tool: chat.SourceTypeAntigravityGemini,
 	})
@@ -97,7 +97,7 @@ func TestReadMessagesFromSourceSanitizesClaudeJSONLOnly(t *testing.T) {
 		t.Fatalf("write jsonl source fixture: %v", err)
 	}
 
-	claudeMessages, err := readMessagesFromSource(chat.ChatSource{
+	claudeMessages, err := readMessagesFromSource(chat.Source{
 		Path: sourcePath,
 		Tool: chat.SourceTypeClaudeCodeSession,
 	})
@@ -111,7 +111,7 @@ func TestReadMessagesFromSourceSanitizesClaudeJSONLOnly(t *testing.T) {
 		t.Fatalf("claudeMessages[0].Content = %q, want sanitized prompt", got)
 	}
 
-	defaultMessages, err := readMessagesFromSource(chat.ChatSource{
+	defaultMessages, err := readMessagesFromSource(chat.Source{
 		Path: sourcePath,
 		Tool: chat.SourceTypeCopilotSessionJSONL,
 	})
@@ -144,7 +144,7 @@ func encodeVarint(value uint64) []byte {
 	return encoded
 }
 
-func sourcePaths(sources []chat.ChatSource) []string {
+func sourcePaths(sources []chat.Source) []string {
 	paths := make([]string, 0, len(sources))
 	for _, source := range sources {
 		paths = append(paths, source.Path)

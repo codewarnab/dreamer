@@ -268,5 +268,48 @@ func TestNormalizeRootPathErrorsWhenRootMissing(t *testing.T) {
 	}
 }
 
+// SSRF: URL permission requests must be validated against loopback,
+// link-local, and private IP targets.
+func TestDecidePermissionURLRejectsLoopback(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"file scheme", "file:///etc/passwd"},
+		{"ftp scheme", "ftp://example.com/file"},
+		{"loopback ipv4", "http://127.0.0.1/admin"},
+		{"loopback ipv6", "http://[::1]/admin"},
+		{"localhost name", "http://localhost/admin"},
+		{"private 10.x", "http://10.0.0.1/metadata"},
+		{"private 192.168.x", "http://192.168.1.1/admin"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := PermissionRequest{Kind: PermissionKindURL, Path: stringPtr(tc.url)}
+			decision := DecidePermission(req, "")
+			if decision.Approved {
+				t.Fatalf("URL %q must be rejected; got approved", tc.url)
+			}
+		})
+	}
+}
+
+func TestDecidePermissionURLApprovesValidHTTPS(t *testing.T) {
+	req := PermissionRequest{Kind: PermissionKindURL, Path: stringPtr("https://api.anthropic.com/v1/messages")}
+	decision := DecidePermission(req, "")
+	if !decision.Approved {
+		t.Fatalf("https URL should be approved; reason=%q", decision.Reason)
+	}
+}
+
+func TestDecidePermissionURLApprovesWhenNoURL(t *testing.T) {
+	// Provider didn't supply a URL; approve (can't block what we can't see).
+	req := PermissionRequest{Kind: PermissionKindURL}
+	decision := DecidePermission(req, "")
+	if !decision.Approved {
+		t.Fatalf("empty URL request should be approved; reason=%q", decision.Reason)
+	}
+}
+
 func stringPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool       { return &b }

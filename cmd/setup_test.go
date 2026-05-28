@@ -97,7 +97,7 @@ func TestBuildConfigYAML_AdvancedFieldsRoundTrip(t *testing.T) {
 
 func TestPrefillFromConfig_PullsAllFields(t *testing.T) {
 	pdir := t.TempDir()
-	prior := &config.Config{
+	prior := &config.App{
 		DefaultProvider: "openclaude-cli",
 		Daemon:          config.DaemonConfig{FrequencySeconds: 1800, OutputRoot: "/tmp/out"},
 		Logging:         config.LoggingConfig{Level: "debug"},

@@ -132,7 +132,7 @@ type setupModel struct {
 // prefillFromConfig pulls defaults out of an existing config so re-running
 // setup --force pre-fills every prompt with the prior value. Only fields the
 // loader/wizard understand are read; everything else stays at its zero value.
-func prefillFromConfig(prior *config.Config) setupAnswers {
+func prefillFromConfig(prior *config.App) setupAnswers {
 	a := setupAnswers{
 		provider:    config.DefaultProviderID,
 		frequency:   3600,
@@ -759,7 +759,7 @@ func buildConfigYAML(a setupAnswers) []byte {
 		// Template parse/execute failures are programmer errors; fall back
 		// to a minimal struct-marshalled config so the wizard still writes
 		// something valid rather than silently producing an empty file.
-		cfg := config.Config{
+		cfg := config.App{
 			DefaultProvider: a.provider,
 			Daemon: config.DaemonConfig{
 				FrequencySeconds: a.frequency,
@@ -794,7 +794,7 @@ func newSetupCommand() *cobra.Command {
 			// Pre-fill from prior config when re-running with --force.
 			var prefilled setupAnswers
 			if data, err := os.ReadFile(cfgPath); err == nil {
-				var prior config.Config
+				var prior config.App
 				if yaml.Unmarshal(data, &prior) == nil {
 					prefilled = prefillFromConfig(&prior)
 				}

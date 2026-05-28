@@ -17,11 +17,11 @@ type kiroProvider struct{}
 
 func (kiroProvider) Type() SourceType { return SourceTypeKiroCLISession }
 
-func (kiroProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (kiroProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverKiroCLISessions(env, projectPath)
 }
 
-func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	normalizedProjectPath, ok := normalizeDiscoveryPath(projectPath)
 	if !ok {
 		return nil, nil
@@ -46,7 +46,7 @@ func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]Ch
 		return nil, fmt.Errorf("list kiro conversations: %w", err)
 	}
 
-	discovered := make([]ChatSource, 0, len(conversations))
+	discovered := make([]Source, 0, len(conversations))
 	for _, conversation := range conversations {
 		normalizedDir, ok := normalizeDiscoveryEvidencePath(conversation.Directory)
 		if !ok {
@@ -55,7 +55,7 @@ func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]Ch
 		if !pathWithinNormalizedRoot(normalizedDir, normalizedProjectPath) {
 			continue
 		}
-		discovered = append(discovered, ChatSource{
+		discovered = append(discovered, Source{
 			Path:         dbPath + sqliteSourcePathSeparator + conversation.ConversationID,
 			Tool:         SourceTypeKiroCLISession,
 			ModifiedTime: conversation.ModifiedTime,
@@ -64,7 +64,7 @@ func discoverKiroCLISessions(env DiscoveryEnvironment, projectPath string) ([]Ch
 	return discovered, nil
 }
 
-func (kiroProvider) DeleteSource(source ChatSource) error {
+func (kiroProvider) DeleteSource(source Source) error {
 	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
 	if err := readers.DeleteKiroConversation(dbPath, conversationID); err != nil {
 		return fmt.Errorf("delete kiro chat source %q: %w", source.Path, err)
@@ -72,12 +72,12 @@ func (kiroProvider) DeleteSource(source ChatSource) error {
 	return nil
 }
 
-func (kiroProvider) SizeBytes(source ChatSource) (int64, error) {
+func (kiroProvider) SizeBytes(source Source) (int64, error) {
 	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
 	return readers.KiroReader{}.ConversationSize(dbPath, conversationID)
 }
 
-func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
+func (kiroProvider) SizeBytesBatch(sources []Source) map[string]int64 {
 	type conversationKey struct {
 		dbPath string
 		id     string
@@ -113,7 +113,7 @@ func (kiroProvider) SizeBytesBatch(sources []ChatSource) map[string]int64 {
 	return result
 }
 
-func (kiroProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (kiroProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
 	messages, err := readers.ReadKiroConversation(dbPath, conversationID)
 	if err != nil {

@@ -84,7 +84,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 
 type chunkResult struct {
 	index         int
-	mistakesByCat map[RuleCategory][]Mistake
+	mistakesByCategory map[RuleCategory][]Mistake
 	summary       string
 	warnings      []string
 	err           error
@@ -153,7 +153,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 				return nil
 			}
 			parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
-			chunkRes := chunkResult{index: i, mistakesByCat: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
+			chunkRes := chunkResult{index: i, mistakesByCategory: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
 			if parseErr != nil {
 				chunkRes.warnings = append(chunkRes.warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
 			}
@@ -178,7 +178,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 		if strings.TrimSpace(chunkRes.summary) == "" {
 			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d returned empty summary", chunkRes.index))
 		}
-		mergeMistakes(mistakes, chunkRes.mistakesByCat)
+		mergeMistakes(mistakes, chunkRes.mistakesByCategory)
 		completed++
 	}
 	if gErr != nil && errs.Is(gErr, errs.KindRateLimit) {

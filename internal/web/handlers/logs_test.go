@@ -30,8 +30,8 @@ func TestLogsTail_ReturnsAllLines(t *testing.T) {
 		"level=info ts=5 msg=done\n"
 	seedLog(t, root, contents)
 
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
-	h := LogsTail(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
+	h := LogsTail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/logs/tail", nil)
 	h(rec, req)
@@ -58,8 +58,8 @@ func TestLogsTail_FiltersByLevel(t *testing.T) {
 		"level=debug ts=4 msg=trace\n" +
 		"level=info ts=5 msg=done\n"
 	seedLog(t, root, contents)
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
-	h := LogsTail(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
+	h := LogsTail(Deps{Config: func() *config.App { return cfg }})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/logs/tail?level=error", nil)
@@ -76,8 +76,8 @@ func TestLogsTail_FiltersByLevel(t *testing.T) {
 func TestLogsTail_HXRequestWrapsPre(t *testing.T) {
 	root := t.TempDir()
 	seedLog(t, root, "level=info ts=1 msg=hello\n")
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
-	h := LogsTail(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
+	h := LogsTail(Deps{Config: func() *config.App { return cfg }})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/logs/tail", nil)
@@ -103,8 +103,8 @@ func TestLogsTail_DropsPartialFirstLine(t *testing.T) {
 	seedLog(t, root, b.String())
 
 	// 1 KB tail forces truncation; first partial line must be dropped.
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 1}}
-	h := LogsTail(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 1}}
+	h := LogsTail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/logs/tail", nil)
 	h(rec, req)
@@ -124,8 +124,8 @@ func TestLogsTail_DropsPartialFirstLine(t *testing.T) {
 
 func TestLogsTail_MissingFileOK(t *testing.T) {
 	root := t.TempDir()
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
-	h := LogsTail(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: root}, Web: config.WebConfig{LogTailKB: 256}}
+	h := LogsTail(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/logs/tail", nil)
 	h(rec, req)

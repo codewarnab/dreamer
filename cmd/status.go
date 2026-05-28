@@ -132,7 +132,7 @@ func printStatusTable(cmd *cobra.Command, status jobqueue.QueueStatus) {
 		status.Running, status.Pending, status.Completed, status.Failed+status.TimedOut+status.Cancelled)
 	cmd.Println()
 
-	groups := map[jobqueue.JobStatus][]*jobqueue.Job{
+	groups := map[jobqueue.Status][]*jobqueue.Job{
 		jobqueue.StatusRunning:   {},
 		jobqueue.StatusPending:   {},
 		jobqueue.StatusCompleted: {},

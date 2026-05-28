@@ -14,12 +14,12 @@ func TestAllReturnsSixCategories(t *testing.T) {
 func TestAllContainsExpectedCategories(t *testing.T) {
 	cats := All()
 	expected := map[Category]bool{
-		CategoryLintRule:         false,
-		CategoryTest:             false,
-		CategoryCICheck:          false,
-		CategoryDoc:              false,
-		CategoryConfig:           false,
-		CategoryRefactorBoundary: false,
+		LintRule:         false,
+		Test:             false,
+		CICheck:          false,
+		Doc:              false,
+		Config:           false,
+		RefactorBoundary: false,
 	}
 	for _, c := range cats {
 		if _, ok := expected[c]; !ok {
@@ -39,12 +39,12 @@ func TestCategoryConstants(t *testing.T) {
 		cat  Category
 		want string
 	}{
-		{CategoryLintRule, "lint-rule"},
-		{CategoryTest, "test"},
-		{CategoryCICheck, "ci-check"},
-		{CategoryDoc, "doc"},
-		{CategoryConfig, "config"},
-		{CategoryRefactorBoundary, "refactor-boundary"},
+		{LintRule, "lint-rule"},
+		{Test, "test"},
+		{CICheck, "ci-check"},
+		{Doc, "doc"},
+		{Config, "config"},
+		{RefactorBoundary, "refactor-boundary"},
 	}
 	for _, tt := range tests {
 		if string(tt.cat) != tt.want {

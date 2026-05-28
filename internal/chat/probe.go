@@ -39,10 +39,10 @@ var claudeCWDEvidenceKeys = map[string]struct{}{
 }
 
 // walkChatFiles enumerates files under root whose extension is in extensions
-// and returns one ChatSource per match. Missing roots yield no sources.
+// and returns one Source per match. Missing roots yield no sources.
 // The optional skip filter is called for each matched file; when it returns
 // true the file is excluded. Pass nil to accept all files.
-func walkChatFiles(root string, sourceType SourceType, extensions map[string]struct{}, skip func(path string) bool) ([]ChatSource, error) {
+func walkChatFiles(root string, sourceType SourceType, extensions map[string]struct{}, skip func(path string) bool) ([]Source, error) {
 	trimmedRoot := strings.TrimSpace(root)
 	if trimmedRoot == "" {
 		return nil, nil
@@ -59,7 +59,7 @@ func walkChatFiles(root string, sourceType SourceType, extensions map[string]str
 		return nil, nil
 	}
 
-	discovered := make([]ChatSource, 0)
+	discovered := make([]Source, 0)
 	err = filepath.WalkDir(trimmedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -82,7 +82,7 @@ func walkChatFiles(root string, sourceType SourceType, extensions map[string]str
 			return fmt.Errorf("read chat file metadata for %q: %w", path, err)
 		}
 
-		discovered = append(discovered, ChatSource{
+		discovered = append(discovered, Source{
 			Path:         path,
 			Tool:         sourceType,
 			ModifiedTime: fileInfo.ModTime().UTC(),

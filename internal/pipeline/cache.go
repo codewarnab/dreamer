@@ -28,7 +28,7 @@ type cacheKeyStats struct {
 // source is present but its file hash fails, the prior key is preserved so
 // state.ChatHashes is not clobbered on assignment (B1). Sources absent from
 // `sources` are intentionally dropped, pruning stale entries (B26).
-func computeCacheKeys(sources []chat.ChatSource, prior map[string]string, repoHeadSHA string, logger *logging.Logger) (map[string]string, cacheKeyStats) {
+func computeCacheKeys(sources []chat.Source, prior map[string]string, repoHeadSHA string, logger *logging.Logger) (map[string]string, cacheKeyStats) {
 	out := make(map[string]string, len(sources))
 	stats := cacheKeyStats{}
 	for _, src := range sources {

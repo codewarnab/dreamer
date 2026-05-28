@@ -9,18 +9,18 @@ import (
 )
 
 func init() {
-	registerProvider(claudeProvider{})
+	registerProvider(claudeProvider{fileBackedProvider{sourceType: SourceTypeClaudeCodeSession}})
 }
 
-type claudeProvider struct{}
+type claudeProvider struct {
+	fileBackedProvider
+}
 
-func (claudeProvider) Type() SourceType { return SourceTypeClaudeCodeSession }
-
-func (claudeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]ChatSource, error) {
+func (claudeProvider) Discover(env DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	return discoverClaudeCodeSessions(env.HomeDir, env.ClaudeConfigDir, projectPath)
 }
 
-func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectPath string) ([]ChatSource, error) {
+func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectPath string) ([]Source, error) {
 	claudeRoot := strings.TrimSpace(claudeConfigDir)
 	if claudeRoot == "" {
 		claudeRoot = filepath.Join(strings.TrimSpace(homeDir), ".claude")
@@ -39,7 +39,7 @@ func discoverClaudeCodeSessions(homeDir string, claudeConfigDir string, projectP
 		return nil, nil
 	}
 
-	discovered := make([]ChatSource, 0, len(candidates))
+	discovered := make([]Source, 0, len(candidates))
 	for _, candidate := range candidates {
 		candidateCWD, ok := probeClaudeSessionCWD(candidate.Path)
 		if !ok {
@@ -75,15 +75,8 @@ func extractClaudeParentID(path string) string {
 	return ""
 }
 
-func (claudeProvider) DeleteSource(source ChatSource) error {
-	return deleteSourceFile(source.Path)
-}
 
-func (claudeProvider) SizeBytes(source ChatSource) (int64, error) {
-	return statSourceSize(source.Path)
-}
-
-func (claudeProvider) ReadMessages(source ChatSource) ([]readers.ChatMessage, error) {
+func (claudeProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadClaudeJSONLWithToolFolding(source.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)

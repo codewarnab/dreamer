@@ -131,7 +131,7 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 	return latest, all, nil
 }
 
-func findProject(cfg *config.Config, name string) (config.ProjectConfig, bool) {
+func findProject(cfg *config.App, name string) (config.ProjectConfig, bool) {
 	for _, p := range cfg.Projects {
 		if p.Name == name {
 			return p, true
@@ -366,11 +366,18 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 		}
 		view := buildFindingView(*matchedEntry, st, latestRunHashes)
 
-		// Diff preview is opt-in via query params.
+		// Diff preview is opt-in via query params. Gate behind the
+		// finding's recorded ApplySpec so a loopback caller cannot
+		// dump arbitrary files via crafted target_file + snippet.
 		var diff string
 		q := r.URL.Query()
 		if q.Get("target_file") != "" && q.Get("snippet") != "" {
-			pre, post, _, previewErr := apply.Preview(apply.ApplyRequest{
+			findingState := st.Findings[matchedEntry.Hash]
+			if findingState.ApplySpec == nil || findingState.ApplySpec.TargetFile != q.Get("target_file") {
+				http.Error(w, "preview target does not match finding's apply spec", http.StatusBadRequest)
+				return
+			}
+			pre, post, _, previewErr := apply.Preview(apply.Request{
 				ProjectRoot: proj.Path,
 				TargetFile:  q.Get("target_file"),
 				Strategy:    q.Get("strategy"),

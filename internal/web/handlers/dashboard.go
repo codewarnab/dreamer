@@ -19,7 +19,7 @@ import (
 // a func to return the live (post-overlay-reload) snapshot. Events is the
 // shared pub-sub used by lifecycle handlers to publish finding.* events.
 type Deps struct {
-	Config         func() *config.Config
+	Config         func() *config.App
 	Events         *pipeline.EventBus
 	Logger         *logging.Logger
 	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
@@ -91,7 +91,7 @@ type providerCount struct {
 }
 
 // buildDashboard aggregates state.json + history.json across every project.
-func buildDashboard(cfg *config.Config) dashboardResponse {
+func buildDashboard(cfg *config.App) dashboardResponse {
 	out := dashboardResponse{
 		PerCategory:         map[string]int{},
 		TopMistakeProviders: []providerCount{},
@@ -149,7 +149,7 @@ func buildDashboard(cfg *config.Config) dashboardResponse {
 				cur.FindingsTotal += day.FindingsTotal
 				cur.Tokens += day.Tokens
 				if cur.Runs > 0 {
-					cur.AvgRunMillis = (cur.AvgRunMillis*int64(cur.Runs-day.Runs) + day.AvgRunMillis*int64(day.Runs)) / int64(cur.Runs)
+					cur.AvgRunDurationMillis = (cur.AvgRunDurationMillis*int64(cur.Runs-day.Runs) + day.AvgRunDurationMillis*int64(day.Runs)) / int64(cur.Runs)
 				}
 				for cat, n := range day.PerCategory {
 					cur.PerCategory[cat] += n
@@ -255,7 +255,7 @@ func buildSparklines(days []state.DaySummary, cutoff30d, cutoff7d time.Time) (sp
 			cur.FindingsTotal += d.FindingsTotal
 			cur.Tokens += d.Tokens
 			if cur.Runs > 0 {
-				cur.AvgRunMillis = (cur.AvgRunMillis*int64(cur.Runs-d.Runs) + d.AvgRunMillis*int64(d.Runs)) / int64(cur.Runs)
+				cur.AvgRunDurationMillis = (cur.AvgRunDurationMillis*int64(cur.Runs-d.Runs) + d.AvgRunDurationMillis*int64(d.Runs)) / int64(cur.Runs)
 			}
 			if cur.PerCategory == nil {
 				cur.PerCategory = map[string]int{}
@@ -268,7 +268,7 @@ func buildSparklines(days []state.DaySummary, cutoff30d, cutoff7d time.Time) (sp
 		}
 		if !parsedDate.Before(cutoff7d.Truncate(24 * time.Hour)) {
 			weekTokens += d.Tokens
-			weightedRunMillis += d.AvgRunMillis * int64(d.Runs)
+			weightedRunMillis += d.AvgRunDurationMillis * int64(d.Runs)
 			runsForAvg += int64(d.Runs)
 		}
 	}

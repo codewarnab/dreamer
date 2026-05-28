@@ -35,7 +35,7 @@ func TestProviders_MergesAcrossProjects(t *testing.T) {
 	if err := state.Save(root, "b", stB); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{
 			{Name: "a", Path: "/tmp/a"},
 			{Name: "b", Path: "/tmp/b"},
@@ -46,7 +46,7 @@ func TestProviders_MergesAcrossProjects(t *testing.T) {
 		},
 	}
 
-	h := Providers(Deps{Config: func() *config.Config { return cfg }})
+	h := Providers(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/providers", nil))
 	if rec.Code != http.StatusOK {
@@ -108,11 +108,11 @@ func TestProviders_StaleSuccessNotHealthy(t *testing.T) {
 	if err := state.Save(root, "p", st); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{
+	cfg := &config.App{
 		Projects: []config.ProjectConfig{{Name: "p", Path: "/tmp/p"}},
 		Daemon:   config.DaemonConfig{OutputRoot: root},
 	}
-	h := Providers(Deps{Config: func() *config.Config { return cfg }})
+	h := Providers(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/providers", nil))
 	var resp providersResponse
@@ -123,8 +123,8 @@ func TestProviders_StaleSuccessNotHealthy(t *testing.T) {
 }
 
 func TestProviders_NoProjects(t *testing.T) {
-	cfg := &config.Config{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
-	h := Providers(Deps{Config: func() *config.Config { return cfg }})
+	cfg := &config.App{Daemon: config.DaemonConfig{OutputRoot: t.TempDir()}}
+	h := Providers(Deps{Config: func() *config.App { return cfg }})
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/providers", nil))
 	if rec.Code != http.StatusOK {

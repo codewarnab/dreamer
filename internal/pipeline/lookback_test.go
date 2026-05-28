@@ -57,7 +57,7 @@ func TestParseLookbackWindow(t *testing.T) {
 
 func TestFilterSourcesByLookback(t *testing.T) {
 	now := time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)
-	sources := []chat.ChatSource{
+	sources := []chat.Source{
 		{Path: "old.jsonl", ModifiedTime: now.Add(-time.Hour - time.Nanosecond)},
 		{Path: "cutoff.jsonl", ModifiedTime: now.Add(-time.Hour)},
 		{Path: "recent.jsonl", ModifiedTime: now.Add(-time.Minute)},
@@ -74,7 +74,7 @@ func TestFilterSourcesByLookback(t *testing.T) {
 }
 
 func TestFilterSourcesByLookbackDisabledReturnsAllSources(t *testing.T) {
-	sources := []chat.ChatSource{
+	sources := []chat.Source{
 		{Path: "old.jsonl", ModifiedTime: time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)},
 		{Path: "recent.jsonl", ModifiedTime: time.Date(2026, 5, 8, 12, 0, 0, 0, time.UTC)},
 	}

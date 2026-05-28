@@ -7,6 +7,7 @@ import (
 )
 
 func TestReplaceFlag(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name             string
 		args             []string
@@ -49,6 +50,7 @@ func TestReplaceFlag(t *testing.T) {
 }
 
 func TestInjectMCPFlags(t *testing.T) {
+	t.Parallel()
 	base := []string{"claude", "-p", "--verbose", "--output-format=stream-json", "--dangerously-skip-permissions", "--bare", "--no-session-persistence"}
 	configPath := `C:\Users\test\AppData\Local\Temp\dreamer-mcp-config-abc123.json`
 
@@ -179,6 +181,7 @@ func TestInjectMCPFlags(t *testing.T) {
 }
 
 func TestInjectMCPFlagsKeepsPolicyWhenUnrestrictedDisabled(t *testing.T) {
+	t.Parallel()
 	base := []string{"claude", "-p", "--permission-mode", "plan", "--bare"}
 	got, err := InjectMCPFlags(
 		append([]string(nil), base...),
@@ -201,6 +204,7 @@ func TestInjectMCPFlagsKeepsPolicyWhenUnrestrictedDisabled(t *testing.T) {
 }
 
 func TestRemoveFlag(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		args  []string
@@ -290,6 +294,7 @@ func TestRemoveFlag(t *testing.T) {
 }
 
 func TestHasFlag(t *testing.T) {
+	t.Parallel()
 	if HasFlag([]string{"claude", "--bare", "--no-session"}, "--bare") != true {
 		t.Error("expected true for present flag")
 	}
