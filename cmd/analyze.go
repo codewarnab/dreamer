@@ -35,7 +35,9 @@ func newAnalyzeCommand() *cobra.Command {
 			// init-gating rationale.
 
 			if strings.TrimSpace(projectPath) == "" {
-				return fmt.Errorf("--path is required")
+				return missingFlagError(cmd, "path",
+					"The project directory to analyze.",
+					"dreamer analyze --path /path/to/project")
 			}
 			if cmd.Flags().Changed("since") && strings.TrimSpace(since) == "" {
 				return fmt.Errorf("--since must not be empty")
@@ -133,8 +135,6 @@ func newAnalyzeCommand() *cobra.Command {
 	command.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Override the per-project output directory")
 	command.Flags().StringVarP(&since, "since", "s", config.DefaultSince, "Lookback window for chat history (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime)")
 	registerAnalyzerFlags(command.Flags(), &analyzerFlags)
-	_ = command.MarkFlagRequired("path")
-
 	return command
 }
 

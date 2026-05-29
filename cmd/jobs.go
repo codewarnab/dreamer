@@ -599,8 +599,13 @@ func newJobsShowCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "show <job-id>",
 		Short: "Show job details and recent runs.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to show.",
+					"dreamer jobs show <job-id>")
+			}
+
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err
@@ -759,8 +764,12 @@ func newJobsPauseCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "pause <job-id>",
 		Short: "Disable a job.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to pause.",
+					"dreamer jobs pause <job-id>")
+			}
 			return setJobEnabled(cmd, args[0], false)
 		},
 	}
@@ -770,8 +779,12 @@ func newJobsResumeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume <job-id>",
 		Short: "Re-enable a paused job.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to resume.",
+					"dreamer jobs resume <job-id>")
+			}
 			return setJobEnabled(cmd, args[0], true)
 		},
 	}
@@ -859,8 +872,13 @@ func newJobsDeleteCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "delete <job-id>",
 		Short: "Permanently delete a job and its run history.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to delete.",
+					"dreamer jobs delete <job-id>")
+			}
+
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err

@@ -24,8 +24,12 @@ func newJobsRunCommand() *cobra.Command {
 		Short: "Execute a background job on demand.",
 		Long: "Run a background job immediately. Designed for use from OS schedulers " +
 			"(cron, Task Scheduler). Returns exit code 0 on success, 1 on failure.",
-		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to run.",
+					"dreamer jobs run <job-id>")
+			}
 			jobID := args[0]
 			if err := backgroundjobs.ValidateJobID(jobID); err != nil {
 				return err

@@ -90,7 +90,7 @@ func TestAnalyzeRequiresProjectFlag(t *testing.T) {
 	if err == nil {
 		t.Fatalf("analyze expected required path flag error")
 	}
-	if !strings.Contains(err.Error(), "required flag(s) \"path\" not set") {
+	if !strings.Contains(err.Error(), "Missing required flag") || !strings.Contains(err.Error(), "--path") {
 		t.Fatalf("error = %q, want required path flag error", err)
 	}
 }
