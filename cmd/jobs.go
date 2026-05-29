@@ -66,7 +66,12 @@ func newJobsCommand() *cobra.Command {
 		Long:  "Create, list, run, and manage recurring background analysis jobs.",
 	}
 
-	command.RunE = suggestSubcommandRunE()
+	command.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return runJobsInteractive(cmd)
+		}
+		return suggestSubcommandRunE()(cmd, args)
+	}
 
 	command.AddCommand(newJobsListCommand())
 	command.AddCommand(newJobsCreateCommand())
