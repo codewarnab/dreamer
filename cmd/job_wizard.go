@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/backgroundjobs"
-	"dreamer/internal/fsutil"
 	"dreamer/internal/pipeline"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -50,81 +48,6 @@ const (
 	wizBoxMaxW     = 90 // maximum box inner width
 	wizTerminalPad = 12 // margin for border+padding+outer breathing room
 )
-
-// jobWizardAnswers collects all values the wizard gathers.
-type jobWizardAnswers struct {
-	projectPath   string
-	name          string
-	providerID    string
-	model         string
-	prompt        string
-	fileAccess    string // read_only, selected_writes, full_workspace
-	writablePaths string // comma-separated, for selected_writes (CLI only)
-	scheduleKind  string
-	every         string
-	timeOfDay     string
-	dayOfWeek     string
-	cron          string
-	timezone      string
-}
-
-// jobWizardAnswersJSON is the exported-field mirror used for JSON
-// serialization of jobWizardAnswers. The fields are kept in sync with
-// the unexported struct manually.
-type jobWizardAnswersJSON struct {
-	ProjectPath   string `json:"project_path,omitempty"`
-	Name          string `json:"name,omitempty"`
-	ProviderID    string `json:"provider_id,omitempty"`
-	Model         string `json:"model,omitempty"`
-	Prompt        string `json:"prompt,omitempty"`
-	FileAccess    string `json:"file_access,omitempty"`
-	WritablePaths string `json:"writable_paths,omitempty"`
-	ScheduleKind  string `json:"schedule_kind,omitempty"`
-	Every         string `json:"every,omitempty"`
-	TimeOfDay     string `json:"time_of_day,omitempty"`
-	DayOfWeek     string `json:"day_of_week,omitempty"`
-	Cron          string `json:"cron,omitempty"`
-	Timezone      string `json:"timezone,omitempty"`
-}
-
-func (a jobWizardAnswers) MarshalJSON() ([]byte, error) {
-	return json.Marshal(jobWizardAnswersJSON{
-		ProjectPath:   a.projectPath,
-		Name:          a.name,
-		ProviderID:    a.providerID,
-		Model:         a.model,
-		Prompt:        a.prompt,
-		FileAccess:    a.fileAccess,
-		WritablePaths: a.writablePaths,
-		ScheduleKind:  a.scheduleKind,
-		Every:         a.every,
-		TimeOfDay:     a.timeOfDay,
-		DayOfWeek:     a.dayOfWeek,
-		Cron:          a.cron,
-		Timezone:      a.timezone,
-	})
-}
-
-func (a *jobWizardAnswers) UnmarshalJSON(data []byte) error {
-	var raw jobWizardAnswersJSON
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	a.projectPath = raw.ProjectPath
-	a.name = raw.Name
-	a.providerID = raw.ProviderID
-	a.model = raw.Model
-	a.prompt = raw.Prompt
-	a.fileAccess = raw.FileAccess
-	a.writablePaths = raw.WritablePaths
-	a.scheduleKind = raw.ScheduleKind
-	a.every = raw.Every
-	a.timeOfDay = raw.TimeOfDay
-	a.dayOfWeek = raw.DayOfWeek
-	a.cron = raw.Cron
-	a.timezone = raw.Timezone
-	return nil
-}
 
 // jobWizardModel is the bubbletea model for the interactive job creator.
 type jobWizardModel struct {
@@ -426,12 +349,26 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = typed.Height
 		inner := m.boxInnerWidth()
 		m.providerList.SetWidth(inner)
-		m.modelList.SetWidth(inner)
-		m.permissionsList.SetWidth(inner)
-		m.scheduleKindList.SetWidth(inner)
-		m.intervalList.SetWidth(inner)
-		m.dayOfWeekList.SetWidth(inner)
-		m.timezoneList.SetWidth(inner)
+		// Guard: lists are zero-value until their step runs; SetWidth on a
+		// zero-height list triggers division-by-zero in updatePagination.
+		if m.modelList.Height() > 0 {
+			m.modelList.SetWidth(inner)
+		}
+		if m.permissionsList.Height() > 0 {
+			m.permissionsList.SetWidth(inner)
+		}
+		if m.scheduleKindList.Height() > 0 {
+			m.scheduleKindList.SetWidth(inner)
+		}
+		if m.intervalList.Height() > 0 {
+			m.intervalList.SetWidth(inner)
+		}
+		if m.dayOfWeekList.Height() > 0 {
+			m.dayOfWeekList.SetWidth(inner)
+		}
+		if m.timezoneList.Height() > 0 {
+			m.timezoneList.SetWidth(inner)
+		}
 		m.promptInput.SetWidth(inner)
 		m.filePicker, _ = m.filePicker.Update(tea.WindowSizeMsg{Width: inner, Height: typed.Height})
 	}
@@ -1063,138 +1000,4 @@ func backgroundSafeProviderItems() []list.Item {
 		}
 	}
 	return items
-}
-
-// wizardDraftPath returns the path to the wizard draft JSON file.
-func wizardDraftPath(outputRoot string) string {
-	return filepath.Join(outputRoot, "background-jobs", ".wizard-draft.json")
-}
-
-// wizardDraftEnvelope wraps the draft answers with a version field for
-// future schema migration.
-type wizardDraftEnvelope struct {
-	Version int               `json:"version"`
-	Answers jobWizardAnswers  `json:"answers"`
-}
-
-// loadWizardDraft reads the draft from disk. Returns a zero-value struct
-// (not an error) when the file is missing or corrupt — the wizard should
-// always be able to start fresh.
-func loadWizardDraft(path string) (jobWizardAnswers, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return jobWizardAnswers{}, nil
-	}
-	if err != nil {
-		return jobWizardAnswers{}, fmt.Errorf("read wizard draft: %w", err)
-	}
-	var env wizardDraftEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		// Corrupt draft — treat as empty.
-		fmt.Fprintf(os.Stderr, "warning: ignoring corrupt wizard draft (%v)\n", err)
-		return jobWizardAnswers{}, nil
-	}
-	if env.Version != 1 {
-		// Unknown version — treat as empty.
-		return jobWizardAnswers{}, nil
-	}
-	return env.Answers, nil
-}
-
-// saveWizardDraft persists partial wizard answers to disk so they can be
-// pre-filled on the next run.
-func saveWizardDraft(path string, answers jobWizardAnswers) error {
-	if err := os.MkdirAll(filepath.Dir(path), fsutil.DirPerms); err != nil {
-		return fmt.Errorf("create draft dir: %w", err)
-	}
-	env := wizardDraftEnvelope{Version: 1, Answers: answers}
-	data, err := json.MarshalIndent(env, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal draft: %w", err)
-	}
-	return fsutil.WriteFileAtomic(path, data, fsutil.FilePerms)
-}
-
-// deleteWizardDraft removes the draft file. Ignores "not found" errors.
-func deleteWizardDraft(path string) error {
-	err := os.Remove(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	return err
-}
-
-// mergeWizardDraft applies CLI-provided flags on top of a loaded draft.
-// For each non-zero field in cliOverrides, the draft value is replaced.
-// The projectPath is always taken from cliOverrides (CWD or arg), never
-// from the draft.
-func mergeWizardDraft(draft, cliOverrides jobWizardAnswers) jobWizardAnswers {
-	out := draft
-
-	// Path is always from the current invocation.
-	if cliOverrides.projectPath != "" {
-		out.projectPath = cliOverrides.projectPath
-	} else {
-		out.projectPath = "" // never restore stale path
-	}
-
-	// CLI flags override draft values when explicitly set.
-	if cliOverrides.name != "" {
-		out.name = cliOverrides.name
-	}
-	if cliOverrides.providerID != "" {
-		out.providerID = cliOverrides.providerID
-	}
-	if cliOverrides.model != "" {
-		out.model = cliOverrides.model
-	}
-	if cliOverrides.prompt != "" {
-		out.prompt = cliOverrides.prompt
-	}
-	if cliOverrides.fileAccess != "" {
-		out.fileAccess = cliOverrides.fileAccess
-	}
-	if cliOverrides.writablePaths != "" {
-		out.writablePaths = cliOverrides.writablePaths
-	}
-	if cliOverrides.scheduleKind != "" {
-		out.scheduleKind = cliOverrides.scheduleKind
-	}
-	if cliOverrides.every != "" {
-		out.every = cliOverrides.every
-	}
-	if cliOverrides.timeOfDay != "" {
-		out.timeOfDay = cliOverrides.timeOfDay
-	}
-	if cliOverrides.dayOfWeek != "" {
-		out.dayOfWeek = cliOverrides.dayOfWeek
-	}
-	if cliOverrides.cron != "" {
-		out.cron = cliOverrides.cron
-	}
-	if cliOverrides.timezone != "" {
-		out.timezone = cliOverrides.timezone
-	}
-
-	return out
-}
-
-// timezoneItems returns common timezone entries plus a "custom..." option.
-func timezoneItems() []list.Item {
-	return []list.Item{
-		selectItem{id: "Asia/Kolkata", desc: "IST, UTC+5:30"},
-		selectItem{id: "America/New_York", desc: "ET, UTC-5 / EDT UTC-4"},
-		selectItem{id: "America/Chicago", desc: "CT, UTC-6 / CDT UTC-5"},
-		selectItem{id: "America/Denver", desc: "MT, UTC-7 / MDT UTC-6"},
-		selectItem{id: "America/Los_Angeles", desc: "PT, UTC-8 / PDT UTC-7"},
-		selectItem{id: "Europe/London", desc: "GMT, UTC+0 / BST UTC+1"},
-		selectItem{id: "Europe/Berlin", desc: "CET, UTC+1 / CEST UTC+2"},
-		selectItem{id: "Europe/Paris", desc: "CET, UTC+1 / CEST UTC+2"},
-		selectItem{id: "Asia/Tokyo", desc: "JST, UTC+9"},
-		selectItem{id: "Asia/Shanghai", desc: "CST, UTC+8"},
-		selectItem{id: "Asia/Singapore", desc: "SGT, UTC+8"},
-		selectItem{id: "Australia/Sydney", desc: "AEST, UTC+10 / AEDT UTC+11"},
-		selectItem{id: "UTC", desc: "UTC+0"},
-		selectItem{id: "custom", desc: "type any IANA timezone"},
-	}
 }

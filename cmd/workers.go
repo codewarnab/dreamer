@@ -36,18 +36,30 @@ type workerPool struct {
 	wg         sync.WaitGroup
 }
 
+// workerPoolConfig holds the configuration for creating a new workerPool.
+type workerPoolConfig struct {
+	queue      *jobqueue.Queue
+	cfg        *config.App
+	live       *atomic.Pointer[config.App]
+	logger     *logging.Logger
+	cache      *pipeline.DiscoveryCache
+	stateCache *state.StateCache
+	events     *pipeline.EventBus
+	overrides  daemonOverrides
+}
+
 // newWorkerPool creates a pool that will spawn MaxConcurrent workers.
-func newWorkerPool(ctx context.Context, queue *jobqueue.Queue, cfg *config.App, live *atomic.Pointer[config.App], logger *logging.Logger, cache *pipeline.DiscoveryCache, stateCache *state.StateCache, events *pipeline.EventBus, overrides daemonOverrides) *workerPool {
+func newWorkerPool(ctx context.Context, wpc workerPoolConfig) *workerPool {
 	return &workerPool{
 		ctx:        ctx,
-		queue:      queue,
-		cfg:        cfg,
-		live:       live,
-		logger:     logger,
-		cache:      cache,
-		stateCache: stateCache,
-		events:     events,
-		overrides:  overrides,
+		queue:      wpc.queue,
+		cfg:        wpc.cfg,
+		live:       wpc.live,
+		logger:     wpc.logger,
+		cache:      wpc.cache,
+		stateCache: wpc.stateCache,
+		events:     wpc.events,
+		overrides:  wpc.overrides,
 	}
 }
 

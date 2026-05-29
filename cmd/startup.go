@@ -32,6 +32,8 @@ func newStartupCommand() *cobra.Command {
 			"and systemd user services on Linux.",
 	}
 
+	command.RunE = suggestSubcommandRunE()
+
 	command.AddCommand(newStartupInstallCommand())
 	command.AddCommand(newStartupUninstallCommand())
 	command.AddCommand(newStartupStatusCommand())

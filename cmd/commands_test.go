@@ -90,7 +90,7 @@ func TestAnalyzeRequiresProjectFlag(t *testing.T) {
 	if err == nil {
 		t.Fatalf("analyze expected required path flag error")
 	}
-	if !strings.Contains(err.Error(), "required flag(s) \"path\" not set") {
+	if !strings.Contains(err.Error(), "Missing required flag") || !strings.Contains(err.Error(), "--path") {
 		t.Fatalf("error = %q, want required path flag error", err)
 	}
 }
@@ -394,11 +394,9 @@ func TestCheckJobConflict_CompletedJobNoConflict(t *testing.T) {
 }
 
 func TestPrintBox_EmptyLines(t *testing.T) {
-	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	cmd.SetOut(&buf)
 
-	printBox(cmd, []string{})
+	printBox(&buf, []string{})
 
 	output := buf.String()
 	// Should have top and bottom borders with nothing between them.
@@ -412,11 +410,9 @@ func TestPrintBox_EmptyLines(t *testing.T) {
 }
 
 func TestPrintBox_SingleLine(t *testing.T) {
-	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	cmd.SetOut(&buf)
 
-	printBox(cmd, []string{"hello"})
+	printBox(&buf, []string{"hello"})
 
 	output := buf.String()
 	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
@@ -432,11 +428,9 @@ func TestPrintBox_SingleLine(t *testing.T) {
 }
 
 func TestPrintBox_MultipleLines(t *testing.T) {
-	cmd := &cobra.Command{}
 	var buf bytes.Buffer
-	cmd.SetOut(&buf)
 
-	printBox(cmd, []string{"short", "a longer line"})
+	printBox(&buf, []string{"short", "a longer line"})
 
 	output := buf.String()
 	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")

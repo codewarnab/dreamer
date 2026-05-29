@@ -30,17 +30,19 @@ func defaultProviderFactory(id config.ProviderID, cfg analyzer.ProviderConfig) (
 // falling back to config's output_root. Also returns the loaded config
 // so callers that need it don't load config a second time.
 func resolveOutputRoot(cmd *cobra.Command, resolvedConfigPath string) (string, *config.App, error) {
+	overlayPath, _ := config.GlobalOverlayPath()
+
 	if flag := cmd.Flag(outputRootFlag); flag != nil && flag.Changed {
 		abs, err := filepath.Abs(flag.Value.String())
 		// Still need to load config for callers that use it.
-		cfg, cfgErr := config.LoadConfig(resolvedConfigPath)
+		cfg, cfgErr := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 		if cfgErr != nil {
 			return "", nil, fmt.Errorf("load config: %w", cfgErr)
 		}
 		return abs, cfg, err
 	}
 
-	cfg, err := config.LoadConfig(resolvedConfigPath)
+	cfg, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("load config: %w", err)
 	}
@@ -64,8 +66,11 @@ func newJobsCommand() *cobra.Command {
 		Long:  "Create, list, run, and manage recurring background analysis jobs.",
 	}
 
+	command.RunE = suggestSubcommandRunE()
+
 	command.AddCommand(newJobsListCommand())
 	command.AddCommand(newJobsCreateCommand())
+	command.AddCommand(newJobsEditCommand())
 	command.AddCommand(newJobsShowCommand())
 	command.AddCommand(newJobsPauseCommand())
 	command.AddCommand(newJobsResumeCommand())
@@ -159,8 +164,8 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 			"ID", "NAME", "PROVIDER", "ENABLED", "NEXT_RUN", "PROMPT")
 		for _, j := range jobs {
 			nextRun := "-"
-			if j.NextRunAt != nil {
-				nextRun = j.NextRunAt.Format("2006-01-02 15:04 MST")
+			if t := effectiveNextRun(j); t != nil {
+				nextRun = t.Format("2006-01-02 15:04 MST")
 			}
 			prompt := j.Prompt
 			if len(prompt) > 40 {
@@ -174,8 +179,8 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 			"ID", "NAME", "PROVIDER", "ENABLED", "NEXT_RUN")
 		for _, j := range jobs {
 			nextRun := "-"
-			if j.NextRunAt != nil {
-				nextRun = j.NextRunAt.Format("2006-01-02 15:04 MST")
+			if t := effectiveNextRun(j); t != nil {
+				nextRun = t.Format("2006-01-02 15:04 MST")
 			}
 			cmd.Printf("%-18s %-20s %-12s %-8t %-19s\n",
 				j.ID, truncateWithEllipsis(j.Name, 20), j.ProviderID, j.Enabled, nextRun)
@@ -209,24 +214,28 @@ func truncateWithEllipsis(s string, maxRunes int) string {
 	return string(runes[:maxRunes-1]) + "~"
 }
 
-// buildScheduler creates a Scheduler from the resolved config path and output root.
-// Returns nil + nil error if scheduler creation fails (non-fatal for CLI commands).
-func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, error) {
-	lg := logging.Silent()
+// schedulerDeps holds the shared components needed by scheduler consumers.
+type schedulerDeps struct {
+	scheduler backgroundjobs.Scheduler
+	store     *backgroundjobs.Store
+	cfg       backgroundjobs.SchedulerConfig
+	logger    *logging.Logger
+}
+
+// buildSchedulerDeps resolves the executable, store, and scheduler config used
+// by all background-jobs subcommands. The caller provides its own logger so
+// reconcile/health can use verbose output while other callers stay silent.
+func buildSchedulerDeps(outputRoot, configPath string, lg *logging.Logger) (schedulerDeps, error) {
 	store := backgroundjobs.NewStore(outputRoot, lg)
 
-	execPath, err := os.Executable()
+	execPath, err := resolveSelfExecutable()
 	if err != nil {
-		return nil, fmt.Errorf("resolve executable: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		execPath, _ = os.Executable()
+		return schedulerDeps{}, err
 	}
 
 	installID, err := backgroundjobs.ResolveInstallID(store.Dir())
 	if err != nil {
-		return nil, fmt.Errorf("resolve install ID: %w", err)
+		return schedulerDeps{}, fmt.Errorf("resolve install ID: %w", err)
 	}
 
 	cfg := backgroundjobs.SchedulerConfig{
@@ -238,7 +247,22 @@ func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, er
 		ExecHash:       backgroundjobs.HashExecutablePath(execPath),
 	}
 
-	return backgroundjobs.NewScheduler(cfg, lg), nil
+	return schedulerDeps{
+		scheduler: backgroundjobs.NewScheduler(cfg, lg),
+		store:     store,
+		cfg:       cfg,
+		logger:    lg,
+	}, nil
+}
+
+// buildScheduler creates a Scheduler from the resolved config path and output root.
+// Returns nil + nil error if scheduler creation fails (non-fatal for CLI commands).
+func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, error) {
+	deps, err := buildSchedulerDeps(outputRoot, configPath, logging.Silent())
+	if err != nil {
+		return nil, err
+	}
+	return deps.scheduler, nil
 }
 
 // createJobInput holds the resolved inputs for creating a background job.
@@ -578,8 +602,13 @@ func newJobsShowCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "show <job-id>",
 		Short: "Show job details and recent runs.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to show.",
+					"dreamer jobs show <job-id>")
+			}
+
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err
@@ -647,14 +676,62 @@ func newJobsShowCommand() *cobra.Command {
 	return command
 }
 
+// formatRelativeTime returns a human-readable relative duration like "in 2h 15m"
+// or "45s ago".
+func formatRelativeTime(t time.Time) string {
+	d := time.Until(t)
+	if d < 0 {
+		d = -d
+		return formatDuration(d) + " ago"
+	}
+	return "in " + formatDuration(d)
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	days := h / 24
+	h = h % 24
+	return fmt.Sprintf("%dd %dh %dm", days, h, m)
+}
+
+// effectiveNextRun returns the next run time for display. If the stored
+// NextRunAt is in the past (e.g. daemon was offline during a scheduled
+// trigger), it recomputes from the current time so the user always sees
+// a future timestamp.
+func effectiveNextRun(job *backgroundjobs.Job) *time.Time {
+	if job.NextRunAt == nil {
+		return nil
+	}
+	if time.Now().Before(*job.NextRunAt) {
+		return job.NextRunAt
+	}
+	next, err := backgroundjobs.NextRun(job.Schedule, time.Now())
+	if err != nil {
+		return job.NextRunAt // fallback to stale value
+	}
+	return &next
+}
+
 func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 	nextRun := "-"
-	if job.NextRunAt != nil {
-		nextRun = job.NextRunAt.Format("2006-01-02 15:04:05 MST")
+	if t := effectiveNextRun(job); t != nil {
+		nextRun = t.Format("2006-01-02 15:04:05 MST")
+		nextRun += " (" + formatRelativeTime(*t) + ")"
 	}
 	lastRun := "-"
 	if job.LastRunAt != nil {
 		lastRun = job.LastRunAt.Format("2006-01-02 15:04:05 MST")
+		lastRun += " (" + formatRelativeTime(*job.LastRunAt) + ")"
 	}
 
 	cmd.Printf("ID:          %s\n", job.ID)
@@ -690,8 +767,12 @@ func newJobsPauseCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "pause <job-id>",
 		Short: "Disable a job.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to pause.",
+					"dreamer jobs pause <job-id>")
+			}
 			return setJobEnabled(cmd, args[0], false)
 		},
 	}
@@ -701,8 +782,12 @@ func newJobsResumeCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume <job-id>",
 		Short: "Re-enable a paused job.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to resume.",
+					"dreamer jobs resume <job-id>")
+			}
 			return setJobEnabled(cmd, args[0], true)
 		},
 	}
@@ -784,14 +869,243 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 	return nil
 }
 
+func newJobsEditCommand() *cobra.Command {
+	var (
+		name          string
+		prompt        string
+		providerID    string
+		model         string
+		scheduleKind  string
+		every         string
+		timeOfDay     string
+		dayOfWeek     string
+		cron          string
+		timezone      string
+		fileAccess    string
+		writablePaths string
+	)
+
+	command := &cobra.Command{
+		Use:   "edit [job-id]",
+		Short: "Edit an existing background job.",
+		Long:  "Edit fields of an existing background job. Only explicitly passed flags are changed.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jobID := args[0]
+			if err := backgroundjobs.ValidateJobID(jobID); err != nil {
+				return fmt.Errorf("invalid job id: %w", err)
+			}
+
+			resolvedConfigPath, err := resolveConfigPath(configPath)
+			if err != nil {
+				return err
+			}
+
+			outputRoot, _, err := resolveOutputRoot(cmd, resolvedConfigPath)
+			if err != nil {
+				return err
+			}
+
+			lg := logging.Silent()
+			store := backgroundjobs.NewStore(outputRoot, lg)
+
+			// Load current job to validate it exists.
+			state, err := store.Load()
+			if err != nil {
+				return fmt.Errorf("load jobs: %w", err)
+			}
+			job, ok := state.Jobs[jobID]
+			if !ok {
+				return fmt.Errorf("job %q not found", jobID)
+			}
+
+			scheduleChanged := false
+
+			// Apply changed fields.
+			if cmd.Flags().Changed("name") {
+				runes := []rune(strings.TrimSpace(name))
+				if len(runes) > 64 {
+					name = string(runes[:64])
+				}
+				job.Name = name
+			}
+
+			if cmd.Flags().Changed("prompt") {
+				if len(prompt) > 16*1024 {
+					return fmt.Errorf("prompt exceeds 16 KiB limit")
+				}
+				job.Prompt = prompt
+			}
+
+			if cmd.Flags().Changed("provider") {
+				meta := backgroundjobs.ProviderMetaByID(providerID)
+				if meta == nil {
+					return fmt.Errorf("provider %q not found", providerID)
+				}
+				if !meta.BackgroundSafe {
+					return fmt.Errorf("provider %q is not safe for background execution", providerID)
+				}
+				job.ProviderID = providerID
+			}
+
+			if cmd.Flags().Changed("model") {
+				job.Model = model
+			}
+
+			// Schedule: if any schedule-related flag changed, rebuild spec.
+			if cmd.Flags().Changed("schedule") || cmd.Flags().Changed("every") ||
+				cmd.Flags().Changed("time-of-day") || cmd.Flags().Changed("day-of-week") ||
+				cmd.Flags().Changed("cron") || cmd.Flags().Changed("timezone") {
+
+				// Use changed flags, falling back to existing job values.
+				kind := job.Schedule.Kind
+				if cmd.Flags().Changed("schedule") {
+					kind = backgroundjobs.ScheduleKind(scheduleKind)
+					if kind == "interval" {
+						kind = backgroundjobs.ScheduleInterval
+					}
+				}
+				newSchedule := job.Schedule
+				newSchedule.Kind = kind
+				if cmd.Flags().Changed("every") {
+					newSchedule.Every = every
+				}
+				if cmd.Flags().Changed("time-of-day") {
+					newSchedule.TimeOfDay = timeOfDay
+				}
+				if cmd.Flags().Changed("day-of-week") {
+					newSchedule.DayOfWeek = dayOfWeek
+				}
+				if cmd.Flags().Changed("cron") {
+					newSchedule.Cron = cron
+				}
+				if cmd.Flags().Changed("timezone") {
+					newSchedule.Timezone = timezone
+				}
+
+				if err := backgroundjobs.ValidateSchedule(newSchedule); err != nil {
+					return fmt.Errorf("invalid schedule: %w", err)
+				}
+				if newSchedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+					return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
+				}
+				job.Schedule = newSchedule
+				scheduleChanged = true
+			}
+
+			if cmd.Flags().Changed("file-access") {
+				switch fileAccess {
+				case "read_only":
+					job.Permissions.FileAccess = backgroundjobs.FileAccessReadOnly
+					job.Permissions.WritablePaths = nil
+				case "selected_writes":
+					job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
+				case "full_workspace":
+					job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
+					job.Permissions.WritablePaths = nil
+				default:
+					return fmt.Errorf("--file-access must be one of: read_only, selected_writes, full_workspace")
+				}
+			}
+
+			if cmd.Flags().Changed("writable-paths") {
+				if job.Permissions.FileAccess != backgroundjobs.FileAccessSelectedWrites {
+					return fmt.Errorf("--writable-paths requires --file-access selected_writes")
+				}
+				var paths []string
+				for _, p := range strings.Split(writablePaths, ",") {
+					if trimmed := strings.TrimSpace(p); trimmed != "" {
+						paths = append(paths, trimmed)
+					}
+				}
+				job.Permissions.WritablePaths = paths
+			}
+
+			job.UpdatedAt = time.Now().UTC()
+
+			// Recalculate next run if schedule changed.
+			if scheduleChanged {
+				nextRun, err := backgroundjobs.NextRun(job.Schedule, time.Now().UTC())
+				if err != nil {
+					return fmt.Errorf("calculate next run: %w", err)
+				}
+				job.NextRunAt = &nextRun
+			}
+
+			// Save.
+			if err := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+				s.Jobs[jobID] = job
+				return nil
+			}); err != nil {
+				return fmt.Errorf("save job: %w", err)
+			}
+
+			// Reinstall OS schedule if schedule changed (best-effort).
+			if scheduleChanged {
+				if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
+					params := backgroundjobs.ScheduleParams{
+						JobID:    jobID,
+						Schedule: job.Schedule,
+						Name:     backgroundjobs.SanitizeScheduleName(job.Name),
+						Enabled:  job.Enabled,
+					}
+					osState, installErr := sched.Install(cmd.Context(), params)
+					if installErr != nil {
+						lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+					} else {
+						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+							if j := s.Jobs[jobID]; j != nil {
+								j.OSSchedule = osState
+							}
+							return nil
+						})
+					}
+				}
+			}
+
+			// Audit.
+			audit := backgroundjobs.NewAuditWriter(store.Dir())
+			_ = audit.Write(backgroundjobs.AuditEvent{
+				Event: "job.edit",
+				JobID: jobID,
+				Actor: "cli",
+			})
+
+			cmd.Printf("job updated: %s\n", jobID)
+			return nil
+		},
+	}
+
+	command.Flags().StringVarP(&name, "name", "n", "", "Human-readable name.")
+	command.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt to execute on each run.")
+	command.Flags().StringVar(&providerID, "provider", "", "Analyzer provider ID.")
+	command.Flags().StringVarP(&model, "model", "m", "", "Override model for this job.")
+	command.Flags().StringVarP(&scheduleKind, "schedule", "s", "", "Schedule kind: interval|daily|weekly|cron.")
+	command.Flags().StringVar(&every, "every", "", "Repeat interval for interval schedule (e.g. 5m, 15m, 2h).")
+	command.Flags().StringVar(&timeOfDay, "time-of-day", "", "Time of day for daily/weekly (HH:MM).")
+	command.Flags().StringVar(&dayOfWeek, "day-of-week", "", "Day of week for weekly schedule.")
+	command.Flags().StringVar(&cron, "cron", "", "Cron expression for cron schedule (5 fields).")
+	command.Flags().StringVar(&timezone, "timezone", "", "Timezone for schedule (IANA format).")
+	command.Flags().StringVar(&fileAccess, "file-access", "", "File access: read_only, selected_writes, full_workspace.")
+	command.Flags().StringVar(&writablePaths, "writable-paths", "", "Comma-separated writable paths (for selected_writes).")
+	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+
+	return command
+}
+
 func newJobsDeleteCommand() *cobra.Command {
 	var yes bool
 
 	command := &cobra.Command{
 		Use:   "delete <job-id>",
 		Short: "Permanently delete a job and its run history.",
-		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return missingArgError(cmd, "job-id",
+					"The ID of the job to delete.",
+					"dreamer jobs delete <job-id>")
+			}
+
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err

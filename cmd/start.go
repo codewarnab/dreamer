@@ -119,7 +119,7 @@ func printAlreadyRunningBox(cmd *cobra.Command, pid int, logPath string, cfg *co
 	if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
 		lines = append(lines, fmt.Sprintf("web UI:   http://127.0.0.1:%d", cfg.Web.Port))
 	}
-	printBox(cmd, lines)
+	printBox(cmd.OutOrStdout(), lines)
 }
 
 func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.App) {
@@ -135,5 +135,5 @@ func printStartedBox(cmd *cobra.Command, pid int, logPath string, cfg *config.Ap
 	if cfg.Web.Enabled != nil && *cfg.Web.Enabled {
 		lines = append(lines, fmt.Sprintf("web UI:   http://127.0.0.1:%d", cfg.Web.Port))
 	}
-	printBox(cmd, lines)
+	printBox(cmd.OutOrStdout(), lines)
 }

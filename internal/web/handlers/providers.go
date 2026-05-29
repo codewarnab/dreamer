@@ -83,7 +83,7 @@ func Providers(deps Deps) http.HandlerFunc {
 				model = cfg.Providers[id].Model
 			}
 			if model == "" {
-				model = config.DefaultModelByProvider[config.ProviderID(id)]
+				model = config.DefaultModelFor(id)
 			}
 			lastSuccess := ""
 			if !usage.LastSuccessUTC.IsZero() {

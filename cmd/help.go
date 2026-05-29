@@ -14,7 +14,8 @@ var (
 	colorAccent = lipgloss.Color("#3cffd0") // mint green
 	colorDesc   = lipgloss.Color("#949494") // gray
 	colorHeader = lipgloss.Color("#63")     // purple/indigo
-	colorDim    = lipgloss.Color("#666666") // dim
+	colorDim      = lipgloss.Color("#666666") // dim
+	colorItemDesc = lipgloss.Color("#e9e9e9") // light gray for selected-item descriptions
 )
 
 // Command group IDs — match cobra.Group.ID.
@@ -29,22 +30,6 @@ var commandGroups = []*cobra.Group{
 	{ID: groupCore, Title: "Core"},
 	{ID: groupSetup, Title: "Setup & Config"},
 	{ID: groupInspect, Title: "Inspect"},
-}
-
-// groupAssignments maps command Use strings to their group ID.
-// Commands not listed here appear in a trailing "Other" section.
-var groupAssignments = map[string]string{
-	"analyze":  groupCore,
-	"daemon":   groupCore,
-	"jobs":     groupCore,
-	"start":    groupCore,
-	"stop":     groupCore,
-	"status":   groupCore,
-	"setup":    groupSetup,
-	"add":      groupSetup,
-	"startup":  groupSetup,
-	"ls-chats": groupInspect,
-	"web":      groupInspect,
 }
 
 // styledHelp renders a lipgloss-styled help message for cmd.
@@ -62,8 +47,8 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 
 	var helpOutput strings.Builder
 
-	// Banner — only on root command.
-	if cmd.Parent() == nil {
+	// Banner — only on root command (suppressed in quiet mode).
+	if cmd.Parent() == nil && !quiet {
 		helpOutput.WriteString(bannerStyle.Render(dreamerBanner))
 		helpOutput.WriteString("\n\n")
 	}
@@ -89,14 +74,8 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 		if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
 			continue
 		}
-		gid := subcmd.GroupID
-		if gid == "" {
-			if assigned, ok := groupAssignments[subcmd.Name()]; ok {
-				gid = assigned
-			}
-		}
-		if gid != "" {
-			grouped[gid] = append(grouped[gid], subcmd)
+		if subcmd.GroupID != "" {
+			grouped[subcmd.GroupID] = append(grouped[subcmd.GroupID], subcmd)
 		} else {
 			ungrouped = append(ungrouped, subcmd)
 		}
@@ -154,11 +133,13 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 		renderFlagSection(&helpOutput, "GLOBAL FLAGS", cmd.InheritedFlags(), headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle)
 	}
 
-	// Footer hint.
-	helpOutput.WriteString("\n")
-	helpOutput.WriteString(dimStyle.Render(fmt.Sprintf("Use %q for more information about a command.",
-		cmd.CommandPath()+" [command] --help")))
-	helpOutput.WriteString("\n")
+	// Footer hint (suppressed in quiet mode).
+	if !quiet {
+		helpOutput.WriteString("\n")
+		helpOutput.WriteString(dimStyle.Render(fmt.Sprintf("Use %q for more information about a command.",
+			cmd.CommandPath()+" [command] --help")))
+		helpOutput.WriteString("\n")
+	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), helpOutput.String())
 }

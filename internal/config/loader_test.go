@@ -962,7 +962,7 @@ func TestRemediationMessage_UnknownProvider(t *testing.T) {
 	}
 }
 
-func TestDefaultModelByProvider_AllProviders(t *testing.T) {
+func TestProviderDefaults_AllProviders(t *testing.T) {
 	allIDs := []ProviderID{
 		ProviderCopilotSDK, ProviderCopilotACP,
 		ProviderClaudeCLI, ProviderClaudeACP,
@@ -972,57 +972,35 @@ func TestDefaultModelByProvider_AllProviders(t *testing.T) {
 		ProviderCodebuffSDK,
 	}
 	for _, id := range allIDs {
-		if _, ok := DefaultModelByProvider[id]; !ok {
-			t.Errorf("DefaultModelByProvider missing entry for %q", id)
-		}
-	}
-}
-
-func TestDefaultSandboxByProvider_AllProviders(t *testing.T) {
-	allIDs := []ProviderID{
-		ProviderCopilotSDK, ProviderCopilotACP,
-		ProviderClaudeCLI, ProviderClaudeACP,
-		ProviderGeminiCLI, ProviderGeminiACP,
-		ProviderKiroACP, ProviderCodexCLI, ProviderCodexACP,
-		ProviderOpenClaudeCLI, ProviderOpenCodeACP, ProviderOpenCodeServer,
-		ProviderCodebuffSDK,
-	}
-	for _, id := range allIDs {
-		if _, ok := DefaultSandboxByProvider[id]; !ok {
-			t.Errorf("DefaultSandboxByProvider missing entry for %q", id)
-		}
-	}
-}
-
-func TestAllModelsByProvider_AllProviders(t *testing.T) {
-	allIDs := []ProviderID{
-		ProviderCopilotSDK, ProviderCopilotACP,
-		ProviderClaudeCLI, ProviderClaudeACP,
-		ProviderGeminiCLI, ProviderGeminiACP,
-		ProviderKiroACP, ProviderCodexCLI, ProviderCodexACP,
-		ProviderOpenClaudeCLI, ProviderOpenCodeACP, ProviderOpenCodeServer,
-		ProviderCodebuffSDK,
-	}
-	for _, id := range allIDs {
-		if _, ok := AllModelsByProvider[id]; !ok {
-			t.Errorf("AllModelsByProvider missing entry for %q", id)
-		}
-	}
-}
-
-func TestAllModelsByProvider_FirstMatchesDefault(t *testing.T) {
-	for id, all := range AllModelsByProvider {
-		if len(all) == 0 {
-			t.Errorf("AllModelsByProvider[%q] is empty", id)
-			continue
-		}
-		def, ok := DefaultModelByProvider[id]
+		d, ok := LookupProviderDefaults(id)
 		if !ok {
-			t.Errorf("DefaultModelByProvider missing entry for %q (present in AllModelsByProvider)", id)
+			t.Errorf("LookupProviderDefaults(%q) not found", id)
 			continue
 		}
-		if all[0] != def {
-			t.Errorf("AllModelsByProvider[%q][0] = %q, want %q (DefaultModelByProvider)", id, all[0], def)
+		if d.DefaultModel == "" {
+			t.Errorf("ProviderDefaults[%q].DefaultModel is empty", id)
+		}
+		if len(d.AllModels) == 0 {
+			t.Errorf("ProviderDefaults[%q].AllModels is empty", id)
+		}
+		if d.DefaultSandbox == "" {
+			t.Errorf("ProviderDefaults[%q].DefaultSandbox is empty", id)
+		}
+		if d.Remediation == "" {
+			t.Errorf("ProviderDefaults[%q].Remediation is empty", id)
+		}
+	}
+}
+
+func TestProviderDefaults_FirstMatchesDefault(t *testing.T) {
+	all := AllProviderDefaults()
+	for id, d := range all {
+		if len(d.AllModels) == 0 {
+			t.Errorf("ProviderDefaults[%q].AllModels is empty", id)
+			continue
+		}
+		if d.AllModels[0] != d.DefaultModel {
+			t.Errorf("ProviderDefaults[%q].AllModels[0] = %q, want %q (DefaultModel)", id, d.AllModels[0], d.DefaultModel)
 		}
 	}
 }

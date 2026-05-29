@@ -20,7 +20,7 @@ func init() {
 			Command:          command,
 			Env:              providerConfig.Env,
 			DefaultModel:     providerConfig.DefaultModel,
-			ModelFallbacks:   config.DefaultModelFallbacks[config.ProviderGeminiACP],
+			ModelFallbacks:   config.ModelFallbacksFor(string(ID)),
 			Sandbox:             providerConfig.Sandbox,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxNetwork:      providerConfig.SandboxNetwork,

@@ -24,6 +24,7 @@ const (
 	EventJobRunDone     = "job.run.done"
 	EventJobPaused      = "job.paused"
 	EventJobResumed     = "job.resumed"
+	EventJobUpdated     = "job.updated"
 )
 
 // Event is one SSE-shaped notification. Payload is a JSON-serializable map.

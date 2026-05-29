@@ -241,7 +241,7 @@ func renderCommentedConfig(a setupAnswers) ([]byte, error) {
 			if blockID == userProvider && strings.TrimSpace(userModel) != "" {
 				return userModel
 			}
-			if m, ok := config.DefaultModelByProvider[config.ProviderID(blockID)]; ok {
+			if m := config.DefaultModelFor(blockID); m != "" {
 				return m
 			}
 			return ""

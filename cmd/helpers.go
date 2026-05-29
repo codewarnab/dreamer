@@ -2,14 +2,29 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+// resolveSelfExecutable returns the absolute path of the running dreamer
+// binary with symlinks resolved. Falls back to the un-resolved path when
+// EvalSymlinks fails (e.g. the binary was deleted since launch).
+func resolveSelfExecutable() (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(execPath); resolveErr == nil {
+		return resolved, nil
+	}
+	return execPath, nil
+}
 
 const (
 	defaultConfigFileName = "config.yaml"
@@ -75,8 +90,8 @@ func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.App) {
 	}
 }
 
-// printBox renders a Unicode box around the given lines.
-func printBox(cmd *cobra.Command, lines []string) {
+// printBox renders a Unicode box around the given lines to w.
+func printBox(w io.Writer, lines []string) {
 	maxLen := 0
 	for _, line := range lines {
 		if len(line) > maxLen {
@@ -85,9 +100,9 @@ func printBox(cmd *cobra.Command, lines []string) {
 	}
 	boxWidth := maxLen + 4 // padding inside the box
 
-	cmd.Printf("╔%s╗\n", strings.Repeat("═", boxWidth))
+	fmt.Fprintf(w, "╔%s╗\n", strings.Repeat("═", boxWidth))
 	for _, line := range lines {
-		cmd.Printf("║  %-*s  ║\n", maxLen, line)
+		fmt.Fprintf(w, "║  %-*s  ║\n", maxLen, line)
 	}
-	cmd.Printf("╚%s╝\n", strings.Repeat("═", boxWidth))
+	fmt.Fprintf(w, "╚%s╝\n", strings.Repeat("═", boxWidth))
 }
