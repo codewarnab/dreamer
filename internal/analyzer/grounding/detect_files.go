@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"dreamer/internal/fsutil"
 )
 
 // DefaultFileCap is the cap on file-list entries per spec §7.4.
@@ -30,12 +32,12 @@ func DetectFiles(projectRoot string, cap int) ([]string, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if shouldSkipDir(d.Name(), path == root) {
+			if fsutil.ShouldSkipDir(d.Name(), path == root) {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if shouldSkipFile(d.Name()) {
+		if fsutil.ShouldSkipFile(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -55,30 +57,3 @@ func DetectFiles(projectRoot string, cap int) ([]string, error) {
 	return files, nil
 }
 
-func shouldSkipDir(name string, isRoot bool) bool {
-	if isRoot {
-		return false
-	}
-	switch name {
-	case ".git", ".hg", ".svn", "node_modules", "vendor", ".venv", "venv",
-		"__pycache__", "target", "build", "dist", "out", ".next",
-		".turbo", ".cache", ".idea", ".vscode", ".gradle", "Pods",
-		".direnv", ".tox", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-		"coverage", ".bundle":
-		return true
-	}
-	return strings.HasPrefix(name, ".") && name != "."
-}
-
-func shouldSkipFile(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp",
-		".svg", ".pdf", ".zip", ".tar", ".gz", ".7z", ".rar",
-		".mp3", ".mp4", ".mov", ".wav", ".woff", ".woff2", ".ttf",
-		".otf", ".eot", ".class", ".jar", ".so", ".dll", ".dylib",
-		".bin", ".exe":
-		return true
-	}
-	return false
-}
