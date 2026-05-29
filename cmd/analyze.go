@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ func newAnalyzeCommand() *cobra.Command {
 		force         bool
 		dryRun        bool
 		permissive    bool
+		jsonOutput    bool
 		outputDir     string
 		since         string
 		analyzerFlags analyzerFlagVars
@@ -96,6 +98,10 @@ func newAnalyzeCommand() *cobra.Command {
 				return err
 			}
 
+			if jsonOutput {
+				return printAnalyzeJSON(cmd, runResult)
+			}
+
 			if runResult.CacheHit {
 				cmd.Printf("no changes (cache hit) provider=%s todos=%s\n", runResult.ProviderID, runResult.TodosPath)
 				logger.Info("analyze cache hit", logging.Any("provider", runResult.ProviderID))
@@ -134,6 +140,7 @@ func newAnalyzeCommand() *cobra.Command {
 	command.Flags().BoolVar(&permissive, "permissive", false, "Disable strict lint-rule allow-list; emit unrecognised rule ids tagged [unverified]")
 	command.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Override the per-project output directory")
 	command.Flags().StringVarP(&since, "since", "s", config.DefaultSince, "Lookback window for chat history (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime)")
+	command.Flags().BoolVar(&jsonOutput, "json", false, "Machine-readable JSON output")
 	registerAnalyzerFlags(command.Flags(), &analyzerFlags)
 	return command
 }
@@ -143,6 +150,38 @@ func commandContext(cmd *cobra.Command) context.Context {
 		return context.Background()
 	}
 	return cmd.Context()
+}
+
+// analyzeJSONResult is the --json output structure for the analyze command.
+type analyzeJSONResult struct {
+	Provider        string `json:"provider"`
+	SourcesAnalyzed int    `json:"sources_analyzed"`
+	MessagesRead    int    `json:"messages_read"`
+	Mistakes        int    `json:"mistakes"`
+	FindingsAdded   int    `json:"findings_added"`
+	Warnings        int    `json:"warnings"`
+	TodosPath       string `json:"todos_path"`
+	CacheHit        bool   `json:"cache_hit"`
+	MistakesFound   bool   `json:"mistakes_found"`
+	DryRun          bool   `json:"dry_run"`
+}
+
+// printAnalyzeJSON writes the analyze result as JSON to stdout.
+func printAnalyzeJSON(cmd *cobra.Command, result pipeline.Result) error {
+	out := analyzeJSONResult{
+		Provider:        result.ProviderID,
+		SourcesAnalyzed: result.SourcesAnalyzed,
+		MessagesRead:    result.MessagesRead,
+		Mistakes:        result.Mistakes,
+		FindingsAdded:   result.Findings,
+		Warnings:        result.Warnings,
+		TodosPath:       result.TodosPath,
+		CacheHit:        result.CacheHit,
+		MistakesFound:   result.MistakesFound,
+	}
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 // checkJobConflict loads the job queue and checks whether a running or

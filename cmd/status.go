@@ -190,7 +190,9 @@ func printStatusTable(cmd *cobra.Command, status jobqueue.QueueStatus) {
 		}
 	}
 
-	cmd.Println("\nUse 'dreamer status --json' for machine-readable output.")
+	if !quiet {
+		cmd.Println("\nUse 'dreamer status --json' for machine-readable output.")
+	}
 }
 
 // printStatusJSON writes the status as JSON to the command output.

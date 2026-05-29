@@ -837,13 +837,17 @@ func buildConfigYAML(a setupAnswers) []byte {
 }
 
 func newSetupCommand() *cobra.Command {
-	var advanced, force, noStartup, nonInteractive bool
+	var (
+		advanced, force, noStartup, nonInteractive bool
+		niProvider, niModel, niOutputRoot           string
+		niFrequency                                 int
+	)
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Interactive TUI wizard that writes <UserConfigDir>/dreamer/config.yaml.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if nonInteractive {
-				return fmt.Errorf("--non-interactive is reserved and not yet supported in v1.5")
+				return runSetupNonInteractive(cmd, force, niProvider, niModel, niFrequency, niOutputRoot)
 			}
 			cfgPath, err := config.GlobalConfigPath()
 			if err != nil {
@@ -890,6 +894,48 @@ func newSetupCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&advanced, "advanced", false, "Branch into advanced steps (log level, rule timeout, parallel, chunking, first project).")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite existing config.yaml without confirmation.")
 	cmd.Flags().BoolVar(&noStartup, "no-startup", false, "Skip the startup-install step.")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Reserved (errors in v1.5).")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Write config from flags without TUI (requires --provider and --output-root).")
+	cmd.Flags().StringVar(&niProvider, "provider", "", "Provider id (e.g. copilot, claude, codex). Required with --non-interactive.")
+	cmd.Flags().StringVar(&niModel, "model", "", "Model override (default: provider-specific default).")
+	cmd.Flags().IntVar(&niFrequency, "frequency", config.DefaultFrequencySeconds, "Analysis interval in seconds.")
+	cmd.Flags().StringVar(&niOutputRoot, "output-root", "", "Output directory for todos and state. Required with --non-interactive.")
 	return cmd
+}
+
+// runSetupNonInteractive writes config.yaml directly from flag values,
+// bypassing the bubbletea TUI. This enables agents and CI to configure
+// dreamer without an interactive terminal.
+func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model string, frequency int, outputRoot string) error {
+	if provider == "" {
+		return fmt.Errorf("--provider is required with --non-interactive")
+	}
+	if outputRoot == "" {
+		return fmt.Errorf("--output-root is required with --non-interactive")
+	}
+
+	cfgPath, err := config.GlobalConfigPath()
+	if err != nil {
+		return fmt.Errorf("resolve config path: %w", err)
+	}
+	if _, statErr := os.Stat(cfgPath); statErr == nil && !force {
+		return fmt.Errorf("config exists at %s; pass --force to overwrite", cfgPath)
+	}
+
+	// Use provider default model when not specified.
+	if model == "" {
+		model = config.DefaultModelFor(provider)
+	}
+
+	answers := setupAnswers{
+		provider:   provider,
+		model:      model,
+		frequency:  frequency,
+		outputRoot: outputRoot,
+	}
+	out := buildConfigYAML(answers)
+	if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)
+	return nil
 }

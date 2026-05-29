@@ -89,15 +89,15 @@ type Options struct {
 
 // Result bundles the metrics + paths the analyze command surfaces.
 type Result struct {
-	TodosPath       string
-	Findings        int
-	Mistakes        int
-	Warnings        int
-	SourcesAnalyzed int
-	MessagesRead    int
-	CacheHit        bool
-	ProviderID      string
-	MistakesFound   bool
+	TodosPath       string `json:"todos_path"`
+	Findings        int    `json:"findings"`
+	Mistakes        int    `json:"mistakes"`
+	Warnings        int    `json:"warnings"`
+	SourcesAnalyzed int    `json:"sources_analyzed"`
+	MessagesRead    int    `json:"messages_read"`
+	CacheHit        bool   `json:"cache_hit"`
+	ProviderID      string `json:"provider"`
+	MistakesFound   bool   `json:"mistakes_found"`
 }
 
 // errProviderNotRegistered surfaces the spec §13 hard-fail when the resolved

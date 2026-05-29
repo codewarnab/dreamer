@@ -46,8 +46,8 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 
 	var helpOutput strings.Builder
 
-	// Banner — only on root command.
-	if cmd.Parent() == nil {
+	// Banner — only on root command (suppressed in quiet mode).
+	if cmd.Parent() == nil && !quiet {
 		helpOutput.WriteString(bannerStyle.Render(dreamerBanner))
 		helpOutput.WriteString("\n\n")
 	}
@@ -132,11 +132,13 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 		renderFlagSection(&helpOutput, "GLOBAL FLAGS", cmd.InheritedFlags(), headerStyle, flagNameStyle, typeStyle, defaultStyle, usageStyle)
 	}
 
-	// Footer hint.
-	helpOutput.WriteString("\n")
-	helpOutput.WriteString(dimStyle.Render(fmt.Sprintf("Use %q for more information about a command.",
-		cmd.CommandPath()+" [command] --help")))
-	helpOutput.WriteString("\n")
+	// Footer hint (suppressed in quiet mode).
+	if !quiet {
+		helpOutput.WriteString("\n")
+		helpOutput.WriteString(dimStyle.Render(fmt.Sprintf("Use %q for more information about a command.",
+			cmd.CommandPath()+" [command] --help")))
+		helpOutput.WriteString("\n")
+	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), helpOutput.String())
 }
