@@ -97,7 +97,16 @@ func newDaemonCommand() *cobra.Command {
 			var live atomic.Pointer[config.App]
 			live.Store(cfg)
 
-			workers := newWorkerPool(ctx, queue, cfg, &live, logger, discoveryCache, stateCache, events, overrides)
+			workers := newWorkerPool(ctx, workerPoolConfig{
+				queue:      queue,
+				cfg:        cfg,
+				live:       &live,
+				logger:     logger,
+				cache:      discoveryCache,
+				stateCache: stateCache,
+				events:     events,
+				overrides:  overrides,
+			})
 			workers.Start()
 			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath, stateCache)
 
