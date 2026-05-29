@@ -738,14 +738,43 @@ func (m setupModel) View() string {
 	return layout
 }
 
-// defaultModelsFor returns the known-good models for a provider. Reuses
-// config.DefaultModelByProvider; falls back to config.DefaultModel when the
-// provider id is not in the map.
+// defaultModelsFor returns the known-good models for a provider.
+// First entry matches config.DefaultModelByProvider for that provider.
+// Used by both the setup wizard and the job wizard's model picker.
 func defaultModelsFor(provider string) []string {
-	if m, ok := config.DefaultModelByProvider[config.ProviderID(provider)]; ok && m != "" {
-		return []string{m}
+	switch config.ProviderID(provider) {
+	case config.ProviderCopilotSDK:
+		return []string{"auto"}
+	case config.ProviderCopilotACP:
+		return []string{"auto"}
+	case config.ProviderClaudeCLI:
+		return []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-7"}
+	case config.ProviderClaudeACP:
+		return []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"}
+	case config.ProviderGeminiCLI:
+		return []string{"gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"}
+	case config.ProviderGeminiACP:
+		return []string{"gemini-3-flash-preview", "gemini-2.5-flash"}
+	case config.ProviderKiroACP:
+		return []string{"claude-sonnet-4-5-20250929"}
+	case config.ProviderCodexCLI:
+		return []string{"gpt-5.4-mini", "gpt-5.3-codex"}
+	case config.ProviderCodexACP:
+		return []string{"gpt-5.4-mini"}
+	case config.ProviderOpenClaudeCLI:
+		return []string{"mimo-v2.5-pro"}
+	case config.ProviderOpenCodeACP:
+		return []string{"deepseek-v4-flash"}
+	case config.ProviderOpenCodeServer:
+		return []string{"deepseek-v4-flash"}
+	case config.ProviderCodebuffSDK:
+		return []string{"claude-opus-4-7"}
+	default:
+		if m, ok := config.DefaultModelByProvider[config.ProviderID(provider)]; ok && m != "" {
+			return []string{m}
+		}
+		return []string{config.DefaultModel}
 	}
-	return []string{config.DefaultModel}
 }
 
 // dreamerBanner is the ASCII art splashed at the top of `dreamer setup`.
