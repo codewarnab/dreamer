@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	// Register provider implementations.
@@ -31,13 +34,17 @@ func newRootCommand() *cobra.Command {
 		Short: "Analyze chats and generate actionable todos.",
 		Long: "dreamer is a command-line tool for discovering chat history, analyzing recurring " +
 			"engineering patterns, and generating actionable project todos.",
-		SilenceUsage: true,
+		SilenceUsage:  true,
+		SilenceErrors: true, // We print styled errors ourselves.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 
 	root.PersistentFlags().StringVarP(&configPath, "config", "c", "", "Path to config file (default: <UserConfigDir>/dreamer/config.yaml)")
+
+	// Suggest corrections for typos in commands and flags.
+	root.SetFlagErrorFunc(styledFlagError)
 
 	// Command groups for styled help output.
 	root.AddGroup(commandGroups...)
@@ -99,7 +106,21 @@ func newRootCommand() *cobra.Command {
 	return root
 }
 
-// Execute runs the root command.
+// Execute runs the root command. When Cobra reports an unknown command, it
+// prints a styled "did you mean?" suggestion. All other errors are printed
+// to stderr as "Error: <msg>".
 func Execute() error {
-	return rootCmd.Execute()
+	err := rootCmd.Execute()
+	if err == nil {
+		return nil
+	}
+	var already *alreadyPrintedError
+	if errors.As(err, &already) {
+		return err // styled output already printed.
+	}
+	if suggestFromError(err) {
+		return err
+	}
+	fmt.Fprintf(rootCmd.ErrOrStderr(), "Error: %v\n", err)
+	return err
 }
