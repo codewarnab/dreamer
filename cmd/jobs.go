@@ -161,8 +161,8 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 			"ID", "NAME", "PROVIDER", "ENABLED", "NEXT_RUN", "PROMPT")
 		for _, j := range jobs {
 			nextRun := "-"
-			if j.NextRunAt != nil {
-				nextRun = j.NextRunAt.Format("2006-01-02 15:04 MST")
+			if t := effectiveNextRun(j); t != nil {
+				nextRun = t.Format("2006-01-02 15:04 MST")
 			}
 			prompt := j.Prompt
 			if len(prompt) > 40 {
@@ -176,8 +176,8 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 			"ID", "NAME", "PROVIDER", "ENABLED", "NEXT_RUN")
 		for _, j := range jobs {
 			nextRun := "-"
-			if j.NextRunAt != nil {
-				nextRun = j.NextRunAt.Format("2006-01-02 15:04 MST")
+			if t := effectiveNextRun(j); t != nil {
+				nextRun = t.Format("2006-01-02 15:04 MST")
 			}
 			cmd.Printf("%-18s %-20s %-12s %-8t %-19s\n",
 				j.ID, truncateWithEllipsis(j.Name, 20), j.ProviderID, j.Enabled, nextRun)
@@ -677,11 +677,29 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dd %dh %dm", days, h, m)
 }
 
+// effectiveNextRun returns the next run time for display. If the stored
+// NextRunAt is in the past (e.g. daemon was offline during a scheduled
+// trigger), it recomputes from the current time so the user always sees
+// a future timestamp.
+func effectiveNextRun(job *backgroundjobs.Job) *time.Time {
+	if job.NextRunAt == nil {
+		return nil
+	}
+	if time.Now().Before(*job.NextRunAt) {
+		return job.NextRunAt
+	}
+	next, err := backgroundjobs.NextRun(job.Schedule, time.Now())
+	if err != nil {
+		return job.NextRunAt // fallback to stale value
+	}
+	return &next
+}
+
 func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 	nextRun := "-"
-	if job.NextRunAt != nil {
-		nextRun = job.NextRunAt.Format("2006-01-02 15:04:05 MST")
-		nextRun += " (" + formatRelativeTime(*job.NextRunAt) + ")"
+	if t := effectiveNextRun(job); t != nil {
+		nextRun = t.Format("2006-01-02 15:04:05 MST")
+		nextRun += " (" + formatRelativeTime(*t) + ")"
 	}
 	lastRun := "-"
 	if job.LastRunAt != nil {
