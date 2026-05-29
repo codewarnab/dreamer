@@ -196,10 +196,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 3: provider picker (background-safe only).
 	providers := backgroundSafeProviderItems()
-	providerList := list.New(providers, compactDelegate{}, initialW-wizListPad, listHeight(len(providers)))
-	providerList.Title = "Provider"
-	providerList.SetShowHelp(false)
-	providerList.SetShowStatusBar(false)
+	providerList := newCompactList("Provider", providers, initialW-wizListPad)
 
 	// Step 3b: model picker — populated dynamically when provider is selected.
 	// Step 3c: custom model text input — shown when "custom..." is selected.
@@ -226,10 +223,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		selectItem{id: "selected_writes", title: "Selected Writes", desc: "write access to specific files you choose"},
 		selectItem{id: "full_workspace", title: "Full Workspace", desc: "write access to entire project (not recommended)"},
 	}
-	permList := list.New(permissionItems, compactDelegate{}, initialW-wizListPad, listHeight(len(permissionItems)))
-	permList.Title = "File Access"
-	permList.SetShowHelp(false)
-	permList.SetShowStatusBar(false)
+	permList := newCompactList("File Access", permissionItems, initialW-wizListPad)
 
 	// Step 5b: @ mention file picker (for selected_writes).
 	projectRoot := prefilled.projectPath
@@ -248,10 +242,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	if runtime.GOOS != "windows" {
 		scheduleItems = append(scheduleItems, selectItem{id: "cron", title: "custom cron", desc: "advanced: 5-field cron expression"})
 	}
-	scheduleList := list.New(scheduleItems, compactDelegate{}, initialW-wizListPad, listHeight(len(scheduleItems)))
-	scheduleList.Title = "Schedule"
-	scheduleList.SetShowHelp(false)
-	scheduleList.SetShowStatusBar(false)
+	scheduleList := newCompactList("Schedule", scheduleItems, initialW-wizListPad)
 
 	// Step 6a: interval picker (hourly).
 	intervalItems := []list.Item{
@@ -264,10 +255,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		selectItem{id: "10m", desc: "every 10 minutes"},
 		selectItem{id: "5m", desc: "every 5 minutes"},
 	}
-	intervalList := list.New(intervalItems, compactDelegate{}, initialW-wizListPad, listHeight(len(intervalItems)))
-	intervalList.Title = "Repeat interval"
-	intervalList.SetShowHelp(false)
-	intervalList.SetShowStatusBar(false)
+	intervalList := newCompactList("Repeat interval", intervalItems, initialW-wizListPad)
 
 	// Step 6b: time-of-day input.
 	todIn := textinput.New()
@@ -289,10 +277,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		selectItem{id: "saturday"},
 		selectItem{id: "sunday"},
 	}
-	dowList := list.New(dowItems, compactDelegate{}, initialW-wizListPad, listHeight(len(dowItems)))
-	dowList.Title = "Day of week"
-	dowList.SetShowHelp(false)
-	dowList.SetShowStatusBar(false)
+	dowList := newCompactList("Day of week", dowItems, initialW-wizListPad)
 
 	// Step 6d: cron expression input.
 	cronIn := textinput.New()
@@ -304,10 +289,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 6: timezone picker.
 	tzItems := timezoneItems()
-	tzList := list.New(tzItems, compactDelegate{}, initialW-wizListPad, listHeight(len(tzItems)))
-	tzList.Title = "Timezone"
-	tzList.SetShowHelp(false)
-	tzList.SetShowStatusBar(false)
+	tzList := newCompactList("Timezone", tzItems, initialW-wizListPad)
 
 	// Step 6b: custom timezone text input.
 	customTZIn := textinput.New()
@@ -573,15 +555,11 @@ func (m jobWizardModel) advanceFromProvider() (tea.Model, tea.Cmd) {
 	}
 	models := defaultModelsFor(m.answers.providerID)
 	items := make([]list.Item, 0, len(models)+1)
-	for _, mm := range models {
-		items = append(items, selectItem{id: mm})
+	for _, model := range models {
+		items = append(items, selectItem{id: model})
 	}
 	items = append(items, selectItem{id: "custom", desc: "type a model name"})
-	ml := list.New(items, compactDelegate{}, m.boxInnerWidth()-wizListPad, listHeight(len(items)))
-	ml.Title = "Model for " + m.answers.providerID
-	ml.SetShowHelp(false)
-	ml.SetShowStatusBar(false)
-	m.modelList = ml
+	m.modelList = newCompactList("Model for "+m.answers.providerID, items, m.boxInnerWidth()-wizListPad)
 	m.step = wizStepModel
 	return m, nil
 }
