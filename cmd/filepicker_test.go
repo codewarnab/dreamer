@@ -243,11 +243,3 @@ func TestHighlightMatch(t *testing.T) {
 		}
 	}
 }
-
-func TestSortStrings(t *testing.T) {
-	s := []string{"c", "a", "b"}
-	sortStrings(s)
-	if s[0] != "a" || s[1] != "b" || s[2] != "c" {
-		t.Errorf("sortStrings: got %v", s)
-	}
-}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"dreamer/internal/fsutil"
@@ -85,17 +86,8 @@ func (m filePickerModel) SelectedPaths() []string {
 		paths = append(paths, p)
 	}
 	// Deterministic order for testing and display.
-	sortStrings(paths)
+	sort.Strings(paths)
 	return paths
-}
-
-// sortStrings is a simple insertion sort for small slices.
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 func (m filePickerModel) Update(msg tea.Msg) (filePickerModel, tea.Cmd) {
