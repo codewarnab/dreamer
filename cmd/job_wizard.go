@@ -27,7 +27,8 @@ const (
 	wizStepPath = iota
 	wizStepName
 	wizStepProvider
-	wizStepModel // model override (optional)
+	wizStepModel        // model override (optional)
+	wizStepCustomModel  // sub-step for custom model text input
 	wizStepPrompt
 	wizStepPermissions    // file access level picker
 	wizStepWritablePaths  // @ mention file picker (selected_writes only)
@@ -132,7 +133,8 @@ type jobWizardModel struct {
 	pathInput        textinput.Model
 	nameInput        textinput.Model
 	providerList     list.Model
-	modelInput       textinput.Model
+	modelList        list.Model
+	customModelInput textinput.Model
 	promptInput      textarea.Model
 	permissionsList  list.Model
 	filePicker       filePickerModel
@@ -194,17 +196,15 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 3: provider picker (background-safe only).
 	providers := backgroundSafeProviderItems()
-	providerList := list.New(providers, compactDelegate{}, initialW-wizListPad, listHeight(len(providers)))
-	providerList.Title = "Provider"
-	providerList.SetShowHelp(false)
-	providerList.SetShowStatusBar(false)
+	providerList := newCompactList("Provider", providers, initialW-wizListPad)
 
-	// Step 3b: model override (optional).
-	modelIn := textinput.New()
-	modelIn.Placeholder = "default (provider auto-selects)"
-	modelIn.CharLimit = 128
+	// Step 3b: model picker — populated dynamically when provider is selected.
+	// Step 3c: custom model text input — shown when "custom..." is selected.
+	customModelIn := textinput.New()
+	customModelIn.Placeholder = "e.g. claude-opus-4-7"
+	customModelIn.CharLimit = 128
 	if prefilled.model != "" {
-		modelIn.SetValue(prefilled.model)
+		customModelIn.SetValue(prefilled.model)
 	}
 
 	// Step 4: prompt textarea.
@@ -223,10 +223,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		selectItem{id: "selected_writes", title: "Selected Writes", desc: "write access to specific files you choose"},
 		selectItem{id: "full_workspace", title: "Full Workspace", desc: "write access to entire project (not recommended)"},
 	}
-	permList := list.New(permissionItems, compactDelegate{}, initialW-wizListPad, listHeight(len(permissionItems)))
-	permList.Title = "File Access"
-	permList.SetShowHelp(false)
-	permList.SetShowStatusBar(false)
+	permList := newCompactList("File Access", permissionItems, initialW-wizListPad)
 
 	// Step 5b: @ mention file picker (for selected_writes).
 	projectRoot := prefilled.projectPath
@@ -245,10 +242,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 	if runtime.GOOS != "windows" {
 		scheduleItems = append(scheduleItems, selectItem{id: "cron", title: "custom cron", desc: "advanced: 5-field cron expression"})
 	}
-	scheduleList := list.New(scheduleItems, compactDelegate{}, initialW-wizListPad, listHeight(len(scheduleItems)))
-	scheduleList.Title = "Schedule"
-	scheduleList.SetShowHelp(false)
-	scheduleList.SetShowStatusBar(false)
+	scheduleList := newCompactList("Schedule", scheduleItems, initialW-wizListPad)
 
 	// Step 6a: interval picker (hourly).
 	intervalItems := []list.Item{
@@ -261,10 +255,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		selectItem{id: "10m", desc: "every 10 minutes"},
 		selectItem{id: "5m", desc: "every 5 minutes"},
 	}
-	intervalList := list.New(intervalItems, compactDelegate{}, initialW-wizListPad, listHeight(len(intervalItems)))
-	intervalList.Title = "Repeat interval"
-	intervalList.SetShowHelp(false)
-	intervalList.SetShowStatusBar(false)
+	intervalList := newCompactList("Repeat interval", intervalItems, initialW-wizListPad)
 
 	// Step 6b: time-of-day input.
 	todIn := textinput.New()
@@ -286,10 +277,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		selectItem{id: "saturday"},
 		selectItem{id: "sunday"},
 	}
-	dowList := list.New(dowItems, compactDelegate{}, initialW-wizListPad, listHeight(len(dowItems)))
-	dowList.Title = "Day of week"
-	dowList.SetShowHelp(false)
-	dowList.SetShowStatusBar(false)
+	dowList := newCompactList("Day of week", dowItems, initialW-wizListPad)
 
 	// Step 6d: cron expression input.
 	cronIn := textinput.New()
@@ -301,10 +289,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 
 	// Step 6: timezone picker.
 	tzItems := timezoneItems()
-	tzList := list.New(tzItems, compactDelegate{}, initialW-wizListPad, listHeight(len(tzItems)))
-	tzList.Title = "Timezone"
-	tzList.SetShowHelp(false)
-	tzList.SetShowStatusBar(false)
+	tzList := newCompactList("Timezone", tzItems, initialW-wizListPad)
 
 	// Step 6b: custom timezone text input.
 	customTZIn := textinput.New()
@@ -322,7 +307,7 @@ func newJobWizardModel(prefilled jobWizardAnswers) jobWizardModel {
 		pathInput:        pathIn,
 		nameInput:        nameIn,
 		providerList:     providerList,
-		modelInput:       modelIn,
+		customModelInput: customModelIn,
 		promptInput:      promptTA,
 		permissionsList:  permList,
 		filePicker:       fp,
@@ -421,8 +406,8 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filePicker, _ = m.filePicker.Update(tea.KeyMsg{Type: tea.KeyEnter})
 				return m, nil
 			}
-			// Custom tz text input: enter advances.
-			if m.step == wizStepCustomTz {
+			// Custom text inputs: enter advances.
+			if m.step == wizStepCustomTz || m.step == wizStepCustomModel {
 				return m.advance()
 			}
 			return m.advance()
@@ -441,6 +426,7 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = typed.Height
 		inner := m.boxInnerWidth()
 		m.providerList.SetWidth(inner)
+		m.modelList.SetWidth(inner)
 		m.permissionsList.SetWidth(inner)
 		m.scheduleKindList.SetWidth(inner)
 		m.intervalList.SetWidth(inner)
@@ -460,7 +446,9 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wizStepProvider:
 		m.providerList, cmd = m.providerList.Update(msg)
 	case wizStepModel:
-		m.modelInput, cmd = m.modelInput.Update(msg)
+		m.modelList, cmd = m.modelList.Update(msg)
+	case wizStepCustomModel:
+		m.customModelInput, cmd = m.customModelInput.Update(msg)
 	case wizStepPrompt:
 		m.promptInput, cmd = m.promptInput.Update(msg)
 	case wizStepPermissions:
@@ -496,6 +484,8 @@ func (m jobWizardModel) advance() (tea.Model, tea.Cmd) {
 		return m.advanceFromProvider()
 	case wizStepModel:
 		return m.advanceFromModel()
+	case wizStepCustomModel:
+		return m.advanceFromCustomModel()
 	case wizStepPrompt:
 		return m.advanceFromPrompt()
 	case wizStepPermissions:
@@ -563,13 +553,37 @@ func (m jobWizardModel) advanceFromProvider() (tea.Model, tea.Cmd) {
 	if sel, ok := m.providerList.SelectedItem().(selectItem); ok {
 		m.answers.providerID = sel.id
 	}
-	m.modelInput.Focus()
+	models := defaultModelsFor(m.answers.providerID)
+	items := make([]list.Item, 0, len(models)+1)
+	for _, model := range models {
+		items = append(items, selectItem{id: model})
+	}
+	items = append(items, selectItem{id: "custom", desc: "type a model name"})
+	m.modelList = newCompactList("Model for "+m.answers.providerID, items, m.boxInnerWidth()-wizListPad)
 	m.step = wizStepModel
 	return m, nil
 }
 
 func (m jobWizardModel) advanceFromModel() (tea.Model, tea.Cmd) {
-	m.answers.model = strings.TrimSpace(m.modelInput.Value())
+	if sel, ok := m.modelList.SelectedItem().(selectItem); ok {
+		if sel.id == "custom" {
+			m.customModelInput.Focus()
+			m.step = wizStepCustomModel
+			return m, nil
+		}
+		m.answers.model = sel.id
+	}
+	m.promptInput.Focus()
+	m.step = wizStepPrompt
+	return m, nil
+}
+
+func (m jobWizardModel) advanceFromCustomModel() (tea.Model, tea.Cmd) {
+	model := strings.TrimSpace(m.customModelInput.Value())
+	if model == "" {
+		return m, nil // reject empty — must enter a model name
+	}
+	m.answers.model = model
 	m.promptInput.Focus()
 	m.step = wizStepPrompt
 	return m, nil
@@ -709,6 +723,8 @@ func (m jobWizardModel) goBack() (tea.Model, tea.Cmd) {
 		m.step = wizStepName
 	case wizStepModel:
 		m.step = wizStepProvider
+	case wizStepCustomModel:
+		m.step = wizStepModel
 	case wizStepPrompt:
 		m.step = wizStepModel
 	case wizStepPermissions:
@@ -774,6 +790,7 @@ func visualStepLabel(step int) string {
 		wizStepName:          "Step 2/9 — Job Name",
 		wizStepProvider:      "Step 3/9 — Provider",
 		wizStepModel:         "Step 3b/9 — Model",
+		wizStepCustomModel:   "Step 3c/9 — Custom Model",
 		wizStepPrompt:        "Step 4/9 — Prompt",
 		wizStepPermissions:   "Step 5/9 — File Access",
 		wizStepWritablePaths: "Step 5b/9 — Writable Files",
@@ -836,8 +853,13 @@ func (m jobWizardModel) View() string {
 			dimStyle.Render("[↑↓] navigate  •  [enter] select  •  [esc] back"))
 
 	case wizStepModel:
-		body = fmt.Sprintf("%s\n\nModel override (leave empty for provider default):\n\n%s\n\n%s",
-			title, m.modelInput.View(),
+		body = fmt.Sprintf("%s\n\n%s\n\n%s",
+			title, m.modelList.View(),
+			dimStyle.Render("[↑↓] navigate  •  [enter] select  •  [esc] back"))
+
+	case wizStepCustomModel:
+		body = fmt.Sprintf("%s\n\nEnter the model name:\n\n%s\n\n%s",
+			title, m.customModelInput.View(),
 			dimStyle.Render("[enter] next  •  [esc] back"))
 
 	case wizStepPrompt:
@@ -896,12 +918,17 @@ func (m jobWizardModel) View() string {
 
 	case wizStepSummary:
 		header = headerStyle.Render("░░ DREAMER ░░ Job Summary")
+		modelDesc := m.answers.model
+		if modelDesc == "" {
+			modelDesc = "(default)"
+		}
 		scheduleDesc := m.describeSchedule()
 		permDesc := m.describePermissions()
 		body = fmt.Sprintf("%s\n\n"+
 			"  Name:        %s\n"+
 			"  Project:     %s\n"+
 			"  Provider:    %s\n"+
+			"  Model:       %s\n"+
 			"  Schedule:    %s\n"+
 			"  Permissions: %s\n\n"+
 			"  Prompt:\n%s\n\n%s",
@@ -909,6 +936,7 @@ func (m jobWizardModel) View() string {
 			m.answers.name,
 			m.answers.projectPath,
 			m.answers.providerID,
+			modelDesc,
 			scheduleDesc,
 			permDesc,
 			lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).Padding(0, 1).Width(innerW-4).Render(m.answers.prompt),

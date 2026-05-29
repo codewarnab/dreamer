@@ -200,10 +200,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 	providers := selectItems()
 	// Use a sensible initial width; WindowSizeMsg will update it.
 	initialW := 80
-	providerList := list.New(providers, compactDelegate{}, initialW-20, listHeight(len(providers)))
-	providerList.Title = "1/5 - Provider"
-	providerList.SetShowHelp(false)
-	providerList.SetShowStatusBar(false)
+	providerList := newCompactList("1/5 - Provider", providers, initialW-20)
 
 	freq := textinput.New()
 	freq.Placeholder = "60"
@@ -227,10 +224,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		selectItem{id: "info"},
 		selectItem{id: "debug"},
 	}
-	logLevelList := list.New(levels, compactDelegate{}, initialW-20, listHeight(len(levels)))
-	logLevelList.Title = "6/10 - Log level"
-	logLevelList.SetShowHelp(false)
-	logLevelList.SetShowStatusBar(false)
+	logLevelList := newCompactList("6/10 - Log level", levels, initialW-20)
 
 	ruleTimeoutInput := textinput.New()
 	ruleTimeoutInput.Placeholder = "120"
@@ -272,10 +266,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		selectItem{id: "30d"},
 		selectItem{id: "lifetime"},
 	}
-	sinceList := list.New(sinces, compactDelegate{}, 60, listHeight(len(sinces)))
-	sinceList.Title = "10/10 - Project lookback (since)"
-	sinceList.SetShowHelp(false)
-	sinceList.SetShowStatusBar(false)
+	sinceList := newCompactList("10/10 - Project lookback (since)", sinces, 60)
 
 	m := setupModel{
 		step:             stepProvider,
@@ -479,14 +470,10 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		}
 		models := defaultModelsFor(m.answers.provider)
 		items := make([]list.Item, len(models))
-		for i, mm := range models {
-			items[i] = selectItem{id: mm}
+		for i, model := range models {
+			items[i] = selectItem{id: model}
 		}
-		ml := list.New(items, compactDelegate{}, m.providerList.Width(), listHeight(len(items)))
-		ml.Title = "2/5 - Model for " + m.answers.provider
-		ml.SetShowHelp(false)
-		ml.SetShowStatusBar(false)
-		m.modelList = ml
+		m.modelList = newCompactList("2/5 - Model for "+m.answers.provider, items, m.providerList.Width())
 		if len(models) > 0 {
 			m.answers.model = models[0]
 		}
@@ -738,14 +725,28 @@ func (m setupModel) View() string {
 	return layout
 }
 
-// defaultModelsFor returns the known-good models for a provider. Reuses
-// config.DefaultModelByProvider; falls back to config.DefaultModel when the
-// provider id is not in the map.
+// defaultModelsFor returns the known-good models for a provider.
+// First entry matches config.DefaultModelByProvider for that provider.
+// Used by both the setup wizard and the job wizard's model picker.
 func defaultModelsFor(provider string) []string {
-	if m, ok := config.DefaultModelByProvider[config.ProviderID(provider)]; ok && m != "" {
+	pid := config.ProviderID(provider)
+	if models, ok := config.AllModelsByProvider[pid]; ok {
+		return models
+	}
+	if m, ok := config.DefaultModelByProvider[pid]; ok && m != "" {
 		return []string{m}
 	}
 	return []string{config.DefaultModel}
+}
+
+// newCompactList creates a bubbletea list with compactDelegate styling,
+// help and status bar disabled. Used by both wizards for consistent look.
+func newCompactList(title string, items []list.Item, width int) list.Model {
+	l := list.New(items, compactDelegate{}, width, listHeight(len(items)))
+	l.Title = title
+	l.SetShowHelp(false)
+	l.SetShowStatusBar(false)
+	return l
 }
 
 // dreamerBanner is the ASCII art splashed at the top of `dreamer setup`.

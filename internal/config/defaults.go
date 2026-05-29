@@ -20,6 +20,26 @@ var DefaultModelByProvider = map[ProviderID]string{
 	ProviderCodebuffSDK:    "claude-opus-4-7",
 }
 
+// AllModelsByProvider lists every known model for each provider, ordered
+// with the primary (default) model first. Used by the setup and job
+// wizards to populate model picker lists. The first entry must match
+// DefaultModelByProvider for the same provider.
+var AllModelsByProvider = map[ProviderID][]string{
+	ProviderCopilotSDK:     {"auto"},
+	ProviderCopilotACP:     {"auto"},
+	ProviderClaudeCLI:      {"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-7"},
+	ProviderClaudeACP:      {"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"},
+	ProviderGeminiCLI:      {"gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"},
+	ProviderGeminiACP:      {"gemini-3-flash-preview", "gemini-2.5-flash"},
+	ProviderKiroACP:        {"claude-sonnet-4-5-20250929"},
+	ProviderCodexCLI:       {"gpt-5.4-mini", "gpt-5.3-codex"},
+	ProviderCodexACP:       {"gpt-5.4-mini"},
+	ProviderOpenClaudeCLI:  {"mimo-v2.5-pro"},
+	ProviderOpenCodeACP:    {"deepseek-v4-flash"},
+	ProviderOpenCodeServer: {"deepseek-v4-flash"},
+	ProviderCodebuffSDK:    {"claude-opus-4-7"},
+}
+
 // DefaultModelFallbacks lists alternative models for providers that support
 // automatic fallback when the primary model is unavailable.
 // Used by ACP providers where the agent may not advertise the preferred model.

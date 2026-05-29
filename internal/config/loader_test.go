@@ -994,6 +994,39 @@ func TestDefaultSandboxByProvider_AllProviders(t *testing.T) {
 	}
 }
 
+func TestAllModelsByProvider_AllProviders(t *testing.T) {
+	allIDs := []ProviderID{
+		ProviderCopilotSDK, ProviderCopilotACP,
+		ProviderClaudeCLI, ProviderClaudeACP,
+		ProviderGeminiCLI, ProviderGeminiACP,
+		ProviderKiroACP, ProviderCodexCLI, ProviderCodexACP,
+		ProviderOpenClaudeCLI, ProviderOpenCodeACP, ProviderOpenCodeServer,
+		ProviderCodebuffSDK,
+	}
+	for _, id := range allIDs {
+		if _, ok := AllModelsByProvider[id]; !ok {
+			t.Errorf("AllModelsByProvider missing entry for %q", id)
+		}
+	}
+}
+
+func TestAllModelsByProvider_FirstMatchesDefault(t *testing.T) {
+	for id, all := range AllModelsByProvider {
+		if len(all) == 0 {
+			t.Errorf("AllModelsByProvider[%q] is empty", id)
+			continue
+		}
+		def, ok := DefaultModelByProvider[id]
+		if !ok {
+			t.Errorf("DefaultModelByProvider missing entry for %q (present in AllModelsByProvider)", id)
+			continue
+		}
+		if all[0] != def {
+			t.Errorf("AllModelsByProvider[%q][0] = %q, want %q (DefaultModelByProvider)", id, all[0], def)
+		}
+	}
+}
+
 func TestLoadConfig_RejectsInvalidMaxAnalysisDuration(t *testing.T) {
 	projectDir := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
