@@ -374,7 +374,12 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Route message to the active widget.
+	// Skip WindowSizeMsg — the explicit resize above already set clamped
+	// widths on every widget; forwarding the raw msg would overwrite them.
 	var cmd tea.Cmd
+	if _, isResize := msg.(tea.WindowSizeMsg); isResize {
+		return m, nil
+	}
 	switch m.step {
 	case wizStepPath:
 		m.pathInput, cmd = m.pathInput.Update(msg)
