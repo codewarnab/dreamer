@@ -94,6 +94,93 @@ type createPayload struct {
 	Schedule    backgroundjobs.ScheduleSpec `json:"schedule"`
 }
 
+// editPayload is the parsed request body for PATCH /api/jobs/{id}.
+// Pointer fields distinguish "not provided" (nil) from "set to empty".
+type editPayload struct {
+	Name          *string                      `json:"name,omitempty"`
+	Prompt        *string                      `json:"prompt,omitempty"`
+	ProviderID    *string                      `json:"provider_id,omitempty"`
+	Model         *string                      `json:"model,omitempty"`
+	Schedule      *backgroundjobs.ScheduleSpec `json:"schedule,omitempty"`
+	FileAccess    *string                      `json:"file_access,omitempty"`
+	WritablePaths *[]string                    `json:"writable_paths,omitempty"`
+}
+
+// applyJobEdits validates and applies a partial edit payload to a job.
+// Returns warnings and an error. scheduleChanged indicates whether the
+// caller should reinstall the OS schedule.
+func applyJobEdits(job *backgroundjobs.Job, payload editPayload, lookup func(string) *backgroundjobs.ProviderMeta) (scheduleChanged bool, warnings []string, err error) {
+	if payload.Name != nil {
+		name := strings.TrimSpace(*payload.Name)
+		runes := []rune(name)
+		if len(runes) > 64 {
+			name = string(runes[:64])
+		}
+		job.Name = name
+	}
+
+	if payload.Prompt != nil {
+		if len(*payload.Prompt) > maxPromptSize {
+			return false, nil, fmt.Errorf("prompt exceeds 16 KiB limit")
+		}
+		job.Prompt = *payload.Prompt
+	}
+
+	if payload.ProviderID != nil {
+		meta := lookup(*payload.ProviderID)
+		if meta == nil {
+			return false, nil, fmt.Errorf("provider %q not found", *payload.ProviderID)
+		}
+		if !meta.BackgroundSafe {
+			return false, nil, fmt.Errorf("provider %q is not safe for background execution", *payload.ProviderID)
+		}
+		if meta.RequiresNetwork {
+			warnings = append(warnings, "Network required by provider for model transport")
+		}
+		job.ProviderID = *payload.ProviderID
+	}
+
+	if payload.Model != nil {
+		job.Model = *payload.Model
+	}
+
+	if payload.Schedule != nil {
+		if err := backgroundjobs.ValidateSchedule(*payload.Schedule); err != nil {
+			return false, nil, fmt.Errorf("invalid schedule: %w", err)
+		}
+		if payload.Schedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+			return false, nil, fmt.Errorf("cron schedules are not supported on Windows; use daily or weekly instead")
+		}
+		job.Schedule = *payload.Schedule
+		scheduleChanged = true
+	}
+
+	if payload.FileAccess != nil {
+		switch *payload.FileAccess {
+		case "read_only":
+			job.Permissions.FileAccess = backgroundjobs.FileAccessReadOnly
+			job.Permissions.WritablePaths = nil
+		case "selected_writes":
+			job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
+		case "full_workspace":
+			job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
+			job.Permissions.WritablePaths = nil
+		default:
+			return false, nil, fmt.Errorf("file_access must be one of: read_only, selected_writes, full_workspace")
+		}
+	}
+
+	if payload.WritablePaths != nil {
+		if job.Permissions.FileAccess != backgroundjobs.FileAccessSelectedWrites {
+			return false, nil, fmt.Errorf("writable_paths requires file_access=selected_writes")
+		}
+		job.Permissions.WritablePaths = *payload.WritablePaths
+	}
+
+	job.UpdatedAt = time.Now().UTC()
+	return scheduleChanged, warnings, nil
+}
+
 // runGuards prevents concurrent run-now requests for the same job.
 // Key: job ID (string). Value: *atomic.Bool (true = running).
 // NOTE: package-level sync.Map — tests using tryAcquireRun must not run in
@@ -426,6 +513,109 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			"next_run_at": nextRun.UTC().Format(time.RFC3339),
 			"warnings":    warnings,
 		})
+	}
+}
+
+// JobEdit returns an http.HandlerFunc for PATCH /api/jobs/{id}.
+func JobEdit(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireJobStore(w, deps.Jobs.Store) {
+			return
+		}
+
+		jobID := extractJobID(r.URL.Path)
+		if jobID == "" {
+			writeJSONError(w, http.StatusBadRequest, "missing job id")
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, maxCreateBodySize)
+		var payload editPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		// Validate that at least one field is provided.
+		if payload.Name == nil && payload.Prompt == nil && payload.ProviderID == nil &&
+			payload.Model == nil && payload.Schedule == nil && payload.FileAccess == nil &&
+			payload.WritablePaths == nil {
+			writeJSONError(w, http.StatusBadRequest, "no fields to update")
+			return
+		}
+
+		var scheduleChanged bool
+		var warnings []string
+		var updatedJob *backgroundjobs.Job
+
+		err := deps.Jobs.Store.Update(r.Context(), func(s *backgroundjobs.State) error {
+			job, ok := s.Jobs[jobID]
+			if !ok {
+				return errJobNotFound
+			}
+			var editErr error
+			scheduleChanged, warnings, editErr = applyJobEdits(job, payload, func(id string) *backgroundjobs.ProviderMeta {
+				return resolveProviderMeta(deps.Jobs, id)
+			})
+			if editErr != nil {
+				return editErr
+			}
+			if scheduleChanged {
+				nextRun, nextErr := backgroundjobs.NextRun(job.Schedule, time.Now().UTC())
+				if nextErr == nil {
+					job.NextRunAt = &nextRun
+				}
+			}
+			updatedJob = job
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errJobNotFound) {
+				writeJSONError(w, http.StatusNotFound, "job not found")
+				return
+			}
+			// Validation errors from applyJobEdits.
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// Reinstall OS schedule if schedule changed (best-effort).
+		if scheduleChanged && deps.Jobs.Scheduler != nil && updatedJob != nil {
+			_, schedErr := deps.Jobs.Scheduler.Install(r.Context(), backgroundjobs.ScheduleParams{
+				JobID:    jobID,
+				Schedule: updatedJob.Schedule,
+				Name:     sanitizeName(updatedJob.Name),
+				Enabled:  updatedJob.Enabled,
+			})
+			if schedErr != nil {
+				warnings = append(warnings, "OS schedule update failed — run 'dreamer jobs reconcile' to retry")
+				deps.Logger.Warn("jobs edit schedule install", logging.ErrAttr(schedErr)...)
+			}
+		}
+
+		// Audit — best-effort.
+		if deps.Jobs.Audit != nil {
+			_ = deps.Jobs.Audit.Write(backgroundjobs.AuditEvent{
+				Timestamp: time.Now().UTC(),
+				Event:     "job.edit",
+				JobID:     jobID,
+				Actor:     "web",
+			})
+		}
+
+		publishJobEvent(deps.Jobs.Events, pipeline.EventJobUpdated, map[string]any{
+			"job_id": jobID,
+		})
+
+		result := map[string]any{
+			"job_id":   jobID,
+			"updated":  true,
+			"warnings": warnings,
+		}
+		if updatedJob != nil {
+			result["schedule_summary"] = buildScheduleSummary(updatedJob.Schedule)
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -1002,6 +1192,7 @@ func JobRunDetail(deps Deps) http.HandlerFunc {
 func RouteJobs(deps Deps) http.HandlerFunc {
 	// Pre-build per-resource handlers once, not per request.
 	detail := JobDetail(deps)
+	editH := JobEdit(deps)
 	deleteH := JobDelete(deps)
 	runNow := JobRunNow(deps)
 	pause := JobSetEnabled(deps, false)
@@ -1066,6 +1257,8 @@ func RouteJobs(deps Deps) http.HandlerFunc {
 				switch r.Method {
 				case http.MethodGet:
 					detail(w, r)
+				case http.MethodPatch:
+					editH(w, r)
 				case http.MethodDelete:
 					deleteH(w, r)
 				default:

@@ -1311,3 +1311,222 @@ func TestJobAuditLog_MockSortsNewestFirst(t *testing.T) {
 		t.Errorf("last event = %q, want 'old' (oldest last)", resp.Events[2].Event)
 	}
 }
+
+func TestJobEdit_HappyPath(t *testing.T) {
+	job := makeJob("abc123def4567890", "old name", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	body := jsonBody(map[string]any{"name": "new name", "prompt": "new prompt"})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+	if job.Name != "new name" {
+		t.Errorf("name = %q, want %q", job.Name, "new name")
+	}
+	if job.Prompt != "new prompt" {
+		t.Errorf("prompt = %q, want %q", job.Prompt, "new prompt")
+	}
+}
+
+func TestJobEdit_ScheduleChange(t *testing.T) {
+	job := makeJob("abc123def4567890", "test", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	body := jsonBody(map[string]any{
+		"schedule": backgroundjobs.ScheduleSpec{
+			Kind:      backgroundjobs.ScheduleWeekly,
+			DayOfWeek: "monday",
+			TimeOfDay: "10:00",
+			Timezone:  "UTC",
+		},
+	})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+	if job.Schedule.Kind != backgroundjobs.ScheduleWeekly {
+		t.Errorf("schedule kind = %q, want %q", job.Schedule.Kind, backgroundjobs.ScheduleWeekly)
+	}
+	if job.NextRunAt == nil {
+		t.Error("expected NextRunAt to be recalculated")
+	}
+}
+
+func TestJobEdit_NotFoundReturns404(t *testing.T) {
+	store := &mockJobStore{
+		state: &backgroundjobs.State{Jobs: map[string]*backgroundjobs.Job{}},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	body := jsonBody(map[string]any{"name": "new"})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status %d, want 404", w.Code)
+	}
+}
+
+func TestJobEdit_EmptyBodyReturns400(t *testing.T) {
+	job := makeJob("abc123def4567890", "test", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	body := jsonBody(map[string]any{})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", w.Code)
+	}
+}
+
+func TestJobEdit_InvalidScheduleReturns400(t *testing.T) {
+	job := makeJob("abc123def4567890", "test", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	body := jsonBody(map[string]any{
+		"schedule": backgroundjobs.ScheduleSpec{
+			Kind:     backgroundjobs.ScheduleDaily,
+			Timezone: "UTC",
+			// Missing TimeOfDay.
+		},
+	})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", w.Code)
+	}
+}
+
+func TestJobEdit_UnknownProviderReturns400(t *testing.T) {
+	job := makeJob("abc123def4567890", "test", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	body := jsonBody(map[string]any{"provider_id": "nonexistent"})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", w.Code)
+	}
+}
+
+func TestJobEdit_PromptTooLongReturns400(t *testing.T) {
+	job := makeJob("abc123def4567890", "test", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+
+	longPrompt := strings.Repeat("x", 17*1024)
+	body := jsonBody(map[string]any{"prompt": longPrompt})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	JobEdit(deps)(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", w.Code)
+	}
+}
+
+func TestRouteJobs_DispatchToPatch(t *testing.T) {
+	job := makeJob("abc123def4567890", "old", true)
+	store := &mockJobStore{
+		state: &backgroundjobs.State{
+			Jobs: map[string]*backgroundjobs.Job{"abc123def4567890": job},
+		},
+	}
+	deps := Deps{
+		Config: testConfig,
+		Logger: testLogger(),
+		Jobs:   JobDeps{Store: store, Runs: &mockRunStore{}, ResolveProviderMeta: mockProviderLookup},
+	}
+	handler := RouteJobs(deps)
+
+	body := jsonBody(map[string]any{"name": "patched"})
+	r := httptest.NewRequest("PATCH", "/api/jobs/abc123def4567890", body)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+	if job.Name != "patched" {
+		t.Errorf("name = %q, want %q", job.Name, "patched")
+	}
+}

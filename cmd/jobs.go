@@ -70,6 +70,7 @@ func newJobsCommand() *cobra.Command {
 
 	command.AddCommand(newJobsListCommand())
 	command.AddCommand(newJobsCreateCommand())
+	command.AddCommand(newJobsEditCommand())
 	command.AddCommand(newJobsShowCommand())
 	command.AddCommand(newJobsPauseCommand())
 	command.AddCommand(newJobsResumeCommand())
@@ -866,6 +867,230 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 		cmd.Printf("job paused: %s\n", jobID)
 	}
 	return nil
+}
+
+func newJobsEditCommand() *cobra.Command {
+	var (
+		name          string
+		prompt        string
+		providerID    string
+		model         string
+		scheduleKind  string
+		every         string
+		timeOfDay     string
+		dayOfWeek     string
+		cron          string
+		timezone      string
+		fileAccess    string
+		writablePaths string
+	)
+
+	command := &cobra.Command{
+		Use:   "edit [job-id]",
+		Short: "Edit an existing background job.",
+		Long:  "Edit fields of an existing background job. Only explicitly passed flags are changed.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jobID := args[0]
+			if err := backgroundjobs.ValidateJobID(jobID); err != nil {
+				return fmt.Errorf("invalid job id: %w", err)
+			}
+
+			resolvedConfigPath, err := resolveConfigPath(configPath)
+			if err != nil {
+				return err
+			}
+
+			outputRoot, _, err := resolveOutputRoot(cmd, resolvedConfigPath)
+			if err != nil {
+				return err
+			}
+
+			lg := logging.Silent()
+			store := backgroundjobs.NewStore(outputRoot, lg)
+
+			// Load current job to validate it exists.
+			state, err := store.Load()
+			if err != nil {
+				return fmt.Errorf("load jobs: %w", err)
+			}
+			job, ok := state.Jobs[jobID]
+			if !ok {
+				return fmt.Errorf("job %q not found", jobID)
+			}
+
+			scheduleChanged := false
+
+			// Apply changed fields.
+			if cmd.Flags().Changed("name") {
+				runes := []rune(strings.TrimSpace(name))
+				if len(runes) > 64 {
+					name = string(runes[:64])
+				}
+				job.Name = name
+			}
+
+			if cmd.Flags().Changed("prompt") {
+				if len(prompt) > 16*1024 {
+					return fmt.Errorf("prompt exceeds 16 KiB limit")
+				}
+				job.Prompt = prompt
+			}
+
+			if cmd.Flags().Changed("provider") {
+				meta := backgroundjobs.ProviderMetaByID(providerID)
+				if meta == nil {
+					return fmt.Errorf("provider %q not found", providerID)
+				}
+				if !meta.BackgroundSafe {
+					return fmt.Errorf("provider %q is not safe for background execution", providerID)
+				}
+				job.ProviderID = providerID
+			}
+
+			if cmd.Flags().Changed("model") {
+				job.Model = model
+			}
+
+			// Schedule: if any schedule-related flag changed, rebuild spec.
+			if cmd.Flags().Changed("schedule") || cmd.Flags().Changed("every") ||
+				cmd.Flags().Changed("time-of-day") || cmd.Flags().Changed("day-of-week") ||
+				cmd.Flags().Changed("cron") || cmd.Flags().Changed("timezone") {
+
+				// Use changed flags, falling back to existing job values.
+				kind := job.Schedule.Kind
+				if cmd.Flags().Changed("schedule") {
+					kind = backgroundjobs.ScheduleKind(scheduleKind)
+					if kind == "interval" {
+						kind = backgroundjobs.ScheduleInterval
+					}
+				}
+				newSchedule := job.Schedule
+				newSchedule.Kind = kind
+				if cmd.Flags().Changed("every") {
+					newSchedule.Every = every
+				}
+				if cmd.Flags().Changed("time-of-day") {
+					newSchedule.TimeOfDay = timeOfDay
+				}
+				if cmd.Flags().Changed("day-of-week") {
+					newSchedule.DayOfWeek = dayOfWeek
+				}
+				if cmd.Flags().Changed("cron") {
+					newSchedule.Cron = cron
+				}
+				if cmd.Flags().Changed("timezone") {
+					newSchedule.Timezone = timezone
+				}
+
+				if err := backgroundjobs.ValidateSchedule(newSchedule); err != nil {
+					return fmt.Errorf("invalid schedule: %w", err)
+				}
+				if newSchedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+					return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
+				}
+				job.Schedule = newSchedule
+				scheduleChanged = true
+			}
+
+			if cmd.Flags().Changed("file-access") {
+				switch fileAccess {
+				case "read_only":
+					job.Permissions.FileAccess = backgroundjobs.FileAccessReadOnly
+					job.Permissions.WritablePaths = nil
+				case "selected_writes":
+					job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
+				case "full_workspace":
+					job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
+					job.Permissions.WritablePaths = nil
+				default:
+					return fmt.Errorf("--file-access must be one of: read_only, selected_writes, full_workspace")
+				}
+			}
+
+			if cmd.Flags().Changed("writable-paths") {
+				if job.Permissions.FileAccess != backgroundjobs.FileAccessSelectedWrites {
+					return fmt.Errorf("--writable-paths requires --file-access selected_writes")
+				}
+				var paths []string
+				for _, p := range strings.Split(writablePaths, ",") {
+					if trimmed := strings.TrimSpace(p); trimmed != "" {
+						paths = append(paths, trimmed)
+					}
+				}
+				job.Permissions.WritablePaths = paths
+			}
+
+			job.UpdatedAt = time.Now().UTC()
+
+			// Recalculate next run if schedule changed.
+			if scheduleChanged {
+				nextRun, err := backgroundjobs.NextRun(job.Schedule, time.Now().UTC())
+				if err != nil {
+					return fmt.Errorf("calculate next run: %w", err)
+				}
+				job.NextRunAt = &nextRun
+			}
+
+			// Save.
+			if err := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+				s.Jobs[jobID] = job
+				return nil
+			}); err != nil {
+				return fmt.Errorf("save job: %w", err)
+			}
+
+			// Reinstall OS schedule if schedule changed (best-effort).
+			if scheduleChanged {
+				if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
+					params := backgroundjobs.ScheduleParams{
+						JobID:    jobID,
+						Schedule: job.Schedule,
+						Name:     backgroundjobs.SanitizeScheduleName(job.Name),
+						Enabled:  job.Enabled,
+					}
+					osState, installErr := sched.Install(cmd.Context(), params)
+					if installErr != nil {
+						lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+					} else {
+						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+							if j := s.Jobs[jobID]; j != nil {
+								j.OSSchedule = osState
+							}
+							return nil
+						})
+					}
+				}
+			}
+
+			// Audit.
+			audit := backgroundjobs.NewAuditWriter(store.Dir())
+			_ = audit.Write(backgroundjobs.AuditEvent{
+				Event: "job.edit",
+				JobID: jobID,
+				Actor: "cli",
+			})
+
+			cmd.Printf("job updated: %s\n", jobID)
+			return nil
+		},
+	}
+
+	command.Flags().StringVarP(&name, "name", "n", "", "Human-readable name.")
+	command.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt to execute on each run.")
+	command.Flags().StringVar(&providerID, "provider", "", "Analyzer provider ID.")
+	command.Flags().StringVarP(&model, "model", "m", "", "Override model for this job.")
+	command.Flags().StringVarP(&scheduleKind, "schedule", "s", "", "Schedule kind: interval|daily|weekly|cron.")
+	command.Flags().StringVar(&every, "every", "", "Repeat interval for interval schedule (e.g. 5m, 15m, 2h).")
+	command.Flags().StringVar(&timeOfDay, "time-of-day", "", "Time of day for daily/weekly (HH:MM).")
+	command.Flags().StringVar(&dayOfWeek, "day-of-week", "", "Day of week for weekly schedule.")
+	command.Flags().StringVar(&cron, "cron", "", "Cron expression for cron schedule (5 fields).")
+	command.Flags().StringVar(&timezone, "timezone", "", "Timezone for schedule (IANA format).")
+	command.Flags().StringVar(&fileAccess, "file-access", "", "File access: read_only, selected_writes, full_workspace.")
+	command.Flags().StringVar(&writablePaths, "writable-paths", "", "Comma-separated writable paths (for selected_writes).")
+	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+
+	return command
 }
 
 func newJobsDeleteCommand() *cobra.Command {
