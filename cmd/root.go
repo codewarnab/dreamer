@@ -48,6 +48,20 @@ func init() {
 	// NO_COLOR env var (https://no-color.org): any value = disable color.
 	if _, ok := os.LookupEnv("NO_COLOR"); ok {
 		noColor = true
+	}
+
+	// --no-color flag: must be checked before package-level styles are
+	// created. We scan os.Args directly because Cobra hasn't parsed flags yet.
+	if !noColor {
+		for _, arg := range os.Args[1:] {
+			if arg == "--no-color" {
+				noColor = true
+				break
+			}
+		}
+	}
+
+	if noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
 
@@ -78,13 +92,6 @@ func newRootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress decorative output for machine/agent use")
 	root.Flags().Bool("skill", false, "Print agent skill playbook to stdout and exit")
 	root.Flags().MarkHidden("skill")
-
-	// When --no-color is passed, strip ANSI from lipgloss.
-	cobra.OnInitialize(func() {
-		if noColor {
-			lipgloss.SetColorProfile(termenv.Ascii)
-		}
-	})
 
 	// Suggest corrections for typos in commands and flags.
 	root.SetFlagErrorFunc(styledFlagError)
