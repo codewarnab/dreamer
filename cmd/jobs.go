@@ -30,17 +30,19 @@ func defaultProviderFactory(id config.ProviderID, cfg analyzer.ProviderConfig) (
 // falling back to config's output_root. Also returns the loaded config
 // so callers that need it don't load config a second time.
 func resolveOutputRoot(cmd *cobra.Command, resolvedConfigPath string) (string, *config.App, error) {
+	overlayPath, _ := config.GlobalOverlayPath()
+
 	if flag := cmd.Flag(outputRootFlag); flag != nil && flag.Changed {
 		abs, err := filepath.Abs(flag.Value.String())
 		// Still need to load config for callers that use it.
-		cfg, cfgErr := config.LoadConfig(resolvedConfigPath)
+		cfg, cfgErr := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 		if cfgErr != nil {
 			return "", nil, fmt.Errorf("load config: %w", cfgErr)
 		}
 		return abs, cfg, err
 	}
 
-	cfg, err := config.LoadConfig(resolvedConfigPath)
+	cfg, err := config.LoadConfigWithOverlay(resolvedConfigPath, overlayPath)
 	if err != nil {
 		return "", nil, fmt.Errorf("load config: %w", err)
 	}
