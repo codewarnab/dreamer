@@ -91,12 +91,12 @@ func (compactDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	display := it.Title()
 	line := display
 	if it.desc != "" {
-		line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#949494")).Render(it.desc)
+		line += "  " + lipgloss.NewStyle().Foreground(colorDesc).Render(it.desc)
 	}
 	cursor := "  "
 	if index == m.Index() {
-		cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Render("> ")
-		line = lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0")).Bold(true).Render(display)
+		cursor = lipgloss.NewStyle().Foreground(colorAccent).Render("> ")
+		line = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render(display)
 		if it.desc != "" {
 			line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#e9e9e9")).Render(it.desc)
 		}
@@ -465,112 +465,168 @@ func (m setupModel) goBack() (tea.Model, tea.Cmd) {
 func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
-		if sel, ok := m.providerList.SelectedItem().(selectItem); ok {
-			m.answers.provider = sel.id
-		}
-		models := defaultModelsFor(m.answers.provider)
-		items := make([]list.Item, len(models))
-		for i, model := range models {
-			items[i] = selectItem{id: model}
-		}
-		m.modelList = newCompactList("2/5 - Model for "+m.answers.provider, items, m.providerList.Width())
-		if len(models) > 0 {
-			m.answers.model = models[0]
-		}
-		m.step = stepModel
+		m.advanceProvider()
 	case stepModel:
-		if sel, ok := m.modelList.SelectedItem().(selectItem); ok {
-			m.answers.model = sel.id
-		}
-		m.freqInput.Focus()
-		m.step = stepFrequency
+		m.advanceModel()
 	case stepFrequency:
-		if v, err := strconv.Atoi(strings.TrimSpace(m.freqInput.Value())); err == nil && v > 0 {
-			m.answers.frequency = v * 60 // minutes -> seconds
-		}
-		m.outputInput.Focus()
-		m.step = stepOutputRoot
+		m.advanceFrequency()
 	case stepOutputRoot:
-		m.answers.outputRoot = strings.TrimSpace(m.outputInput.Value())
-		if m.skipStartup {
-			m.answers.startupInstall = false
-			m.step = m.afterStartupStep()
-		} else {
-			m.step = stepStartupYN
-		}
+		m.advanceOutputRoot()
 	case stepStartupYN:
 		m.step = m.afterStartupStep()
 	case stepLogLevel:
-		if sel, ok := m.logLevelList.SelectedItem().(selectItem); ok {
-			m.answers.logLevel = sel.id
-		}
-		m.ruleTimeoutInput.Focus()
-		m.step = stepRuleTimeout
+		m.advanceLogLevel()
 	case stepRuleTimeout:
-		if v, err := strconv.Atoi(strings.TrimSpace(m.ruleTimeoutInput.Value())); err == nil && v > 0 {
-			m.answers.ruleTimeout = v
-		}
-		m.step = stepParallelYN
+		m.advanceRuleTimeout()
 	case stepParallelYN:
-		if m.answers.parallel {
-			m.maxConcInput.Focus()
-			m.step = stepMaxConcurrency
-		} else {
-			m.maxChunkInput.Focus()
-			m.step = stepMaxChunkBytes
-		}
+		m.advanceParallelYN()
 	case stepMaxConcurrency:
-		if v, err := strconv.Atoi(strings.TrimSpace(m.maxConcInput.Value())); err == nil && v >= 0 {
-			m.answers.maxConcurrency = v
-		}
-		m.maxChunkInput.Focus()
-		m.step = stepMaxChunkBytes
+		m.advanceMaxConcurrency()
 	case stepMaxChunkBytes:
-		if v, err := strconv.Atoi(strings.TrimSpace(m.maxChunkInput.Value())); err == nil && v > 0 {
-			m.answers.maxChunkBytes = v
-		}
-		m.step = stepFirstProjectYN
+		m.advanceMaxChunkBytes()
 	case stepFirstProjectYN:
-		if m.answers.firstProject {
-			m.projectPathInput.Focus()
-			m.projectPathErr = ""
-			m.step = stepProjectPath
-		} else {
-			m.step = stepSummary
-		}
+		m.advanceFirstProjectYN()
 	case stepProjectPath:
-		p := strings.TrimSpace(m.projectPathInput.Value())
-		if err := validateProjectPath(p); err != nil {
-			m.projectPathErr = err.Error()
+		if !m.advanceProjectPath() {
 			return m, nil
 		}
-		m.answers.projectPath = p
-		m.projectPathErr = ""
-		// Default name = basename of path.
-		if strings.TrimSpace(m.projectNameInput.Value()) == "" {
-			base := filepath.Base(p)
-			m.projectNameInput.SetValue(base)
-			m.answers.projectName = base
-		}
-		m.projectNameInput.Focus()
-		m.step = stepProjectName
 	case stepProjectName:
-		name := strings.TrimSpace(m.projectNameInput.Value())
-		if name == "" {
-			name = filepath.Base(m.answers.projectPath)
-		}
-		m.answers.projectName = name
-		m.step = stepProjectSince
+		m.advanceProjectName()
 	case stepProjectSince:
-		if sel, ok := m.projectSinceList.SelectedItem().(selectItem); ok {
-			m.answers.projectSince = sel.id
-		}
-		m.step = stepSummary
+		m.advanceProjectSince()
 	case stepSummary:
 		m.confirmed = true
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m *setupModel) advanceProvider() {
+	if sel, ok := m.providerList.SelectedItem().(selectItem); ok {
+		m.answers.provider = sel.id
+	}
+	models := defaultModelsFor(m.answers.provider)
+	items := make([]list.Item, len(models))
+	for i, model := range models {
+		items[i] = selectItem{id: model}
+	}
+	m.modelList = newCompactList("2/5 - Model for "+m.answers.provider, items, m.providerList.Width())
+	if len(models) > 0 {
+		m.answers.model = models[0]
+	}
+	m.step = stepModel
+}
+
+func (m *setupModel) advanceModel() {
+	if sel, ok := m.modelList.SelectedItem().(selectItem); ok {
+		m.answers.model = sel.id
+	}
+	m.freqInput.Focus()
+	m.step = stepFrequency
+}
+
+func (m *setupModel) advanceFrequency() {
+	if v, err := strconv.Atoi(strings.TrimSpace(m.freqInput.Value())); err == nil && v > 0 {
+		m.answers.frequency = v * 60 // minutes -> seconds
+	}
+	m.outputInput.Focus()
+	m.step = stepOutputRoot
+}
+
+func (m *setupModel) advanceOutputRoot() {
+	m.answers.outputRoot = strings.TrimSpace(m.outputInput.Value())
+	if m.skipStartup {
+		m.answers.startupInstall = false
+		m.step = m.afterStartupStep()
+	} else {
+		m.step = stepStartupYN
+	}
+}
+
+func (m *setupModel) advanceLogLevel() {
+	if sel, ok := m.logLevelList.SelectedItem().(selectItem); ok {
+		m.answers.logLevel = sel.id
+	}
+	m.ruleTimeoutInput.Focus()
+	m.step = stepRuleTimeout
+}
+
+func (m *setupModel) advanceRuleTimeout() {
+	if v, err := strconv.Atoi(strings.TrimSpace(m.ruleTimeoutInput.Value())); err == nil && v > 0 {
+		m.answers.ruleTimeout = v
+	}
+	m.step = stepParallelYN
+}
+
+func (m *setupModel) advanceParallelYN() {
+	if m.answers.parallel {
+		m.maxConcInput.Focus()
+		m.step = stepMaxConcurrency
+	} else {
+		m.maxChunkInput.Focus()
+		m.step = stepMaxChunkBytes
+	}
+}
+
+func (m *setupModel) advanceMaxConcurrency() {
+	if v, err := strconv.Atoi(strings.TrimSpace(m.maxConcInput.Value())); err == nil && v >= 0 {
+		m.answers.maxConcurrency = v
+	}
+	m.maxChunkInput.Focus()
+	m.step = stepMaxChunkBytes
+}
+
+func (m *setupModel) advanceMaxChunkBytes() {
+	if v, err := strconv.Atoi(strings.TrimSpace(m.maxChunkInput.Value())); err == nil && v > 0 {
+		m.answers.maxChunkBytes = v
+	}
+	m.step = stepFirstProjectYN
+}
+
+func (m *setupModel) advanceFirstProjectYN() {
+	if m.answers.firstProject {
+		m.projectPathInput.Focus()
+		m.projectPathErr = ""
+		m.step = stepProjectPath
+	} else {
+		m.step = stepSummary
+	}
+}
+
+// advanceProjectPath returns false if validation fails and the step should not advance.
+func (m *setupModel) advanceProjectPath() bool {
+	p := strings.TrimSpace(m.projectPathInput.Value())
+	if err := validateProjectPath(p); err != nil {
+		m.projectPathErr = err.Error()
+		return false
+	}
+	m.answers.projectPath = p
+	m.projectPathErr = ""
+	// Default name = basename of path.
+	if strings.TrimSpace(m.projectNameInput.Value()) == "" {
+		base := filepath.Base(p)
+		m.projectNameInput.SetValue(base)
+		m.answers.projectName = base
+	}
+	m.projectNameInput.Focus()
+	m.step = stepProjectName
+	return true
+}
+
+func (m *setupModel) advanceProjectName() {
+	name := strings.TrimSpace(m.projectNameInput.Value())
+	if name == "" {
+		name = filepath.Base(m.answers.projectPath)
+	}
+	m.answers.projectName = name
+	m.step = stepProjectSince
+}
+
+func (m *setupModel) advanceProjectSince() {
+	if sel, ok := m.projectSinceList.SelectedItem().(selectItem); ok {
+		m.answers.projectSince = sel.id
+	}
+	m.step = stepSummary
 }
 
 // afterStartupStep picks the next step after the startup-install prompt
@@ -605,7 +661,7 @@ func (m setupModel) View() string {
 	if m.quit {
 		return ""
 	}
-	bannerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3cffd0"))
+	bannerStyle := lipgloss.NewStyle().Foreground(colorAccent)
 
 	// Compute box width from terminal size.  The inner content width is what
 	// lists and text inputs use; the box adds border (2) + padding (4).
@@ -705,7 +761,7 @@ func (m setupModel) View() string {
 	}
 	// Navigation hint (dim, below the box).
 	navHint := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#666666")).
+		Foreground(colorDim).
 		Render("  ← / esc: back    enter: next    ctrl+c: quit")
 	if centerWidth >= targetW {
 		banner = lipgloss.PlaceHorizontal(centerWidth, lipgloss.Center, banner)
