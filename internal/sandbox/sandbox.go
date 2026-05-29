@@ -89,8 +89,12 @@ type ResourceLimits struct {
 }
 
 const (
-	DefaultMemoryMB  = 2048
-	DefaultProcesses = 64
+	DefaultMemoryMB = 2048
+	// DefaultProcesses is the default RLIMIT_NPROC value. This limit is
+	// per-UID (not per-process), so it counts the daemon, web server, all
+	// sibling provider children, and the user's other processes. 256
+	// provides headroom for typical multi-provider setups.
+	DefaultProcesses = 256
 	DefaultFDs       = 256
 	MinMemoryMB      = 64
 	MinProcesses     = 1
@@ -111,15 +115,34 @@ const (
 )
 
 // ParseNetwork converts a raw string into a network mode. Empty string
-// maps to NetworkIsolated. Invalid values return an error.
+// maps to NetworkOpen (isolation is opt-in). Invalid values return an error.
 func ParseNetwork(raw string) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(raw)) {
-	case "", "isolated":
+	case "":
+		return NetworkOpen, nil
+	case "isolated":
 		return NetworkIsolated, nil
 	case "open":
 		return NetworkOpen, nil
 	default:
 		return "", fmt.Errorf("invalid sandbox network %q: expected isolated or open", raw)
+	}
+}
+
+// ParseSeccomp converts a raw string into a seccomp profile name. Empty
+// string maps to SeccompMinimal. Invalid values return an error.
+func ParseSeccomp(raw string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "":
+		return SeccompMinimal, nil
+	case "off":
+		return SeccompOff, nil
+	case "minimal":
+		return SeccompMinimal, nil
+	case "full":
+		return SeccompFull, nil
+	default:
+		return "", fmt.Errorf("invalid sandbox seccomp %q: expected off, minimal, or full", raw)
 	}
 }
 
@@ -180,9 +203,11 @@ func Prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	if cfg.Mode == ModeOff {
 		return func() {}, nil
 	}
-	// Default network to isolated if empty.
+	// Default network to open if empty. Network isolation is opt-in
+	// because it breaks network-dependent agents (model backends, APIs).
+	// Users must explicitly set network: isolated to enable it.
 	if cfg.Network == "" {
-		cfg.Network = NetworkIsolated
+		cfg.Network = NetworkOpen
 	}
 	// Default seccomp to minimal if empty.
 	if cfg.Seccomp == "" {

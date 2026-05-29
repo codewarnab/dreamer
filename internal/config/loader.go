@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"dreamer/internal/errs"
+	"dreamer/internal/sandbox"
 )
 
 const (
@@ -453,6 +454,30 @@ func validateConfig(cfg *App) error {
 				return errs.ConfigInvalid(fmt.Sprintf("projects.%s.max_analysis_duration", cfg.Projects[i].Name), dur, fmt.Errorf("parse duration: %w", err))
 			}
 		}
+	}
+	// Validate sandbox config at load time so typos like "network: Open"
+	// or "seccomp: ful" are rejected early instead of silently downgraded.
+	if cfg.Sandbox.Network != "" {
+		if _, err := sandbox.ParseNetwork(cfg.Sandbox.Network); err != nil {
+			return errs.ConfigInvalid("sandbox.network", cfg.Sandbox.Network, err)
+		}
+	}
+	if cfg.Sandbox.Seccomp != "" {
+		if _, err := sandbox.ParseSeccomp(cfg.Sandbox.Seccomp); err != nil {
+			return errs.ConfigInvalid("sandbox.seccomp", cfg.Sandbox.Seccomp, err)
+		}
+	}
+	if cfg.Sandbox.Resources.MemoryMB != 0 && cfg.Sandbox.Resources.MemoryMB < sandbox.MinMemoryMB {
+		return errs.ConfigInvalid("sandbox.resources.memory_mb", cfg.Sandbox.Resources.MemoryMB,
+			fmt.Errorf("below minimum %d", sandbox.MinMemoryMB))
+	}
+	if cfg.Sandbox.Resources.Processes != 0 && cfg.Sandbox.Resources.Processes < sandbox.MinProcesses {
+		return errs.ConfigInvalid("sandbox.resources.processes", cfg.Sandbox.Resources.Processes,
+			fmt.Errorf("below minimum %d", sandbox.MinProcesses))
+	}
+	if cfg.Sandbox.Resources.FDs != 0 && cfg.Sandbox.Resources.FDs < sandbox.MinFDs {
+		return errs.ConfigInvalid("sandbox.resources.fds", cfg.Sandbox.Resources.FDs,
+			fmt.Errorf("below minimum %d", sandbox.MinFDs))
 	}
 	return nil
 }

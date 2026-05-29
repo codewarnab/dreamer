@@ -393,6 +393,123 @@ func TestShouldUseNativeModeOffAlwaysFalse(t *testing.T) {
 	}
 }
 
+// --- ParseNetwork tests ---
+
+func TestParseNetwork(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		err   bool
+	}{
+		{"", NetworkOpen, false},
+		{"open", NetworkOpen, false},
+		{"OPEN", NetworkOpen, false},
+		{"open ", NetworkOpen, false},
+		{"isolated", NetworkIsolated, false},
+		{"ISOLATED", NetworkIsolated, false},
+		{"bogus", "", true},
+		{" private", "", true},
+	}
+	for _, tt := range tests {
+		got, err := ParseNetwork(tt.input)
+		if tt.err {
+			if err == nil {
+				t.Errorf("ParseNetwork(%q) expected error", tt.input)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("ParseNetwork(%q) unexpected error: %v", tt.input, err)
+			}
+			if got != tt.want {
+				t.Errorf("ParseNetwork(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		}
+	}
+}
+
+// --- ParseSeccomp tests ---
+
+func TestParseSeccomp(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		err   bool
+	}{
+		{"", SeccompMinimal, false},
+		{"off", SeccompOff, false},
+		{"OFF", SeccompOff, false},
+		{"minimal", SeccompMinimal, false},
+		{"MINIMAL", SeccompMinimal, false},
+		{"full", SeccompFull, false},
+		{"FULL", SeccompFull, false},
+		{"ful", "", true},
+		{"on", "", true},
+	}
+	for _, tt := range tests {
+		got, err := ParseSeccomp(tt.input)
+		if tt.err {
+			if err == nil {
+				t.Errorf("ParseSeccomp(%q) expected error", tt.input)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("ParseSeccomp(%q) unexpected error: %v", tt.input, err)
+			}
+			if got != tt.want {
+				t.Errorf("ParseSeccomp(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		}
+	}
+}
+
+// --- ResourceLimits.Validate tests ---
+
+func TestResourceLimitsValidate_Defaults(t *testing.T) {
+	var r ResourceLimits
+	if err := r.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.MemoryMB != DefaultMemoryMB {
+		t.Errorf("MemoryMB = %d, want %d", r.MemoryMB, DefaultMemoryMB)
+	}
+	if r.Processes != DefaultProcesses {
+		t.Errorf("Processes = %d, want %d", r.Processes, DefaultProcesses)
+	}
+	if r.FDs != DefaultFDs {
+		t.Errorf("FDs = %d, want %d", r.FDs, DefaultFDs)
+	}
+}
+
+func TestResourceLimitsValidate_BelowMinimum(t *testing.T) {
+	tests := []struct {
+		name string
+		r    ResourceLimits
+	}{
+		{"memory", ResourceLimits{MemoryMB: MinMemoryMB - 1}},
+		// MinProcesses=1, so MinProcesses-1=0 means "not set" (skipped).
+		// Use a negative value to test actual below-minimum rejection.
+		{"processes", ResourceLimits{Processes: -1}},
+		{"fds", ResourceLimits{FDs: MinFDs - 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.r.Validate(); err == nil {
+				t.Error("expected error for below-minimum value")
+			}
+		})
+	}
+}
+
+func TestResourceLimitsValidate_ExactMinimum(t *testing.T) {
+	r := ResourceLimits{MemoryMB: MinMemoryMB, Processes: MinProcesses, FDs: MinFDs}
+	if err := r.Validate(); err != nil {
+		t.Fatalf("unexpected error for exact minimums: %v", err)
+	}
+	if r.MemoryMB != MinMemoryMB {
+		t.Errorf("MemoryMB = %d, want %d", r.MemoryMB, MinMemoryMB)
+	}
+}
+
 // --- helper ---
 
 type nilCloser struct{}

@@ -12,9 +12,9 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 )
 
 // Available reports whether bubblewrap sandboxing is supported on this
@@ -59,7 +59,10 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	}
 
 	// Compile seccomp BPF filter and create a memfd for --seccomp.
-	var seccompFD uintptr
+	// The memfd is added to cmd.ExtraFiles so Go's exec package gives
+	// it a deterministic child fd (3 + index). MFD_CLOEXEC ensures the
+	// parent fd is closed on exec; the child inherits via ExtraFiles dup.
+	var seccompFile *os.File
 	if cfg.Seccomp != SeccompOff {
 		var profile SeccompProfile
 		switch cfg.Seccomp {
@@ -76,18 +79,27 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		if err != nil {
 			return nil, fmt.Errorf("seccomp fd: %w", err)
 		}
-		seccompFD = fd
+		if fd > 0 {
+			seccompFile = os.NewFile(fd, "seccomp-bpf")
+			cmd.ExtraFiles = append(cmd.ExtraFiles, seccompFile)
+		}
+	}
+
+	// Child fd for --seccomp: stdin=0, stdout=1, stderr=2, ExtraFiles start at 3.
+	var seccompChildFD uintptr
+	if seccompFile != nil {
+		seccompChildFD = uintptr(3 + len(cmd.ExtraFiles) - 1)
 	}
 
 	cmd.Path = bwrapBinPath
 	cmd.Args = append(
 		[]string{bwrapBinPath},
-		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs, seccompFD)...,
+		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs, seccompChildFD, bwrapSupportsRlimit() == rlimitSupported)...,
 	)
 
 	cleanup = func() {
-		if seccompFD > 0 {
-			syscall.Close(int(seccompFD))
+		if seccompFile != nil {
+			seccompFile.Close()
 		}
 	}
 	return cleanup, nil

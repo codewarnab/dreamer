@@ -1,6 +1,6 @@
-//go:build linux
+//go:build linux && amd64
 
-// Seccomp BPF filter for Linux sandbox. Syscall numbers are x86_64 only.
+// Seccomp BPF filter for Linux sandbox (x86_64 only).
 //
 // ARM64 CONTRIBUTOR NOTES: To add arm64 support:
 //  1. Replace hardcoded syscall numbers with arch-aware constants (e.g.,
@@ -22,35 +22,6 @@ import (
 
 	"golang.org/x/net/bpf"
 )
-
-// Syscall numbers not always exported by Go's syscall package.
-// These are the x86_64 values; arm64 differs but we don't cross-compile
-// seccomp-enabled binaries for arm64 yet.
-//
-// ARM64 contributor note: if adding arm64 support, replace these with
-// arch-specific constants using build tags:
-//   - SYS_MEMFD_CREATE: 319 (x86_64) vs 279 (arm64)
-//   - SYS_SETNS:        308 (x86_64) vs 268 (arm64)
-// Profile rules (SYS_PTRACE, SYS_MOUNT, etc.) are already arch-agnostic
-// via Go's syscall package constants.
-const (
-	sysMemfdCreate = 319 // SYS_MEMFD_CREATE (x86_64)
-	sysSetns       = 308 // SYS_SETNS (x86_64)
-)
-
-// SeccompProfile is a named set of syscall rules.
-type SeccompProfile struct {
-	Name  string
-	Rules []SyscallRule
-}
-
-// SyscallRule blocks a specific syscall number.
-type SyscallRule struct {
-	// Name is the human-readable syscall name (for logging).
-	Name string
-	// NR is the syscall number.
-	NR int
-}
 
 // compileSeccompBPF compiles a SeccompProfile into raw BPF instructions
 // suitable for passing to bwrap via --seccomp fd.
@@ -81,14 +52,16 @@ func compileSeccompBPF(profile SeccompProfile) ([]bpf.RawInstruction, error) {
 	// Default: allow.
 	insns = append(insns, bpf.RetConstant{Val: 0x7FFF0000}) // SECCOMP_RET_ALLOW
 
-	// Fill in skip distances: each JEQ jumps to RET KILL (last instruction).
-	insns = append(insns, bpf.RetConstant{Val: 0x00000000}) // SECCOMP_RET_KILL
+	// Fill in skip distances: each JEQ jumps to RET KILL_PROCESS (last instruction).
+	// Use KILL_PROCESS (0x80000000) not KILL_THREAD (0x00000000) so a multithreaded
+	// child that hits a blocked syscall is fully terminated, not just one thread.
+	insns = append(insns, bpf.RetConstant{Val: 0x80000000}) // SECCOMP_RET_KILL_PROCESS
 	totalLen := len(insns)
 	for i := range insns {
 		if ji, ok := insns[i].(bpf.JumpIf); ok {
 			skip := totalLen - 2 - i
 			if skip > 255 {
-				skip = 255 // clamp to uint8 max
+				return nil, fmt.Errorf("seccomp: skip distance %d exceeds uint8 max (too many rules for current layout)", skip)
 			}
 			ji.SkipTrue = uint8(skip)
 			insns[i] = ji
@@ -104,17 +77,21 @@ func compileSeccompBPF(profile SeccompProfile) ([]bpf.RawInstruction, error) {
 
 // createSeccompFD writes the compiled BPF program to a memfd and returns
 // the fd. bwrap applies this filter to the child process via --seccomp <fd>.
+//
+// bwrap --seccomp <fd> expects the fd to contain ONLY the raw struct sock_filter
+// array (8 bytes per instruction). bwrap derives the instruction count from
+// file size / 8. We do NOT prepend a sock_fprog header (2-byte count + 2-byte
+// padding) — bwrap rejects data that isn't a multiple of 8 bytes.
 func createSeccompFD(raw []bpf.RawInstruction) (uintptr, error) {
 	if len(raw) == 0 {
 		return 0, nil
 	}
 
-	// Encode as a sock_fprog struct (native endian).
-	prog := make([]byte, 4+len(raw)*8)
-	binary.NativeEndian.PutUint16(prog[0:2], uint16(len(raw)))
-	// bytes 2-3 are padding (already zero)
+	// Encode raw sock_filter instructions (no sock_fprog header).
+	// Each instruction is 8 bytes: u16 opcode, u8 jt, u8 jf, u32 k.
+	prog := make([]byte, len(raw)*8)
 	for i, inst := range raw {
-		off := 4 + i*8
+		off := i * 8
 		binary.NativeEndian.PutUint16(prog[off:off+2], inst.Op)
 		prog[off+2] = inst.Jt
 		prog[off+3] = inst.Jf
@@ -122,7 +99,7 @@ func createSeccompFD(raw []bpf.RawInstruction) (uintptr, error) {
 	}
 
 	fd, _, errno := syscall.Syscall(uintptr(sysMemfdCreate),
-		uintptr(unsafe.Pointer(&[]byte("seccomp-bpf\x00")[0])), 0, 0)
+		uintptr(unsafe.Pointer(&[]byte("seccomp-bpf\x00")[0])), 0, 1) // 1 = MFD_CLOEXEC
 	if errno != 0 {
 		return 0, fmt.Errorf("memfd_create: %v", errno)
 	}
@@ -146,27 +123,3 @@ func createSeccompFD(raw []bpf.RawInstruction) (uintptr, error) {
 
 	return fd, nil
 }
-
-var (
-	// profileMinimal blocks ptrace (process injection vector).
-	profileMinimal = SeccompProfile{
-		Name: "minimal",
-		Rules: []SyscallRule{
-			{Name: "ptrace", NR: syscall.SYS_PTRACE},
-		},
-	}
-	// profileFull blocks ptrace + escalation syscalls.
-	profileFull = SeccompProfile{
-		Name: "full",
-		Rules: []SyscallRule{
-			{Name: "ptrace", NR: syscall.SYS_PTRACE},
-			{Name: "mount", NR: syscall.SYS_MOUNT},
-			{Name: "umount2", NR: syscall.SYS_UMOUNT2},
-			{Name: "pivot_root", NR: syscall.SYS_PIVOT_ROOT},
-			{Name: "chroot", NR: syscall.SYS_CHROOT},
-			{Name: "reboot", NR: syscall.SYS_REBOOT},
-			{Name: "setns", NR: sysSetns},
-			{Name: "unshare", NR: syscall.SYS_UNSHARE},
-		},
-	}
-)

@@ -41,21 +41,25 @@ var procVersionPath = "/proc/version"
 var tmpPaths = []string{"/tmp", "/var/tmp"}
 
 var (
-	bwrapOnce sync.Once
-	bwrapCached string
+	bwrapMu      sync.Mutex
+	bwrapCached  string
+	bwrapChecked bool
 )
 
 // bwrapPath returns the absolute path to the bwrap binary, or "" if not
-// found. The result is cached after the first call via sync.Once.
+// found. The result is cached after the first call.
 // Call ResetBwrapPathCache() in tests that need to re-detect bwrap
 // after modifying PATH or installing/uninstalling bwrap.
 func bwrapPath() string {
-	bwrapOnce.Do(func() {
+	bwrapMu.Lock()
+	defer bwrapMu.Unlock()
+	if !bwrapChecked {
 		p, err := exec.LookPath(bwrapBin)
 		if err == nil {
 			bwrapCached = p
 		}
-	})
+		bwrapChecked = true
+	}
 	return bwrapCached
 }
 
@@ -63,8 +67,103 @@ func bwrapPath() string {
 // bwrapPath() re-runs exec.LookPath. Only needed in tests that modify
 // PATH or install/uninstall bwrap between test cases.
 func ResetBwrapPathCache() {
-	bwrapOnce = sync.Once{}
+	bwrapMu.Lock()
+	defer bwrapMu.Unlock()
 	bwrapCached = ""
+	bwrapChecked = false
+	bwrapRlimitCached = rlimitUnknown
+}
+
+// rlimitSupport tracks whether the installed bwrap supports --rlimit.
+type rlimitSupport int
+
+const (
+	rlimitUnknown rlimitSupport = iota
+	rlimitSupported
+	rlimitUnsupported
+)
+
+var bwrapRlimitCached = rlimitUnknown
+
+// bwrapSupportsRlimit reports whether the installed bwrap supports the
+// --rlimit flag (added in bubblewrap 0.12.0). The result is cached.
+func bwrapSupportsRlimit() rlimitSupport {
+	bwrapMu.Lock()
+	defer bwrapMu.Unlock()
+	if bwrapRlimitCached != rlimitUnknown {
+		return bwrapRlimitCached
+	}
+	path := bwrapPathLocked()
+	if path == "" {
+		bwrapRlimitCached = rlimitUnsupported
+		return bwrapRlimitCached
+	}
+	out, err := exec.Command(path, "--version").Output()
+	if err != nil {
+		bwrapRlimitCached = rlimitUnsupported
+		return bwrapRlimitCached
+	}
+	// Output format: "bubblewrap X.Y.Z" or "bubblewrap X.Y.Z+git..."
+	ver := strings.TrimSpace(string(out))
+	ver = strings.TrimPrefix(ver, "bubblewrap ")
+	bwrapRlimitCached = rlimitUnsupported
+	if compareSemver(ver, "0.12.0") >= 0 {
+		bwrapRlimitCached = rlimitSupported
+	}
+	return bwrapRlimitCached
+}
+
+// bwrapPathLocked returns bwrapCached without acquiring bwrapMu.
+// Caller must hold bwrapMu.
+func bwrapPathLocked() string {
+	if !bwrapChecked {
+		p, err := exec.LookPath(bwrapBin)
+		if err == nil {
+			bwrapCached = p
+		}
+		bwrapChecked = true
+	}
+	return bwrapCached
+}
+
+// compareSemver compares two dotted version strings (e.g. "0.12.0" vs "0.11.9").
+// Returns -1, 0, or 1. Non-numeric suffixes (e.g. "+git") are stripped before
+// comparing the numeric portion.
+func compareSemver(a, b string) int {
+	// Strip non-numeric suffixes like "+git" or "-rc1".
+	stripSuffix := func(s string) string {
+		for i, c := range s {
+			if c != '.' && (c < '0' || c > '9') {
+				return s[:i]
+			}
+		}
+		return s
+	}
+	a = stripSuffix(a)
+	b = stripSuffix(b)
+
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	max := len(aParts)
+	if len(bParts) > max {
+		max = len(bParts)
+	}
+	for i := 0; i < max; i++ {
+		var aNum, bNum int
+		if i < len(aParts) {
+			aNum, _ = strconv.Atoi(aParts[i])
+		}
+		if i < len(bParts) {
+			bNum, _ = strconv.Atoi(bParts[i])
+		}
+		if aNum < bNum {
+			return -1
+		}
+		if aNum > bNum {
+			return 1
+		}
+	}
+	return 0
 }
 
 // userNamespacesEnabled checks whether unprivileged user namespaces are
@@ -141,7 +240,7 @@ var readFile = func(path string) ([]byte, error) {
 // So --size must precede --tmpfs, and we must NOT emit a --bind for
 // paths under /tmp or /var/tmp (which would replace the tmpfs with
 // the host path).
-func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, originalBinary string, originalArgs []string, seccompFD uintptr) []string {
+func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, originalBinary string, originalArgs []string, seccompFD uintptr, supportsRlimit bool) []string {
 	args := []string{
 		// Prevent TIOCSTI terminal injection.
 		"--new-session",
@@ -169,15 +268,19 @@ func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, origin
 		args = append(args, "--unshare-net")
 	}
 
-	// Resource limits (rlimits).
-	if cfg.Resources.MemoryMB > 0 {
-		args = append(args, "--rlimit", "RLIMIT_AS", fmt.Sprintf("%d", int64(cfg.Resources.MemoryMB)*1024*1024))
-	}
-	if cfg.Resources.Processes > 0 {
-		args = append(args, "--rlimit", "RLIMIT_NPROC", fmt.Sprintf("%d", cfg.Resources.Processes))
-	}
-	if cfg.Resources.FDs > 0 {
-		args = append(args, "--rlimit", "RLIMIT_NOFILE", fmt.Sprintf("%d", cfg.Resources.FDs))
+	// Resource limits (rlimits). The --rlimit flag was added in bubblewrap
+	// 0.12.0; older versions reject it with "Unknown option". Only emit
+	// when the installed bwrap supports it.
+	if supportsRlimit {
+		if cfg.Resources.MemoryMB > 0 {
+			args = append(args, "--rlimit", "RLIMIT_AS", fmt.Sprintf("%d", int64(cfg.Resources.MemoryMB)*1024*1024))
+		}
+		if cfg.Resources.Processes > 0 {
+			args = append(args, "--rlimit", "RLIMIT_NPROC", fmt.Sprintf("%d", cfg.Resources.Processes))
+		}
+		if cfg.Resources.FDs > 0 {
+			args = append(args, "--rlimit", "RLIMIT_NOFILE", fmt.Sprintf("%d", cfg.Resources.FDs))
+		}
 	}
 
 	// Seccomp BPF filter. FD is passed as-is; bwrap reads it after fork.

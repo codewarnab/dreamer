@@ -9,6 +9,18 @@ import (
 // applying per-provider defaults (model, sandbox) from the config package.
 // Shared by the analysis pipeline and background jobs so provider defaults,
 // model fallback, env copying, and sandbox mode stay in sync.
+//
+// NOTE: Sandbox hardening knobs (network, seccomp, resources, project_write)
+// are global-only — they come from the top-level sandbox: config block and
+// apply uniformly to all providers. Per-provider overrides exist only for
+// the sandbox mode (auto/on/off) via provider_block.sandbox. This is
+// intentional: hardening is a deployment-level concern, not per-agent.
+//
+// NOTE: project_write is a no-op for ACP providers. ACP transports are
+// created before the project dir is known (at provider startup, not per-
+// session), so ProjectDir is "" and the sandbox Prepare function skips
+// the writable-dir addition. CLI providers receive the project dir at
+// session time and honor project_write correctly.
 func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sandboxCfg config.SandboxConfig) ProviderConfig {
 	out := ProviderConfig{
 		Model:          block.Model,
