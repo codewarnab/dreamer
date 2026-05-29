@@ -13,14 +13,14 @@ import (
 // --- Profile construction tests ---
 
 func TestBuildSeatbeltProfile_ContainsVersion1(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if !strings.Contains(profile, "(version 1)") {
 		t.Fatal("profile missing (version 1) header")
 	}
 }
 
 func TestBuildSeatbeltProfile_ContainsDenyWrite(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if !strings.Contains(profile, "(deny file-write*)") {
 		t.Fatal("profile missing (deny file-write*)")
 	}
@@ -29,14 +29,14 @@ func TestBuildSeatbeltProfile_ContainsDenyWrite(t *testing.T) {
 func TestBuildSeatbeltProfile_ProjectDirNotInWriteAllow(t *testing.T) {
 	// PROJECT_DIR must NOT be in the (allow file-write*) block.
 	// The (deny file-write*) protects it by default.
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "PROJECT_DIR") {
 		t.Fatal("profile should not contain PROJECT_DIR in write-allow block")
 	}
 }
 
 func TestBuildSeatbeltProfile_AllowsPrivateTmp(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if !strings.Contains(profile, `(subpath "/private/tmp")`) {
 		t.Fatal("profile should use /private/tmp, not /tmp")
 	}
@@ -46,22 +46,37 @@ func TestBuildSeatbeltProfile_AllowsPrivateTmp(t *testing.T) {
 }
 
 func TestBuildSeatbeltProfile_AllowsDevNull(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if !strings.Contains(profile, `(literal "/dev/null")`) {
 		t.Fatal("profile missing /dev/null")
 	}
 }
 
-func TestBuildSeatbeltProfile_NoNetworkDeny(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+func TestBuildSeatbeltProfile_NetworkOpenByDefault(t *testing.T) {
+	// Default is NetworkOpen (isolation is opt-in).
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "(deny network") {
-		t.Fatal("profile should not deny network")
+		t.Fatal("profile should NOT deny network with default config (NetworkOpen)")
+	}
+}
+
+func TestBuildSeatbeltProfile_NetworkIsolated(t *testing.T) {
+	profile := buildSeatbeltProfile(Config{Network: NetworkIsolated}, nil)
+	if !strings.Contains(profile, "(deny network") {
+		t.Fatal("profile should deny network when Network=isolated")
+	}
+}
+
+func TestBuildSeatbeltProfile_NetworkOpen(t *testing.T) {
+	profile := buildSeatbeltProfile(Config{Network: NetworkOpen}, nil)
+	if strings.Contains(profile, "(deny network") {
+		t.Fatal("profile should not deny network when Network=open")
 	}
 }
 
 func TestBuildSeatbeltProfile_ReferencesWritableDirParams(t *testing.T) {
 	dirs := []string{"/a", "/b", "/c", "/d", "/e"}
-	profile := buildSeatbeltProfile(dirs)
+	profile := buildSeatbeltProfile(Config{}, dirs)
 	for i := 0; i < 5; i++ {
 		param := `(subpath (param "WRITABLE_` + string(rune('0'+i)) + `"))`
 		if !strings.Contains(profile, param) {
@@ -71,28 +86,28 @@ func TestBuildSeatbeltProfile_ReferencesWritableDirParams(t *testing.T) {
 }
 
 func TestBuildSeatbeltProfile_ZeroWritableDirs(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "WRITABLE_") {
 		t.Fatal("profile should have no WRITABLE entries when dirs is empty")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoRedundantMachLookup(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "(allow mach-lookup") {
 		t.Fatal("profile should not have redundant mach-lookup rules")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoIpcPosixSem(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "(allow ipc-posix-sem") {
 		t.Fatal("profile should not have ipc-posix-sem rules")
 	}
 }
 
 func TestBuildSeatbeltProfile_DeniesFileLink(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if !strings.Contains(profile, "(deny file-link)") {
 		t.Fatal("profile missing (deny file-link)")
 	}
@@ -103,14 +118,14 @@ func TestBuildSeatbeltProfile_NoFileLinkReallow(t *testing.T) {
 	// SBPL's file-link checks the destination path, so re-allowing
 	// would let processes hard-link project files into writable dirs.
 	dirs := []string{"/tmp/writable"}
-	profile := buildSeatbeltProfile(dirs)
+	profile := buildSeatbeltProfile(Config{}, dirs)
 	if strings.Contains(profile, "(allow file-link") {
 		t.Fatal("profile should not re-allow file-link in writable dirs")
 	}
 }
 
 func TestBuildSeatbeltProfile_EmptyProjectDir(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "PROJECT_DIR") {
 		t.Fatal("profile should never contain PROJECT_DIR (protected by deny rule)")
 	}
@@ -118,7 +133,7 @@ func TestBuildSeatbeltProfile_EmptyProjectDir(t *testing.T) {
 
 func TestBuildSeatbeltProfile_MoreThan3WritableDirs(t *testing.T) {
 	dirs := []string{"/a", "/b", "/c", "/d"}
-	profile := buildSeatbeltProfile(dirs)
+	profile := buildSeatbeltProfile(Config{}, dirs)
 	for i := 0; i < 4; i++ {
 		param := `(subpath (param "WRITABLE_` + string(rune('0'+i)) + `"))`
 		if !strings.Contains(profile, param) {
@@ -130,28 +145,28 @@ func TestBuildSeatbeltProfile_MoreThan3WritableDirs(t *testing.T) {
 func TestBuildSeatbeltProfile_NoProcessExecRule(t *testing.T) {
 	// Under (allow default), process-exec is already allowed.
 	// No redundant (allow process-exec) should appear in the profile.
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "(allow process-exec)") {
 		t.Fatal("profile should not contain redundant (allow process-exec)")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoPseudoTtyRule(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "(allow pseudo-tty)") {
 		t.Fatal("profile should not contain redundant (allow pseudo-tty)")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoSysctlReadRule(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "(allow sysctl-read") {
 		t.Fatal("profile should not contain redundant (allow sysctl-read)")
 	}
 }
 
 func TestBuildSeatbeltProfile_NoDevTtyRule(t *testing.T) {
-	profile := buildSeatbeltProfile(nil)
+	profile := buildSeatbeltProfile(Config{}, nil)
 	if strings.Contains(profile, "/dev/tty") {
 		t.Fatal("profile should not contain redundant /dev/tty rule")
 	}
@@ -161,7 +176,7 @@ func TestBuildSeatbeltProfile_ParamsMatchInputLength(t *testing.T) {
 	// buildSeatbeltProfile trusts its input. The number of WRITABLE_N
 	// params must equal len(writableDirs) — no skip/cap logic.
 	dirs := []string{"/a", "/b", "/c"}
-	profile := buildSeatbeltProfile(dirs)
+	profile := buildSeatbeltProfile(Config{}, dirs)
 	count := strings.Count(profile, "WRITABLE_")
 	if count != 3 {
 		t.Fatalf("profile has %d WRITABLE entries, want 3", count)

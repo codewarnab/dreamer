@@ -61,10 +61,14 @@ type Spec struct {
 
 // Options is the per-provider configuration carried from YAML config.
 type Options struct {
-	Command      []string
-	Env          map[string]string
-	Model        string
-	DefaultModel string
+	Command          []string
+	Env              map[string]string
+	Model            string
+	DefaultModel     string
+	SandboxProjectWrite bool
+	SandboxNetwork      string
+	SandboxSeccomp      string
+	SandboxResources    sandbox.ResourceLimits
 }
 
 // Provider holds per-instance state shared across sessions for one provider.
@@ -170,6 +174,14 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 			ProjectDir:   wd,
 			WritableDirs: writable,
 			Mode:         sbMode,
+			ProjectWrite: p.Options.SandboxProjectWrite,
+			Network:      p.Options.SandboxNetwork,
+			Seccomp:      p.Options.SandboxSeccomp,
+			Resources: sandbox.ResourceLimits{
+				MemoryMB:  p.Options.SandboxResources.MemoryMB,
+				Processes: p.Options.SandboxResources.Processes,
+				FDs:       p.Options.SandboxResources.FDs,
+			},
 		},
 		spec: spec,
 	}, nil

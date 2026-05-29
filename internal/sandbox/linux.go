@@ -12,6 +12,7 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 )
@@ -45,7 +46,7 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 
 	// Resolve and validate writable dirs once. buildBwrapArgs receives
 	// pre-resolved paths and is a pure string-assembly function.
-	resolvedDirs, err := resolveAndValidateWritableDirs(cfg.WritableDirs, projectDir)
+	resolvedDirs, err := resolveAndValidateWritableDirs(cfg.WritableDirs, projectDir, cfg.ProjectWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -57,13 +58,51 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		originalArgs = cmd.Args[1:]
 	}
 
+	// Compile seccomp BPF filter and create a memfd for --seccomp.
+	// The memfd is added to cmd.ExtraFiles so Go's exec package gives
+	// it a deterministic child fd (3 + index). MFD_CLOEXEC ensures the
+	// parent fd is closed on exec; the child inherits via ExtraFiles dup.
+	var seccompFile *os.File
+	if cfg.Seccomp != SeccompOff {
+		var profile SeccompProfile
+		switch cfg.Seccomp {
+		case SeccompFull:
+			profile = profileFull
+		default:
+			profile = profileMinimal
+		}
+		raw, err := compileSeccompBPF(profile)
+		if err != nil {
+			return nil, fmt.Errorf("seccomp compile: %w", err)
+		}
+		fd, err := createSeccompFD(raw)
+		if err != nil {
+			return nil, fmt.Errorf("seccomp fd: %w", err)
+		}
+		if fd > 0 {
+			seccompFile = os.NewFile(fd, "seccomp-bpf")
+			cmd.ExtraFiles = append(cmd.ExtraFiles, seccompFile)
+		}
+	}
+
+	// Child fd for --seccomp: stdin=0, stdout=1, stderr=2, ExtraFiles start at 3.
+	var seccompChildFD uintptr
+	if seccompFile != nil {
+		seccompChildFD = uintptr(3 + len(cmd.ExtraFiles) - 1)
+	}
+
 	cmd.Path = bwrapBinPath
 	cmd.Args = append(
 		[]string{bwrapBinPath},
-		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs)...,
+		buildBwrapArgs(cfg, projectDir, resolvedDirs, originalBinary, originalArgs, seccompChildFD, bwrapSupportsRlimit() == rlimitSupported)...,
 	)
 
-	return func() {}, nil
+	cleanup = func() {
+		if seccompFile != nil {
+			seccompFile.Close()
+		}
+	}
+	return cleanup, nil
 }
 
 // postStart is a no-op on Linux. Unlike Windows (where Job Objects manage

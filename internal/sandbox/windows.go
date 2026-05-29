@@ -73,12 +73,19 @@ const (
 // Returns a cleanup function that closes the restricted token handle.
 // The caller MUST defer cleanup after cmd.Wait() returns.
 func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
+	// Windows does not support network isolation. Return an actionable
+	// error so the user can adjust their config instead of silently
+	// running without isolation.
+	if cfg.Network != NetworkOpen {
+		return nil, fmt.Errorf("sandbox: network isolation not supported on Windows; set sandbox.network to \"open\" or remove the setting")
+	}
+
 	projectDir, err := filepath.Abs(cfg.ProjectDir)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: resolve project dir: %w", err)
 	}
 
-	capSID, err := createCapabilitySID(projectDir)
+	capSID, err := createCapabilitySID(projectDir, cfg.SIDExpiryDays)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: create capability SID: %w", err)
 	}

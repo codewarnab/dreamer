@@ -59,6 +59,13 @@ func DecidePermission(req PermissionRequest, normalizedRoot string) PermissionDe
 // Only http/https schemes are allowed. Loopback, link-local, and private
 // IP ranges are denied to prevent access to cloud metadata services and
 // internal network endpoints.
+//
+// LIMITATION: This check is point-in-time only. The actual HTTP request
+// is made by the external SDK/agent subprocess. 3xx redirects are
+// followed by the agent's HTTP client without re-checking with dreamer,
+// so an attacker controlling an approved host can redirect to a
+// restricted IP. Closing this requires a dreamer-controlled forward
+// proxy that re-validates each hop's resolved IP at connect time.
 func validateURL(req PermissionRequest) PermissionDecision {
 	var rawURL string
 	if req.Path != nil && *req.Path != "" {
@@ -94,37 +101,61 @@ func validateURL(req PermissionRequest) PermissionDecision {
 	if lower == "localhost" || strings.HasSuffix(lower, ".local") {
 		return PermissionDecision{Reason: fmt.Sprintf("URL targets local hostname %q", hostname)}
 	}
-	// Resolve and check all IPs. Deny if any resolved IP is restricted.
-	//
-	// NOTE: This check is performed at permission-decision time. The provider's
-	// HTTP client performs its own DNS resolution when dialing. A malicious DNS
-	// server with a short TTL can return different IPs for the two lookups (DNS
-	// rebinding). Fully preventing this requires pinning the dial to the
-	// resolved IP via a custom Dialer.Control, which is not yet implemented.
+	// Resolve DNS once and check all returned IPs. This provides a
+	// point-in-time check that the hostname doesn't resolve to a
+	// restricted IP at permission time. Note: this does NOT prevent
+	// DNS rebinding — the actual HTTP request is made by the external
+	// SDK/agent subprocess, which re-resolves the hostname independently.
+	// A malicious DNS server with a short TTL could return a safe IP at
+	// permission time and a restricted IP at dial time. ApprovedIP is
+	// stored for potential future use by a dreamer-controlled proxy.
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
-		// DNS failure — deny (fail closed).
 		return PermissionDecision{Reason: fmt.Sprintf("DNS lookup for %q failed: %v", hostname, err)}
 	}
+	if len(ips) == 0 {
+		return PermissionDecision{Reason: fmt.Sprintf("DNS lookup for %q returned no addresses", hostname)}
+	}
+	// Deny if ANY resolved IP is restricted (defense-in-depth).
 	for _, ip := range ips {
 		if isRestrictedIP(ip) {
 			return PermissionDecision{Reason: fmt.Sprintf("hostname %q resolves to restricted IP %s", hostname, ip)}
 		}
 	}
-	return PermissionDecision{Approved: true}
+	// Return the first resolved IP for pinning. Currently stored on
+	// the decision but not consumed by callers (acpcore, copilotsdk)
+	// because the HTTP client is controlled by the SDK/agent, not by
+	// dreamer. A future SDK version or custom dialer could use this
+	// to make DNS rebinding ineffective.
+	return PermissionDecision{Approved: true, ApprovedIP: ips[0].String()}
 }
 
 // cgnatRange covers Carrier-Grade NAT (RFC 6598) which is not included in
 // Go's IsPrivate() but should not be reachable from the analyzer.
 var cgnatRange = net.IPNet{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)}
 
+// nat64Prefix is the Well-Known NAT64 prefix (RFC 6052).
+var nat64Prefix = net.IPNet{IP: net.ParseIP("64:ff9b::"), Mask: net.CIDRMask(96, 128)}
+
+// sixToFourPrefix is the 6to4 relay prefix (RFC 3056).
+var sixToFourPrefix = net.IPNet{IP: net.ParseIP("2002::"), Mask: net.CIDRMask(16, 128)}
+
 // isRestrictedIP returns true for IPs that must not be dialed by the analyzer:
 // loopback, link-local, private, unspecified (0.0.0.0 / ::), multicast,
-// and CGNAT (100.64.0.0/10). IPv4-mapped IPv6 addresses (e.g.
-// ::ffff:127.0.0.1) are checked after unwrapping to their IPv4 form.
+// and CGNAT (100.64.0.0/10). IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1),
+// NAT64 (64:ff9b::/96), and 6to4 (2002::/16) embedded IPv4 are unwrapped
+// and checked recursively.
 func isRestrictedIP(ip net.IP) bool {
 	if v4 := ip.To4(); v4 != nil {
 		ip = v4
+	}
+	// Unwrap NAT64 embedded IPv4 (last 4 bytes of 64:ff9b::<v4>).
+	if nat64Prefix.Contains(ip) && len(ip) == net.IPv6len {
+		return isRestrictedIP(net.IP(ip[12:16]))
+	}
+	// Unwrap 6to4 embedded IPv4 (bytes 2-5 of 2002:<v4>::...).
+	if sixToFourPrefix.Contains(ip) && len(ip) == net.IPv6len {
+		return isRestrictedIP(net.IP(ip[2:6]))
 	}
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsPrivate() || ip.IsUnspecified() || ip.IsMulticast() || cgnatRange.Contains(ip)

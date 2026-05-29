@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/sandbox"
 )
 
 // --- New validation ---
@@ -130,7 +131,7 @@ func TestSessionRunFailsFastAfterTransportClose(t *testing.T) {
 	// `true` exits 0 immediately so its stdout closes within
 	// milliseconds. dialStdio spawns + starts the readLoop goroutine
 	// which will observe EOF and call markClosed().
-	transport, err := dialStdio(context.Background(), "test-acp", []string{truePath}, nil, "false")
+	transport, err := dialStdio(context.Background(), "test-acp", []string{truePath}, nil, "false", false, "", "", sandbox.ResourceLimits{})
 	if err != nil {
 		t.Fatalf("dialStdio: %v", err)
 	}

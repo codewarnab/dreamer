@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"dreamer/internal/config"
+	"dreamer/internal/sandbox"
 )
 
 // ErrUnavailable: provider can no longer serve the current pipeline.Run.
@@ -68,6 +69,15 @@ type ProviderConfig struct {
 	// Sandbox is the raw "sandbox" config value ("auto", "true", "false",
 	// or empty for default). Parsed by the sandbox package.
 	Sandbox string
+
+	// SandboxProjectWrite adds ProjectDir to the writable list when true.
+	SandboxProjectWrite bool
+	// SandboxNetwork is the network isolation mode ("isolated" or "open").
+	SandboxNetwork string
+	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
+	SandboxSeccomp string
+	// SandboxResources configures OS resource caps.
+	SandboxResources sandbox.ResourceLimits
 }
 
 // ProviderFactory builds a Provider instance.

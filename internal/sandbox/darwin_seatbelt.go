@@ -1,5 +1,12 @@
 //go:build darwin
 
+// macOS sandbox using sandbox-exec(1) and Seatbelt (SBPL) profiles.
+//
+// DEPRECATION: sandbox-exec is deprecated by Apple and may be removed in
+// a future macOS version. If that happens, this backend must fall back to
+// provider-native sandboxing (ModeAuto). The --seatbelt-profile flag used
+// here is not part of the public sandbox-exec API.
+
 package sandbox
 
 import (
@@ -44,16 +51,28 @@ func validateSBPLPath(path string) error {
 // Callers MUST pass a pre-resolved, deduplicated, capped slice from
 // resolveWritableDirs. This function trusts its input and performs no
 // dedup, skip, or cap logic of its own.
-func buildSeatbeltProfile(writableDirs []string) string {
+func buildSeatbeltProfile(cfg Config, writableDirs []string) string {
 	var b strings.Builder
 
 	// Header and base policy.
 	// THREAT MODEL: This sandbox provides write-protection only, not
 	// full containment. Under (allow default), processes can read any
-	// file on the system (including secrets), use the network, and
-	// execute any binary. Network isolation is a future opt-in enhancement.
+	// file on the system (including secrets) and execute any binary.
+	// Network isolation is applied when cfg.Network != NetworkOpen.
 	b.WriteString(`(version 1)
 (allow default)
+
+;; Network isolation: deny all network operations when not explicitly open.
+`)
+	if cfg.Network != NetworkOpen {
+		b.WriteString(`(deny network*)
+(deny network-outbound)
+(deny network-inbound)
+`)
+	}
+
+	b.WriteString(`
+
 
 ;; Deny all file writes (default-deny for mutation)
 ;; Covers: file-write-data, file-write-create, file-write-unlink,

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -26,8 +27,9 @@ type sidAndAttrs struct {
 // createCapabilitySID loads or creates a persistent capability SID for the
 // given workspace directory. The SID is stored in ~/.dreamer/.sandbox/.
 // Each workspace gets a unique SID keyed by a SHA-256 hash of the canonical
-// workspace path.
-func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
+// workspace path. expiryDays controls how long unused SID files are kept;
+// pass 0 to use DefaultSIDExpiryDays.
+func createCapabilitySID(workspaceDir string, expiryDays int) (*windows.SID, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: get home dir: %w", err)
@@ -37,12 +39,22 @@ func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
 		return nil, fmt.Errorf("sandbox: create SID dir: %w", err)
 	}
 
+	// Prune stale SID files before creating a new one. Errors are
+	// non-fatal — cleanup is best-effort.
+	if expiryDays <= 0 {
+		expiryDays = DefaultSIDExpiryDays
+	}
+	pruneOrphanSIDs(dir, expiryDays)
+
 	h := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(workspaceDir))))
 	path := filepath.Join(dir, hex.EncodeToString(h[:8])+".sid")
 
 	// Try loading an existing SID.
 	if data, err := os.ReadFile(path); err == nil {
 		if sid, err := windows.StringToSid(strings.TrimSpace(string(data))); err == nil {
+			// Refresh mtime so pruneOrphanSIDs doesn't delete active SIDs.
+			now := time.Now()
+			os.Chtimes(path, now, now)
 			return sid, nil
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -70,6 +82,32 @@ func createCapabilitySID(workspaceDir string) (*windows.SID, error) {
 		return nil, fmt.Errorf("sandbox: parse generated SID: %w", err)
 	}
 	return sid, nil
+}
+
+// DefaultSIDExpiryDays is the default number of days before an unused SID
+// file is eligible for cleanup. Overridable via config.sandbox.sid_expiry_days.
+const DefaultSIDExpiryDays = 7
+
+// pruneOrphanSIDs removes .sid files in dir that are older than expiryDays.
+// Errors are silently ignored — cleanup is best-effort.
+func pruneOrphanSIDs(dir string, expiryDays int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Duration(expiryDays) * 24 * time.Hour)
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".sid" {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // generateRandomSID creates a random SID string in the form S-1-5-21-a-b-c-d.

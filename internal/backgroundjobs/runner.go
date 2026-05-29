@@ -345,7 +345,7 @@ func (e *Executor) resolveProvider(job *Job) (analyzer.ProviderConfig, error) {
 		return analyzer.ProviderConfig{}, fmt.Errorf("load config: %w", err)
 	}
 	_, block := cfg.ResolveProviderConfig(nil, string(job.ProviderID))
-	providerCfg := analyzer.ProviderConfigFromBlock(string(job.ProviderID), block)
+	providerCfg := analyzer.ProviderConfigFromBlock(string(job.ProviderID), block, cfg.Sandbox)
 	if job.Model != "" {
 		providerCfg.Model = job.Model
 	}

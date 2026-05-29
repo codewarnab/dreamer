@@ -166,4 +166,8 @@ type PermissionRequest struct {
 type PermissionDecision struct {
 	Approved bool
 	Reason   string
+	// ApprovedIP is the pre-resolved IP address for URL approvals.
+	// Callers should dial this IP directly instead of the hostname to
+	// prevent DNS rebinding attacks. Empty for non-URL decisions.
+	ApprovedIP string
 }

@@ -386,7 +386,7 @@ type permissionHandler func(req map[string]any) map[string]any
 // dialStdio spawns the ACP agent subprocess over stdio and returns a
 // transport wired to its stdin/stdout. Sandbox preparation and post-start
 // hooks are applied when sandboxMode is not "off".
-func dialStdio(ctx context.Context, providerID string, command []string, env map[string]string, sandboxMode string) (*transport, error) {
+func dialStdio(ctx context.Context, providerID string, command []string, env map[string]string, sandboxMode string, sandboxProjectWrite bool, sandboxNetwork, sandboxSeccomp string, sandboxResources sandbox.ResourceLimits) (*transport, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Env = transportutil.MergeWithProcessEnv(env)
 
@@ -411,6 +411,10 @@ func dialStdio(ctx context.Context, providerID string, command []string, env map
 		ProjectDir:   "",
 		WritableDirs: writableDirs,
 		Mode:         sbMode,
+		ProjectWrite: sandboxProjectWrite,
+		Network:      sandboxNetwork,
+		Seccomp:      sandboxSeccomp,
+		Resources:    sandboxResources,
 	}
 	var prepareCleanup func()
 	if sbMode != sandbox.ModeOff {

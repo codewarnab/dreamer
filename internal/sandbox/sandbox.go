@@ -17,7 +17,7 @@ package sandbox
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,11 +32,15 @@ type Mode string
 
 const (
 	// ModeAuto uses the OS sandbox if available. If unavailable, callers
-	// should keep provider-native policy flags instead.
+	// should keep provider-native policy flags instead. This is the
+	// "native sandbox" mode — the provider manages its own write protection.
 	ModeAuto Mode = "auto"
 	// ModeOn requires the sandbox. Errors out if the OS doesn't support it.
+	// This is the "controlled" mode — dreamer enforces read-only project,
+	// writable output/tmp/config dirs, network isolation, and resource caps.
 	ModeOn Mode = "true"
 	// ModeOff disables sandboxing. The user explicitly accepts the risk.
+	// All other sandbox knobs (network, seccomp, resources) are ignored.
 	ModeOff Mode = "false"
 )
 
@@ -52,6 +56,115 @@ type Config struct {
 
 	// Mode controls whether the sandbox is applied.
 	Mode Mode
+
+	// ProjectWrite adds ProjectDir to the writable list when true.
+	// Default false (analysis mode — project dir is read-only).
+	ProjectWrite bool
+
+	// Network controls network isolation. "isolated" (default) removes
+	// network access; "open" allows full network. Parsed via ParseNetwork.
+	Network string
+
+	// Seccomp selects the syscall filter profile on Linux. "off", "minimal"
+	// (default, blocks ptrace), or "full" (blocks escalation syscalls).
+	// Ignored on non-Linux platforms.
+	Seccomp string
+
+	// Resources configures OS resource caps (Linux rlimits).
+	Resources ResourceLimits
+
+	// SIDExpiryDays overrides the default SID file expiry (7 days).
+	// Only used on Windows. 0 means use DefaultSIDExpiryDays.
+	SIDExpiryDays int
+}
+
+// ResourceLimits configures OS resource caps for the sandboxed process.
+type ResourceLimits struct {
+	// MemoryMB is the virtual memory cap in MB (RLIMIT_AS). Min 64. Default 2048.
+	MemoryMB int
+	// Processes is the max process count (RLIMIT_NPROC). Min 1. Default 64.
+	Processes int
+	// FDs is the max file descriptors (RLIMIT_NOFILE). Min 16. Default 256.
+	FDs int
+}
+
+const (
+	DefaultMemoryMB = 2048
+	// DefaultProcesses is the default RLIMIT_NPROC value. This limit is
+	// per-UID (not per-process), so it counts the daemon, web server, all
+	// sibling provider children, and the user's other processes. 256
+	// provides headroom for typical multi-provider setups.
+	DefaultProcesses = 256
+	DefaultFDs       = 256
+	MinMemoryMB      = 64
+	MinProcesses     = 1
+	MinFDs           = 16
+)
+
+// NetworkMode constants for Config.Network.
+const (
+	NetworkIsolated = "isolated"
+	NetworkOpen     = "open"
+)
+
+// SeccompProfile constants for Config.Seccomp.
+const (
+	SeccompOff     = "off"
+	SeccompMinimal = "minimal"
+	SeccompFull    = "full"
+)
+
+// ParseNetwork converts a raw string into a network mode. Empty string
+// maps to NetworkOpen (isolation is opt-in). Invalid values return an error.
+func ParseNetwork(raw string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "":
+		return NetworkOpen, nil
+	case "isolated":
+		return NetworkIsolated, nil
+	case "open":
+		return NetworkOpen, nil
+	default:
+		return "", fmt.Errorf("invalid sandbox network %q: expected isolated or open", raw)
+	}
+}
+
+// ParseSeccomp converts a raw string into a seccomp profile name. Empty
+// string maps to SeccompMinimal. Invalid values return an error.
+func ParseSeccomp(raw string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "":
+		return SeccompMinimal, nil
+	case "off":
+		return SeccompOff, nil
+	case "minimal":
+		return SeccompMinimal, nil
+	case "full":
+		return SeccompFull, nil
+	default:
+		return "", fmt.Errorf("invalid sandbox seccomp %q: expected off, minimal, or full", raw)
+	}
+}
+
+// Validate checks resource limit minimums and returns an error if any
+// value is below its floor. Zero values use defaults.
+func (r *ResourceLimits) Validate() error {
+	if r.MemoryMB == 0 {
+		r.MemoryMB = DefaultMemoryMB
+	} else if r.MemoryMB < MinMemoryMB {
+		return fmt.Errorf("sandbox: memory_mb %d is below minimum %d", r.MemoryMB, MinMemoryMB)
+	}
+	if r.Processes == 0 {
+		r.Processes = DefaultProcesses
+	} else if r.Processes < MinProcesses {
+		return fmt.Errorf("sandbox: processes %d is below minimum %d", r.Processes, MinProcesses)
+	}
+	if r.FDs == 0 {
+		r.FDs = DefaultFDs
+	} else if r.FDs < MinFDs {
+		return fmt.Errorf("sandbox: fds %d is below minimum %d", r.FDs, MinFDs)
+	}
+	return nil
 }
 
 // ShouldUseNative reports whether child providers may rely on the OS sandbox
@@ -89,6 +202,25 @@ func ParseMode(raw string) (Mode, error) {
 func Prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	if cfg.Mode == ModeOff {
 		return func() {}, nil
+	}
+	// Default network to open if empty. Network isolation is opt-in
+	// because it breaks network-dependent agents (model backends, APIs).
+	// Users must explicitly set network: isolated to enable it.
+	if cfg.Network == "" {
+		cfg.Network = NetworkOpen
+	}
+	// Default seccomp to minimal if empty.
+	if cfg.Seccomp == "" {
+		cfg.Seccomp = SeccompMinimal
+	}
+	// When ProjectWrite is enabled and ProjectDir is set, add it to the
+	// writable list so the kernel allows writes to the project tree.
+	if cfg.ProjectWrite && cfg.ProjectDir != "" {
+		cfg.WritableDirs = append([]string{cfg.ProjectDir}, cfg.WritableDirs...)
+	}
+	// Validate resource limits (zero -> defaults, below min -> error).
+	if err := cfg.Resources.Validate(); err != nil {
+		return nil, err
 	}
 	if !Available() {
 		if cfg.Mode == ModeOn {
@@ -187,7 +319,8 @@ func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, provide
 					// cleans up when the handle is released. On POSIX,
 					// a zombie or D-state child leaks the goroutine and
 					// a process slot for the lifetime of the daemon.
-					log.Printf("sandbox: %s: process did not exit after Kill within 10s; possible zombie (platform-dependent cleanup)", providerID)
+					slog.Warn("sandbox: process did not exit after Kill within 10s; possible zombie",
+						"provider", providerID)
 				}
 			}()
 		}
