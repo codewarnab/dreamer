@@ -31,22 +31,6 @@ var commandGroups = []*cobra.Group{
 	{ID: groupInspect, Title: "Inspect"},
 }
 
-// groupAssignments maps command Use strings to their group ID.
-// Commands not listed here appear in a trailing "Other" section.
-var groupAssignments = map[string]string{
-	"analyze":  groupCore,
-	"daemon":   groupCore,
-	"jobs":     groupCore,
-	"start":    groupCore,
-	"stop":     groupCore,
-	"status":   groupCore,
-	"setup":    groupSetup,
-	"add":      groupSetup,
-	"startup":  groupSetup,
-	"ls-chats": groupInspect,
-	"web":      groupInspect,
-}
-
 // styledHelp renders a lipgloss-styled help message for cmd.
 func styledHelp(cmd *cobra.Command, _ []string) {
 	// Styles.
@@ -89,14 +73,8 @@ func styledHelp(cmd *cobra.Command, _ []string) {
 		if !subcmd.IsAvailableCommand() && subcmd.Name() != "help" {
 			continue
 		}
-		gid := subcmd.GroupID
-		if gid == "" {
-			if assigned, ok := groupAssignments[subcmd.Name()]; ok {
-				gid = assigned
-			}
-		}
-		if gid != "" {
-			grouped[gid] = append(grouped[gid], subcmd)
+		if subcmd.GroupID != "" {
+			grouped[subcmd.GroupID] = append(grouped[subcmd.GroupID], subcmd)
 		} else {
 			ungrouped = append(ungrouped, subcmd)
 		}
