@@ -31,6 +31,7 @@ type jobsInteractiveModel struct {
 	scheduler  backgroundjobs.Scheduler
 	configPath string
 	outputRoot string
+	cmd        *cobra.Command
 
 	jobs   []*backgroundjobs.Job // sorted by name
 	cursor int                   // selected row index
@@ -42,10 +43,9 @@ type jobsInteractiveModel struct {
 	detailJob *backgroundjobs.Job
 
 	// Confirmation overlay.
-	confirmActive  bool
-	confirmMsg     string
-	confirmAction  func() tea.Cmd // runs on 'y'
-	confirmRunning bool           // true while a background action is in flight
+	confirmActive bool
+	confirmMsg    string
+	confirmAction func() tea.Cmd // runs on 'y'
 
 	// Status flash message.
 	statusMsg string
@@ -53,14 +53,10 @@ type jobsInteractiveModel struct {
 	// Quit signal.
 	quit bool
 
-	// Pending action to execute after TUI exits (create/edit wizard).
-	pendingAction *jobsNextAction
-}
-
-// jobsNextAction describes a wizard to launch after the TUI exits.
-type jobsNextAction struct {
-	kind string // "create" or "edit"
-	job  *backgroundjobs.Job
+	// Embedded wizard — non-nil when in create/edit mode.
+	wizard     *jobWizardModel
+	wizardEdit bool   // true = editing existing job
+	wizardID   string // job ID being edited (for edit mode)
 }
 
 // jobsStatusMsg carries a flash message back to the model after an async action.
@@ -79,22 +75,15 @@ type jobsRunResultMsg struct {
 }
 
 // runJobsInteractive launches the full-screen interactive jobs dashboard.
-// After the TUI exits, if a pending action (create/edit) was requested,
-// the wizard runs and the TUI relaunches — looping until the user quits.
 func runJobsInteractive(cmd *cobra.Command) error {
 	resolvedConfigPath, err := resolveConfigPath(configPath)
 	if err != nil {
 		return err
 	}
 
-	outputRoot, cfg, err := resolveOutputRoot(cmd, resolvedConfigPath)
+	outputRoot, _, err := resolveOutputRoot(cmd, resolvedConfigPath)
 	if err != nil {
 		return err
-	}
-
-	defaultProvider := cfg.DefaultProvider
-	if defaultProvider == "" {
-		defaultProvider = string(config.DefaultProviderID)
 	}
 
 	lg := logging.Silent()
@@ -106,80 +95,189 @@ func runJobsInteractive(cmd *cobra.Command) error {
 		sched = s
 	}
 
-	for {
-		m := jobsInteractiveModel{
-			store:      store,
-			runStore:   runStore,
-			scheduler:  sched,
-			configPath: resolvedConfigPath,
-			outputRoot: outputRoot,
-			view:       jobsViewList,
-		}
-
-		// Load initial jobs.
-		if err := m.reloadJobs(); err != nil {
-			return fmt.Errorf("load jobs: %w", err)
-		}
-
-		final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
-		if err != nil {
-			return fmt.Errorf("run interactive: %w", err)
-		}
-
-		result := final.(jobsInteractiveModel)
-		if result.quit || result.pendingAction == nil {
-			return nil
-		}
-
-		// Execute the pending action (wizard), then loop back to TUI.
-		action := result.pendingAction
-		switch action.kind {
-		case "create":
-			if err := runJobWizardAndCreate(cmd, outputRoot, resolvedConfigPath, defaultProvider); err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
-		case "edit":
-			if err := runEditWizard(cmd, outputRoot, resolvedConfigPath, defaultProvider, action.job); err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
-		}
-		// Loop — TUI relaunches with fresh data.
+	m := jobsInteractiveModel{
+		store:      store,
+		runStore:   runStore,
+		scheduler:  sched,
+		configPath: resolvedConfigPath,
+		outputRoot: outputRoot,
+		cmd:        cmd,
+		view:       jobsViewList,
 	}
+
+	if err := m.reloadJobs(); err != nil {
+		return fmt.Errorf("load jobs: %w", err)
+	}
+
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	return err
 }
 
-// runJobWizardAndCreate launches the job creation wizard and creates the job.
-func runJobWizardAndCreate(cmd *cobra.Command, outputRoot, configPath, defaultProvider string) error {
-	merged := jobWizardAnswers{}
-	answers, confirmed, err := runJobWizard(merged)
+// reloadJobs loads the current job list from the store and sorts by name.
+func (m *jobsInteractiveModel) reloadJobs() error {
+	state, err := m.store.Load()
 	if err != nil {
 		return err
 	}
-	if !confirmed {
-		return nil
+	m.jobs = m.jobs[:0]
+	for _, j := range state.Jobs {
+		m.jobs = append(m.jobs, j)
 	}
-	return createAndSaveJob(cmd, outputRoot, configPath, jobAnswersToCreateInput(answers, defaultProvider), false)
+	sort.Slice(m.jobs, func(i, k int) bool {
+		return strings.ToLower(m.jobs[i].Name) < strings.ToLower(m.jobs[k].Name)
+	})
+	if m.cursor >= len(m.jobs) {
+		m.cursor = len(m.jobs) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	return nil
 }
 
-// runEditWizard launches the job creation wizard pre-filled from an existing job,
-// then applies the changes as an edit.
-func runEditWizard(cmd *cobra.Command, outputRoot, configPath, defaultProvider string, job *backgroundjobs.Job) error {
-	answers, confirmed, err := runJobWizard(jobToWizardAnswers(job))
-	if err != nil {
-		return err
-	}
-	if !confirmed {
+// selectedJob returns the job under the cursor, or nil if the list is empty.
+func (m *jobsInteractiveModel) selectedJob() *backgroundjobs.Job {
+	if m.cursor < 0 || m.cursor >= len(m.jobs) {
 		return nil
 	}
+	return m.jobs[m.cursor]
+}
 
+// Init implements tea.Model.
+func (m jobsInteractiveModel) Init() tea.Cmd {
+	return nil
+}
+
+// Update implements tea.Model.
+func (m jobsInteractiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
+	case tea.KeyMsg:
+		if m.confirmActive {
+			return m.updateConfirm(msg)
+		}
+		if m.wizard != nil {
+			return m.updateWizard(msg)
+		}
+		switch m.view {
+		case jobsViewList:
+			return m.updateList(msg)
+		case jobsViewDetail:
+			return m.updateDetail(msg)
+		}
+
+	case jobsStatusMsg:
+		m.statusMsg = msg.msg
+		return m, nil
+
+	case jobsRefreshMsg:
+		_ = m.reloadJobs()
+		m.statusMsg = ""
+		return m, nil
+
+	case jobsRunResultMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Run failed: %v", msg.err)
+		} else {
+			m.statusMsg = fmt.Sprintf("Job %s finished: %s", msg.jobID, msg.status)
+		}
+		_ = m.reloadJobs()
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// ── Wizard mode ────────────────────────────────────────────────────────────
+
+// enterWizard sets up the embedded wizard for create or edit.
+func (m *jobsInteractiveModel) enterWizard(prefilled jobWizardAnswers) {
+	wm := newJobWizardModel(prefilled)
+	m.wizard = &wm
+}
+
+// updateWizard delegates key input to the embedded wizard and handles its lifecycle.
+func (m jobsInteractiveModel) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// ctrl+c always quits entirely.
+	if key == "ctrl+c" {
+		m.quit = true
+		return m, tea.Quit
+	}
+
+	// esc at first step (path) cancels the wizard, returning to list.
+	if key == "esc" && m.wizard.step == wizStepPath {
+		m.wizard = nil
+		m.statusMsg = "Cancelled."
+		return m, nil
+	}
+
+	// Delegate all other keys to the wizard.
+	var cmd tea.Cmd
+	updated, cmd := m.wizard.Update(msg)
+	if wm, ok := updated.(jobWizardModel); ok {
+		m.wizard = &wm
+	}
+
+	// Check if wizard completed or quit.
+	if m.wizard.confirmed {
+		return m, m.applyWizardAnswers()
+	}
+	if m.wizard.quit {
+		m.quit = true
+		return m, tea.Quit
+	}
+
+	return m, cmd
+}
+
+// applyWizardAnswers applies the wizard's answers — creates or updates the job.
+func (m *jobsInteractiveModel) applyWizardAnswers() tea.Cmd {
+	return func() tea.Msg {
+		answers := m.wizard.answers
+		resolvedConfigPath := m.configPath
+		outputRoot := m.outputRoot
+
+		if m.wizardEdit {
+			// Edit existing job.
+			if err := applyJobEdit(m.store, m.scheduler, m.cmd, outputRoot, resolvedConfigPath, m.wizardID, answers); err != nil {
+				return jobsStatusMsg{msg: fmt.Sprintf("Edit failed: %v", err)}
+			}
+			return jobsStatusMsg{msg: fmt.Sprintf("Job %q updated.", answers.name)}
+		}
+
+		// Create new job.
+		cfg, _ := config.LoadConfigWithOverlay(resolvedConfigPath, "")
+		defaultProvider := cfg.DefaultProvider
+		if defaultProvider == "" {
+			defaultProvider = string(config.DefaultProviderID)
+		}
+		input := jobAnswersToCreateInput(answers, defaultProvider)
+		if err := createAndSaveJob(m.cmd, outputRoot, resolvedConfigPath, input, false); err != nil {
+			return jobsStatusMsg{msg: fmt.Sprintf("Create failed: %v", err)}
+		}
+		return jobsStatusMsg{msg: fmt.Sprintf("Job %q created.", input.name)}
+	}
+}
+
+// applyJobEdit updates an existing job from wizard answers.
+func applyJobEdit(store *backgroundjobs.Store, sched backgroundjobs.Scheduler, cmd *cobra.Command, outputRoot, configPath, jobID string, answers jobWizardAnswers) error {
+	cfg, _ := config.LoadConfigWithOverlay(configPath, "")
+	defaultProvider := cfg.DefaultProvider
+	if defaultProvider == "" {
+		defaultProvider = string(config.DefaultProviderID)
+	}
 	input := jobAnswersToCreateInput(answers, defaultProvider)
-
-	lg := logging.Silent()
-	store := backgroundjobs.NewStore(outputRoot, lg)
 
 	scheduleChanged := false
 
 	if err := store.Update(context.Background(), func(s *backgroundjobs.State) error {
-		j := s.Jobs[job.ID]
+		j := s.Jobs[jobID]
 		if j == nil {
 			return fmt.Errorf("job not found")
 		}
@@ -213,19 +311,18 @@ func runEditWizard(cmd *cobra.Command, outputRoot, configPath, defaultProvider s
 		return fmt.Errorf("update job: %w", err)
 	}
 
-	// Reinstall OS schedule if changed (best-effort).
 	if scheduleChanged {
-		if sched, schedErr := buildScheduler(outputRoot, configPath); schedErr == nil {
+		if s, schedErr := buildScheduler(outputRoot, configPath); schedErr == nil {
 			params := backgroundjobs.ScheduleParams{
-				JobID:    job.ID,
+				JobID:    jobID,
 				Schedule: input.schedule,
 				Name:     backgroundjobs.SanitizeScheduleName(input.name),
-				Enabled:  job.Enabled,
+				Enabled:  true,
 			}
-			osState, installErr := sched.Install(context.Background(), params)
+			osState, installErr := s.Install(context.Background(), params)
 			if installErr == nil {
 				_ = store.Update(context.Background(), func(s *backgroundjobs.State) error {
-					if j := s.Jobs[job.ID]; j != nil {
+					if j := s.Jobs[jobID]; j != nil {
 						j.OSSchedule = osState
 					}
 					return nil
@@ -237,122 +334,15 @@ func runEditWizard(cmd *cobra.Command, outputRoot, configPath, defaultProvider s
 	audit := backgroundjobs.NewAuditWriter(store.Dir())
 	_ = audit.Write(backgroundjobs.AuditEvent{
 		Event: "job.edit",
-		JobID: job.ID,
+		JobID: jobID,
 		Actor: "interactive",
 	})
-
 	return nil
 }
 
-// jobToWizardAnswers converts a Job to wizard answers for pre-filling the edit wizard.
-func jobToWizardAnswers(j *backgroundjobs.Job) jobWizardAnswers {
-	return jobWizardAnswers{
-		projectPath:   j.ProjectPath,
-		name:          j.Name,
-		providerID:    j.ProviderID,
-		model:         j.Model,
-		prompt:        j.Prompt,
-		fileAccess:    string(j.Permissions.FileAccess),
-		writablePaths: strings.Join(j.Permissions.WritablePaths, ","),
-		scheduleKind:  string(j.Schedule.Kind),
-		every:         j.Schedule.Every,
-		timeOfDay:     j.Schedule.TimeOfDay,
-		dayOfWeek:     j.Schedule.DayOfWeek,
-		cron:          j.Schedule.Cron,
-		timezone:      j.Schedule.Timezone,
-	}
-}
+// ── Confirmation overlay ───────────────────────────────────────────────────
 
-// reloadJobs loads the current job list from the store and sorts by name.
-func (m *jobsInteractiveModel) reloadJobs() error {
-	state, err := m.store.Load()
-	if err != nil {
-		return err
-	}
-	m.jobs = m.jobs[:0]
-	for _, j := range state.Jobs {
-		m.jobs = append(m.jobs, j)
-	}
-	sort.Slice(m.jobs, func(i, k int) bool {
-		return strings.ToLower(m.jobs[i].Name) < strings.ToLower(m.jobs[k].Name)
-	})
-	// Clamp cursor.
-	if m.cursor >= len(m.jobs) {
-		m.cursor = len(m.jobs) - 1
-	}
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
-	return nil
-}
-
-// selectedJob returns the job under the cursor, or nil if the list is empty.
-func (m *jobsInteractiveModel) selectedJob() *backgroundjobs.Job {
-	if m.cursor < 0 || m.cursor >= len(m.jobs) {
-		return nil
-	}
-	return m.jobs[m.cursor]
-}
-
-// Init implements tea.Model.
-func (m jobsInteractiveModel) Init() tea.Cmd {
-	return nil
-}
-
-// Update implements tea.Model.
-func (m jobsInteractiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		return m, nil
-
-	case tea.KeyMsg:
-		// Confirmation overlay intercepts all keys.
-		if m.confirmActive {
-			return m.updateConfirm(msg)
-		}
-		switch m.view {
-		case jobsViewList:
-			return m.updateList(msg)
-		case jobsViewDetail:
-			return m.updateDetail(msg)
-		}
-
-	case jobsStatusMsg:
-		m.statusMsg = msg.msg
-		return m, nil
-
-	case jobsRefreshMsg:
-		_ = m.reloadJobs()
-		m.statusMsg = ""
-		return m, nil
-
-	case jobsRunResultMsg:
-		m.confirmRunning = false
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("Run failed: %v", msg.err)
-		} else {
-			m.statusMsg = fmt.Sprintf("Job %s finished: %s", msg.jobID, msg.status)
-		}
-		_ = m.reloadJobs()
-		return m, nil
-	}
-
-	return m, nil
-}
-
-// updateConfirm handles key input while the confirmation overlay is active.
 func (m jobsInteractiveModel) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.confirmRunning {
-		// Action in flight — ignore keys except ctrl+c.
-		if msg.String() == "ctrl+c" {
-			m.quit = true
-			return m, tea.Quit
-		}
-		return m, nil
-	}
-
 	switch msg.String() {
 	case "y", "Y":
 		m.confirmActive = false
@@ -375,7 +365,8 @@ func (m jobsInteractiveModel) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-// updateList handles key input in the list view.
+// ── List view ──────────────────────────────────────────────────────────────
+
 func (m jobsInteractiveModel) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
@@ -386,13 +377,10 @@ func (m jobsInteractiveModel) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
-		return m, nil
-
 	case "down", "j":
 		if m.cursor < len(m.jobs)-1 {
 			m.cursor++
 		}
-		return m, nil
 
 	case "enter":
 		job := m.selectedJob()
@@ -401,53 +389,47 @@ func (m jobsInteractiveModel) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailJob = job
 			m.statusMsg = ""
 		}
-		return m, nil
 
 	case " ":
-		// Toggle enabled/paused.
 		job := m.selectedJob()
 		if job != nil {
 			return m, m.makeToggleCmd(job)
 		}
-		return m, nil
 
 	case "n":
-		// Create new job — exits TUI, runs wizard, returns.
-		return m, m.makeCreateCmd()
+		m.enterWizard(jobWizardAnswers{})
+		return m, nil
 
 	case "e":
-		// Edit selected job.
 		job := m.selectedJob()
 		if job != nil {
-			return m, m.makeEditCmd(job)
+			m.wizardEdit = true
+			m.wizardID = job.ID
+			m.enterWizard(jobToWizardAnswers(job))
 		}
 		return m, nil
 
 	case "d":
-		// Delete with confirmation.
 		job := m.selectedJob()
 		if job != nil {
 			m.confirmActive = true
 			m.confirmMsg = fmt.Sprintf("Delete job %q? This cannot be undone. [y/N]", job.Name)
 			m.confirmAction = m.makeDeleteCmd(job)
 		}
-		return m, nil
 
 	case "r":
-		// Run job immediately.
 		job := m.selectedJob()
 		if job != nil {
 			m.confirmActive = true
 			m.confirmMsg = fmt.Sprintf("Run job %q now? [y/N]", job.Name)
 			m.confirmAction = m.makeRunCmd(job)
 		}
-		return m, nil
 	}
-
 	return m, nil
 }
 
-// updateDetail handles key input in the detail view.
+// ── Detail view ────────────────────────────────────────────────────────────
+
 func (m jobsInteractiveModel) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -457,19 +439,19 @@ func (m jobsInteractiveModel) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	case "esc", "backspace":
 		m.view = jobsViewList
 		m.detailJob = nil
-		return m, nil
 
 	case " ":
 		job := m.detailJob
 		if job != nil {
 			return m, m.makeToggleCmd(job)
 		}
-		return m, nil
 
 	case "e":
 		job := m.detailJob
 		if job != nil {
-			return m, m.makeEditCmd(job)
+			m.wizardEdit = true
+			m.wizardID = job.ID
+			m.enterWizard(jobToWizardAnswers(job))
 		}
 		return m, nil
 
@@ -480,7 +462,6 @@ func (m jobsInteractiveModel) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.confirmMsg = fmt.Sprintf("Delete job %q? This cannot be undone. [y/N]", job.Name)
 			m.confirmAction = m.makeDeleteCmd(job)
 		}
-		return m, nil
 
 	case "r":
 		job := m.detailJob
@@ -489,15 +470,12 @@ func (m jobsInteractiveModel) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.confirmMsg = fmt.Sprintf("Run job %q now? [y/N]", job.Name)
 			m.confirmAction = m.makeRunCmd(job)
 		}
-		return m, nil
 	}
-
 	return m, nil
 }
 
 // ── Action commands ────────────────────────────────────────────────────────
 
-// makeToggleCmd returns a tea.Cmd that toggles a job's enabled state.
 func (m *jobsInteractiveModel) makeToggleCmd(job *backgroundjobs.Job) tea.Cmd {
 	return func() tea.Msg {
 		newEnabled := !job.Enabled
@@ -513,7 +491,6 @@ func (m *jobsInteractiveModel) makeToggleCmd(job *backgroundjobs.Job) tea.Cmd {
 			return jobsStatusMsg{msg: fmt.Sprintf("Toggle failed: %v", err)}
 		}
 
-		// Update OS schedule (best-effort).
 		if m.scheduler != nil {
 			if newEnabled {
 				params := backgroundjobs.ScheduleParams{
@@ -550,11 +527,9 @@ func (m *jobsInteractiveModel) makeToggleCmd(job *backgroundjobs.Job) tea.Cmd {
 	}
 }
 
-// makeDeleteCmd returns a func that produces a tea.Cmd to delete a job.
 func (m *jobsInteractiveModel) makeDeleteCmd(job *backgroundjobs.Job) func() tea.Cmd {
 	return func() tea.Cmd {
 		return func() tea.Msg {
-			// Remove OS schedule (best-effort).
 			if m.scheduler != nil {
 				_ = m.scheduler.Remove(context.Background(), job.ID)
 			}
@@ -572,7 +547,6 @@ func (m *jobsInteractiveModel) makeDeleteCmd(job *backgroundjobs.Job) func() tea
 	}
 }
 
-// makeRunCmd returns a func that produces a tea.Cmd to run a job immediately.
 func (m *jobsInteractiveModel) makeRunCmd(job *backgroundjobs.Job) func() tea.Cmd {
 	return func() tea.Cmd {
 		return func() tea.Msg {
@@ -616,24 +590,16 @@ func (m *jobsInteractiveModel) makeRunCmd(job *backgroundjobs.Job) func() tea.Cm
 	}
 }
 
-// makeCreateCmd returns a tea.Cmd that sets the pending action and quits the TUI.
-func (m *jobsInteractiveModel) makeCreateCmd() tea.Cmd {
-	m.pendingAction = &jobsNextAction{kind: "create"}
-	return tea.Quit
-}
-
-// makeEditCmd returns a tea.Cmd that sets the pending action and quits the TUI.
-func (m *jobsInteractiveModel) makeEditCmd(job *backgroundjobs.Job) tea.Cmd {
-	m.pendingAction = &jobsNextAction{kind: "edit", job: job}
-	return tea.Quit
-}
-
 // ── View ───────────────────────────────────────────────────────────────────
 
-// View implements tea.Model.
 func (m jobsInteractiveModel) View() string {
 	if m.width == 0 {
 		return ""
+	}
+
+	// Wizard mode — render the wizard view directly (no box wrapping).
+	if m.wizard != nil {
+		return m.wizard.View()
 	}
 
 	var content string
@@ -644,20 +610,16 @@ func (m jobsInteractiveModel) View() string {
 		content = m.viewDetail()
 	}
 
-	// Confirmation overlay.
 	if m.confirmActive {
 		content += "\n\n" + m.viewConfirm()
 	}
 
-	// Wrap in a bordered box.
 	return m.wrapBox(content)
 }
 
-// viewList renders the job list view.
 func (m jobsInteractiveModel) viewList() string {
 	var b strings.Builder
 
-	// Title.
 	titleStyle := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	b.WriteString(titleStyle.Render("Background Jobs"))
 	b.WriteString("\n\n")
@@ -670,15 +632,13 @@ func (m jobsInteractiveModel) viewList() string {
 		return b.String()
 	}
 
-	// Table header.
 	headerStyle := lipgloss.NewStyle().Foreground(colorDim).Bold(true)
 	b.WriteString(headerStyle.Render(fmt.Sprintf("  %-22s %-16s %-20s %-10s %s",
 		"NAME", "PROVIDER", "SCHEDULE", "STATUS", "NEXT/LAST")))
 	b.WriteString("\n")
 
-	// Rows.
-	enabledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b"))  // green
-	pausedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))   // red
+	enabledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b"))
+	pausedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
 	selectedStyle := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 
@@ -691,13 +651,11 @@ func (m jobsInteractiveModel) viewList() string {
 			nameStyle = selectedStyle
 		}
 
-		// Status.
 		status := enabledStyle.Render("enabled")
 		if !job.Enabled {
 			status = pausedStyle.Render("paused")
 		}
 
-		// Next/last run.
 		timeStr := "-"
 		if t := effectiveNextRun(job); t != nil {
 			timeStr = formatRelativeTime(*t)
@@ -705,7 +663,6 @@ func (m jobsInteractiveModel) viewList() string {
 			timeStr = formatRelativeTime(*job.LastRunAt)
 		}
 
-		// Schedule display.
 		schedStr := formatSchedule(job.Schedule)
 
 		name := job.Name
@@ -728,7 +685,6 @@ func (m jobsInteractiveModel) viewList() string {
 	return b.String()
 }
 
-// viewDetail renders the job detail view.
 func (m jobsInteractiveModel) viewDetail() string {
 	job := m.detailJob
 	if job == nil {
@@ -746,7 +702,6 @@ func (m jobsInteractiveModel) viewDetail() string {
 	b.WriteString(titleStyle.Render(job.Name))
 	b.WriteString("\n\n")
 
-	// Fields.
 	b.WriteString(labelStyle.Render("  ID:          "))
 	b.WriteString(valueStyle.Render(job.ID))
 	b.WriteString("\n")
@@ -801,7 +756,6 @@ func (m jobsInteractiveModel) viewDetail() string {
 	}
 	b.WriteString("\n")
 
-	// Prompt (truncated).
 	b.WriteString("\n")
 	b.WriteString(labelStyle.Render("  Prompt:\n"))
 	prompt := job.Prompt
@@ -817,14 +771,12 @@ func (m jobsInteractiveModel) viewDetail() string {
 		b.WriteString("\n")
 	}
 
-	// Recent runs.
 	b.WriteString("\n")
 	b.WriteString(labelStyle.Render("  Recent Runs:\n"))
 	runs, err := m.runStore.List(job.ID)
 	if err != nil || len(runs) == 0 {
 		b.WriteString("    None recorded.\n")
 	} else {
-		b.WriteString(labelStyle.Render("    %-20s %-12s %-10s %s\n"))
 		b.WriteString(labelStyle.Render(fmt.Sprintf("    %-20s %-12s %-10s %s",
 			"STARTED", "STATUS", "DURATION", "RUN_ID")))
 		b.WriteString("\n")
@@ -857,15 +809,12 @@ func (m jobsInteractiveModel) viewDetail() string {
 	return b.String()
 }
 
-// viewConfirm renders the confirmation overlay.
 func (m jobsInteractiveModel) viewConfirm() string {
-	confirmStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffb86c")).Bold(true) // orange
+	confirmStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffb86c")).Bold(true)
 	return confirmStyle.Render("  " + m.confirmMsg)
 }
 
-// wrapBox wraps content in a centered bordered box with the action bar.
 func (m jobsInteractiveModel) wrapBox(content string) string {
-	// Action bar.
 	var actions string
 	switch m.view {
 	case jobsViewList:
@@ -875,7 +824,6 @@ func (m jobsInteractiveModel) wrapBox(content string) string {
 	}
 	dimStyle := lipgloss.NewStyle().Foreground(colorDim)
 
-	// Status flash.
 	var statusLine string
 	if m.statusMsg != "" {
 		statusStyle := lipgloss.NewStyle().Foreground(colorAccent)
@@ -884,14 +832,12 @@ func (m jobsInteractiveModel) wrapBox(content string) string {
 
 	fullContent := content + statusLine + "\n" + dimStyle.Render("  "+actions)
 
-	// Box styling.
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorAccent).
 		Padding(1, 2)
 
-	// Responsive width.
-	innerW := m.width - 8 // border + padding + margin
+	innerW := m.width - 8
 	if innerW < 40 {
 		innerW = 40
 	}
@@ -901,7 +847,24 @@ func (m jobsInteractiveModel) wrapBox(content string) string {
 	boxStyle = boxStyle.Width(innerW)
 
 	rendered := boxStyle.Render(fullContent)
-
-	// Center vertically and horizontally.
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, rendered)
+}
+
+// jobToWizardAnswers converts a Job to wizard answers for pre-filling the edit wizard.
+func jobToWizardAnswers(j *backgroundjobs.Job) jobWizardAnswers {
+	return jobWizardAnswers{
+		projectPath:   j.ProjectPath,
+		name:          j.Name,
+		providerID:    j.ProviderID,
+		model:         j.Model,
+		prompt:        j.Prompt,
+		fileAccess:    string(j.Permissions.FileAccess),
+		writablePaths: strings.Join(j.Permissions.WritablePaths, ","),
+		scheduleKind:  string(j.Schedule.Kind),
+		every:         j.Schedule.Every,
+		timeOfDay:     j.Schedule.TimeOfDay,
+		dayOfWeek:     j.Schedule.DayOfWeek,
+		cron:          j.Schedule.Cron,
+		timezone:      j.Schedule.Timezone,
+	}
 }
