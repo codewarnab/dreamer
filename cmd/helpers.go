@@ -2,13 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -90,8 +90,8 @@ func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.App) {
 	}
 }
 
-// printBox renders a Unicode box around the given lines.
-func printBox(cmd *cobra.Command, lines []string) {
+// printBox renders a Unicode box around the given lines to w.
+func printBox(w io.Writer, lines []string) {
 	maxLen := 0
 	for _, line := range lines {
 		if len(line) > maxLen {
@@ -100,9 +100,9 @@ func printBox(cmd *cobra.Command, lines []string) {
 	}
 	boxWidth := maxLen + 4 // padding inside the box
 
-	cmd.Printf("╔%s╗\n", strings.Repeat("═", boxWidth))
+	fmt.Fprintf(w, "╔%s╗\n", strings.Repeat("═", boxWidth))
 	for _, line := range lines {
-		cmd.Printf("║  %-*s  ║\n", maxLen, line)
+		fmt.Fprintf(w, "║  %-*s  ║\n", maxLen, line)
 	}
-	cmd.Printf("╚%s╝\n", strings.Repeat("═", boxWidth))
+	fmt.Fprintf(w, "╚%s╝\n", strings.Repeat("═", boxWidth))
 }

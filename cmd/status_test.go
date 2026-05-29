@@ -114,11 +114,9 @@ func TestFilterRecentNilFinishedAt(t *testing.T) {
 }
 
 func TestPrintBoxEmpty(t *testing.T) {
-	command := newRootCommand()
-	var buf = new(bytes.Buffer)
-	command.SetOut(buf)
+	var buf bytes.Buffer
 
-	printBox(command, []string{})
+	printBox(&buf, []string{})
 	output := buf.String()
 	// Should still render box borders.
 	if !strings.Contains(output, "╔") {
