@@ -43,32 +43,16 @@ func newJobsReconcileCommand() *cobra.Command {
 				defer lg.Close()
 			}
 
-			store := backgroundjobs.NewStore(outputRoot, lg)
-			execPath, err := resolveSelfExecutable()
+			deps, err := buildSchedulerDeps(outputRoot, resolvedConfigPath, lg)
 			if err != nil {
 				return err
 			}
 
-			installID, err := backgroundjobs.ResolveInstallID(store.Dir())
-			if err != nil {
-				return fmt.Errorf("resolve install ID: %w", err)
-			}
-
-			cfg := backgroundjobs.SchedulerConfig{
-				StoreDir:       store.Dir(),
-				ExecutablePath: execPath,
-				ConfigPath:     resolvedConfigPath,
-				InstallID:      installID,
-				ConfigHash:     backgroundjobs.HashConfigPath(resolvedConfigPath),
-				ExecHash:       backgroundjobs.HashExecutablePath(execPath),
-			}
-
-			scheduler := backgroundjobs.NewScheduler(cfg, lg)
 			reconciler := &backgroundjobs.Reconciler{
-				Scheduler:  scheduler,
-				Store:      store,
+				Scheduler:  deps.scheduler,
+				Store:      deps.store,
 				Logger:     lg,
-				ConfigHash: cfg.ConfigHash,
+				ConfigHash: deps.cfg.ConfigHash,
 			}
 
 			result, err := reconciler.ReconcileSchedules(cmd.Context(), dryRun)

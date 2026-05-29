@@ -211,20 +211,28 @@ func truncateWithEllipsis(s string, maxRunes int) string {
 	return string(runes[:maxRunes-1]) + "~"
 }
 
-// buildScheduler creates a Scheduler from the resolved config path and output root.
-// Returns nil + nil error if scheduler creation fails (non-fatal for CLI commands).
-func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, error) {
-	lg := logging.Silent()
+// schedulerDeps holds the shared components needed by scheduler consumers.
+type schedulerDeps struct {
+	scheduler backgroundjobs.Scheduler
+	store     *backgroundjobs.Store
+	cfg       backgroundjobs.SchedulerConfig
+	logger    *logging.Logger
+}
+
+// buildSchedulerDeps resolves the executable, store, and scheduler config used
+// by all background-jobs subcommands. The caller provides its own logger so
+// reconcile/health can use verbose output while other callers stay silent.
+func buildSchedulerDeps(outputRoot, configPath string, lg *logging.Logger) (schedulerDeps, error) {
 	store := backgroundjobs.NewStore(outputRoot, lg)
 
 	execPath, err := resolveSelfExecutable()
 	if err != nil {
-		return nil, err
+		return schedulerDeps{}, err
 	}
 
 	installID, err := backgroundjobs.ResolveInstallID(store.Dir())
 	if err != nil {
-		return nil, fmt.Errorf("resolve install ID: %w", err)
+		return schedulerDeps{}, fmt.Errorf("resolve install ID: %w", err)
 	}
 
 	cfg := backgroundjobs.SchedulerConfig{
@@ -236,7 +244,22 @@ func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, er
 		ExecHash:       backgroundjobs.HashExecutablePath(execPath),
 	}
 
-	return backgroundjobs.NewScheduler(cfg, lg), nil
+	return schedulerDeps{
+		scheduler: backgroundjobs.NewScheduler(cfg, lg),
+		store:     store,
+		cfg:       cfg,
+		logger:    lg,
+	}, nil
+}
+
+// buildScheduler creates a Scheduler from the resolved config path and output root.
+// Returns nil + nil error if scheduler creation fails (non-fatal for CLI commands).
+func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, error) {
+	deps, err := buildSchedulerDeps(outputRoot, configPath, logging.Silent())
+	if err != nil {
+		return nil, err
+	}
+	return deps.scheduler, nil
 }
 
 // createJobInput holds the resolved inputs for creating a background job.
