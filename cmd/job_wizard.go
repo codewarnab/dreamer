@@ -426,12 +426,26 @@ func (m jobWizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = typed.Height
 		inner := m.boxInnerWidth()
 		m.providerList.SetWidth(inner)
-		m.modelList.SetWidth(inner)
-		m.permissionsList.SetWidth(inner)
-		m.scheduleKindList.SetWidth(inner)
-		m.intervalList.SetWidth(inner)
-		m.dayOfWeekList.SetWidth(inner)
-		m.timezoneList.SetWidth(inner)
+		// Guard: lists are zero-value until their step runs; SetWidth on a
+		// zero-height list triggers division-by-zero in updatePagination.
+		if m.modelList.Height() > 0 {
+			m.modelList.SetWidth(inner)
+		}
+		if m.permissionsList.Height() > 0 {
+			m.permissionsList.SetWidth(inner)
+		}
+		if m.scheduleKindList.Height() > 0 {
+			m.scheduleKindList.SetWidth(inner)
+		}
+		if m.intervalList.Height() > 0 {
+			m.intervalList.SetWidth(inner)
+		}
+		if m.dayOfWeekList.Height() > 0 {
+			m.dayOfWeekList.SetWidth(inner)
+		}
+		if m.timezoneList.Height() > 0 {
+			m.timezoneList.SetWidth(inner)
+		}
 		m.promptInput.SetWidth(inner)
 		m.filePicker, _ = m.filePicker.Update(tea.WindowSizeMsg{Width: inner, Height: typed.Height})
 	}
