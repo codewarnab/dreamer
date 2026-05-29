@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -10,6 +11,20 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
+
+// resolveSelfExecutable returns the absolute path of the running dreamer
+// binary with symlinks resolved. Falls back to the un-resolved path when
+// EvalSymlinks fails (e.g. the binary was deleted since launch).
+func resolveSelfExecutable() (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(execPath); resolveErr == nil {
+		return resolved, nil
+	}
+	return execPath, nil
+}
 
 const (
 	defaultConfigFileName = "config.yaml"

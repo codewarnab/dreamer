@@ -251,8 +251,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 
 	var selfRepair *backgroundjobs.SelfRepairConfig
 	if scheduler != nil {
-		execPath, _ := os.Executable()
-		execPath, _ = filepath.EvalSymlinks(execPath)
+		execPath, _ := resolveSelfExecutable()
 		selfRepair = &backgroundjobs.SelfRepairConfig{
 			Scheduler:      scheduler,
 			ExecutablePath: execPath,

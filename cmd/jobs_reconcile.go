@@ -3,8 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/logging"
@@ -46,13 +44,9 @@ func newJobsReconcileCommand() *cobra.Command {
 			}
 
 			store := backgroundjobs.NewStore(outputRoot, lg)
-			execPath, err := os.Executable()
+			execPath, err := resolveSelfExecutable()
 			if err != nil {
-				return fmt.Errorf("resolve executable: %w", err)
-			}
-			execPath, err = filepath.EvalSymlinks(execPath)
-			if err != nil {
-				execPath, _ = os.Executable()
+				return err
 			}
 
 			installID, err := backgroundjobs.ResolveInstallID(store.Dir())
