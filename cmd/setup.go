@@ -672,7 +672,7 @@ func (m setupModel) View() string {
 	if boxInner > 90 {
 		boxInner = 90
 	}
-	boxOuter := boxInner + 6 // border(2) + padding(4)
+	boxOuter := boxInner + 2 // lipgloss Width includes padding; border adds 2
 	style := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		Padding(1, 2).

@@ -752,7 +752,8 @@ func (m jobWizardModel) View() string {
 	}
 
 	innerW := m.boxInnerWidth()
-	boxOuter := innerW + 6
+	// lipgloss Width includes padding; border adds 2 (left + right).
+	boxOuter := innerW + 2
 
 	headerStyle := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	header := headerStyle.Render("░░ DREAMER ░░ Background Job Setup")

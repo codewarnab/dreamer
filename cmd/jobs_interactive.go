@@ -154,6 +154,15 @@ func (m jobsInteractiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// Forward to embedded wizard so it can size and center correctly.
+		if m.wizard != nil {
+			var cmd tea.Cmd
+			updated, cmd := m.wizard.Update(msg)
+			if wm, ok := updated.(jobWizardModel); ok {
+				m.wizard = &wm
+			}
+			return m, cmd
+		}
 		return m, nil
 
 	case tea.KeyMsg:
