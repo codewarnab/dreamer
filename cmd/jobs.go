@@ -647,14 +647,44 @@ func newJobsShowCommand() *cobra.Command {
 	return command
 }
 
+// formatRelativeTime returns a human-readable relative duration like "in 2h 15m"
+// or "45s ago".
+func formatRelativeTime(t time.Time) string {
+	d := time.Until(t)
+	if d < 0 {
+		d = -d
+		return formatDuration(d) + " ago"
+	}
+	return "in " + formatDuration(d)
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	days := h / 24
+	h = h % 24
+	return fmt.Sprintf("%dd %dh %dm", days, h, m)
+}
+
 func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 	nextRun := "-"
 	if job.NextRunAt != nil {
 		nextRun = job.NextRunAt.Format("2006-01-02 15:04:05 MST")
+		nextRun += " (" + formatRelativeTime(*job.NextRunAt) + ")"
 	}
 	lastRun := "-"
 	if job.LastRunAt != nil {
 		lastRun = job.LastRunAt.Format("2006-01-02 15:04:05 MST")
+		lastRun += " (" + formatRelativeTime(*job.LastRunAt) + ")"
 	}
 
 	cmd.Printf("ID:          %s\n", job.ID)
