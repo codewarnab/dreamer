@@ -12,6 +12,9 @@ func TestMissingFlagError(t *testing.T) {
 	err := missingFlagError(cmd, "path", "The project directory to analyze.", "dreamer analyze --path /my/project")
 
 	s := err.Error()
+	if len(s) == 0 {
+		t.Fatal("rendered error is empty")
+	}
 	for _, want := range []string{
 		"Missing required flag",
 		"--path",
@@ -24,6 +27,9 @@ func TestMissingFlagError(t *testing.T) {
 			t.Errorf("error output missing %q\n got: %s", want, s)
 		}
 	}
+	if !strings.Contains(s, "\n") {
+		t.Error("expected multi-line output from styled error")
+	}
 }
 
 func TestMissingArgError(t *testing.T) {
@@ -31,6 +37,9 @@ func TestMissingArgError(t *testing.T) {
 	err := missingArgError(cmd, "job-id", "The ID of the job to show.", "jobs show abc123")
 
 	s := err.Error()
+	if len(s) == 0 {
+		t.Fatal("rendered error is empty")
+	}
 	for _, want := range []string{
 		"Missing required argument",
 		"job-id",
@@ -43,6 +52,9 @@ func TestMissingArgError(t *testing.T) {
 			t.Errorf("error output missing %q\n got: %s", want, s)
 		}
 	}
+	if !strings.Contains(s, "\n") {
+		t.Error("expected multi-line output from styled error")
+	}
 }
 
 func TestInvalidFlagValueError(t *testing.T) {
@@ -50,6 +62,9 @@ func TestInvalidFlagValueError(t *testing.T) {
 	err := invalidFlagValueError(cmd, "schedule", "hourly", []string{"interval", "daily", "weekly", "cron"})
 
 	s := err.Error()
+	if len(s) == 0 {
+		t.Fatal("rendered error is empty")
+	}
 	for _, want := range []string{
 		"Invalid value for",
 		"--schedule",
@@ -60,6 +75,9 @@ func TestInvalidFlagValueError(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("error output missing %q\n got: %s", want, s)
 		}
+	}
+	if !strings.Contains(s, "\n") {
+		t.Error("expected multi-line output from styled error")
 	}
 }
 

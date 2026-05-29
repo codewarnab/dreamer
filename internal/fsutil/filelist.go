@@ -1,7 +1,9 @@
 package fsutil
 
 import (
+	"fmt"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -10,6 +12,11 @@ import (
 
 // DefaultFileListCap is the maximum number of files returned by ListProjectFiles.
 const DefaultFileListCap = 2000
+
+// maxWalkDepth is the maximum directory nesting depth for listViaWalkDir.
+// Directories deeper than this are skipped to prevent resource exhaustion
+// on pathologically deep trees.
+const maxWalkDepth = 30
 
 // ListProjectFiles returns repo-relative file paths within projectRoot.
 // It tries git ls-files first (respects .gitignore); falls back to
@@ -21,6 +28,26 @@ func ListProjectFiles(projectRoot string, maxFiles int) ([]string, error) {
 	if root == "" {
 		return nil, nil
 	}
+
+	// Normalize to absolute and resolve symlinks so callers can't trick
+	// the walk into escaping the intended tree.
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("list project files %q: resolve absolute: %w", root, err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, fmt.Errorf("list project files %q: eval symlinks: %w", root, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("list project files %q: %w", root, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("list project files %q: not a directory", root)
+	}
+	root = resolved
+
 	if maxFiles <= 0 {
 		maxFiles = DefaultFileListCap
 	}
@@ -78,6 +105,14 @@ func listViaWalkDir(projectRoot string) ([]string, error) {
 			return nil
 		}
 		if d.IsDir() {
+			// Depth-limit: skip directories deeper than maxWalkDepth to
+			// bound CPU/memory on pathologically deep trees.
+			if path != projectRoot {
+				rel, err := filepath.Rel(projectRoot, path)
+				if err == nil && strings.Count(rel, string(os.PathSeparator)) >= maxWalkDepth {
+					return fs.SkipDir
+				}
+			}
 			if ShouldSkipDir(d.Name(), path == projectRoot, protectedDirs...) {
 				return fs.SkipDir
 			}

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,8 @@ func TestListProjectFilesProtectedDirsSkipped(t *testing.T) {
 	}
 }
 
+// TestListProjectFilesGitRepo uses a real git repo because the git ls-files
+// behavior (ignore rules, cached vs others) can't be meaningfully mocked.
 func TestListProjectFilesGitRepo(t *testing.T) {
 	// Skip if git is not available.
 	if _, err := exec.LookPath("git"); err != nil {
@@ -195,5 +198,67 @@ func TestListProjectFilesEmptyDir(t *testing.T) {
 	}
 	if len(files) != 0 {
 		t.Fatalf("expected 0 files, got %d", len(files))
+	}
+}
+
+func TestListProjectFilesInvalidPath(t *testing.T) {
+	_, err := ListProjectFiles(filepath.Join(t.TempDir(), "nonexistent"), 0)
+	if err == nil {
+		t.Fatal("expected error for non-existent path, got nil")
+	}
+}
+
+func TestListProjectFilesNotADir(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ListProjectFiles(f, 0)
+	if err == nil {
+		t.Fatal("expected error for file path, got nil")
+	}
+}
+
+func TestListProjectFilesDeepDir(t *testing.T) {
+	root := t.TempDir()
+
+	// Create a tree deeper than maxWalkDepth (30).
+	deep := root
+	for i := 0; i < 50; i++ {
+		deep = filepath.Join(deep, "l"+string(rune('a'+i%26)))
+	}
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Place files at various depths.
+	shallow := filepath.Join(root, "l0", "l1", "file.go")
+	if err := os.MkdirAll(filepath.Dir(shallow), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shallow, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deepFile := filepath.Join(deep, "deep.go")
+	if err := os.WriteFile(deepFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := ListProjectFiles(root, 0)
+	if err != nil {
+		t.Fatalf("ListProjectFiles: %v", err)
+	}
+
+	// Shallow file should appear; deep file should be beyond maxWalkDepth.
+	found := map[string]bool{}
+	for _, f := range files {
+		found[f] = true
+	}
+	if !found["l0/l1/file.go"] {
+		t.Error("expected shallow file l0/l1/file.go in results")
+	}
+	for _, f := range files {
+		if strings.Count(f, "/") > maxWalkDepth {
+			t.Errorf("file %q exceeds maxWalkDepth", f)
+		}
 	}
 }

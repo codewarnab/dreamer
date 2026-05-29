@@ -20,6 +20,8 @@ type ProviderDefaults struct {
 }
 
 var (
+	// providerDefaultsMu guards providerDefaults. All writes happen in init();
+	// runtime access is read-only.
 	providerDefaultsMu sync.RWMutex
 	providerDefaults   = map[ProviderID]ProviderDefaults{}
 )

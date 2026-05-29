@@ -76,6 +76,8 @@ func suggestCommand(typed string, cmds []*cobra.Command) string {
 		}
 	}
 
+	// Threshold matches Git's leniency: max(2, len/3) keeps suggestions
+	// useful even for short inputs where 1 edit is already significant.
 	threshold := max(2, len(typed)/3)
 	if bestDist > threshold {
 		return ""

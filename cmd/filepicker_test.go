@@ -215,7 +215,7 @@ func TestFilePickerNoMatches(t *testing.T) {
 	}
 }
 
-func TestFilePickerInitFocuses(t *testing.T) {
+func TestFilePickerAcceptsInputAfterConstruction(t *testing.T) {
 	m := newFilePickerModel(t.TempDir(), 80)
 	cmd := m.Init()
 	if cmd == nil {

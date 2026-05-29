@@ -98,7 +98,7 @@ func (compactDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		cursor = lipgloss.NewStyle().Foreground(colorAccent).Render("> ")
 		line = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render(display)
 		if it.desc != "" {
-			line += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#e9e9e9")).Render(it.desc)
+			line += "  " + lipgloss.NewStyle().Foreground(colorItemDesc).Render(it.desc)
 		}
 	}
 	fmt.Fprint(w, cursor+line)
