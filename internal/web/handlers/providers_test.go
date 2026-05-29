@@ -90,9 +90,9 @@ func TestProviders_MergesAcrossProjects(t *testing.T) {
 	if cp.LastError != "boom" {
 		t.Errorf("copilot-sdk last_error = %q, want boom", cp.LastError)
 	}
-	// Falls back to DefaultModelByProvider when no override is set.
-	if cp.Model != config.DefaultModelByProvider[config.ProviderCopilotSDK] {
-		t.Errorf("copilot-sdk model = %q, want default %q", cp.Model, config.DefaultModelByProvider[config.ProviderCopilotSDK])
+	// Falls back to DefaultModelFor when no override is set.
+	if cp.Model != config.DefaultModelFor(string(config.ProviderCopilotSDK)) {
+		t.Errorf("copilot-sdk model = %q, want default %q", cp.Model, config.DefaultModelFor(string(config.ProviderCopilotSDK)))
 	}
 }
 

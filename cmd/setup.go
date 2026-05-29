@@ -726,14 +726,13 @@ func (m setupModel) View() string {
 }
 
 // defaultModelsFor returns the known-good models for a provider.
-// First entry matches config.DefaultModelByProvider for that provider.
+// First entry matches config.DefaultModelFor for that provider.
 // Used by both the setup wizard and the job wizard's model picker.
 func defaultModelsFor(provider string) []string {
-	pid := config.ProviderID(provider)
-	if models, ok := config.AllModelsByProvider[pid]; ok {
+	if models := config.AllModelsFor(provider); len(models) > 0 {
 		return models
 	}
-	if m, ok := config.DefaultModelByProvider[pid]; ok && m != "" {
+	if m := config.DefaultModelFor(provider); m != "" {
 		return []string{m}
 	}
 	return []string{config.DefaultModel}

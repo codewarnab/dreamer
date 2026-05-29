@@ -24,7 +24,7 @@ import (
 func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sandboxCfg config.SandboxConfig) ProviderConfig {
 	out := ProviderConfig{
 		Model:          block.Model,
-		DefaultModel:   config.DefaultModelByProvider[config.ProviderID(providerID)],
+		DefaultModel:   config.DefaultModelFor(providerID),
 		CopilotHome:    block.CopilotHome,
 		CLIURL:         block.CLIURL,
 		Command:        append([]string(nil), block.Command...),
@@ -32,7 +32,7 @@ func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sand
 		BaseURL:        block.BaseURL,
 		Password:       block.Password,
 		MaxInputTokens: block.MaxInputTokens,
-		Sandbox:        config.DefaultSandboxByProvider[config.ProviderID(providerID)],
+		Sandbox:        config.DefaultSandboxFor(providerID),
 		SandboxProjectWrite: sandboxCfg.ProjectWrite != nil && *sandboxCfg.ProjectWrite,
 		SandboxNetwork:      sandboxCfg.Network,
 		SandboxSeccomp:      sandboxCfg.Seccomp,
