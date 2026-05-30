@@ -245,3 +245,287 @@ Files: `internal/sandbox/sandbox.go`, `internal/sandbox/linux.go`, `internal/san
 - `mcpserver/validation.go:220` — resolved + EvalSymlinks + containment check ✓
 - `cliharness/harness.go:166` — writable dir, passed to BuildConfig ✓
 - `cmd/daemon.go:501,502` — cleanup patterns, not containment ✓
+
+---
+
+# Phase 4: Web Handler Input Validation
+
+Examined: 2026-05-30
+Files: `internal/web/handlers/jobs.go`, `internal/web/handlers/settings.go`, `internal/web/handlers/lifecycle.go`, `internal/web/handlers/chats.go`, `internal/web/handlers/events.go`, `internal/web/handlers/fs.go`, `internal/web/handlers/dashboard.go`, `internal/web/handlers/findings.go`, `internal/web/handlers/history.go`, `internal/web/handlers/logs.go`, `internal/web/handlers/projects.go`, `internal/web/handlers/providers.go`, `internal/web/handlers/settings.go`, `internal/web/csrf.go`
+
+---
+
+### [MEDIUM] chats.go: missing http.MaxBytesReader on DELETE handlers
+- **Location:** internal/web/handlers/chats.go:186, 238
+- **Description:** `deleteProjectChat` (line 186) and `bulkDeleteProjectChats` (line 238) decode JSON bodies via `json.NewDecoder(r.Body)` without applying `http.MaxBytesReader`. All other body-reading handlers (JobCreate, JobEdit, JobPreview at jobs.go:402,532,625; settingsPut at settings.go:101) enforce a body cap. The chat DELETE handlers accept `{"path": "..."}` or `{"paths": [...]}`, which are small by design, but a loopback caller could stream a multi-gigabyte payload to exhaust daemon memory.
+- **Impact:** OOM on the daemon process from an authenticated loopback caller. Low practical risk (CSRF + loopback required), but inconsistent with the pattern in all other mutation handlers.
+- **Reproduction:** `curl -X DELETE http://localhost:7777/api/projects/test/chats -H 'Content-Type: application/json' -d '{"path":"'$(python -c "print('x'*100*1024*1024)")'"}'`
+
+---
+
+### [LOW] lifecycle.go: hash parameter not validated as hex
+- **Location:** internal/web/handlers/lifecycle.go:123
+- **Description:** The hash extracted from the URL path is lowercased with `strings.ToLower(hash)` but never validated as a hex string. `parseProjectHashTransition` (line 46) only checks path shape (6 segments), not hash content. Non-hex values (e.g., `../etc`, Unicode) are harmlessly rejected via map-miss against `st.Findings[hash]`, returning 404. The `findingMarkerRe` in `findings.go:37` only produces hex hashes, so non-hex input can never match a real finding.
+- **Impact:** Defense-in-depth gap. Non-hex hashes produce 404 anyway, but explicit validation would give better error messages and reject invalid input at the boundary.
+
+---
+
+### [LOW] events.go: SSE event type field is unsanitized
+- **Location:** internal/web/handlers/events.go:48
+- **Description:** `fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, data)` writes `e.Type` directly into the SSE stream without sanitization. If `e.Type` contained a newline, it would inject extra SSE fields. All event types are compile-time constants in `pipeline/events.go:12-27` (e.g., `"run.start"`, `"finding.applied"`) — none contain newlines. The `data` field is JSON-marshaled, so embedded newlines are escaped.
+- **Impact:** Currently safe because all event types are constants. If custom event types are ever added from user input, this becomes an injection vector. Defense-in-depth: sanitize `e.Type` by stripping newlines.
+
+---
+
+## Greps Summary
+
+**json.NewDecoder(r.Body) — body size limits:**
+- `jobs.go:402` (JobCreate) — MaxBytesReader 64 KiB ✓
+- `jobs.go:532` (JobEdit) — MaxBytesReader 64 KiB ✓
+- `jobs.go:625` (JobPreview) — MaxBytesReader 64 KiB ✓
+- `settings.go:101` (settingsPut) — MaxBytesReader 256 KiB ✓
+- **Missing ✗**: `chats.go:186` (deleteProjectChat) — no MaxBytesReader
+- **Missing ✗**: `chats.go:238` (bulkDeleteProjectChats) — no MaxBytesReader
+
+**r.URL.Query().Get — query parameter validation:**
+- All parameters validated or used as read-only filters ✓
+
+**CSRF on GET endpoints:**
+- All GET handlers are read-only, no state changes via GET ✓
+
+---
+
+# Phase 5: Background Jobs State Machine
+
+Examined: 2026-05-30
+Files: `internal/backgroundjobs/runner.go`, `internal/backgroundjobs/store.go`, `internal/backgroundjobs/schedule.go`, `internal/backgroundjobs/reconcile.go`, `internal/backgroundjobs/health.go`, `internal/backgroundjobs/audit.go`, `internal/backgroundjobs/job.go`, `internal/backgroundjobs/runs.go`, `internal/web/handlers/jobs.go`
+
+---
+
+### [HIGH] runner.go: run record lost on provider panic
+- **Location:** internal/backgroundjobs/runner.go:193-213
+- **Description:** The `Run` struct is created with `Status: RunStatusRunning` at line 157 (in memory only), but is not persisted to `RunStore` until line 213 (`e.RunStore.Append(run)`). If `e.executeJob` at line 193 panics, the deferred `release()` at line 180 correctly releases the lock, but lines 196-213 never execute. No run record is written. The audit log has a `job.run.claim` event (line 183) but no `job.run.finish` event.
+- **Impact:** Silent data loss. Operators cannot distinguish "job never ran" from "job ran and the provider crashed." The only trace is an audit event with no matching run record.
+
+---
+
+### [HIGH] job.go: RunStatusTimedOut is dead code
+- **Location:** internal/backgroundjobs/job.go:60, internal/backgroundjobs/runner.go:200-210
+- **Description:** `RunStatusTimedOut` is defined at job.go:60 and listed as a terminal status in tests. The doc comment at runner.go:104 says "Marks run completed/failed/timed_out." However, the error handling at lines 200-210 only distinguishes `ctx.Err() != nil` (→ `RunStatusCancelled`) and all other errors (→ `RunStatusFailed`). No code path ever sets `RunStatusTimedOut`. The timeout is detected as a context cancellation, not a distinct status.
+- **Impact:** Monitoring and health checks that key on `RunStatusTimedOut` will never see it. All timeout-caused failures appear as `RunStatusFailed` or `RunStatusCancelled`, making it impossible to distinguish "increase the timeout" from "fix the prompt/provider."
+
+---
+
+### [HIGH] health.go: no timeout vs failure distinction
+- **Location:** internal/backgroundjobs/health.go:130-138
+- **Description:** `checkJob` inspects `job.LastRunAt` for staleness (>7 days) but does not examine `job.Health.RunState` to distinguish failed from completed from timed-out. Combined with the `RunStatusTimedOut` dead-code issue, timeout and failure are indistinguishable in the health system.
+- **Impact:** The health API cannot tell an operator whether a job is failing due to timeouts (increase timeout) vs logic errors (fix prompt). The health check only cares about "did it run recently" and "is the OS schedule installed."
+
+---
+
+### [MEDIUM] runner.go: no panic recovery for OS-triggered runs
+- **Location:** internal/backgroundjobs/runner.go:107-238
+- **Description:** `Executor.Run` has no `recover()`. A panic in `executeJob` (provider creation, session creation, session.Run) propagates to the caller. The web handler goroutine at jobs.go:997-1004 recovers panics, but the OS-triggered invocation path (via `cmd/jobs.go`) does not. A provider panic in a cron-triggered run crashes the `dreamer jobs run` process.
+- **Impact:** OS-triggered runs have no panic safety net. The OS scheduler eventually restarts the process, but the run is silently lost (combined with the run-record-on-panic issue above).
+
+---
+
+### [MEDIUM] schedule.go: parseTimeOfDay error silently defaults to midnight
+- **Location:** internal/backgroundjobs/schedule.go:95
+- **Description:** In `NextRun`, the `parseTimeOfDay` error is discarded with `_`. The comment at lines 92-94 says "ValidateSchedule rejects invalid TimeOfDay before NextRun is ever called." However, if a store is corrupted or hand-edited with an invalid `TimeOfDay`, `NextRun` silently defaults to hour=0, min=0 (midnight). The same pattern appears in all three platform scheduler builders (Windows, Linux, macOS).
+- **Impact:** A corrupted `time_of_day` value silently schedules the job at midnight instead of producing an error. Applies to both NextRun calculations and OS scheduler installation.
+
+---
+
+### [MEDIUM] reconcile.go: ListOwn failure silently skips orphan detection
+- **Location:** internal/backgroundjobs/reconcile.go:105-108
+- **Description:** If `r.Scheduler.ListOwn(ctx)` fails (e.g., `systemctl` unavailable, `schtasks.exe` permission denied), the error is logged as a warning and the function continues with whatever actions were computed so far. Orphaned OS schedules are silently missed. No error is propagated to the caller.
+- **Impact:** Orphan detection is silently skipped on transient OS scheduler failures. `ReconcileResult` shows zero orphans, and `CheckHealth` also misses them.
+
+---
+
+### [MEDIUM] audit.go: AuditWriter lacks cross-process locking
+- **Location:** internal/backgroundjobs/audit.go:39-68
+- **Description:** `AuditWriter.Write` uses `sync.RWMutex` for in-process serialization but does NOT use file locking (unlike `RunStore.Append` and `Store.Update`). When multiple OS-triggered `dreamer jobs run` processes write audit events concurrently, they append to the same `audit.jsonl` without cross-process coordination. While `O_APPEND` on most platforms provides atomic appends for small writes, this is not guaranteed on all filesystems.
+- **Impact:** Corrupted audit log entries under heavy concurrent execution. Most OS filesystems handle small `O_APPEND` writes atomically, but this is platform-dependent.
+
+---
+
+### [LOW] store.go: Store.Load bypasses locks
+- **Location:** internal/backgroundjobs/store.go:76-78
+- **Description:** `Store.Load()` calls the private `load()` directly without acquiring either the mutex or the file lock. A reader can see a partially-written `jobs.json` if another process is mid-`save()`. Mitigated by `fsutil.WriteFileAtomic` (temp + rename), which provides atomic replacement on most filesystems.
+
+---
+
+### [LOW] schedule.go: weekly schedule silently defaults to Sunday on corrupt data
+- **Location:** internal/backgroundjobs/schedule.go:102
+- **Description:** `targetDay := validDayOfWeek[strings.ToLower(s.DayOfWeek)]` — if `DayOfWeek` is not in the map, Go returns the zero value `time.Sunday` (0). `ValidateSchedule` catches this, but `NextRun` does not guard against corrupt store data.
+
+---
+
+### [LOW] reconcile.go: disable/remove race on concurrent run
+- **Location:** internal/backgroundjobs/reconcile.go:91-99
+- **Description:** If a job is disabled while a run is in progress, `ReconcileSchedules` will schedule a `ReconcileRemoveDisabled` action. The `Remove` may succeed while the job is still running. The per-job lock prevents concurrent execution within Dreamer, but the OS schedule removal doesn't check the lock.
+
+---
+
+### [LOW] health.go: RunState not cross-validated against RunStore
+- **Location:** internal/backgroundjobs/health.go:94-147
+- **Description:** `checkJob` reads `job.Health.RunState` but never verifies it against the actual latest run in the RunStore. If `updateJobAfterRun` fails, `job.Health.RunState` could be stale while the RunStore has a newer record.
+
+---
+
+### [LOW] runner.go: RunState can drift on updateJobAfterRun failure
+- **Location:** internal/backgroundjobs/runner.go:358-373
+- **Description:** `updateJobAfterRun` sets `j.Health.RunState = run.Status` at line 368. If this `Store.Update` call fails (logged at line 372), the persisted `HealthState.RunState` will be stale. The next successful run corrects it.
+
+---
+
+### [LOW] jobs.go: stale guard entry on theoretical panic
+- **Location:** internal/web/handlers/jobs.go:964-982
+- **Description:** If `tryAcquireRun` succeeds at line 964 but an unexpected panic occurs before the explicit `releaseRun` calls at lines 972/979, the guard remains locked. There is no `defer releaseRun(jobID)` covering the early error paths. Probability is near-zero.
+
+---
+
+### [LOW] runner.go: stale doc comment re: selected_writes
+- **Location:** internal/backgroundjobs/runner.go:100-102
+- **Description:** Doc comment says "Rejects selected_writes and full_workspace (only read_only is supported)" but the actual code at lines 324-335 accepts `FileAccessSelectedWrites`. The comment was not updated when `selected_writes` support was added.
+
+---
+
+## Greps Summary
+
+**RunStatus assignments:**
+- `RunStatusRunning` — runner.go:157 (initial) ✓
+- `RunStatusCompleted` — runner.go:210 (success) ✓
+- `RunStatusFailed` — runner.go:168,206 (lock failure or execution error) ✓
+- `RunStatusCancelled` — runner.go:203 (context cancellation) ✓
+- `RunStatusSkipped` — runner.go:291 (disabled job) ✓
+- **Dead code ✗**: `RunStatusTimedOut` — defined at job.go:60, never assigned
+
+**defer release() patterns:**
+- `store.go:57,61` — Store lock ✓
+- `runs.go:48,52` — RunStore Append lock ✓
+- `runs.go:124,128` — RunStore Prune lock ✓
+- `runner.go:166,180` — Per-job execution lock ✓
+- All acquisitions have matching defer release() ✓
+
+---
+
+# Phase 9: Platform-Specific & Untested Code
+
+Examined: 2026-05-30
+Files: `internal/analyzer/providers/cliharness/harness.go`, `cmd/proc_windows.go`, `cmd/proc_unix.go`, `cmd/startup.go`, `cmd/start.go`, `cmd/stop.go`, `cmd/workers.go`, `internal/backgroundjobs/scheduler_darwin.go`, `internal/backgroundjobs/scheduler_linux.go`, `internal/backgroundjobs/scheduler_windows.go`, `internal/fsutil/lock.go`, `internal/fsutil/process.go`, `internal/fsutil/process_other_unix.go`, `internal/fsutil/atomic.go`, `internal/analyzer/redaction.go`, `internal/sandbox/sandbox.go`
+
+---
+
+### [CRITICAL] scheduler_darwin.go: "already bootstrapped" check is dead code
+- **Location:** internal/backgroundjobs/scheduler_darwin.go:225-227
+- **Description:** `bootstrap()` calls `s.runCmd(ctx, "launchctl", "bootstrap", ...)` which returns `([]byte, error)` via `runExternalCommand` (scheduler.go:70-77). The `[]byte` return (containing stdout+stderr) is discarded with `_` at line 225. The code then checks `strings.Contains(string(err.Error()), "already bootstrapped")`. However, `cmd.Run()` returns an `*exec.ExitError` whose `.Error()` returns only `"exit status 1"` — the actual stderr message ("already bootstrapped") is in the discarded `[]byte` buffer. The check is always false, so the function always returns the error.
+- **Impact:** On macOS, calling `Install()` for an already-bootstrapped agent always fails. This breaks idempotent `jobs install` and `jobs reconcile` operations — the first install succeeds, but any subsequent install for the same job fails with "bootstrap: exit status 1".
+
+---
+
+### [HIGH] lock.go: execPathsMatch is case-sensitive on Windows
+- **Location:** internal/fsutil/lock.go:136-147
+- **Description:** `execPathsMatch` performs a plain `==` comparison after resolving symlinks. On Windows, NTFS is case-insensitive but `QueryFullProcessImageNameW` returns a case-preserved path. If the lock file records `c:\program files\dreamer\dreamer.exe` and the live process reports `C:\Program Files\dreamer\dreamer.exe`, the comparison fails. The lock is then treated as "PID reused by different executable" and removed, allowing a second daemon instance to start. The `fsutil/path.go` correctly handles Windows case-insensitivity in `CanonicalPath` (line 45) and `PathWithinRoot` (line 118), but `execPathsMatch` does not follow this pattern.
+- **Impact:** On Windows, a second daemon instance can start concurrently because the lock file from the first instance is incorrectly cleaned up. This breaks the single-instance guarantee.
+
+---
+
+### [HIGH] stop.go/proc_windows.go: PID reuse can kill wrong process; access-denied unhandled
+- **Location:** cmd/stop.go:31-44, cmd/proc_windows.go:26-40
+- **Description:** Two issues compound: (1) `stop` uses `fsutil.ReadLockPID` which discards the executable path from lock metadata. If the daemon's PID was reused by an unrelated program after a crash, `IsProcessAlive` returns true and `stop` calls `killDaemon(pid)` — killing the unrelated process. (2) `killDaemon` on Windows only checks for "not found" in taskkill output. "Access is denied" (different user session or AppContainer) propagates as a raw error, leaving the daemon running with no programmatic way to stop it.
+- **Impact:** PID reuse after a daemon crash can cause `dreamer stop` to kill an unrelated process. Access-denied from a different user session makes the daemon unkillable via CLI.
+
+---
+
+### [HIGH] start.go/workers.go: ReadLockPID discards exec identity
+- **Location:** cmd/start.go:45, cmd/workers.go:177-182
+- **Description:** Both call sites use `fsutil.ReadLockPID` which explicitly discards the executable path from lock metadata. Consequences: (1) `start.go:45` — if PID was reused by an unrelated program, `IsProcessAlive` returns true and `start` refuses to start, printing "daemon is already running." (2) `workers.go:180` — if the stale PID was reused, `IsProcessAlive` returns true and `recoverStaleJobs` skips reaping, leaving zombie jobs. The lock file already stores the executable path (written at lock.go:47), but `ReadLockPID` discards it.
+- **Impact:** PID reuse blocks daemon restart or leaves zombie jobs unrecovered. The fix is to expose a `ReadLockMetadata` function returning both PID and exec path, and use it in start/stop/workers.
+
+---
+
+### [MEDIUM] sandbox.go: PostStartOrKill goroutine leak on stuck processes
+- **Location:** internal/sandbox/sandbox.go:311-325
+- **Description:** When `PostStart` fails, the code kills the process and spawns a goroutine to wait for `cmd.Wait()`. If the process doesn't exit within 10 seconds (e.g., D-state on Linux, zombie), the goroutine leaks indefinitely. The 10-second timeout only logs a warning; it does not abandon the goroutine. The comment at lines 319-321 acknowledges this: "On POSIX, a zombie or D-state child leaks the goroutine and a process slot for the lifetime of the daemon."
+- **Impact:** Under pathological conditions (NFS hang, kernel bug), each failed sandbox start permanently leaks a goroutine and a process slot.
+
+---
+
+### [MEDIUM] redaction.go: env-line pattern over-redacts non-secret variables
+- **Location:** internal/analyzer/redaction.go:89
+- **Description:** The pattern `(?m)^[A-Z][A-Z0-9_]+\s*=\s*[^\s].+$` matches any line starting with an uppercase identifier followed by `=` and a non-whitespace value. This includes `PATH=/usr/bin:/usr/local/bin`, `LANG=en_US.UTF-8`, `HOME=/root`, `TERM=xterm-256color`, `SHELL=/bin/bash`. Each is replaced with `[REDACTED:env-line]`.
+- **Impact:** Legitimate non-secret env vars in chat logs are redacted, reducing debugging usefulness. The pattern cannot distinguish `SECRET_KEY=xxx` from `PATH=/usr/bin`.
+
+---
+
+### [MEDIUM] redaction.go: regexp.Compile on user-supplied patterns
+- **Location:** internal/analyzer/redaction.go:44
+- **Description:** `NewRedactor` compiles user-supplied regex strings from YAML config via `regexp.Compile`. Go's RE2 engine prevents catastrophic backtracking (ReDoS) during matching. However, there is no complexity or length limit on the pattern, so a very large pattern could cause a slow compile. No `redaction_test.go` file exists.
+- **Impact:** Adversarial regex in config could cause slow startup. Runtime matching is safe due to RE2. No tests exist for the redaction package.
+
+---
+
+### [MEDIUM] startup.go: % not escaped in schtasks argument
+- **Location:** cmd/startup.go:139-142
+- **Description:** `quoteWindowsCommandArgument` only escapes `"`. The `%` character is not escaped. When `schtasks.exe /TR` registers a command, some execution contexts may perform `%VAR%` environment variable expansion. A path containing a literal `%` could be misinterpreted.
+- **Impact:** Low probability; affects only Windows startup task registration with `%` in paths.
+
+---
+
+### [MEDIUM] harness.go: zero test coverage for shared lifecycle
+- **Location:** internal/analyzer/providers/cliharness/harness.go (entire file, 404 lines)
+- **Description:** No test files exist in the `cliharness` package. The individual providers test their `ReadStreamJSON` callbacks, but the shared `Run()` lifecycle — stdin-write goroutine, sandbox integration, error precedence logic, timeout handling — is entirely untested at the unit level. Four providers depend on this code: openai-cli, gemini-cli, codex-cli, copilot-cli.
+- **Impact:** Regressions in the shared lifecycle path would not be caught until integration testing. Any change to stdin handling, sandbox config, or error precedence risks breaking all 4 CLI providers simultaneously.
+
+---
+
+### [MEDIUM] process_other_unix.go: darwin/FreeBSD lock cleanup lacks exec identity
+- **Location:** internal/fsutil/process_other_unix.go:16-18
+- **Description:** On darwin and freebsd, `processExecutable` always returns `("", false)`. The lock acquisition code at lock.go:91-103 falls back to PID-only liveness. After a SIGKILL, if the OS reuses the PID for an unrelated process, the lock file is not cleaned up and the daemon refuses to start.
+- **Impact:** On macOS, a daemon crash followed by PID reuse blocks restart until the lock file is manually deleted. The code comments acknowledge this gap.
+
+---
+
+### [LOW] proc_unix.go: no PID validation before negation
+- **Location:** cmd/proc_unix.go:15-17
+- **Description:** `syscall.Kill(-pid, syscall.SIGTERM)` with PID 0 sends SIGTERM to the entire process group. While `readLockMetadata` validates `pid <= 0` upstream, `killDaemon` itself has no guard. If called directly with PID 0 (e.g., from test code), it would kill all processes in the caller's group.
+
+---
+
+### [LOW] scheduler_*.go: unknown weekday silently defaults to Monday
+- **Location:** `scheduler_windows.go:353`, `scheduler_linux.go:266`, `scheduler_darwin.go:700`
+- **Description:** All three platform schedulers silently default unknown weekday names to Monday. No error is returned for misspelled or localized day names.
+
+---
+
+### [LOW] atomic.go: glob could match non-dreamer temp files
+- **Location:** internal/fsutil/atomic.go:26
+- **Description:** The cleanup glob `base + ".tmp*"` matches any file starting with `base.tmp`. If another tool created `config.yaml.tmp_backup` in the same directory, it would be deleted during cleanup. Extremely unlikely in practice.
+
+---
+
+### [LOW] scheduler_darwin.go: redundant string() conversion
+- **Location:** internal/backgroundjobs/scheduler_darwin.go:227
+- **Description:** `string(err.Error())` — `err.Error()` already returns a `string`; the `string()` conversion is a no-op. The entire check is dead code per the CRITICAL finding above.
+
+---
+
+## Greps Summary
+
+**runtime.GOOS guards:**
+- `cmd/startup.go` — guarded by `runtime.GOOS == "windows"` ✓
+- `cmd/proc_windows.go` / `cmd/proc_unix.go` — build-tag separated ✓
+- `internal/sandbox/windows.go` / `linux.go` / `darwin.go` — build-tag separated ✓
+- `internal/fsutil/process_other_unix.go` — build-tag for darwin+freebsd ✓
+
+**os.Executable() callers:**
+- `lock.go:47` (write to lock file) — error handled ✓
+- `lock.go:91,140` (read/compare) — error handled, falls back to PID-only ✓
+- `backgroundjobs/install_id.go:95` — error handled ✓
+
+**regexp.Compile on user input:**
+- `redaction.go:44` — user-supplied patterns, RE2 mitigates runtime risk ✓
+- No complexity/length limit — defense-in-depth gap noted above
