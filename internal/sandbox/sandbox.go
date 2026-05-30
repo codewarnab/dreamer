@@ -313,14 +313,18 @@ func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, provide
 				go func() { done <- cmd.Wait() }()
 				select {
 				case <-done:
+					return
 				case <-time.After(10 * time.Second):
-					// Process didn't exit after Kill.
-					// On Windows, KILL_ON_JOB_CLOSE from the Job Object
-					// cleans up when the handle is released. On POSIX,
-					// a zombie or D-state child leaks the goroutine and
-					// a process slot for the lifetime of the daemon.
-					slog.Warn("sandbox: process did not exit after Kill within 10s; possible zombie",
-						"provider", providerID)
+					// First Kill didn't take. Escalate: Kill again and
+					// wait another 10s before giving up on the goroutine.
+					_ = cmd.Process.Kill()
+					select {
+					case <-done:
+					case <-time.After(10 * time.Second):
+						slog.Error("sandbox: process did not exit after two Kills within 20s; goroutine leaked",
+							"provider", providerID,
+							"pid", cmd.Process.Pid)
+					}
 				}
 			}()
 		}
