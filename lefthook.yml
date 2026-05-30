@@ -1,0 +1,58 @@
+# lefthook.yml — git hooks for dreamer.
+# Install once:  make install-hooks   (runs `lefthook install`)
+# Bypass once:   git commit --no-verify   (use sparingly — CI still enforces)
+#
+# Tiering philosophy (see doc/ / CLAUDE.md):
+#   pre-commit  — instant, local hygiene; must stay < ~5s or people skip it.
+#   commit-msg  — enforce HOW_TO_COMMIT.md conventions.
+#   pre-push    — seconds; near-CI feedback on the diff before sharing.
+#   CI          — authoritative: full lint, test -race, govulncheck.
+
+pre-commit:
+  parallel: true
+  commands:
+    # Format staged Go files: goimports first (import grouping), then the
+    # stricter gofumpt. Chained sequentially in ONE command so the two
+    # formatters never race on the same file's write. stage_fixed re-adds
+    # whatever they rewrote so the commit includes the formatted version.
+    format:
+      glob: "*.go"
+      run: goimports -w -local dreamer {staged_files} && gofumpt -w {staged_files}
+      stage_fixed: true
+
+    # go vet typechecks too, so this also rejects code that doesn't compile.
+    vet:
+      glob: "*.go"
+      run: go vet ./...
+
+    # Secret scan of the staged diff only — millisecond-fast, and the one
+    # mistake a hook can't undo once pushed. Fails loud if gitleaks is absent
+    # (install via `make tools`) — we never silently skip secret scanning.
+    gitleaks:
+      run: gitleaks protect --staged --redact --no-banner
+
+    # go.mod / go.sum drift: `-diff` reports needed changes (exit!=0) WITHOUT
+    # mutating the files. Catches the classic "tidy not run" CI breakage.
+    gomod-tidy:
+      glob: "{go.mod,go.sum}"
+      run: go mod tidy -diff
+
+    # Native git check: flags trailing whitespace AND leftover <<<<<<< merge
+    # conflict markers in the staged diff. Zero extra tooling.
+    whitespace-conflicts:
+      run: git diff --cached --check
+
+commit-msg:
+  commands:
+    conventions:
+      # {1} is the path to the commit-message file git passes to the hook.
+      run: sh scripts/check-commit-msg.sh {1}
+
+pre-push:
+  parallel: true
+  commands:
+    # Lint only what changed vs the main branch — 50-75% faster than a full
+    # run, giving near-CI feedback before the diff leaves your machine.
+    # Full ./... lint stays in CI where minutes are acceptable.
+    golangci-changed:
+      run: golangci-lint run --new-from-rev origin/main ./...
