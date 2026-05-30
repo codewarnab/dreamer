@@ -19,11 +19,11 @@ import (
 // testSpec returns a minimal Spec for unit tests.
 func testSpec() *Spec {
 	return &Spec{
-		ID:          "test-cli",
-		ErrPrefix:   "test-cli",
+		ID:             "test-cli",
+		ErrPrefix:      "test-cli",
 		DefaultCommand: func(bool) []string { return []string{"echo"} },
-		StartErr:    func(binary string, err error) error { return fmt.Errorf("start: %w", err) },
-		CmdStartErr: func(err error) error { return fmt.Errorf("cmd-start: %w", err) },
+		StartErr:       func(binary string, err error) error { return fmt.Errorf("start: %w", err) },
+		CmdStartErr:    func(err error) error { return fmt.Errorf("cmd-start: %w", err) },
 		ConfigDir: func(env map[string]string) (string, error) {
 			return filepath.Join(os.TempDir(), "test-cli-config"), nil
 		},

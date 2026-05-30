@@ -47,8 +47,8 @@ func Events(deps Deps) http.HandlerFunc {
 					continue
 				}
 				// Sanitize event type: strip CR/LF to prevent SSE stream injection.
-			safeType := strings.NewReplacer("\n", "", "\r", "").Replace(e.Type)
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", safeType, data)
+				safeType := strings.NewReplacer("\n", "", "\r", "").Replace(e.Type)
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", safeType, data)
 				flusher.Flush()
 			}
 		}
