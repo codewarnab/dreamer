@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -450,17 +452,30 @@ func main() {
 }
 
 func TestRun_Timeout(t *testing.T) {
-	// Use a program that sleeps forever.
+	// Build a binary that sleeps forever. We build then run the binary
+	// directly (instead of `go run`) so exec.CommandContext sends SIGKILL
+	// to the actual sleeping process — `go run` would only kill the parent
+	// go tool, leaving the compiled child alive and stdout open forever.
 	srcDir := t.TempDir()
 	src := filepath.Join(srcDir, "main.go")
+	sleepBin := filepath.Join(srcDir, "sleeper")
+	if runtime.GOOS == "windows" {
+		sleepBin += ".exe"
+	}
 	_ = os.WriteFile(src, []byte(`package main
 import "time"
 func main() { time.Sleep(10 * time.Minute) }
 `), 0o644)
 
+	build := exec.Command("go", "build", "-o", sleepBin, src)
+	build.Dir = srcDir
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build sleeper: %v\n%s", err, out)
+	}
+
 	spec := testSpec()
 	spec.DefaultCommand = func(bool) []string {
-		return []string{"go", "run", src}
+		return []string{sleepBin}
 	}
 
 	p := NewProvider(Options{}, spec)

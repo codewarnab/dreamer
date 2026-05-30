@@ -684,6 +684,9 @@ func buildCalendarIntervals(spec ScheduleSpec) ([]calendarInterval, error) {
 			return nil, fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
 		wd := weekdayToLaunchd(strings.ToLower(spec.DayOfWeek))
+		if wd < 0 {
+			return nil, fmt.Errorf("invalid day_of_week %q", spec.DayOfWeek)
+		}
 		return []calendarInterval{{Hour: hour, Minute: min, Weekday: wd}}, nil
 	default:
 		return []calendarInterval{{Hour: 0, Minute: 0, Weekday: -1}}, nil
@@ -708,7 +711,7 @@ func weekdayToLaunchd(day string) int {
 	case "saturday":
 		return 6
 	default:
-		return 1
+		return -1
 	}
 }
 

@@ -5,6 +5,7 @@ package fsutil
 import (
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 )
 
@@ -22,5 +23,10 @@ func processExecutable(pid int) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	// When a running process's binary is replaced in-place (the normal
+	// upgrade path), the kernel appends " (deleted)" to the readlink
+	// result. Strip it so ExecPathsMatch can compare against the clean
+	// path recorded in the lock file.
+	target = strings.TrimSuffix(target, " (deleted)")
 	return target, true
 }
