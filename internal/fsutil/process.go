@@ -16,7 +16,15 @@ func ReadLockPID(path string) (int, error) {
 
 // ReadLockMetadata reads both the PID and the executable path from the
 // given lock file. Callers should verify the executable identity via
-// execPathsMatch before acting on the PID, to guard against PID reuse.
+// ExecPathsMatch against ProcessExecutable(pid) before acting on the PID,
+// to guard against PID reuse.
 func ReadLockMetadata(path string) (pid int, execPath string, err error) {
 	return readLockMetadata(path)
+}
+
+// ProcessExecutable returns the executable path of the live process with
+// the given PID. Returns ("", false) if the process is not running or
+// the path cannot be determined.
+func ProcessExecutable(pid int) (string, bool) {
+	return processExecutable(pid)
 }
