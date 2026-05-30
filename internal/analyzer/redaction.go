@@ -86,6 +86,10 @@ func defaultRedactionPatterns() []RedactionPattern {
 		{Name: "secret", Pattern: regexp.MustCompile(`(?i)\bsecret\s*[:=]\s*\S+`)},
 		{Name: "api-key", Pattern: regexp.MustCompile(`(?i)\bapi[_\-]?key\s*[:=]\s*\S+`)},
 		{Name: "token", Pattern: regexp.MustCompile(`(?i)\btoken\s*[:=]\s*\S+`)},
-		{Name: "env-line", Pattern: regexp.MustCompile(`(?m)^[A-Z][A-Z0-9_]+\s*=\s*[^\s].+$`)},
+		// Only match env lines with secret-bearing keywords to avoid
+		// redacting PATH, HOME, LANG, TERM, SHELL, and other benign vars.
+		// The keyword may appear anywhere in the var name (e.g. AWS_SECRET_ACCESS_KEY,
+		// OPENAI_API_KEY, DB_PASSWORD, GH_TOKEN, STRIPE_SECRET_KEY).
+		{Name: "env-line", Pattern: regexp.MustCompile(`(?m)^[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL|AUTH|PRIVATE|API)[A-Z0-9_]*\s*=\s*\S.*$`)},
 	}
 }

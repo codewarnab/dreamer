@@ -180,6 +180,8 @@ func deleteProjectChat(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+
 	var payload struct {
 		Path string `json:"path"`
 	}
@@ -231,6 +233,8 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 
 	var payload struct {
 		Paths []string `json:"paths"`

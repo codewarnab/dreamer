@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"dreamer/internal/state"
 	"dreamer/internal/web/apply"
 )
+
+var hexRe = regexp.MustCompile(`^[0-9a-f]+$`)
 
 // transition enumerates the lifecycle endpoints that share the same path
 // shape /api/projects/{name}/findings/{hash}/{transition}.
@@ -96,6 +99,11 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		http.NotFound(w, r)
 		return
 	}
+	hash = strings.ToLower(hash)
+	if !hexRe.MatchString(hash) {
+		writeJSONError(w, http.StatusBadRequest, "hash must be lowercase hex")
+		return
+	}
 	unlock = deps.StateLock.Lock(name)
 	appConfig := deps.Config()
 	if appConfig == nil {
@@ -120,7 +128,7 @@ func resolveProjectAndState(w http.ResponseWriter, r *http.Request, deps Deps, w
 		writeJSONError(w, http.StatusInternalServerError, "state unavailable")
 		return proj, nil, name, hash, nil, false
 	}
-	return proj, st, name, strings.ToLower(hash), unlock, true
+	return proj, st, name, hash, unlock, true
 }
 
 // Apply handles POST /api/projects/{name}/findings/{hash}/apply.

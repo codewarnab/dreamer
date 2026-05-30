@@ -40,6 +40,7 @@ func newJobsHealthCommand() *cobra.Command {
 			checker := &backgroundjobs.HealthChecker{
 				Scheduler: deps.scheduler,
 				Store:     deps.store,
+				RunStore:  deps.runStore,
 				Logger:    deps.logger,
 			}
 

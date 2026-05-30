@@ -41,10 +41,22 @@ func newStartCommand() *cobra.Command {
 			logPath := filepath.Join(outputRoot, "dreamer.log")
 			lockPath := filepath.Join(outputRoot, "dreamer.daemon.lock")
 
-			// Check if already running.
-			if pid, readErr := fsutil.ReadLockPID(lockPath); readErr == nil && fsutil.IsProcessAlive(pid) {
-				printAlreadyRunningBox(cmd, pid, logPath, cfg)
-				return nil
+			// Check if already running. Verify executable identity to
+			// guard against PID reuse after a crash. Compare against the
+			// live process image, not our own binary path.
+			if pid, lockExec, readErr := fsutil.ReadLockMetadata(lockPath); readErr == nil && fsutil.IsProcessAlive(pid) {
+				if lockExec != "" {
+					if liveExec, ok := fsutil.ProcessExecutable(pid); ok && !fsutil.ExecPathsMatch(lockExec, liveExec) {
+						// PID reused by another process — treat as stale.
+						_ = os.Remove(lockPath)
+					} else {
+						printAlreadyRunningBox(cmd, pid, logPath, cfg)
+						return nil
+					}
+				} else {
+					printAlreadyRunningBox(cmd, pid, logPath, cfg)
+					return nil
+				}
 			}
 
 			// Prepare log file for child stdout/stderr.

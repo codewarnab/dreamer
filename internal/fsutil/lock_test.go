@@ -137,3 +137,18 @@ func TestAcquireLockAcceptsLegacyTwoLineFormat(t *testing.T) {
 	}
 	defer release()
 }
+
+func TestExecPathsMatch_ExactMatch(t *testing.T) {
+	p := "/usr/local/bin/dreamer"
+	if !ExecPathsMatch(p, p) {
+		t.Errorf("ExecPathsMatch should match identical paths: %q", p)
+	}
+}
+
+func TestExecPathsMatch_Different(t *testing.T) {
+	a := "/usr/local/bin/dreamer"
+	b := "/usr/local/bin/other"
+	if ExecPathsMatch(a, b) {
+		t.Errorf("ExecPathsMatch should not match different paths: %q vs %q", a, b)
+	}
+}

@@ -64,7 +64,7 @@ func newDaemonCommand() *cobra.Command {
 			defer func() { _ = logger.Close() }()
 
 			overrides := daemonOverrides{
-				forceParallel:       analyzerFlags.parallel,
+				forceParallel:  analyzerFlags.parallel,
 				maxConcurrency: analyzerFlags.jobs,
 			}
 			if cmd.Flags().Changed(flagChunkSize) {
@@ -137,7 +137,7 @@ func newDaemonCommand() *cobra.Command {
 
 // daemonOverrides carries CLI-level overrides that apply to every project per cycle.
 type daemonOverrides struct {
-	forceParallel         bool
+	forceParallel    bool
 	maxConcurrency   int
 	maxChunkBytes    int
 	maxChunkBytesSet bool
@@ -173,7 +173,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging
 	}
 
 	lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
-	stalePID, readErr := fsutil.ReadLockPID(lockPath)
+	stalePID, staleExec, readErr := fsutil.ReadLockMetadata(lockPath)
 	if readErr != nil {
 		logger.Warn("read lock PID failed; stale-job recovery will reap unconditionally",
 			logging.Any("lock_path", lockPath),
@@ -196,7 +196,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging
 	if recoverErr := queue.Recover(); recoverErr != nil {
 		logger.Warn("failed to recover job queue", logging.Any("err", recoverErr))
 	}
-	recoverStaleJobs(queue, stalePID, logger)
+	recoverStaleJobs(queue, stalePID, staleExec, logger)
 
 	discoveryCache = pipeline.NewDiscoveryCache()
 	events = pipeline.NewEventBus()

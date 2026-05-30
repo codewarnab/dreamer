@@ -11,7 +11,10 @@ import (
 
 func TestScheduleToOnCalendar_Hourly(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleInterval}
-	got := scheduleToOnCalendar(spec)
+	got, err := scheduleToOnCalendar(spec)
+	if err != nil {
+		t.Fatalf("scheduleToOnCalendar(hourly): %v", err)
+	}
 	if got != "*-*-* *:00:00" {
 		t.Errorf("scheduleToOnCalendar(hourly) = %q, want *-*-* *:00:00", got)
 	}
@@ -19,7 +22,10 @@ func TestScheduleToOnCalendar_Hourly(t *testing.T) {
 
 func TestScheduleToOnCalendar_Daily(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "14:30"}
-	got := scheduleToOnCalendar(spec)
+	got, err := scheduleToOnCalendar(spec)
+	if err != nil {
+		t.Fatalf("scheduleToOnCalendar(daily 14:30): %v", err)
+	}
 	if got != "*-*-* 14:30:00" {
 		t.Errorf("scheduleToOnCalendar(daily 14:30) = %q, want *-*-* 14:30:00", got)
 	}
@@ -27,7 +33,10 @@ func TestScheduleToOnCalendar_Daily(t *testing.T) {
 
 func TestScheduleToOnCalendar_Weekly(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleWeekly, DayOfWeek: "Monday", TimeOfDay: "09:00"}
-	got := scheduleToOnCalendar(spec)
+	got, err := scheduleToOnCalendar(spec)
+	if err != nil {
+		t.Fatalf("scheduleToOnCalendar(weekly Monday): %v", err)
+	}
 	if !strings.Contains(got, "Mon") {
 		t.Errorf("scheduleToOnCalendar(weekly Monday) should contain Mon, got %q", got)
 	}
@@ -151,7 +160,10 @@ func TestBuildTimerUnit_HourlyEvery(t *testing.T) {
 				Name:     "Test Job",
 				Enabled:  true,
 			}
-			unit := s.buildTimerUnit(params)
+			unit, err := s.buildTimerUnit(params)
+			if err != nil {
+				t.Fatalf("buildTimerUnit(every=%q): %v", tt.every, err)
+			}
 			if tt.wantUnitActive != "" {
 				if !strings.Contains(unit, tt.wantUnitActive) {
 					t.Errorf("buildTimerUnit(every=%q)\n  got:  %s\n  want: %s", tt.every, unit, tt.wantUnitActive)

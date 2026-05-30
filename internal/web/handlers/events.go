@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // sseSubscribeBuffer is the channel buffer size for SSE event subscribers.
@@ -45,7 +46,9 @@ func Events(deps Deps) http.HandlerFunc {
 				if err != nil {
 					continue
 				}
-				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, data)
+				// Sanitize event type: strip CR/LF to prevent SSE stream injection.
+				safeType := strings.NewReplacer("\n", "", "\r", "").Replace(e.Type)
+				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", safeType, data)
 				flusher.Flush()
 			}
 		}

@@ -28,7 +28,7 @@ func newStopCommand() *cobra.Command {
 			}
 
 			lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
-			pid, readErr := fsutil.ReadLockPID(lockPath)
+			pid, lockExec, readErr := fsutil.ReadLockMetadata(lockPath)
 			if readErr != nil {
 				cmd.Println("daemon is not running (no lockfile)")
 				return nil
@@ -39,6 +39,18 @@ func newStopCommand() *cobra.Command {
 				_ = os.Remove(lockPath)
 				cmd.Println("daemon is not running (stale lockfile removed)")
 				return nil
+			}
+
+			// Verify the PID still belongs to our executable. If the
+			// daemon crashed and the PID was reused by another process,
+			// killing it would be dangerous. Compare against the live
+			// process image, not our own binary path.
+			if lockExec != "" {
+				if liveExec, ok := fsutil.ProcessExecutable(pid); ok && !fsutil.ExecPathsMatch(lockExec, liveExec) {
+					_ = os.Remove(lockPath)
+					cmd.Println("daemon is not running (PID reused by another process; stale lockfile removed)")
+					return nil
+				}
 			}
 
 			if killErr := killDaemon(pid); killErr != nil {

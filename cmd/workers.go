@@ -174,12 +174,23 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 // zombie — either the old process died before writing its terminal status
 // or the lockfile was lost. Reap unconditionally rather than gating on
 // stalePID, which can be 0 when the lockfile didn't exist.
-func recoverStaleJobs(queue *jobqueue.Queue, stalePID int, logger *logging.Logger) {
-	// If we can prove the old process is still alive, leave its jobs alone —
-	// AcquireLock would normally have failed in that case, but check defensively.
+func recoverStaleJobs(queue *jobqueue.Queue, stalePID int, staleExec string, logger *logging.Logger) {
+	// If we can prove the old process is still alive and is our executable,
+	// leave its jobs alone — AcquireLock would normally have failed in that
+	// case, but check defensively. Compare against the live process image,
+	// not our own binary path.
 	if stalePID != 0 && fsutil.IsProcessAlive(stalePID) {
+		// Verify the PID still belongs to our executable to guard against
+		// PID reuse after a crash.
+		if staleExec != "" {
+			if liveExec, ok := fsutil.ProcessExecutable(stalePID); ok && !fsutil.ExecPathsMatch(staleExec, liveExec) {
+				// PID reused — fall through to reap.
+				goto reap
+			}
+		}
 		return
 	}
+reap:
 	n := queue.ReapRunning("daemon restarted during analysis")
 	if n > 0 {
 		logger.Warn("reaped stale running jobs", logging.Any("count", n))

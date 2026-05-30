@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -89,7 +90,7 @@ func tryAcquire(path string, logger *logging.Logger) error {
 		}
 
 		if existingExec != "" {
-			if liveExec, ok := processExecutable(existingPID); ok && !execPathsMatch(liveExec, existingExec) {
+			if liveExec, ok := processExecutable(existingPID); ok && !ExecPathsMatch(liveExec, existingExec) {
 				logger.Info("removing stale lock file",
 					logging.Any("pid", existingPID),
 					logging.Any("path", path),
@@ -133,7 +134,10 @@ func readLockMetadata(path string) (pid int, execPath string, err error) {
 	return pid, execPath, nil
 }
 
-func execPathsMatch(pathA, pathB string) bool {
+// ExecPathsMatch reports whether two executable paths refer to the same
+// binary, resolving symlinks and using case-insensitive comparison on
+// Windows.
+func ExecPathsMatch(pathA, pathB string) bool {
 	// Resolve symlinks so an in-place upgrade still matches the recorded path.
 	// Fall back to plain string compare when EvalSymlinks fails (e.g. the
 	// recorded binary has since been deleted).
@@ -142,6 +146,11 @@ func execPathsMatch(pathA, pathB string) bool {
 	}
 	if resolvedB, err := filepath.EvalSymlinks(pathB); err == nil {
 		pathB = resolvedB
+	}
+	// NTFS is case-insensitive; QueryFullProcessImageNameW returns
+	// case-preserved paths that may differ from the recorded value.
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(pathA, pathB)
 	}
 	return pathA == pathB
 }

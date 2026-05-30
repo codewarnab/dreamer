@@ -26,13 +26,17 @@ func detachedProcessAttr() *syscall.SysProcAttr {
 func killDaemon(pid int) error {
 	out, err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T", "/F").CombinedOutput()
 	if err != nil {
+		msg := string(out)
 		// taskkill exit code 128 = "process not found". Treat as success since
 		// the process is already gone — a race between IsProcessAlive and here.
-		if strings.Contains(string(out), "not found") {
+		if strings.Contains(msg, "not found") {
 			return nil
 		}
+		if strings.Contains(msg, "Access is denied") {
+			return fmt.Errorf("access denied killing PID %d: run as Administrator or use the same user session that started the daemon: %w", pid, err)
+		}
 		if len(out) > 0 {
-			return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+			return fmt.Errorf("%s: %w", strings.TrimSpace(msg), err)
 		}
 		return err
 	}

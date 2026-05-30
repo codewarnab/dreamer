@@ -48,7 +48,10 @@ func (s *linuxScheduler) Install(ctx context.Context, params ScheduleParams) (OS
 
 	baseName := "dreamer-job-" + params.JobID
 
-	timerContent := s.buildTimerUnit(params)
+	timerContent, err := s.buildTimerUnit(params)
+	if err != nil {
+		return OSScheduleState{}, fmt.Errorf("build timer unit: %w", err)
+	}
 	serviceContent := s.buildServiceUnit(params)
 
 	if err := writeFileAtomic(filepath.Join(unitDir, baseName+".timer"), []byte(timerContent)); err != nil {
@@ -178,7 +181,7 @@ func (s *linuxScheduler) ListOwn(_ context.Context) ([]string, error) {
 }
 
 // buildTimerUnit generates a systemd timer unit file for the job.
-func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
+func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) (string, error) {
 	var b strings.Builder
 	b.WriteString("[Unit]\n")
 	b.WriteString("Description=Timer for Dreamer background job " + params.JobID + "\n")
@@ -191,7 +194,10 @@ func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
 		b.WriteString("OnUnitActiveSec=" + interval + "\n")
 		b.WriteString("Persistent=true\n")
 	} else {
-		onCalendar := scheduleToOnCalendar(params.Schedule)
+		onCalendar, err := scheduleToOnCalendar(params.Schedule)
+		if err != nil {
+			return "", err
+		}
 		b.WriteString("OnCalendar=" + onCalendar + "\n")
 		b.WriteString("Persistent=true\n")
 		b.WriteString(fmt.Sprintf("RandomizedDelaySec=%d\n", randomizedDelaySec(params.Schedule)))
@@ -200,7 +206,7 @@ func (s *linuxScheduler) buildTimerUnit(params ScheduleParams) string {
 	b.WriteString("\n[Install]\n")
 	b.WriteString("WantedBy=timers.target\n")
 
-	return b.String()
+	return b.String(), nil
 }
 
 // buildServiceUnit generates a systemd service unit file for the job.
@@ -224,23 +230,29 @@ func (s *linuxScheduler) buildServiceUnit(params ScheduleParams) string {
 }
 
 // scheduleToOnCalendar converts a ScheduleSpec to a systemd OnCalendar expression.
-func scheduleToOnCalendar(spec ScheduleSpec) string {
+func scheduleToOnCalendar(spec ScheduleSpec) (string, error) {
 	switch spec.Kind {
 	case ScheduleInterval:
-		return "*-*-* *:00:00"
+		return "*-*-* *:00:00", nil
 	case ScheduleDaily:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
-		return fmt.Sprintf("*-*-* %02d:%02d:00", hour, min)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
+		}
+		return fmt.Sprintf("*-*-* %02d:%02d:00", hour, min), nil
 	case ScheduleWeekly:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
+		}
 		day := weekdayToSystemdDay(strings.ToLower(spec.DayOfWeek))
-		return fmt.Sprintf("%s *-*-* %02d:%02d:00", day, hour, min)
+		return fmt.Sprintf("%s *-*-* %02d:%02d:00", day, hour, min), nil
 	case ScheduleCron:
 		// systemd OnCalendar syntax is NOT compatible with standard 5-field cron.
 		// The caller (Install) rejects cron schedules before reaching here.
-		return "*-*-* *:00:00" // fallback — should never be reached
+		return "*-*-* *:00:00", nil // fallback — should never be reached
 	default:
-		return "*-*-* *:00:00"
+		return "*-*-* *:00:00", nil
 	}
 }
 

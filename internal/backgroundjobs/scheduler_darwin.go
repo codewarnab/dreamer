@@ -186,7 +186,10 @@ func (s *darwinScheduler) writePlist(params ScheduleParams) (string, error) {
 
 	plistPath := filepath.Join(agentDir, s.label(params.JobID)+".plist")
 
-	calIntervals := buildCalendarIntervals(params.Schedule)
+	calIntervals, err := buildCalendarIntervals(params.Schedule)
+	if err != nil {
+		return "", fmt.Errorf("build calendar intervals: %w", err)
+	}
 	disabled := !params.Enabled
 	startInterval := 0
 	if params.Schedule.Kind == ScheduleInterval && params.Schedule.Every != "" {
@@ -222,9 +225,11 @@ func (s *darwinScheduler) bootstrap(ctx context.Context, plistPath string) error
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.runCmd(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), plistPath)
-	// "already bootstrapped" is not an error.
-	if err != nil && !strings.Contains(string(err.Error()), "already bootstrapped") {
+	out, err := s.runCmd(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), plistPath)
+	// "already bootstrapped" is not an error. launchctl writes the message
+	// to stderr; CombinedOutput (the default runCmd implementation) merges
+	// stdout+stderr, so search the output bytes, not err.Error().
+	if err != nil && !strings.Contains(string(out), "already bootstrapped") {
 		return err
 	}
 	return nil
@@ -660,22 +665,31 @@ func (p launchAgentPlist) MarshalXML(e *xml.Encoder, start xml.StartElement) err
 
 // buildCalendarIntervals converts a ScheduleSpec to plist calendar intervals.
 // Returns nil when StartInterval should be used instead (Every is set).
-func buildCalendarIntervals(spec ScheduleSpec) []calendarInterval {
+func buildCalendarIntervals(spec ScheduleSpec) ([]calendarInterval, error) {
 	switch spec.Kind {
 	case ScheduleInterval:
 		if spec.Every != "" {
-			return nil // StartInterval handles the scheduling
+			return nil, nil // StartInterval handles the scheduling
 		}
-		return []calendarInterval{{Hour: -1, Minute: 0, Weekday: -1}} // every hour at :00
+		return []calendarInterval{{Hour: -1, Minute: 0, Weekday: -1}}, nil // every hour at :00
 	case ScheduleDaily:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
-		return []calendarInterval{{Hour: hour, Minute: min, Weekday: -1}}
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return nil, fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
+		}
+		return []calendarInterval{{Hour: hour, Minute: min, Weekday: -1}}, nil
 	case ScheduleWeekly:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return nil, fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
+		}
 		wd := weekdayToLaunchd(strings.ToLower(spec.DayOfWeek))
-		return []calendarInterval{{Hour: hour, Minute: min, Weekday: wd}}
+		if wd < 0 {
+			return nil, fmt.Errorf("invalid day_of_week %q", spec.DayOfWeek)
+		}
+		return []calendarInterval{{Hour: hour, Minute: min, Weekday: wd}}, nil
 	default:
-		return []calendarInterval{{Hour: 0, Minute: 0, Weekday: -1}}
+		return []calendarInterval{{Hour: 0, Minute: 0, Weekday: -1}}, nil
 	}
 }
 
@@ -697,7 +711,7 @@ func weekdayToLaunchd(day string) int {
 	case "saturday":
 		return 6
 	default:
-		return 1
+		return -1
 	}
 }
 

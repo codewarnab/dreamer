@@ -1,6 +1,15 @@
 // Package mcpserver implements the MCP server for Phase 2 finding recording
 // and shared validation/JSONL logic used by both the MCP server and the
 // record-finding CLI tool.
+//
+// Design note: validation.go validates finding fields (category, description,
+// severity, etc.) — it does NOT filter or restrict shell commands passed to
+// the Bash tool. Command-level restrictions (network egress, interpreter
+// inline-exec, secret reads, persistence, etc.) are enforced by the OS
+// sandbox layer (internal/sandbox/), not by this package. This is
+// intentional: the sandbox operates at the kernel/syscall level and covers
+// all providers uniformly, whereas an argv filter would be bypassable and
+// would need per-platform maintenance.
 package mcpserver
 
 import (

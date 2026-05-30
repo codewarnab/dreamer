@@ -48,6 +48,7 @@ type JobHealth struct {
 type HealthChecker struct {
 	Scheduler Scheduler
 	Store     *Store
+	RunStore  *RunStore // optional; nil disables run-status checks
 	Logger    *logging.Logger
 }
 
@@ -135,6 +136,19 @@ func (h *HealthChecker) checkJob(ctx context.Context, jobID string, job *Job) Jo
 				Severity: HealthSeverityInfo,
 				Message:  fmt.Sprintf("last run was %s ago", staleDuration.Truncate(time.Hour)),
 			})
+		}
+	}
+
+	// Check for repeated timeouts (distinct from failures).
+	if h.RunStore != nil {
+		if latest, err := h.RunStore.Latest(jobID); err == nil && latest != nil {
+			if latest.Status == RunStatusTimedOut {
+				jh.Issues = append(jh.Issues, HealthIssue{
+					JobID:    jobID,
+					Severity: HealthSeverityWarning,
+					Message:  "last run timed out — consider increasing the job timeout",
+				})
+			}
 		}
 	}
 

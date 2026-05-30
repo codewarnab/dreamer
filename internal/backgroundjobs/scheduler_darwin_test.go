@@ -5,15 +5,21 @@ package backgroundjobs
 import (
 	"context"
 	"encoding/xml"
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
 	"time"
+
+	"dreamer/internal/logging"
 )
 
 func TestBuildCalendarIntervals_Hourly(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleInterval}
-	intervals := buildCalendarIntervals(spec)
+	intervals, err := buildCalendarIntervals(spec)
+	if err != nil {
+		t.Fatalf("buildCalendarIntervals(hourly): %v", err)
+	}
 	if len(intervals) != 1 {
 		t.Fatalf("got %d intervals, want 1", len(intervals))
 	}
@@ -30,7 +36,10 @@ func TestBuildCalendarIntervals_Hourly(t *testing.T) {
 
 func TestBuildCalendarIntervals_Daily(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "14:30"}
-	intervals := buildCalendarIntervals(spec)
+	intervals, err := buildCalendarIntervals(spec)
+	if err != nil {
+		t.Fatalf("buildCalendarIntervals(daily): %v", err)
+	}
 	if len(intervals) != 1 {
 		t.Fatalf("got %d intervals, want 1", len(intervals))
 	}
@@ -47,7 +56,10 @@ func TestBuildCalendarIntervals_Daily(t *testing.T) {
 
 func TestBuildCalendarIntervals_Weekly(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleWeekly, DayOfWeek: "Monday", TimeOfDay: "09:00"}
-	intervals := buildCalendarIntervals(spec)
+	intervals, err := buildCalendarIntervals(spec)
+	if err != nil {
+		t.Fatalf("buildCalendarIntervals(weekly): %v", err)
+	}
 	if len(intervals) != 1 {
 		t.Fatalf("got %d intervals, want 1", len(intervals))
 	}
@@ -65,7 +77,10 @@ func TestBuildCalendarIntervals_Weekly(t *testing.T) {
 
 func TestBuildCalendarIntervals_Sunday(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleWeekly, DayOfWeek: "Sunday", TimeOfDay: "10:00"}
-	intervals := buildCalendarIntervals(spec)
+	intervals, err := buildCalendarIntervals(spec)
+	if err != nil {
+		t.Fatalf("buildCalendarIntervals(sunday): %v", err)
+	}
 	if len(intervals) != 1 {
 		t.Fatalf("got %d intervals, want 1", len(intervals))
 	}
@@ -228,9 +243,9 @@ func TestLaunchAgentPlist_MarshalUnmarshalRoundTrip(t *testing.T) {
 		StartCalendarInterval: []calendarInterval{
 			{Hour: 9, Minute: 0, Weekday: -1},
 		},
-		StandardOutPath:  "/tmp/stdout.log",
+		StandardOutPath:   "/tmp/stdout.log",
 		StandardErrorPath: "/tmp/stderr.log",
-		Disabled:         false,
+		Disabled:          false,
 	}
 
 	// Marshal.
@@ -356,9 +371,9 @@ func TestLaunchAgentPlist_UnmarshalCalendarInterval(t *testing.T) {
 
 func TestBuildCalendarIntervals_HourlyEvery(t *testing.T) {
 	tests := []struct {
-		name      string
-		every     string
-		wantNil   bool
+		name    string
+		every   string
+		wantNil bool
 	}{
 		{"default", "", false},
 		{"5m", "5m", true},
@@ -368,7 +383,10 @@ func TestBuildCalendarIntervals_HourlyEvery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := ScheduleSpec{Kind: ScheduleInterval, Every: tt.every}
-			intervals := buildCalendarIntervals(spec)
+			intervals, err := buildCalendarIntervals(spec)
+			if err != nil {
+				t.Fatalf("buildCalendarIntervals(every=%q): %v", tt.every, err)
+			}
 			if tt.wantNil {
 				if intervals != nil {
 					t.Errorf("buildCalendarIntervals(every=%q) = %v, want nil", tt.every, intervals)
@@ -389,11 +407,11 @@ func TestLaunchAgentPlist_MarshalStartInterval(t *testing.T) {
 		ProgramArguments: []string{
 			"/usr/local/bin/dreamer", "jobs", "run", "test",
 		},
-		WorkingDirectory: "/tmp/test",
-		StartInterval:    900, // 15 minutes
-		StandardOutPath:  "/tmp/stdout.log",
+		WorkingDirectory:  "/tmp/test",
+		StartInterval:     900, // 15 minutes
+		StandardOutPath:   "/tmp/stdout.log",
 		StandardErrorPath: "/tmp/stderr.log",
-		Disabled:         false,
+		Disabled:          false,
 	}
 
 	data, err := xml.MarshalIndent(plist, "", "  ")
@@ -439,9 +457,9 @@ func TestLaunchAgentPlist_MarshalUnmarshalStartIntervalRoundTrip(t *testing.T) {
 		ProgramArguments: []string{
 			"/usr/local/bin/dreamer", "jobs", "run", "test",
 		},
-		WorkingDirectory: "/tmp/test",
-		StartInterval:    900,
-		StandardOutPath:  "/tmp/stdout.log",
+		WorkingDirectory:  "/tmp/test",
+		StartInterval:     900,
+		StandardOutPath:   "/tmp/stdout.log",
 		StandardErrorPath: "/tmp/stderr.log",
 	}
 
@@ -461,6 +479,48 @@ func TestLaunchAgentPlist_MarshalUnmarshalStartIntervalRoundTrip(t *testing.T) {
 }
 
 // contains is a simple helper for test assertions.
+// B3: Verify bootstrap suppresses "already bootstrapped" errors by searching
+// the combined output bytes, not err.Error().
+func TestDarwinScheduler_Bootstrap_AlreadyBootstrapped(t *testing.T) {
+	s := &darwinScheduler{
+		cfg: SchedulerConfig{
+			StoreDir:       t.TempDir(),
+			ExecutablePath: "/usr/local/bin/dreamer",
+			ConfigPath:     "/Users/test/.config/dreamer/config.yaml",
+		},
+		logger: logging.Silent(),
+		runCmd: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			// launchctl writes the message to stderr; CombinedOutput merges both.
+			return []byte("Boot-out failed: 5: Input/output error\nAlready bootstrapped"), fmt.Errorf("exit status 1")
+		},
+	}
+
+	err := s.bootstrap(context.Background(), "/tmp/test.plist")
+	if err != nil {
+		t.Errorf("bootstrap should suppress 'already bootstrapped', got: %v", err)
+	}
+}
+
+// B3: Verify bootstrap returns real errors.
+func TestDarwinScheduler_Bootstrap_RealError(t *testing.T) {
+	s := &darwinScheduler{
+		cfg: SchedulerConfig{
+			StoreDir:       t.TempDir(),
+			ExecutablePath: "/usr/local/bin/dreamer",
+			ConfigPath:     "/Users/test/.config/dreamer/config.yaml",
+		},
+		logger: logging.Silent(),
+		runCmd: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			return []byte("Could not read path"), fmt.Errorf("exit status 1")
+		},
+	}
+
+	err := s.bootstrap(context.Background(), "/tmp/test.plist")
+	if err == nil {
+		t.Error("bootstrap should return error for non-'already bootstrapped' failures")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

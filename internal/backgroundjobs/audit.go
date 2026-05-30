@@ -46,6 +46,11 @@ func (w *AuditWriter) Write(event AuditEvent) error {
 	}
 	data = append(data, '\n')
 
+	// O_APPEND on Linux/Windows guarantees atomic appends for writes
+	// smaller than the filesystem block size (typically 4 KiB). Each
+	// audit event is well under that limit, so a cross-process lock is
+	// not needed. The in-process mutex protects the MkdirAll + OpenFile
+	// sequence from races between goroutines.
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
