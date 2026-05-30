@@ -13,3 +13,10 @@ func ReadLockPID(path string) (int, error) {
 	pid, _, err := readLockMetadata(path)
 	return pid, err
 }
+
+// ReadLockMetadata reads both the PID and the executable path from the
+// given lock file. Callers should verify the executable identity via
+// execPathsMatch before acting on the PID, to guard against PID reuse.
+func ReadLockMetadata(path string) (pid int, execPath string, err error) {
+	return readLockMetadata(path)
+}

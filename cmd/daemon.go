@@ -173,7 +173,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging
 	}
 
 	lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
-	stalePID, readErr := fsutil.ReadLockPID(lockPath)
+	stalePID, staleExec, readErr := fsutil.ReadLockMetadata(lockPath)
 	if readErr != nil {
 		logger.Warn("read lock PID failed; stale-job recovery will reap unconditionally",
 			logging.Any("lock_path", lockPath),
@@ -196,7 +196,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging
 	if recoverErr := queue.Recover(); recoverErr != nil {
 		logger.Warn("failed to recover job queue", logging.Any("err", recoverErr))
 	}
-	recoverStaleJobs(queue, stalePID, logger)
+	recoverStaleJobs(queue, stalePID, staleExec, logger)
 
 	discoveryCache = pipeline.NewDiscoveryCache()
 	events = pipeline.NewEventBus()
@@ -248,7 +248,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 	outputRoot := cfg.Daemon.OutputRoot
 	store := backgroundjobs.NewStore(outputRoot, logger)
 	runStore := backgroundjobs.NewRunStore(store.Dir(), logger)
-	auditWriter := backgroundjobs.NewAuditWriter(store.Dir())
+	auditWriter := backgroundjobs.NewAuditWriter(store.Dir(), logger)
 	installID, _ := backgroundjobs.ResolveInstallID(store.Dir())
 
 	var scheduler backgroundjobs.Scheduler
