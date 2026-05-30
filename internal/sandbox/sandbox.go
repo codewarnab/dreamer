@@ -114,6 +114,10 @@ const (
 	SeccompFull    = "full"
 )
 
+// sandboxKillGrace is how long to wait for a process to exit after Kill
+// before escalating to a second Kill.
+const sandboxKillGrace = 10 * time.Second
+
 // ParseNetwork converts a raw string into a network mode. Empty string
 // maps to NetworkOpen (isolation is opt-in). Invalid values return an error.
 func ParseNetwork(raw string) (string, error) {
@@ -314,14 +318,14 @@ func PostStartOrKill(cmd *exec.Cmd, cfg Config, stdin, stdout io.Closer, provide
 				select {
 				case <-done:
 					return
-				case <-time.After(10 * time.Second):
+				case <-time.After(sandboxKillGrace):
 					// First Kill didn't take. Escalate: Kill again and
-					// wait another 10s before giving up on the goroutine.
+					// wait another grace period before giving up on the goroutine.
 					_ = cmd.Process.Kill()
 					select {
 					case <-done:
-					case <-time.After(10 * time.Second):
-						slog.Error("sandbox: process did not exit after two Kills within 20s; goroutine leaked",
+					case <-time.After(sandboxKillGrace):
+						slog.Error("sandbox: process did not exit after two Kills within 2x grace period; goroutine leaked",
 							"provider", providerID,
 							"pid", cmd.Process.Pid)
 					}

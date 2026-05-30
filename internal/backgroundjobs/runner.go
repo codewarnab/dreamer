@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -192,7 +193,6 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 
 	// Defer run-record persistence so the record is written even on panic.
 	// The deferred closure captures run by pointer and finalises it.
-	now := time.Now().UTC()
 	defer func() {
 		if r := recover(); r != nil {
 			now := time.Now().UTC()
@@ -219,18 +219,21 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	output, runErr := e.executeJob(ctx, job, providerCfg, runID)
 
 	// Record result.
-	now = time.Now().UTC()
+	now := time.Now().UTC()
 	run.FinishedAt = &now
 	run.DurationMillis = now.Sub(startedAt).Milliseconds()
 	run.OutputSummary = truncateUTF8(output, maxOutputSummaryRunes)
 
 	if runErr != nil {
-		if ctx.Err() == context.DeadlineExceeded {
+		// Classify off the returned error, not the parent context.
+		// session.Run may surface a session-level timeout as a non-nil
+		// runErr while ctx.Err() is still nil.
+		if errors.Is(runErr, context.DeadlineExceeded) {
 			run.Status = RunStatusTimedOut
-			run.Error = ctx.Err().Error()
-		} else if ctx.Err() == context.Canceled {
+			run.Error = runErr.Error()
+		} else if errors.Is(runErr, context.Canceled) {
 			run.Status = RunStatusCancelled
-			run.Error = ctx.Err().Error()
+			run.Error = runErr.Error()
 		} else {
 			run.Status = RunStatusFailed
 			run.Error = runErr.Error()
