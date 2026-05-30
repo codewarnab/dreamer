@@ -64,7 +64,7 @@ func newDaemonCommand() *cobra.Command {
 			defer func() { _ = logger.Close() }()
 
 			overrides := daemonOverrides{
-				forceParallel:       analyzerFlags.parallel,
+				forceParallel:  analyzerFlags.parallel,
 				maxConcurrency: analyzerFlags.jobs,
 			}
 			if cmd.Flags().Changed(flagChunkSize) {
@@ -137,7 +137,7 @@ func newDaemonCommand() *cobra.Command {
 
 // daemonOverrides carries CLI-level overrides that apply to every project per cycle.
 type daemonOverrides struct {
-	forceParallel         bool
+	forceParallel    bool
 	maxConcurrency   int
 	maxChunkBytes    int
 	maxChunkBytesSet bool
@@ -248,7 +248,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 	outputRoot := cfg.Daemon.OutputRoot
 	store := backgroundjobs.NewStore(outputRoot, logger)
 	runStore := backgroundjobs.NewRunStore(store.Dir(), logger)
-	auditWriter := backgroundjobs.NewAuditWriter(store.Dir(), logger)
+	auditWriter := backgroundjobs.NewAuditWriter(store.Dir())
 	installID, _ := backgroundjobs.ResolveInstallID(store.Dir())
 
 	var scheduler backgroundjobs.Scheduler

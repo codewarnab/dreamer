@@ -11,12 +11,11 @@ import (
 	"time"
 
 	"dreamer/internal/fsutil"
-	"dreamer/internal/logging"
 )
 
 func TestAuditWriter_Write_AppendsLine(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	for i := 0; i < 3; i++ {
 		if err := w.Write(AuditEvent{Event: "test", JobID: "abc"}); err != nil {
@@ -32,7 +31,7 @@ func TestAuditWriter_Write_AppendsLine(t *testing.T) {
 
 func TestAuditWriter_Write_SetsTimestamp(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	if err := w.Write(AuditEvent{Event: "test"}); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -52,7 +51,7 @@ func TestAuditWriter_Write_SetsTimestamp(t *testing.T) {
 
 func TestAuditWriter_Write_PreservesTimestamp(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	ts := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	if err := w.Write(AuditEvent{Timestamp: ts, Event: "test"}); err != nil {
@@ -67,7 +66,7 @@ func TestAuditWriter_Write_PreservesTimestamp(t *testing.T) {
 
 func TestAuditWriter_Write_Concurrent(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -91,7 +90,7 @@ func TestAuditWriter_Write_Concurrent(t *testing.T) {
 
 func TestAuditWriter_Write_AllFields(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	event := AuditEvent{
 		Event: "job.run.finish",
@@ -144,7 +143,7 @@ func readAuditLines(t *testing.T, dir string) []string {
 
 func TestAuditWriter_ReadAll_ReturnsNewestFirst(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	t1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
@@ -173,7 +172,7 @@ func TestAuditWriter_ReadAll_ReturnsNewestFirst(t *testing.T) {
 
 func TestAuditWriter_ReadAll_LimitTruncates(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	for i := 0; i < 5; i++ {
 		if err := w.Write(AuditEvent{Event: "test", JobID: fmt.Sprintf("%d", i)}); err != nil {
@@ -192,7 +191,7 @@ func TestAuditWriter_ReadAll_LimitTruncates(t *testing.T) {
 
 func TestAuditWriter_ReadAll_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	events, err := w.ReadAll(0)
 	if err != nil {
@@ -205,7 +204,7 @@ func TestAuditWriter_ReadAll_EmptyFile(t *testing.T) {
 
 func TestAuditWriter_ReadAll_SkipsMalformedLines(t *testing.T) {
 	dir := t.TempDir()
-	w := NewAuditWriter(dir, logging.Silent())
+	w := NewAuditWriter(dir)
 
 	// Write a valid event.
 	if err := w.Write(AuditEvent{Event: "valid", JobID: "abc"}); err != nil {
@@ -237,7 +236,7 @@ func TestAuditWriter_ReadAll_SkipsMalformedLines(t *testing.T) {
 }
 
 func TestAuditWriter_ReadAll_NonExistentDir(t *testing.T) {
-	w := NewAuditWriter(filepath.Join(t.TempDir(), "nonexistent"), logging.Silent())
+	w := NewAuditWriter(filepath.Join(t.TempDir(), "nonexistent"))
 
 	events, err := w.ReadAll(0)
 	if err != nil {

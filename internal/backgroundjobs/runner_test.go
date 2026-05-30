@@ -73,7 +73,7 @@ func newTestExecutor(t *testing.T, provider *mockProvider) (*Executor, *Store, *
 	lg := newTestLogger(t)
 	store := NewStore(outputRoot, lg)
 	runStore := NewRunStore(store.Dir(), lg)
-	audit := NewAuditWriter(store.Dir(), logging.Silent())
+	audit := NewAuditWriter(store.Dir())
 	cfgPath := writeMinimalConfig(t)
 
 	executor := &Executor{
@@ -481,7 +481,7 @@ func TestExecutor_Run_BackgroundSystemMessage(t *testing.T) {
 	lg := newTestLogger(t)
 	store := NewStore(outputRoot, lg)
 	runStore := NewRunStore(store.Dir(), lg)
-	audit := NewAuditWriter(store.Dir(), logging.Silent())
+	audit := NewAuditWriter(store.Dir())
 	cfgPath := writeMinimalConfig(t)
 
 	executor := &Executor{
@@ -542,7 +542,7 @@ func TestExecutor_Run_JobDeletedDuringRun(t *testing.T) {
 	lg := newTestLogger(t)
 	store := NewStore(outputRoot, lg)
 	runStore := NewRunStore(store.Dir(), lg)
-	audit := NewAuditWriter(store.Dir(), logging.Silent())
+	audit := NewAuditWriter(store.Dir())
 	cfgPath := writeMinimalConfig(t)
 
 	executor := &Executor{
@@ -657,7 +657,7 @@ func TestExecutor_Run_DisabledJob_EmitsAuditEvent(t *testing.T) {
 	}
 
 	// Read audit log and verify job.run.skipped event exists.
-	audit := NewAuditWriter(store.Dir(), logging.Silent())
+	audit := NewAuditWriter(store.Dir())
 	events, err := audit.ReadAll(100)
 	if err != nil {
 		t.Fatalf("read audit: %v", err)
@@ -690,7 +690,7 @@ func TestExecutor_Run_ClaimAuditAfterLock(t *testing.T) {
 	}
 
 	// Read audit log and verify claim comes before finish.
-	audit := NewAuditWriter(store.Dir(), logging.Silent())
+	audit := NewAuditWriter(store.Dir())
 	events, err := audit.ReadAll(100)
 	if err != nil {
 		t.Fatalf("read audit: %v", err)

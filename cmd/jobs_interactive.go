@@ -340,7 +340,7 @@ func applyJobEdit(store *backgroundjobs.Store, sched backgroundjobs.Scheduler, c
 		}
 	}
 
-	audit := backgroundjobs.NewAuditWriter(store.Dir(), logging.Silent())
+	audit := backgroundjobs.NewAuditWriter(store.Dir())
 	_ = audit.Write(backgroundjobs.AuditEvent{
 		Event: "job.edit",
 		JobID: jobID,
@@ -545,7 +545,7 @@ func (m *jobsInteractiveModel) makeDeleteCmd(job *backgroundjobs.Job) func() tea
 			if err := m.store.DeleteJob(job.ID); err != nil {
 				return jobsStatusMsg{msg: fmt.Sprintf("Delete failed: %v", err)}
 			}
-			audit := backgroundjobs.NewAuditWriter(m.store.Dir(), logging.Silent())
+			audit := backgroundjobs.NewAuditWriter(m.store.Dir())
 			_ = audit.Write(backgroundjobs.AuditEvent{
 				Event: "job.deleted",
 				JobID: job.ID,
@@ -561,7 +561,7 @@ func (m *jobsInteractiveModel) makeRunCmd(job *backgroundjobs.Job) func() tea.Cm
 		return func() tea.Msg {
 			lg := logging.Silent()
 			runStore := backgroundjobs.NewRunStore(m.store.Dir(), lg)
-			audit := backgroundjobs.NewAuditWriter(m.store.Dir(), logging.Silent())
+			audit := backgroundjobs.NewAuditWriter(m.store.Dir())
 
 			var selfRepair *backgroundjobs.SelfRepairConfig
 			if m.scheduler != nil {

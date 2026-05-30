@@ -274,16 +274,16 @@ func buildScheduler(outputRoot, configPath string) (backgroundjobs.Scheduler, er
 
 // createJobInput holds the resolved inputs for creating a background job.
 type createJobInput struct {
-	projectPath  string
-	projectName  string
-	name         string
-	providerID   string
-	model        string
-	prompt       string
-	fileAccess   string // read_only, selected_writes, full_workspace
+	projectPath   string
+	projectName   string
+	name          string
+	providerID    string
+	model         string
+	prompt        string
+	fileAccess    string // read_only, selected_writes, full_workspace
 	writablePaths string // comma-separated, for selected_writes
-	schedule     backgroundjobs.ScheduleSpec
-	timezone     string
+	schedule      backgroundjobs.ScheduleSpec
+	timezone      string
 }
 
 // createAndSaveJob validates, builds, and persists a background job.
@@ -396,7 +396,7 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 	}
 
 	// Audit.
-	audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
+	audit := backgroundjobs.NewAuditWriter(store.Dir())
 	_ = audit.Write(backgroundjobs.AuditEvent{
 		Event: "job.created",
 		JobID: jobID,
@@ -409,20 +409,20 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 
 func newJobsCreateCommand() *cobra.Command {
 	var (
-		name         string
-		prompt       string
-		providerID   string
-		model        string
-		scheduleKind string
-		every        string
-		timeOfDay    string
-		dayOfWeek    string
-		cron         string
-		timezone     string
-		fileAccess   string
+		name          string
+		prompt        string
+		providerID    string
+		model         string
+		scheduleKind  string
+		every         string
+		timeOfDay     string
+		dayOfWeek     string
+		cron          string
+		timezone      string
+		fileAccess    string
 		writablePaths string
-		dryRun       bool
-		interactive  bool
+		dryRun        bool
+		interactive   bool
 	)
 
 	command := &cobra.Command{
@@ -454,17 +454,17 @@ func newJobsCreateCommand() *cobra.Command {
 
 			if launchWizard {
 				return runInteractiveCreate(cmd, outputRoot, resolvedConfigPath, defaultProvider, args, jobWizardAnswers{
-					providerID:   providerID,
-					name:         name,
-					prompt:       prompt,
-					fileAccess:   fileAccess,
+					providerID:    providerID,
+					name:          name,
+					prompt:        prompt,
+					fileAccess:    fileAccess,
 					writablePaths: writablePaths,
-					scheduleKind: scheduleKind,
-					every:        every,
-					timeOfDay:    timeOfDay,
-					dayOfWeek:    dayOfWeek,
-					cron:         cron,
-					timezone:     timezone,
+					scheduleKind:  scheduleKind,
+					every:         every,
+					timeOfDay:     timeOfDay,
+					dayOfWeek:     dayOfWeek,
+					cron:          cron,
+					timezone:      timezone,
 				})
 			}
 
@@ -530,16 +530,16 @@ func newJobsCreateCommand() *cobra.Command {
 			projectName := pipeline.DeriveProjectName(projectPath, nil)
 
 			return createAndSaveJob(cmd, outputRoot, resolvedConfigPath, createJobInput{
-				projectPath:  projectPath,
-				projectName:  projectName,
-				name:         name,
-				providerID:   providerID,
-				model:        model,
-				prompt:       prompt,
-				fileAccess:   fileAccess,
+				projectPath:   projectPath,
+				projectName:   projectName,
+				name:          name,
+				providerID:    providerID,
+				model:         model,
+				prompt:        prompt,
+				fileAccess:    fileAccess,
 				writablePaths: writablePaths,
-				schedule:     schedule,
-				timezone:     timezone,
+				schedule:      schedule,
+				timezone:      timezone,
 			}, dryRun)
 		},
 	}
@@ -1071,7 +1071,7 @@ func newJobsEditCommand() *cobra.Command {
 			}
 
 			// Audit.
-			audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
+			audit := backgroundjobs.NewAuditWriter(store.Dir())
 			_ = audit.Write(backgroundjobs.AuditEvent{
 				Event: "job.edit",
 				JobID: jobID,
@@ -1154,7 +1154,7 @@ func newJobsDeleteCommand() *cobra.Command {
 			}
 
 			// Audit.
-			audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
+			audit := backgroundjobs.NewAuditWriter(store.Dir())
 			_ = audit.Write(backgroundjobs.AuditEvent{
 				Event: "job.deleted",
 				JobID: jobID,

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"dreamer/internal/fsutil"
-	"dreamer/internal/logging"
 )
 
 const auditFile = "audit.jsonl"
@@ -27,14 +26,13 @@ type AuditEvent struct {
 
 // AuditWriter appends JSONL audit events to <storeDir>/audit.jsonl.
 type AuditWriter struct {
-	logger *logging.Logger
-	dir    string
-	mu     sync.RWMutex
+	dir string
+	mu  sync.RWMutex
 }
 
 // NewAuditWriter creates an AuditWriter rooted at storeDir.
-func NewAuditWriter(storeDir string, logger *logging.Logger) *AuditWriter {
-	return &AuditWriter{dir: storeDir, logger: logger}
+func NewAuditWriter(storeDir string) *AuditWriter {
+	return &AuditWriter{dir: storeDir}
 }
 
 // Write appends a single audit event. Thread-safe.
@@ -48,16 +46,11 @@ func (w *AuditWriter) Write(event AuditEvent) error {
 	}
 	data = append(data, '\n')
 
-	// Cross-process file lock prevents interleaved writes when multiple
-	// dreamer job processes run concurrently.
-	lockPath := filepath.Join(w.dir, auditFile+".lock")
-	unlock, lockErr := fsutil.AcquireLock(lockPath, w.logger)
-	if lockErr != nil {
-		w.logger.Warn("audit lock acquisition failed; writing without lock", logging.Any("err", lockErr))
-	} else {
-		defer unlock()
-	}
-
+	// O_APPEND on Linux/Windows guarantees atomic appends for writes
+	// smaller than the filesystem block size (typically 4 KiB). Each
+	// audit event is well under that limit, so a cross-process lock is
+	// not needed. The in-process mutex protects the MkdirAll + OpenFile
+	// sequence from races between goroutines.
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
