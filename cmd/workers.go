@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -178,13 +177,13 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 func recoverStaleJobs(queue *jobqueue.Queue, stalePID int, staleExec string, logger *logging.Logger) {
 	// If we can prove the old process is still alive and is our executable,
 	// leave its jobs alone — AcquireLock would normally have failed in that
-	// case, but check defensively.
+	// case, but check defensively. Compare against the live process image,
+	// not our own binary path.
 	if stalePID != 0 && fsutil.IsProcessAlive(stalePID) {
 		// Verify the PID still belongs to our executable to guard against
 		// PID reuse after a crash.
 		if staleExec != "" {
-			selfExec, _ := os.Executable()
-			if selfExec != "" && !fsutil.ExecPathsMatch(staleExec, selfExec) {
+			if liveExec, ok := fsutil.ProcessExecutable(stalePID); ok && !fsutil.ExecPathsMatch(staleExec, liveExec) {
 				// PID reused — fall through to reap.
 				goto reap
 			}

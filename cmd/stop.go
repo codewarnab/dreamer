@@ -43,10 +43,10 @@ func newStopCommand() *cobra.Command {
 
 			// Verify the PID still belongs to our executable. If the
 			// daemon crashed and the PID was reused by another process,
-			// killing it would be dangerous.
+			// killing it would be dangerous. Compare against the live
+			// process image, not our own binary path.
 			if lockExec != "" {
-				selfExec, _ := os.Executable()
-				if selfExec != "" && !fsutil.ExecPathsMatch(lockExec, selfExec) {
+				if liveExec, ok := fsutil.ProcessExecutable(pid); ok && !fsutil.ExecPathsMatch(lockExec, liveExec) {
 					_ = os.Remove(lockPath)
 					cmd.Println("daemon is not running (PID reused by another process; stale lockfile removed)")
 					return nil
