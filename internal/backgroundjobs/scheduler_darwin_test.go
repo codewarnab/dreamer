@@ -5,10 +5,13 @@ package backgroundjobs
 import (
 	"context"
 	"encoding/xml"
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
 	"time"
+
+	"dreamer/internal/logging"
 )
 
 func TestBuildCalendarIntervals_Hourly(t *testing.T) {
@@ -461,6 +464,48 @@ func TestLaunchAgentPlist_MarshalUnmarshalStartIntervalRoundTrip(t *testing.T) {
 }
 
 // contains is a simple helper for test assertions.
+// B3: Verify bootstrap suppresses "already bootstrapped" errors by searching
+// the combined output bytes, not err.Error().
+func TestDarwinScheduler_Bootstrap_AlreadyBootstrapped(t *testing.T) {
+	s := &darwinScheduler{
+		cfg: SchedulerConfig{
+			StoreDir:       t.TempDir(),
+			ExecutablePath: "/usr/local/bin/dreamer",
+			ConfigPath:     "/Users/test/.config/dreamer/config.yaml",
+		},
+		logger: logging.Silent(),
+		runCmd: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			// launchctl writes the message to stderr; CombinedOutput merges both.
+			return []byte("Boot-out failed: 5: Input/output error\nAlready bootstrapped"), fmt.Errorf("exit status 1")
+		},
+	}
+
+	err := s.bootstrap(context.Background(), "/tmp/test.plist")
+	if err != nil {
+		t.Errorf("bootstrap should suppress 'already bootstrapped', got: %v", err)
+	}
+}
+
+// B3: Verify bootstrap returns real errors.
+func TestDarwinScheduler_Bootstrap_RealError(t *testing.T) {
+	s := &darwinScheduler{
+		cfg: SchedulerConfig{
+			StoreDir:       t.TempDir(),
+			ExecutablePath: "/usr/local/bin/dreamer",
+			ConfigPath:     "/Users/test/.config/dreamer/config.yaml",
+		},
+		logger: logging.Silent(),
+		runCmd: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			return []byte("Could not read path"), fmt.Errorf("exit status 1")
+		},
+	}
+
+	err := s.bootstrap(context.Background(), "/tmp/test.plist")
+	if err == nil {
+		t.Error("bootstrap should return error for non-'already bootstrapped' failures")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

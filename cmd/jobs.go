@@ -223,6 +223,7 @@ func truncateWithEllipsis(s string, maxRunes int) string {
 type schedulerDeps struct {
 	scheduler backgroundjobs.Scheduler
 	store     *backgroundjobs.Store
+	runStore  *backgroundjobs.RunStore
 	cfg       backgroundjobs.SchedulerConfig
 	logger    *logging.Logger
 }
@@ -255,6 +256,7 @@ func buildSchedulerDeps(outputRoot, configPath string, lg *logging.Logger) (sche
 	return schedulerDeps{
 		scheduler: backgroundjobs.NewScheduler(cfg, lg),
 		store:     store,
+		runStore:  backgroundjobs.NewRunStore(store.Dir(), lg),
 		cfg:       cfg,
 		logger:    lg,
 	}, nil
@@ -394,7 +396,7 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 	}
 
 	// Audit.
-	audit := backgroundjobs.NewAuditWriter(store.Dir())
+	audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
 	_ = audit.Write(backgroundjobs.AuditEvent{
 		Event: "job.created",
 		JobID: jobID,
@@ -1069,7 +1071,7 @@ func newJobsEditCommand() *cobra.Command {
 			}
 
 			// Audit.
-			audit := backgroundjobs.NewAuditWriter(store.Dir())
+			audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
 			_ = audit.Write(backgroundjobs.AuditEvent{
 				Event: "job.edit",
 				JobID: jobID,
@@ -1152,7 +1154,7 @@ func newJobsDeleteCommand() *cobra.Command {
 			}
 
 			// Audit.
-			audit := backgroundjobs.NewAuditWriter(store.Dir())
+			audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
 			_ = audit.Write(backgroundjobs.AuditEvent{
 				Event: "job.deleted",
 				JobID: jobID,

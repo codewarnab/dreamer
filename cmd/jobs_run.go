@@ -59,7 +59,7 @@ func newJobsRunCommand() *cobra.Command {
 
 			store := backgroundjobs.NewStore(outputRoot, lg)
 			runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
-			audit := backgroundjobs.NewAuditWriter(store.Dir())
+			audit := backgroundjobs.NewAuditWriter(store.Dir(), lg)
 
 			// Build scheduler for self-repair (best-effort).
 			var selfRepair *backgroundjobs.SelfRepairConfig

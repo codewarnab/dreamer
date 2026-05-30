@@ -89,10 +89,10 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 		}
 		return now.Add(interval), nil
 	case ScheduleDaily:
-		// Error ignored: ValidateSchedule rejects invalid TimeOfDay before
-		// NextRun is ever called. A corrupted store value silently yields
-		// hour=0, min=0.
-		hour, min, _ := parseTimeOfDay(s.TimeOfDay)
+		hour, min, err := parseTimeOfDay(s.TimeOfDay)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid time_of_day %q: %w", s.TimeOfDay, err)
+		}
 		next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, min, 0, 0, loc)
 		if !next.After(localNow) {
 			next = next.AddDate(0, 0, 1)
@@ -100,8 +100,10 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 		return next.UTC(), nil
 	case ScheduleWeekly:
 		targetDay := validDayOfWeek[strings.ToLower(s.DayOfWeek)]
-		// Error ignored: same guard as daily — ValidateSchedule catches it.
-		hour, min, _ := parseTimeOfDay(s.TimeOfDay)
+		hour, min, err := parseTimeOfDay(s.TimeOfDay)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid time_of_day %q: %w", s.TimeOfDay, err)
+		}
 		next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, min, 0, 0, loc)
 		daysAhead := int(targetDay - localNow.Weekday())
 		if daysAhead < 0 || (daysAhead == 0 && !next.After(localNow)) {

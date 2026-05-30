@@ -190,16 +190,45 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		e.Logger.Warn("audit write failed (claim)", logging.Any("err", auditErr))
 	}
 
+	// Defer run-record persistence so the record is written even on panic.
+	// The deferred closure captures run by pointer and finalises it.
+	now := time.Now().UTC()
+	defer func() {
+		if r := recover(); r != nil {
+			now := time.Now().UTC()
+			run.FinishedAt = &now
+			run.DurationMillis = now.Sub(startedAt).Milliseconds()
+			run.Status = RunStatusFailed
+			run.Error = fmt.Sprintf("panic: %v", r)
+			e.Logger.Error("job execution panicked",
+				logging.String("job_id", jobID),
+				logging.Any("panic", r),
+			)
+		}
+
+		if appendErr := e.RunStore.Append(run); appendErr != nil {
+			e.Logger.Warn("failed to record run", logging.Any("err", appendErr))
+		}
+
+		// Enforce run retention (best-effort, non-fatal).
+		if _, pruneErr := e.RunStore.Prune(jobID, defaultRunRetention); pruneErr != nil {
+			e.Logger.Warn("run retention prune failed", logging.String("job_id", jobID), logging.Any("err", pruneErr))
+		}
+	}()
+
 	output, runErr := e.executeJob(ctx, job, providerCfg, runID)
 
-	// Step 7: Record result.
-	now := time.Now().UTC()
+	// Record result.
+	now = time.Now().UTC()
 	run.FinishedAt = &now
 	run.DurationMillis = now.Sub(startedAt).Milliseconds()
 	run.OutputSummary = truncateUTF8(output, maxOutputSummaryRunes)
 
 	if runErr != nil {
-		if ctx.Err() != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			run.Status = RunStatusTimedOut
+			run.Error = ctx.Err().Error()
+		} else if ctx.Err() == context.Canceled {
 			run.Status = RunStatusCancelled
 			run.Error = ctx.Err().Error()
 		} else {
@@ -208,15 +237,6 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		}
 	} else {
 		run.Status = RunStatusCompleted
-	}
-
-	if appendErr := e.RunStore.Append(run); appendErr != nil {
-		e.Logger.Warn("failed to record run", logging.Any("err", appendErr))
-	}
-
-	// Enforce run retention (best-effort, non-fatal).
-	if _, pruneErr := e.RunStore.Prune(jobID, defaultRunRetention); pruneErr != nil {
-		e.Logger.Warn("run retention prune failed", logging.String("job_id", jobID), logging.Any("err", pruneErr))
 	}
 
 	// Step 8: Update job.

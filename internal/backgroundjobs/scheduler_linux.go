@@ -229,10 +229,16 @@ func scheduleToOnCalendar(spec ScheduleSpec) string {
 	case ScheduleInterval:
 		return "*-*-* *:00:00"
 	case ScheduleDaily:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return "*-*-* *:00:00" // caller validates; fallback is safe
+		}
 		return fmt.Sprintf("*-*-* %02d:%02d:00", hour, min)
 	case ScheduleWeekly:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return "*-*-* *:00:00" // caller validates; fallback is safe
+		}
 		day := weekdayToSystemdDay(strings.ToLower(spec.DayOfWeek))
 		return fmt.Sprintf("%s *-*-* %02d:%02d:00", day, hour, min)
 	case ScheduleCron:

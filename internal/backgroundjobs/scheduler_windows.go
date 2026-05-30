@@ -301,7 +301,10 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
     </CalendarTrigger>`, interval), nil
 
 	case ScheduleDaily:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
+		}
 		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>2026-01-01T%02d:%02d:00</StartBoundary>
       <Enabled>true</Enabled>
@@ -311,7 +314,10 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
     </CalendarTrigger>`, hour, min), nil
 
 	case ScheduleWeekly:
-		hour, min, _ := parseTimeOfDay(spec.TimeOfDay)
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
+			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
+		}
 		dayElement := weekdayToXMLElement(strings.ToLower(spec.DayOfWeek))
 		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>2026-01-01T%02d:%02d:00</StartBoundary>

@@ -222,9 +222,11 @@ func (s *darwinScheduler) bootstrap(ctx context.Context, plistPath string) error
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.runCmd(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), plistPath)
-	// "already bootstrapped" is not an error.
-	if err != nil && !strings.Contains(string(err.Error()), "already bootstrapped") {
+	out, err := s.runCmd(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), plistPath)
+	// "already bootstrapped" is not an error. launchctl writes the message
+	// to stderr; CombinedOutput (the default runCmd implementation) merges
+	// stdout+stderr, so search the output bytes, not err.Error().
+	if err != nil && !strings.Contains(string(out), "already bootstrapped") {
 		return err
 	}
 	return nil

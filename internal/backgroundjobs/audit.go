@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dreamer/internal/fsutil"
+	"dreamer/internal/logging"
 )
 
 const auditFile = "audit.jsonl"
@@ -26,13 +27,14 @@ type AuditEvent struct {
 
 // AuditWriter appends JSONL audit events to <storeDir>/audit.jsonl.
 type AuditWriter struct {
-	dir string
-	mu  sync.RWMutex
+	logger *logging.Logger
+	dir    string
+	mu     sync.RWMutex
 }
 
 // NewAuditWriter creates an AuditWriter rooted at storeDir.
-func NewAuditWriter(storeDir string) *AuditWriter {
-	return &AuditWriter{dir: storeDir}
+func NewAuditWriter(storeDir string, logger *logging.Logger) *AuditWriter {
+	return &AuditWriter{dir: storeDir, logger: logger}
 }
 
 // Write appends a single audit event. Thread-safe.
@@ -45,6 +47,16 @@ func (w *AuditWriter) Write(event AuditEvent) error {
 		return fmt.Errorf("marshal audit event: %w", err)
 	}
 	data = append(data, '\n')
+
+	// Cross-process file lock prevents interleaved writes when multiple
+	// dreamer job processes run concurrently.
+	lockPath := filepath.Join(w.dir, auditFile+".lock")
+	unlock, lockErr := fsutil.AcquireLock(lockPath, w.logger)
+	if lockErr != nil {
+		w.logger.Warn("audit lock acquisition failed; writing without lock", logging.Any("err", lockErr))
+	} else {
+		defer unlock()
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
