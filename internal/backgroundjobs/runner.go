@@ -66,12 +66,17 @@ If the task cannot be completed, explain why in the final output.`
 // allowed write paths when the job has selected_writes access.
 func buildBackgroundSystemMessage(job *Job) string {
 	msg := backgroundSystemMessage
-	if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
-		msg += "\n\nYou may write to these specific files only:\n"
-		for _, p := range job.Permissions.WritablePaths {
-			msg += "  - " + p + "\n"
+	switch job.Permissions.FileAccess {
+	case FileAccessSelectedWrites:
+		if len(job.Permissions.WritablePaths) > 0 {
+			msg += "\n\nYou may write to these specific files only:\n"
+			for _, p := range job.Permissions.WritablePaths {
+				msg += "  - " + p + "\n"
+			}
+			msg += "Do not write to any other files."
 		}
-		msg += "Do not write to any other files."
+	case FileAccessFullWorkspace:
+		msg += "\n\nYou may write to any file within the project directory."
 	}
 	return msg
 }
@@ -98,7 +103,7 @@ func truncateUTF8(s string, maxRunes int) string {
 // Run executes a background job by ID. It:
 // 1. Loads job from store; returns error if not found or deleted.
 // 2. Validates: enabled, schedule valid, provider background-safe.
-// 3. Rejects selected_writes and full_workspace (only read_only is supported).
+// 3. Validates file access mode (read_only, selected_writes, full_workspace).
 // 4. Resolves provider config from current config + overlay.
 // 5. Creates a run record with status "running"; writes job.run.claim audit.
 // 6. Acquires per-job lock, starts provider, runs prompt with timeout.
@@ -294,6 +299,13 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 // executeJob starts a provider session and runs the job prompt.
 // Returns the response text and any error.
 func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyzer.ProviderConfig, runID string) (string, error) {
+	// Map full_workspace to sandbox write posture so the OS sandbox grants
+	// project-dir writes.  selected_writes relies on prompt-only enforcement
+	// (documented gap — per-path sandbox not yet implemented).
+	if job.Permissions.FileAccess == FileAccessFullWorkspace {
+		providerCfg.SandboxProjectWrite = true
+	}
+
 	provider, err := e.NewProvider(config.ProviderID(job.ProviderID), providerCfg)
 	if err != nil {
 		return "", fmt.Errorf("create provider: %w", err)
@@ -385,8 +397,10 @@ func (e *Executor) validateJob(job *Job, jobID string) (skipped bool, result Run
 		if err := ValidateWritablePaths(job.ProjectPath, job.Permissions.WritablePaths); err != nil {
 			return false, RunResult{}, fmt.Errorf("invalid writable paths: %w", err)
 		}
+	case FileAccessFullWorkspace:
+		// ok — no WritablePaths required; sandbox posture resolved at execution time.
 	default:
-		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only and selected_writes are allowed", job.Permissions.FileAccess)
+		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only, selected_writes, and full_workspace are allowed", job.Permissions.FileAccess)
 	}
 
 	return false, RunResult{}, nil

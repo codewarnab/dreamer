@@ -249,7 +249,7 @@ func TestExecutor_Run_ProviderNotBackgroundSafe(t *testing.T) {
 	}
 }
 
-func TestExecutor_Run_FullWorkspaceRejected(t *testing.T) {
+func TestExecutor_Run_FullWorkspaceAccepted(t *testing.T) {
 	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
 	executor, store, _ := newTestExecutor(t, provider)
 
@@ -257,12 +257,12 @@ func TestExecutor_Run_FullWorkspaceRejected(t *testing.T) {
 	job.Permissions.FileAccess = FileAccessFullWorkspace
 	insertTestJob(t, store, job)
 
-	_, err := executor.Run(context.Background(), job.ID)
-	if err == nil {
-		t.Fatal("expected error for full_workspace mode")
+	result, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not supported") {
-		t.Errorf("error = %q, want contains 'not supported'", err.Error())
+	if result.Record.Status != RunStatusCompleted {
+		t.Errorf("status = %q, want %q", result.Record.Status, RunStatusCompleted)
 	}
 }
 
@@ -526,6 +526,22 @@ func (c *capturingProvider) Close() error                    { return c.inner.Cl
 func (c *capturingProvider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
 	*c.captured = cfg
 	return c.inner.NewSession(ctx, cfg)
+}
+
+// providerConfigCapturingProvider wraps a mockProvider to capture both the
+// ProviderConfig (at factory time) and SessionConfig (at NewSession time).
+type providerConfigCapturingProvider struct {
+	inner            *mockProvider
+	providerCfg      *analyzer.ProviderConfig
+	capturedSession  *analyzer.SessionConfig
+}
+
+func (p *providerConfigCapturingProvider) ID() string                      { return p.inner.id }
+func (p *providerConfigCapturingProvider) Start(ctx context.Context) error { return p.inner.Start(ctx) }
+func (p *providerConfigCapturingProvider) Close() error                    { return p.inner.Close() }
+func (p *providerConfigCapturingProvider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+	*p.capturedSession = cfg
+	return p.inner.NewSession(ctx, cfg)
 }
 
 func TestExecutor_Run_JobDeletedDuringRun(t *testing.T) {
@@ -796,5 +812,162 @@ func TestExecutor_Run_ClaimAuditAfterLock(t *testing.T) {
 	// ReadAll returns newest-first, so finish (written after claim) has lower index.
 	if claimIdx >= 0 && finishIdx >= 0 && finishIdx > claimIdx {
 		t.Error("job.run.claim should be written before job.run.finish (claim should appear later in newest-first order)")
+	}
+}
+
+// Phase 2: full_workspace must set SandboxProjectWrite=true on ProviderConfig
+// and ReadOnly=false on SessionConfig.
+func TestExecutor_Run_FullWorkspace_SandboxPosture(t *testing.T) {
+	var capturedProviderCfg analyzer.ProviderConfig
+	var capturedSessionCfg analyzer.SessionConfig
+
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			capturedProviderCfg = cfg
+			return &providerConfigCapturingProvider{
+				inner:           provider,
+				providerCfg:     &capturedProviderCfg,
+				capturedSession: &capturedSessionCfg,
+			}, nil
+		},
+	}
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Permissions.FileAccess = FileAccessFullWorkspace
+	insertTestJob(t, store, job)
+
+	result, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Record.Status != RunStatusCompleted {
+		t.Fatalf("status = %q, want %q", result.Record.Status, RunStatusCompleted)
+	}
+
+	// Verify provider config: SandboxProjectWrite must be true.
+	if !capturedProviderCfg.SandboxProjectWrite {
+		t.Error("SandboxProjectWrite = false, want true for full_workspace")
+	}
+
+	// Verify session config: ReadOnly must be false.
+	if capturedSessionCfg.ReadOnly {
+		t.Error("ReadOnly = true, want false for full_workspace")
+	}
+}
+
+// Phase 2: full_workspace system message must grant write access.
+func TestExecutor_Run_FullWorkspace_SystemMessage(t *testing.T) {
+	var capturedCfg analyzer.SessionConfig
+	provider := &mockProvider{
+		id: "openclaude-cli",
+		session: &mockSession{
+			runFunc: func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return "ok", nil
+			},
+		},
+	}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			return &capturingProvider{
+				inner:    provider,
+				captured: &capturedCfg,
+			}, nil
+		},
+	}
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Permissions.FileAccess = FileAccessFullWorkspace
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !strings.Contains(capturedCfg.SystemMessage, "You may write to any file within the project directory") {
+		t.Errorf("system message = %q, want contains 'You may write to any file within the project directory'", capturedCfg.SystemMessage)
+	}
+}
+
+// Phase 2: selected_writes system message must list writable paths.
+func TestExecutor_Run_SelectedWrites_SystemMessage(t *testing.T) {
+	var capturedCfg analyzer.SessionConfig
+	provider := &mockProvider{
+		id: "openclaude-cli",
+		session: &mockSession{
+			runFunc: func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return "ok", nil
+			},
+		},
+	}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			return &capturingProvider{
+				inner:    provider,
+				captured: &capturedCfg,
+			}, nil
+		},
+	}
+
+	projectDir := t.TempDir()
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.ProjectPath = projectDir
+	job.Permissions.FileAccess = FileAccessSelectedWrites
+	job.Permissions.WritablePaths = []string{"output.txt", "logs/"}
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !strings.Contains(capturedCfg.SystemMessage, "output.txt") {
+		t.Errorf("system message missing 'output.txt': %q", capturedCfg.SystemMessage)
+	}
+	if !strings.Contains(capturedCfg.SystemMessage, "logs/") {
+		t.Errorf("system message missing 'logs/': %q", capturedCfg.SystemMessage)
+	}
+	if !strings.Contains(capturedCfg.SystemMessage, "Do not write to any other files") {
+		t.Errorf("system message missing restriction: %q", capturedCfg.SystemMessage)
 	}
 }
