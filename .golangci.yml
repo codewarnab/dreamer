@@ -1,59 +1,89 @@
 run:
-  timeout: 5m
   exclude-dirs:
     - provider-codebase
     - .claude
     - docs
     - PLANS
 
+version: "2"
 linters:
   enable:
-    # Default on — catches real bugs
-    - govet
-    - errcheck
-    - staticcheck
-    - ineffassign
-    - unused
-
-    # Value-add
+    - funlen
     - gocritic
+    - gocyclo
     - misspell
-    - gofmt
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: false
-    exclude-functions:
-      - (io.Closer).Close
-      - (net.Listener).Close
-      - (net/http.ResponseWriter).Write
-
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-    disabled-checks:
-      - ifElseChain          # often less readable than switch
-      - hugeParam            # false positives with structs
-      - rangeValCopy         # noisy on small structs
-
-  misspell:
-    locale: US
-
+    - nakedret
+    - nestif
+    - revive
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (net.Listener).Close
+        - (net/http.ResponseWriter).Write
+    funlen:
+      lines: 80
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - hugeParam
+        - rangeValCopy
+      enabled-tags:
+        - diagnostic
+        - style
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable:
+        - shadow
+    misspell:
+      locale: US
+    nakedret:
+      max-func-lines: 10
+    nestif:
+      min-complexity: 5
+    revive:
+      rules:
+        - name: argument-limit
+          arguments:
+            - 6
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - gocritic
+        path: _test\.go
+      - linters:
+          - gocritic
+        path: _test\.go
+        text: dot-imports
+      # Test files get more slack on complexity/length
+      - linters:
+          - funlen
+          - nestif
+          - gocyclo
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 50
   max-same-issues: 5
-
-  exclude-rules:
-    # Test files get more slack
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gocritic
-
-    # Allow dot imports in test files (testify, etc.)
-    - path: _test\.go
-      text: "dot-imports"
-      linters:
-        - gocritic
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
