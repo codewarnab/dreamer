@@ -156,6 +156,13 @@ func newJobsRunCommand() *cobra.Command {
 
 			result, err := executor.Run(ctx, jobID)
 			if err != nil {
+				// Surface the run's error detail when available, not just
+				// the wrapped error. This catches cases where the error
+				// message is more informative than the Go error chain
+				// (e.g. Windows NTSTATUS codes, provider stderr output).
+				if result.Record.Error != "" {
+					return fmt.Errorf("job %q failed [%s]: %s", jobID, result.Record.Status, result.Record.Error)
+				}
 				return fmt.Errorf("job %q failed: %w", jobID, err)
 			}
 

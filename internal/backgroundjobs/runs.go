@@ -27,9 +27,15 @@ type RunStore struct {
 // NewRunStore creates a RunStore rooted at <backgroundJobsDir>/runs.
 // The parentDir parameter is the background-jobs store directory
 // (i.e., Store.Dir()), NOT the output root.
+// Creates the runs directory eagerly so run history is visible even
+// when the first job execution fails before Append is called.
 func NewRunStore(parentDir string, logger *logging.Logger) *RunStore {
+	dir := filepath.Join(parentDir, runsDir)
+	if err := os.MkdirAll(dir, fsutil.DirPerms); err != nil {
+		logger.Warn("create runs dir eagerly (non-fatal)", logging.Any("err", err))
+	}
 	return &RunStore{
-		dir:    filepath.Join(parentDir, runsDir),
+		dir:    dir,
 		logger: logger,
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -165,6 +166,11 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 		return nil, fmt.Errorf("%s: resolve home dir for sandbox writable paths: %w", spec.ErrPrefix, err)
 	}
 	writable := append([]string{os.TempDir(), configDir}, append([]string(nil), p.Options.SandboxWritableDirs...)...)
+	// Node.js processes (openclaude-cli, claude-cli, gemini-cli, codex-cli)
+	// write to npm-cache and local temp dirs that aren't in the standard
+	// writable list. Without these, the Windows sandbox crashes the process
+	// with STATUS_HEAP_CORRUPTION.
+	writable = append(writable, nodeJSExtraDirs(command)...)
 	return &Session{
 		command:    command,
 		env:        p.Options.Env,
@@ -402,4 +408,28 @@ func ConfigDirHardcoded(subdir string) func(map[string]string) (string, error) {
 		}
 		return filepath.Join(home, subdir), nil
 	}
+}
+
+// nodeJSExtraDirs returns Node.js-specific writable directories when the
+// command is a Node.js-based CLI. These dirs are required for the Windows
+// sandbox to not crash Node.js processes with STATUS_HEAP_CORRUPTION.
+//
+// NOTE: Not all npm-distributed CLIs are Node.js processes. Codex CLI
+// was rewritten in Rust (the npm package is a thin JS shim wrapping a
+// native binary). Kiro CLI is also a native binary. Only add Node.js
+// extra dirs for CLIs that actually run on the Node.js runtime.
+func nodeJSExtraDirs(command []string) []string {
+	if len(command) == 0 {
+		return nil
+	}
+	binary := filepath.Base(command[0])
+	// Strip .exe on Windows for consistent matching.
+	if runtime.GOOS == "windows" && len(binary) > 4 && binary[len(binary)-4:] == ".exe" {
+		binary = binary[:len(binary)-4]
+	}
+	switch binary {
+	case "openclaude", "claude", "gemini", "copilot", "codebuff", "node":
+		return sandbox.NodeJSExtraDirs()
+	}
+	return nil
 }
