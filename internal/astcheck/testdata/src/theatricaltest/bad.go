@@ -42,7 +42,8 @@ func TestStructuralOnlyAssertLen(t *testing.T) { // want "test TestStructuralOnl
 	assert.NotEmpty(t, items)
 }
 
-func TestStructuralOnlyAssertNil(t *testing.T) { // want "test TestStructuralOnlyAssertNil only checks structural properties"
+// assert.True is a correctness check (not structural), so this test is NOT flagged.
+func TestNotStructuralWithTrue(t *testing.T) {
 	var err error
 	assert.Nil(t, err)
 	assert.True(t, true)

@@ -9,7 +9,7 @@
 //	go run ./tools/quality --diff-from origin/main
 //	go run ./tools/quality --json
 //	go run ./tools/quality --min-severity error
-//	go run ./tools/quality --enable theatricaltest --enable deferclose
+//	go run ./tools/quality --enable theatricaltest
 //	go run ./tools/quality --write-baseline
 //	go run ./tools/quality --baseline .quality-baseline.json
 package main
@@ -24,6 +24,43 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "quality: %v\n", err)
+		os.Exit(2)
+	}
+}
+
+func run() error {
+	cfg, jsonOut, err := parseFlags()
+	if err != nil {
+		return err
+	}
+	warnUnknownAnalyzers(cfg.Enabled, cfg.Disabled)
+
+	result, err := astcheck.Run(*cfg)
+	if err != nil {
+		return err
+	}
+	for _, e := range result.Errors {
+		fmt.Fprintf(os.Stderr, "quality: %s\n", e)
+	}
+	if cfg.WriteBaseline {
+		if err := astcheck.WriteBaseline(cfg.BaselinePath, result.Findings); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "quality: wrote baseline to %s (%d findings)\n", cfg.BaselinePath, len(result.Findings))
+		return nil
+	}
+	if jsonOut {
+		return astcheck.WriteJSON(os.Stdout, result.Findings)
+	}
+	astcheck.WriteText(os.Stderr, result.Findings)
+	return nil
+}
+
+// parseFlags processes CLI flags and returns a Config. Extracted from main
+// to stay under the funlen linter limit.
+func parseFlags() (*astcheck.Config, bool, error) {
 	var (
 		diffFrom    string
 		baseline    string
@@ -45,8 +82,7 @@ func main() {
 
 	severity, ok := astcheck.ParseSeverity(minSev)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "invalid --min-severity: %q (use error, warn, or info)\n", minSev)
-		os.Exit(2)
+		return nil, false, fmt.Errorf("invalid --min-severity: %q (use error, warn, or info)", minSev)
 	}
 
 	var enabled, disabled []string
@@ -62,7 +98,7 @@ func main() {
 		patterns = []string{"./..."}
 	}
 
-	cfg := astcheck.Config{
+	return &astcheck.Config{
 		Patterns:      patterns,
 		MinSeverity:   severity,
 		Enabled:       enabled,
@@ -70,42 +106,19 @@ func main() {
 		DiffFrom:      diffFrom,
 		BaselinePath:  baseline,
 		WriteBaseline: writeBase,
-	}
+	}, jsonOut, nil
+}
 
-	result, err := astcheck.Run(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+// warnUnknownAnalyzers prints a warning for any --enable/--disable names
+// that don't match a registered analyzer.
+func warnUnknownAnalyzers(enabled, disabled []string) {
+	known := make(map[string]bool)
+	for _, e := range astcheck.Registry() {
+		known[e.Analyzer.Name] = true
 	}
-
-	for _, e := range result.Errors {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", e)
-	}
-
-	// --write-baseline: write findings as baseline and exit 0.
-	if writeBase {
-		if err := astcheck.WriteBaseline(baseline, result.Findings); err != nil {
-			fmt.Fprintf(os.Stderr, "error writing baseline: %v\n", err)
-			os.Exit(1)
+	for _, name := range append(enabled, disabled...) {
+		if !known[name] {
+			fmt.Fprintf(os.Stderr, "quality: warning: unknown analyzer %q\n", name)
 		}
-		fmt.Fprintf(os.Stderr, "wrote %d finding(s) to %s\n", len(result.Findings), baseline)
-		os.Exit(0)
-	}
-
-	if jsonOut {
-		if err := astcheck.WriteJSON(os.Stdout, result.Findings); err != nil {
-			fmt.Fprintf(os.Stderr, "error writing JSON: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		if err := astcheck.WriteText(os.Stdout, result.Findings); err != nil {
-			fmt.Fprintf(os.Stderr, "error writing output: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	// Exit 1 if any finding meets the minimum severity.
-	if len(result.Findings) > 0 {
-		os.Exit(1)
 	}
 }

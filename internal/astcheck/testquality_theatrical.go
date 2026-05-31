@@ -49,7 +49,7 @@ func runTheatricaltest(pass *analysis.Pass) (interface{}, error) {
 				continue
 			}
 
-			assertions := collectAssertions(fn.Body)
+			assertions := collectAssertions(fn.Body, pass)
 			hasHelpers := hasNestedTestHelpers(fn.Body)
 
 			checkNoAssertions(pass, name, fn.Pos(), assertions, hasHelpers)
@@ -99,11 +99,11 @@ func isTestingType(t types.Type) bool {
 }
 
 // assertionMethods is the set of standard assertion methods on *testing.T/B.
+// Skip/Skipf/SkipNow are excluded — they are flow control, not assertions.
 var assertionMethods = map[string]bool{
 	"Error": true, "Errorf": true,
 	"Fail": true, "FailNow": true,
 	"Fatal": true, "Fatalf": true, "Fatalln": true,
-	"Skip": true, "Skipf": true, "SkipNow": true,
 }
 
 // isAssertionMethod reports whether name is a standard assertion method on *testing.T/B.
@@ -112,17 +112,32 @@ func isAssertionMethod(name string) bool {
 }
 
 // isAssertRequireCall reports whether a call is from the assert or require package
-// (e.g. assert.Equal, require.NoError).
-func isAssertRequireCall(call *ast.CallExpr) bool {
+// (e.g. assert.Equal, require.NoError). Uses type info to resolve the actual
+// package path, so aliased imports (a "github.com/stretchr/testify/assert") are handled.
+func isAssertRequireCall(call *ast.CallExpr, pass *analysis.Pass) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
 	}
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok {
+	if pass == nil {
+		// Fallback to name matching if no type info.
+		ident, ok := sel.X.(*ast.Ident)
+		return ok && (ident.Name == "assert" || ident.Name == "require")
+	}
+	obj := pass.TypesInfo.Uses[sel.Sel]
+	if obj == nil {
 		return false
 	}
-	return ident.Name == "assert" || ident.Name == "require"
+	pkg := obj.Pkg()
+	if pkg == nil {
+		return false
+	}
+	path := pkg.Path()
+	return path == "github.com/stretchr/testify/assert" ||
+		path == "github.com/stretchr/testify/require" ||
+		path == "assert" || path == "require" ||
+		strings.HasSuffix(path, "/assert") ||
+		strings.HasSuffix(path, "/require")
 }
 
 // isMockMethod reports whether a method name is typical of mock/stub objects.
@@ -156,7 +171,7 @@ func isAssertRequireStructural(call *ast.CallExpr) bool {
 	}
 	method := sel.Sel.Name
 	switch method {
-	case "NotNil", "Nil", "Empty", "NotEmpty", "True", "False", "Zero", "NotZero":
+	case "NotNil", "Nil", "Empty", "NotEmpty", "Zero", "NotZero":
 		return true
 	case "Len":
 		// assert.Len(t, obj, length) — structural (checks size, not value)
@@ -194,7 +209,7 @@ func isStructuralRHS(arg ast.Expr) bool {
 
 // collectAssertions walks the function body and collects assertion calls.
 // Excludes calls inside nested test helper closures.
-func collectAssertions(body *ast.BlockStmt) []assertionCall {
+func collectAssertions(body *ast.BlockStmt, pass *analysis.Pass) []assertionCall {
 	var result []assertionCall
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -204,9 +219,9 @@ func collectAssertions(body *ast.BlockStmt) []assertionCall {
 		switch {
 		case isMockAssertion(call):
 			result = append(result, assertionCall{isMock: true})
-		case isTAssertion(call):
+		case isTAssertion(call, pass):
 			result = append(result, assertionCall{onT: true})
-		case isAssertRequireCall(call):
+		case isAssertRequireCall(call, pass):
 			result = append(result, assertionCall{structural: isAssertRequireStructural(call)})
 		}
 		return true
@@ -215,35 +230,92 @@ func collectAssertions(body *ast.BlockStmt) []assertionCall {
 }
 
 // isTAssertion reports whether call is an assertion on *testing.T (e.g. t.Error, t.Fatal).
-func isTAssertion(call *ast.CallExpr) bool {
+// Uses type information to verify the receiver is actually *testing.T/B, not just
+// any method named "Error" or "Fatal".
+func isTAssertion(call *ast.CallExpr, pass *analysis.Pass) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
 	}
-	return isAssertionMethod(sel.Sel.Name)
+	if !isAssertionMethod(sel.Sel.Name) {
+		return false
+	}
+	if pass != nil && isTestingT(sel.X, pass.TypesInfo) {
+		return true
+	}
+	// Fallback: if type info unavailable, check for bare identifier "t" or "b"
+	// (common convention in test files).
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		return ident.Name == "t" || ident.Name == "b"
+	}
+	return false
 }
 
-// hasNestedTestHelpers reports whether the function body contains nested
-// function literals that look like test helpers (take *testing.T or *testing.B).
+// hasNestedTestHelpers reports whether the function body contains:
+//  1. Function literals that take *testing.T or *testing.B, OR
+//  2. Calls to functions passing *testing.T as an argument (e.g. setupTestData(t)).
+//
+// Both patterns indicate delegated assertions that the analyzer can't see.
 func hasNestedTestHelpers(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		if found {
 			return false
 		}
-		fn, ok := n.(*ast.FuncLit)
-		if !ok {
-			return true
-		}
-		for _, param := range fn.Type.Params.List {
-			if isTestingParam(param) {
-				found = true
-				return false
+		switch node := n.(type) {
+		case *ast.FuncLit:
+			// Case 1: function literal with *testing.T param.
+			for _, param := range node.Type.Params.List {
+				if isTestingParam(param) {
+					found = true
+					return false
+				}
+			}
+		case *ast.CallExpr:
+			// Case 2: any call passing `t` or `b` as an argument — likely
+			// delegating to a helper that contains assertions.
+			for _, arg := range node.Args {
+				if ident, ok := arg.(*ast.Ident); ok {
+					if ident.Name == "t" || ident.Name == "b" {
+						// Exclude well-known non-helper calls (t.Error, assert.Equal, etc.)
+						if isAssertionOrHelperCall(node) {
+							continue
+						}
+						found = true
+						return false
+					}
+				}
 			}
 		}
 		return true
 	})
 	return found
+}
+
+// isAssertionOrHelperCall reports whether a call is a known assertion or test
+// framework call (t.Error, assert.Equal, require.NoError, etc.) that shouldn't
+// count as evidence of delegated helper assertions.
+func isAssertionOrHelperCall(call *ast.CallExpr) bool {
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		name := fun.Sel.Name
+		if isAssertionMethod(name) || isMockMethod(name) {
+			return true
+		}
+		if name == "Helper" || name == "Run" || name == "Parallel" || name == "Cleanup" {
+			return true
+		}
+		// assert.Len(t, ...), require.NoError(t, ...) — known assertion packages.
+		if ident, ok := fun.X.(*ast.Ident); ok {
+			if ident.Name == "assert" || ident.Name == "require" {
+				return true
+			}
+		}
+	case *ast.Ident:
+		// Built-in calls like len(), cap(), etc.
+		return true
+	}
+	return false
 }
 
 // isTestingParam reports whether a function parameter is *testing.T or *testing.B.

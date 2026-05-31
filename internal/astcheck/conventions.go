@@ -29,6 +29,10 @@ func runNodirectlog(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	for _, file := range pass.Files {
+		// Skip test files — log usage in tests is acceptable.
+		if isTestFile(pass.Fset.File(file.Pos()).Name()) {
+			continue
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {

@@ -12,6 +12,8 @@ import (
 	"go/token"
 	"os"
 	"strings"
+
+	"dreamer/internal/fsutil"
 )
 
 // BaselineFile is the on-disk format of .quality-baseline.json.
@@ -84,7 +86,7 @@ func WriteBaseline(path string, findings []Finding) error {
 	if err != nil {
 		return fmt.Errorf("marshaling baseline: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomic(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing baseline %q: %w", path, err)
 	}
 	return nil

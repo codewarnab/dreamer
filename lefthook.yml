@@ -57,4 +57,4 @@ pre-push:
     golangci-changed:
       run: golangci-lint run --new-from-rev origin/main ./...
     quality-changed:
-      run: go run ./tools/quality --diff-from origin/main --enable theatricaltest --enable theatricaltest
+      run: go run ./tools/quality --diff-from origin/main

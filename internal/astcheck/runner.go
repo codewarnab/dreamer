@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go/ast"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -263,7 +264,14 @@ func ChangedFiles(rev string) (map[string]bool, error) {
 }
 
 // changedFilesGit shells out to git diff to get changed files.
+// Returns absolute file paths for direct comparison with token.Position.Filename.
 func changedFilesGit(rev string) (map[string]bool, error) {
+	// Resolve repo root so we can convert git's relative paths to absolute.
+	root, err := gitRoot()
+	if err != nil {
+		return nil, err
+	}
+
 	// --name-only: just file paths
 	// --diff-filter=ACMR: only added/copied/modified/renamed (not deleted)
 	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=ACMR", rev, "--")
@@ -271,16 +279,28 @@ func changedFilesGit(rev string) (map[string]bool, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("git diff %s: %s", rev, stderr.String())
+		return nil, fmt.Errorf("git diff %s: %w (%s)", rev, err, stderr.String())
 	}
 
 	files := make(map[string]bool)
 	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			// Normalize to forward slashes for consistent comparison.
-			files[line] = true
+			// git emits repo-relative forward-slash paths; join with repo root
+			// and normalize to OS separators for comparison with f.Pos.Filename.
+			abs := filepath.Join(root, filepath.FromSlash(line))
+			files[abs] = true
 		}
 	}
 	return files, nil
+}
+
+// gitRoot returns the absolute path of the current git repository root.
+func gitRoot() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
+	}
+	return filepath.Abs(strings.TrimSpace(string(out)))
 }
