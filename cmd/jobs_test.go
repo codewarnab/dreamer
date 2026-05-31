@@ -267,16 +267,14 @@ func TestJobsRun_NotFound(t *testing.T) {
 	setTestHome(t, homeDir)
 	outputRoot := t.TempDir()
 	cfgPath := writeJobsConfig(t, outputRoot)
-	t.Setenv("DREAMER_RUN_TOKEN", "test-token")
 
-	_, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath)
+	_, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath, "--force")
 	if err == nil {
 		t.Fatal("expected error for nonexistent job")
 	}
 }
 
 func TestJobsRun_DisabledJob(t *testing.T) {
-	t.Setenv("DREAMER_RUN_TOKEN", "test-token")
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)
 	outputRoot := t.TempDir()
@@ -304,7 +302,7 @@ func TestJobsRun_DisabledJob(t *testing.T) {
 	}
 	store.AddJob(job)
 
-	stdout, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath)
+	stdout, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath, "--force")
 	if err != nil {
 		t.Fatalf("run disabled: %v", err)
 	}
@@ -470,9 +468,6 @@ func TestJobsRun_WriteModeRejected(t *testing.T) {
 	outputRoot := t.TempDir()
 	cfgPath := writeJobsConfig(t, outputRoot)
 
-	// Set DREAMER_RUN_TOKEN to allow CLI invocation.
-	t.Setenv("DREAMER_RUN_TOKEN", "test-token")
-
 	lg := logging.Silent()
 	store := backgroundjobs.NewStore(outputRoot, lg)
 	job := &backgroundjobs.Job{
@@ -495,7 +490,7 @@ func TestJobsRun_WriteModeRejected(t *testing.T) {
 	}
 	store.AddJob(job)
 
-	_, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath)
+	_, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath, "--force")
 	if err == nil {
 		t.Fatal("expected error for write mode")
 	}

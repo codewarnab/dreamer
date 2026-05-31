@@ -253,6 +253,11 @@ func buildSchedulerDeps(outputRoot, configPath string, lg *logging.Logger) (sche
 		ExecHash:       backgroundjobs.HashExecutablePath(execPath),
 	}
 
+	// Ensure the per-install run token exists before any scheduler operation.
+	if _, err := backgroundjobs.LoadOrCreateRunToken(store.Dir()); err != nil {
+		return schedulerDeps{}, fmt.Errorf("create run token: %w", err)
+	}
+
 	return schedulerDeps{
 		scheduler: backgroundjobs.NewScheduler(cfg, lg),
 		store:     store,

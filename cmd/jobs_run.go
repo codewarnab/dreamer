@@ -18,6 +18,8 @@ import (
 // Returns exit code 0 on success, 1 on failure.
 func newJobsRunCommand() *cobra.Command {
 	var timeout time.Duration
+	var runTokenFile string
+	var force bool
 
 	command := &cobra.Command{
 		Use:   "run <job_id>",
@@ -33,12 +35,6 @@ func newJobsRunCommand() *cobra.Command {
 			jobID := args[0]
 			if err := backgroundjobs.ValidateJobID(jobID); err != nil {
 				return err
-			}
-
-			// Require DREAMER_RUN_TOKEN to prevent intra-user side-channel triggers.
-			// OS scheduler entries set this; direct CLI invocations without it are rejected.
-			if os.Getenv("DREAMER_RUN_TOKEN") == "" {
-				return fmt.Errorf("DREAMER_RUN_TOKEN not set; this command is intended for use from OS schedulers (cron, Task Scheduler, launchd)")
 			}
 
 			resolvedConfigPath, err := resolveConfigPath(configPath)
@@ -60,6 +56,29 @@ func newJobsRunCommand() *cobra.Command {
 			store := backgroundjobs.NewStore(outputRoot, lg)
 			runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
 			audit := backgroundjobs.NewAuditWriter(store.Dir())
+
+			// Validate run token unless --force is set.
+			if !force {
+				if runTokenFile == "" {
+					return fmt.Errorf("run token not provided; use --run-token-file or --force to bypass")
+				}
+				providedToken, readErr := os.ReadFile(runTokenFile)
+				if readErr != nil {
+					return fmt.Errorf("read run token file: %w", readErr)
+				}
+				if validateErr := backgroundjobs.ValidateRunToken(store.Dir(), string(providedToken)); validateErr != nil {
+					return fmt.Errorf("run token validation failed: %w", validateErr)
+				}
+			} else {
+				// Audit forced runs so they are visible in the audit log.
+				if auditErr := audit.Write(backgroundjobs.AuditEvent{
+					Event: "job.run.forced",
+					JobID: jobID,
+					Actor: "cli",
+				}); auditErr != nil {
+					lg.Warn("audit write failed (forced run)", logging.Any("err", auditErr))
+				}
+			}
 
 			// Build scheduler for self-repair (best-effort).
 			var selfRepair *backgroundjobs.SelfRepairConfig
@@ -106,6 +125,8 @@ func newJobsRunCommand() *cobra.Command {
 
 	command.Flags().DurationVar(&timeout, "timeout", 0, "Override job timeout (e.g. 30m, 1h). 0 = use schedule default.")
 	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+	command.Flags().StringVar(&runTokenFile, "run-token-file", "", "Path to file containing the per-install run token.")
+	command.Flags().BoolVar(&force, "force", false, "Bypass run token validation (for interactive/CLI use).")
 
 	return command
 }

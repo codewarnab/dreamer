@@ -221,7 +221,8 @@ func (s *linuxScheduler) buildServiceUnit(params ScheduleParams) string {
 	// Escape % as %% per systemd.service(5) specifier syntax.
 	exe := strings.ReplaceAll(s.cfg.ExecutablePath, "%", "%%")
 	cfg := strings.ReplaceAll(s.cfg.ConfigPath, "%", "%%")
-	b.WriteString(fmt.Sprintf("ExecStart=%q jobs run %s --config %q\n", exe, params.JobID, cfg))
+	tokPath := strings.ReplaceAll(RunTokenPath(s.cfg.StoreDir), "%", "%%")
+	b.WriteString(fmt.Sprintf("ExecStart=%q jobs run %s --config %q --run-token-file %q\n", exe, params.JobID, cfg, tokPath))
 	b.WriteString("WorkingDirectory=" + s.cfg.StoreDir + "\n")
 	b.WriteString(fmt.Sprintf("TimeoutStartSec=%d\n", timeoutSec(params.Schedule)))
 	b.WriteString("\n[Install]\n")

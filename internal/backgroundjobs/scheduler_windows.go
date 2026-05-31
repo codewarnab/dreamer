@@ -224,7 +224,7 @@ func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 		Enabled:        enabledStr,
 		TimeLimit:      executionTimeLimit(params.Schedule),
 		ExecutablePath: xmlEscapeText(s.cfg.ExecutablePath),
-		Arguments:      xmlEscapeText(fmt.Sprintf("jobs run %s --config %s", params.JobID, s.cfg.ConfigPath)),
+		Arguments:      xmlEscapeText(fmt.Sprintf("jobs run %s --config %s --run-token-file %s", params.JobID, s.cfg.ConfigPath, RunTokenPath(s.cfg.StoreDir))),
 		WorkingDir:     xmlEscapeText(s.cfg.StoreDir),
 		TriggerXML:     triggerXML,
 	}

@@ -198,7 +198,7 @@ func (s *darwinScheduler) writePlist(params ScheduleParams) (string, error) {
 
 	plist := launchAgentPlist{
 		Label:                 s.label(params.JobID),
-		ProgramArguments:      append([]string{s.cfg.ExecutablePath}, runArgsFor(params.JobID, s.cfg.ConfigPath)...),
+		ProgramArguments:      append([]string{s.cfg.ExecutablePath}, runArgsFor(params.JobID, s.cfg.ConfigPath, s.cfg.StoreDir)...),
 		WorkingDirectory:      s.cfg.StoreDir,
 		StartCalendarInterval: calIntervals,
 		StartInterval:         startInterval,
