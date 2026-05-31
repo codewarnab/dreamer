@@ -45,6 +45,7 @@ func init() {
 				Processes: providerConfig.SandboxResources.Processes,
 				FDs:       providerConfig.SandboxResources.FDs,
 			},
+			Background: providerConfig.Background,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
@@ -135,7 +136,7 @@ func readStreamJSON(r io.Reader) (string, error) {
 		return "", fmt.Errorf("read gemini stream-json: %w", err)
 	}
 	if resultErr != "" {
-		return "", fmt.Errorf("gemini-cli: %s", resultErr)
+		return strings.TrimSpace(assistantText.String()), fmt.Errorf("gemini-cli: %s", resultErr)
 	}
 	if assistantText.Len() == 0 && resultText == "" && totalLines > 0 && parseErrors == totalLines {
 		return "", fmt.Errorf("gemini-cli: all %d output lines failed to parse (provider schema change?)", totalLines)

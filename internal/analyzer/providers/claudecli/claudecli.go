@@ -45,6 +45,7 @@ func init() {
 				Processes: providerConfig.SandboxResources.Processes,
 				FDs:       providerConfig.SandboxResources.FDs,
 			},
+			Background: providerConfig.Background,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{

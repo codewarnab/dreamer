@@ -337,6 +337,7 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 		ReadOnly:         job.Permissions.FileAccess == FileAccessReadOnly,
 		SystemMessage:    buildBackgroundSystemMessage(job),
 		RunID:            runID,
+		Sandbox:          providerCfg.Sandbox,
 	}
 
 	session, err := provider.NewSession(ctx, sessionCfg)
@@ -433,6 +434,7 @@ func (e *Executor) resolveProvider(job *Job) (analyzer.ProviderConfig, error) {
 	if job.Model != "" {
 		providerCfg.Model = job.Model
 	}
+	providerCfg.Background = true
 	return providerCfg, nil
 }
 

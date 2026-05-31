@@ -71,6 +71,11 @@ type Options struct {
 	SandboxNetwork      string
 	SandboxSeccomp      string
 	SandboxResources    sandbox.ResourceLimits
+	// Background indicates the session is for a background job. When true,
+	// the default command uses a permissive permission mode (e.g.
+	// --permission-mode auto instead of plan) so the provider can execute
+	// commands, not just plan them.
+	Background bool
 }
 
 // Provider holds per-instance state shared across sessions for one provider.
@@ -79,6 +84,7 @@ type Provider struct {
 	Options            Options
 	Command            []string
 	UsesDefaultCommand bool
+	Background         bool // true when created for a background job
 }
 
 // NewProvider creates a Provider from options and spec, resolving the default
@@ -94,6 +100,7 @@ func NewProvider(options Options, spec *Spec) *Provider {
 		Options:            options,
 		Command:            command,
 		UsesDefaultCommand: usesDefault,
+		Background:         options.Background,
 	}
 }
 
@@ -148,6 +155,13 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 	}
 	useNative := sandbox.ShouldUseNative(sbMode)
 	command := CommandForMode(p, useNative)
+	// Background jobs need execution capability. When not using the native
+	// sandbox, the default command uses a read-only permission mode (plan/
+	// read-only) that blocks all execution. Switch to a permissive mode so
+	// the provider can actually run commands.
+	if p.Background && !useNative {
+		command = adjustForBackground(command, spec.ID)
+	}
 	if spec.WorkingDirFlag != "" {
 		command = append(command, spec.WorkingDirFlag, wd)
 	}
@@ -262,13 +276,15 @@ func (s *Session) Run(ctx context.Context, prompt string, timeout time.Duration)
 }
 
 // handleErrorsWaitFirst checks waitErr first (claude, gemini pattern).
+// Returns the parsed output alongside the error when available, so the
+// caller can persist partial output to the run log even on failure.
 func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final string) (string, error) {
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
 		if transport.IsRateLimitMessage(stderr) {
 			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if parseErr != nil {
 		err := fmt.Errorf("%s: parse stream-json: %w (stderr: %s)", spec.ErrPrefix, parseErr, stderr)
@@ -284,20 +300,22 @@ func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final st
 }
 
 // handleErrorsParseFirst checks parseErr first (openclaude, codex pattern).
+// Returns the parsed output alongside the error when available, so the
+// caller can persist partial output to the run log even on failure.
 func handleErrorsParseFirst(spec *Spec, parseErr, waitErr error, stderr, final string) (string, error) {
 	if parseErr != nil {
 		err := fmt.Errorf("%s: %w (stderr: %s)", spec.ErrPrefix, parseErr, stderr)
 		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderr) {
 			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
-		if transport.IsRateLimitMessage(stderr) {
+		if transport.IsRateLimitMessage(stderr) || transport.IsRateLimitMessage(waitErr.Error()) {
 			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if final == "" {
 		return "", fmt.Errorf("%s: no assistant content emitted (stderr: %s)", spec.ErrPrefix, stderr)
@@ -407,6 +425,34 @@ func ConfigDirHardcoded(subdir string) func(map[string]string) (string, error) {
 			return "", err
 		}
 		return filepath.Join(home, subdir), nil
+	}
+}
+
+// adjustForBackground switches read-only permission flags to permissive
+// ones so background jobs can execute commands. Each provider CLI uses a
+// different flag for this:
+//   - Claude/OpenClaude: --permission-mode plan → auto (skipped if bypassPermissions)
+//   - Gemini: --approval-mode plan → yolo (skipped if --yolo present)
+//   - Codex: --sandbox read-only → full-auto (skipped if already full-auto)
+func adjustForBackground(command []string, providerID string) []string {
+	switch providerID {
+	case "claude-cli", "openclaude-cli":
+		if flagutil.HasFlagValue(command, "--permission-mode", "bypassPermissions") {
+			return command
+		}
+		return flagutil.ReplaceFlag(command, "--permission-mode", "plan", "auto")
+	case "gemini-cli":
+		if flagutil.HasFlag(command, "--yolo") {
+			return command
+		}
+		return flagutil.ReplaceFlag(command, "--approval-mode", "plan", "yolo")
+	case "codex-cli":
+		if flagutil.HasFlagValue(command, "--sandbox", "full-auto") {
+			return command
+		}
+		return flagutil.ReplaceFlag(command, "--sandbox", "read-only", "full-auto")
+	default:
+		return command
 	}
 }
 

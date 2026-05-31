@@ -83,6 +83,11 @@ type ProviderConfig struct {
 	SandboxSeccomp string
 	// SandboxResources configures OS resource caps.
 	SandboxResources sandbox.ResourceLimits
+
+	// Background indicates the session is for a background job. CLI
+	// providers use this to switch from read-only to permissive permission
+	// mode so the provider can execute commands.
+	Background bool
 }
 
 // ProviderFactory builds a Provider instance.

@@ -124,6 +124,21 @@ func HasFlag(command []string, flag string) bool {
 	return false
 }
 
+// HasFlagValue reports whether command contains the given flag with the
+// expected value. Handles both space-separated (`--flag value`) and equals
+// (`--flag=value`) forms.
+func HasFlagValue(command []string, flag, value string) bool {
+	for i, arg := range command {
+		if arg == flag && i+1 < len(command) && command[i+1] == value {
+			return true
+		}
+		if v, ok := strings.CutPrefix(arg, flag+"="); ok {
+			return v == value
+		}
+	}
+	return false
+}
+
 // EqualArgs reports whether two argv slices contain exactly the same tokens.
 // Providers use this to recognize old generated default commands while still
 // preserving genuinely custom user commands.
