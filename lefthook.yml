@@ -42,6 +42,12 @@ pre-commit:
     whitespace-conflicts:
       run: git diff --cached --check
 
+    # CLAUDE.md rule #10: don't ship plan/audit docs alongside implementation.
+    # Fails when the staged diff mixes *.go with PLANS/**, findings.md, or
+    # *-plan.md/*-audit.md (recurring scope-creep finding — PR #47, #57, #60).
+    no-plan-docs:
+      run: sh scripts/no-plan-docs.sh
+
 commit-msg:
   commands:
     conventions:
@@ -51,8 +57,21 @@ commit-msg:
 pre-push:
   parallel: true
   commands:
-    # Lint only what changed vs the main branch — 50-75% faster than a full
-    # run, giving near-CI feedback before the diff leaves your machine.
-    # Full ./... lint stays in CI where minutes are acceptable.
+    # Validate the golangci-lint config schema itself. Catches invalid keys
+    # that v2 silently ignores or rejects (PR #38 v1 keys, #60 v2 schema).
+    golangci-config:
+      run: golangci-lint config verify
+
+    # Lint only what changed vs the diff base — 50-75% faster than a full run,
+    # giving near-CI feedback before the diff leaves your machine. The base is
+    # resolved by scripts/diff-base.sh so a fresh clone without origin/main
+    # doesn't error (PR #57, #60). Full ./... lint stays in CI.
     golangci-changed:
-      run: golangci-lint run --new-from-rev origin/main ./...
+      run: golangci-lint run --new-from-rev "$(sh scripts/diff-base.sh)" ./...
+    quality-changed:
+      run: go run ./tools/quality --diff-from "$(sh scripts/diff-base.sh)"
+
+    # Fail on any changed .go file that isn't gofmt clean, scoped to the diff
+    # base so pre-existing tree dirt doesn't block the push (PR #31, #57).
+    gofmt-changed:
+      run: sh scripts/gofmt-changed.sh

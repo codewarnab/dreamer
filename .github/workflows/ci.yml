@@ -36,6 +36,12 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify golangci-lint config
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.1.6
+          args: config verify
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:

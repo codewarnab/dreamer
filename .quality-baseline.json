@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "findings": {
+    "atomicwrite:ResolveInstallID:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
+      "check": "atomicwrite",
+      "symbol": "ResolveInstallID",
+      "message": "os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes"
+    },
+    "atomicwrite:capInput:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
+      "check": "atomicwrite",
+      "symbol": "capInput",
+      "message": "os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes"
+    },
+    "atomicwrite:installLinuxStartup:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
+      "check": "atomicwrite",
+      "symbol": "installLinuxStartup",
+      "message": "os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes"
+    },
+    "discardederr:jobsInteractiveModel.makeRunCmd:error from os.Executable discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "jobsInteractiveModel.makeRunCmd",
+      "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:newDaemonCommand:error from time.ParseDuration discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "newDaemonCommand",
+      "message": "error from time.ParseDuration discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:newJobsRunCommand:error from os.Executable discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "newJobsRunCommand",
+      "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:tryAcquire:error from os.Executable discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "tryAcquire",
+      "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
+    }
+  }
+}
