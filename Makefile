@@ -1,4 +1,4 @@
-.PHONY: build build-dev build-linux dev install test test-race vet fmt lint cover cover-html vulncheck tools install-hooks clean
+.PHONY: build build-dev build-linux dev install test test-race vet fmt lint cover cover-html vulncheck quality quality-json tools install-hooks clean
 
 # Auto-detect host OS/arch via the active Go toolchain.
 GOOS   ?= $(shell go env GOOS)
@@ -87,6 +87,15 @@ vulncheck:
 		go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION); \
 		$(GOPATH_BIN)/govulncheck ./...; \
 	fi
+
+# Code quality: dreamer-specific type-aware analyzers (internal/astcheck)
+# Full scan, baseline-aware (fails only on new findings vs .quality-baseline.json)
+quality:
+	go run ./tools/quality --baseline .quality-baseline.json
+quality-json:
+	go run ./tools/quality --json
+quality-baseline:
+	go run ./tools/quality --write-baseline
 
 # Install developer tools used by the git hooks (pinned versions).
 # gofumpt/goimports/gitleaks/lefthook install into $GOPATH/bin.

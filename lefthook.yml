@@ -56,3 +56,5 @@ pre-push:
     # Full ./... lint stays in CI where minutes are acceptable.
     golangci-changed:
       run: golangci-lint run --new-from-rev origin/main ./...
+    quality-changed:
+      run: go run ./tools/quality --diff-from origin/main
