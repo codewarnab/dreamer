@@ -776,7 +776,7 @@ func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 }
 
 func newJobsPauseCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "pause <job-id>",
 		Short: "Disable a job.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -788,10 +788,12 @@ func newJobsPauseCommand() *cobra.Command {
 			return setJobEnabled(cmd, args[0], false)
 		},
 	}
+	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+	return command
 }
 
 func newJobsResumeCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "resume <job-id>",
 		Short: "Re-enable a paused job.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -803,6 +805,8 @@ func newJobsResumeCommand() *cobra.Command {
 			return setJobEnabled(cmd, args[0], true)
 		},
 	}
+	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+	return command
 }
 
 func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
@@ -825,7 +829,14 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 			return fmt.Errorf("job %q not found", jobID)
 		}
 		job.Enabled = enabled
-		job.UpdatedAt = time.Now().UTC()
+		now := time.Now().UTC()
+		job.UpdatedAt = now
+		// Recompute NextRunAt when resuming so it doesn't hold a stale past value.
+		if enabled {
+			if nextRun, err := backgroundjobs.NextRun(job.Schedule, now); err == nil {
+				job.NextRunAt = &nextRun
+			}
+		}
 		return nil
 	}); err != nil {
 		return err

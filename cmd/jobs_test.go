@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -206,6 +207,55 @@ func TestJobsPause_Resume(t *testing.T) {
 	state, _ = store.Load()
 	if !state.Jobs["abc1234567890001"].Enabled {
 		t.Error("job should be enabled after resume")
+	}
+}
+
+func TestJobsPause_Resume_RecomputesNextRunAt(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	// Set a stale NextRunAt in the past.
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	staleTime := time.Now().UTC().Add(-2 * time.Hour)
+	_ = store.Update(context.Background(), func(s *backgroundjobs.State) error {
+		job := s.Jobs["abc1234567890001"]
+		job.NextRunAt = &staleTime
+		return nil
+	})
+
+	// Pause then resume.
+	executeRootCommand("jobs", "pause", "abc1234567890001", "--config", cfgPath)
+	executeRootCommand("jobs", "resume", "abc1234567890001", "--config", cfgPath)
+
+	state, _ := store.Load()
+	job := state.Jobs["abc1234567890001"]
+	if job.NextRunAt == nil {
+		t.Fatal("NextRunAt should be set after resume")
+	}
+	if !job.NextRunAt.After(staleTime) {
+		t.Errorf("NextRunAt should be updated; stale=%v, got=%v", staleTime, *job.NextRunAt)
+	}
+	if job.NextRunAt.Before(time.Now().UTC()) {
+		t.Errorf("NextRunAt should be in the future; got=%v", *job.NextRunAt)
+	}
+}
+
+func TestJobsPause_HasOutputRootFlag(t *testing.T) {
+	cmd := newJobsPauseCommand()
+	if cmd.Flag("output-root") == nil {
+		t.Error("pause command should have --output-root flag")
+	}
+}
+
+func TestJobsResume_HasOutputRootFlag(t *testing.T) {
+	cmd := newJobsResumeCommand()
+	if cmd.Flag("output-root") == nil {
+		t.Error("resume command should have --output-root flag")
 	}
 }
 

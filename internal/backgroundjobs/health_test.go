@@ -2,6 +2,7 @@ package backgroundjobs
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,5 +142,117 @@ func TestCheckHealth_DisabledJobNoSchedule(t *testing.T) {
 	// Disabled job with no schedule is OK — no issues expected.
 	if !health.SystemHealthy {
 		t.Errorf("SystemHealthy = false, want true; issues: %v", health.Issues)
+	}
+}
+
+func TestCheckHealth_OverdueNextRunAt(t *testing.T) {
+	store := newTestStore(t)
+	sched := newMockScheduler()
+	lg := logging.Silent()
+
+	overdueTime := time.Now().UTC().Add(-30 * time.Minute)
+	job := &Job{
+		ID:        "overdue-job",
+		Name:      "test",
+		Enabled:   true,
+		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
+		NextRunAt: &overdueTime,
+		OSSchedule: OSScheduleState{
+			ScheduleID: "mock-overdue-job",
+			InstallID:  "test-install-id",
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.AddJob(job); err != nil {
+		t.Fatal(err)
+	}
+
+	checker := &HealthChecker{Scheduler: sched, Store: store, Logger: lg}
+	health, err := checker.CheckHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if health.SystemHealthy {
+		t.Error("SystemHealthy = true, want false for overdue NextRunAt")
+	}
+
+	found := false
+	for _, issue := range health.Issues {
+		if issue.JobID == "overdue-job" && issue.Severity == HealthSeverityWarning &&
+			strings.Contains(issue.Message, "next run is overdue") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected warning about overdue NextRunAt")
+	}
+}
+
+func TestCheckHealth_OverdueNextRunAt_WithinGrace(t *testing.T) {
+	store := newTestStore(t)
+	sched := newMockScheduler()
+	lg := logging.Silent()
+
+	// Only 5 minutes overdue — within the 10-minute grace window.
+	overdueTime := time.Now().UTC().Add(-5 * time.Minute)
+	job := &Job{
+		ID:        "grace-job",
+		Name:      "test",
+		Enabled:   true,
+		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
+		NextRunAt: &overdueTime,
+		OSSchedule: OSScheduleState{
+			ScheduleID: "mock-grace-job",
+			InstallID:  "test-install-id",
+		},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.AddJob(job); err != nil {
+		t.Fatal(err)
+	}
+
+	checker := &HealthChecker{Scheduler: sched, Store: store, Logger: lg}
+	health, err := checker.CheckHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Within grace period — should be healthy.
+	if !health.SystemHealthy {
+		t.Errorf("SystemHealthy = false, want true (within grace); issues: %v", health.Issues)
+	}
+}
+
+func TestCheckHealth_DisabledJobOverdueNoWarning(t *testing.T) {
+	store := newTestStore(t)
+	sched := newMockScheduler()
+	lg := logging.Silent()
+
+	overdueTime := time.Now().UTC().Add(-1 * time.Hour)
+	job := &Job{
+		ID:        "disabled-overdue",
+		Name:      "test",
+		Enabled:   false,
+		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
+		NextRunAt: &overdueTime,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := store.AddJob(job); err != nil {
+		t.Fatal(err)
+	}
+
+	checker := &HealthChecker{Scheduler: sched, Store: store, Logger: lg}
+	health, err := checker.CheckHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Disabled job should not trigger overdue warning.
+	if !health.SystemHealthy {
+		t.Errorf("SystemHealthy = false, want true (disabled); issues: %v", health.Issues)
 	}
 }

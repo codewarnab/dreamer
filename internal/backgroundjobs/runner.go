@@ -49,9 +49,6 @@ const maxPromptSnapshotRunes = 500
 // maxOutputSummaryRunes caps the output stored in a Run record.
 const maxOutputSummaryRunes = 500
 
-// defaultSessionTimeout is the fallback when no schedule-derived timeout exists.
-const defaultSessionTimeout = 10 * time.Minute
-
 // defaultRunRetention is the maximum number of runs kept per job.
 const defaultRunRetention = 100
 
@@ -330,12 +327,13 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 	}
 	defer session.Close()
 
-	// Derive session timeout from context deadline when available.
-	sessionTimeout := defaultSessionTimeout
+	// Derive session timeout from context deadline when available,
+	// falling back to a schedule-derived default.
+	sessionTimeout := DefaultTimeoutFor(job.Schedule)
 	if deadline, ok := ctx.Deadline(); ok {
 		sessionTimeout = time.Until(deadline)
 		if sessionTimeout <= 0 {
-			sessionTimeout = defaultSessionTimeout
+			sessionTimeout = DefaultTimeoutFor(job.Schedule)
 		}
 	}
 	output, err := session.Run(ctx, job.Prompt, sessionTimeout)

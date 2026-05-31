@@ -357,6 +357,30 @@ func intSliceContains(s []int, v int) bool {
 	return false
 }
 
+// DefaultTimeoutFor derives a session timeout from the schedule.
+// For interval schedules, uses 80% of the interval capped at 1 hour.
+// For daily/weekly/cron, returns 30 minutes.
+func DefaultTimeoutFor(spec ScheduleSpec) time.Duration {
+	const (
+		hardCap     = 1 * time.Hour
+		dailyDefault = 30 * time.Minute
+	)
+	switch spec.Kind {
+	case ScheduleInterval:
+		interval := EveryDuration(spec)
+		timeout := time.Duration(float64(interval) * 0.8)
+		if timeout > hardCap {
+			timeout = hardCap
+		}
+		if timeout < 1*time.Minute {
+			timeout = 1 * time.Minute
+		}
+		return timeout
+	default:
+		return dailyDefault
+	}
+}
+
 // executionTimeLimit returns the PT duration string for a schedule's time limit.
 // Shared across platforms — used by Windows Task Scheduler and systemd timeout.
 func executionTimeLimit(spec ScheduleSpec) string {

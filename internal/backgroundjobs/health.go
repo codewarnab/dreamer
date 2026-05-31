@@ -139,6 +139,17 @@ func (h *HealthChecker) checkJob(ctx context.Context, jobID string, job *Job) Jo
 		}
 	}
 
+	// Check for overdue NextRunAt — daemon may be down or schedule needs reconcile.
+	const nextRunGrace = 10 * time.Minute
+	if job.Enabled && job.NextRunAt != nil && job.NextRunAt.Before(time.Now().UTC().Add(-nextRunGrace)) {
+		overdue := time.Since(*job.NextRunAt).Truncate(time.Minute)
+		jh.Issues = append(jh.Issues, HealthIssue{
+			JobID:    jobID,
+			Severity: HealthSeverityWarning,
+			Message:  fmt.Sprintf("next run is overdue by %s — daemon may be down or schedule needs reconcile", overdue),
+		})
+	}
+
 	// Check for repeated timeouts (distinct from failures).
 	if h.RunStore != nil {
 		if latest, err := h.RunStore.Latest(jobID); err == nil && latest != nil {
