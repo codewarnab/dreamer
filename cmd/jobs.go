@@ -81,6 +81,8 @@ func newJobsCommand() *cobra.Command {
 	command.AddCommand(newJobsResumeCommand())
 	command.AddCommand(newJobsDeleteCommand())
 	command.AddCommand(newJobsRunCommand())
+	command.AddCommand(newJobsRunsCommand())
+	command.AddCommand(newJobsLogsCommand())
 	command.AddCommand(newJobsReconcileCommand())
 	command.AddCommand(newJobsHealthCommand())
 

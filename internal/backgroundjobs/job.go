@@ -79,6 +79,7 @@ type Run struct {
 	Error          string     `json:"error,omitempty"`
 	OutputSummary  string     `json:"output_summary,omitempty"`
 	SkippedReason  string     `json:"skipped_reason,omitempty"`
+	LogPath        string     `json:"log_path,omitempty"`
 }
 
 // FileAccessMode controls what the job may write.

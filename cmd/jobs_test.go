@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,7 +62,7 @@ func TestNewJobsCommand_HasSubcommands(t *testing.T) {
 		t.Errorf("GroupID should be empty on constructor, got %q", cmd.GroupID)
 	}
 	// Verify subcommands are registered.
-	subcommands := []string{"list", "create", "show", "pause", "resume", "delete", "run"}
+	subcommands := []string{"list", "create", "show", "pause", "resume", "delete", "run", "runs", "logs"}
 	for _, name := range subcommands {
 		found := false
 		for _, sub := range cmd.Commands() {
@@ -543,5 +544,500 @@ func TestJobsRun_WriteModeRejected(t *testing.T) {
 	_, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath, "--force")
 	if err == nil {
 		t.Fatal("expected error for write mode")
+	}
+}
+
+// --- Phase 4: jobs runs / jobs logs / --dry-run / --output-file ---
+
+func createTestRun(t *testing.T, outputRoot, jobID, runID string, status backgroundjobs.RunStatus) {
+	t.Helper()
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
+	run := backgroundjobs.Run{
+		ID:             runID,
+		JobID:          jobID,
+		ScheduledFor:   time.Now().UTC(),
+		Status:         status,
+		StartedAt:      time.Now().UTC().Add(-5 * time.Second),
+		DurationMillis: 5000,
+		ProviderID:     "openclaude-cli",
+		PromptSnapshot: "test prompt",
+	}
+	if status == backgroundjobs.RunStatusFailed {
+		run.Error = "something went wrong"
+	}
+	if status == backgroundjobs.RunStatusCompleted {
+		run.OutputSummary = "all good"
+	}
+	if err := runStore.Append(run); err != nil {
+		t.Fatalf("append run: %v", err)
+	}
+}
+
+func TestJobsRuns_NoRuns(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	stdout, _, err := executeRootCommand("jobs", "runs", "abc1234567890001", "--config", cfgPath)
+	if err != nil {
+		t.Fatalf("runs: %v", err)
+	}
+	if !strings.Contains(stdout, "No runs") {
+		t.Errorf("expected 'No runs' message, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_WithRuns(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-001", backgroundjobs.RunStatusCompleted)
+
+	stdout, _, err := executeRootCommand("jobs", "runs", "abc1234567890001", "--config", cfgPath)
+	if err != nil {
+		t.Fatalf("runs: %v", err)
+	}
+	if !strings.Contains(stdout, "run-001") {
+		t.Errorf("expected run ID in output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "completed") {
+		t.Errorf("expected 'completed' in output, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_JSON(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-001", backgroundjobs.RunStatusCompleted)
+
+	stdout, _, err := executeRootCommand("jobs", "runs", "abc1234567890001", "--config", cfgPath, "--json")
+	if err != nil {
+		t.Fatalf("runs --json: %v", err)
+	}
+	if !strings.Contains(stdout, `"id"`) {
+		t.Errorf("expected JSON output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "run-001") {
+		t.Errorf("expected run ID in JSON, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_StatusFilter(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-ok", backgroundjobs.RunStatusCompleted)
+	createTestRun(t, outputRoot, "abc1234567890001", "run-fail", backgroundjobs.RunStatusFailed)
+
+	stdout, _, err := executeRootCommand("jobs", "runs", "abc1234567890001", "--config", cfgPath, "--status", "failed")
+	if err != nil {
+		t.Fatalf("runs --status failed: %v", err)
+	}
+	if !strings.Contains(stdout, "run-fail") {
+		t.Errorf("expected failed run in output, got: %s", stdout)
+	}
+	if strings.Contains(stdout, "run-ok") {
+		t.Errorf("should not contain completed run when filtering by failed, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_Limit(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-001", backgroundjobs.RunStatusCompleted)
+	createTestRun(t, outputRoot, "abc1234567890001", "run-002", backgroundjobs.RunStatusCompleted)
+	createTestRun(t, outputRoot, "abc1234567890001", "run-003", backgroundjobs.RunStatusCompleted)
+
+	stdout, _, err := executeRootCommand("jobs", "runs", "abc1234567890001", "--config", cfgPath, "--limit", "2")
+	if err != nil {
+		t.Fatalf("runs --limit: %v", err)
+	}
+	// All runs have the same timestamp, so sort is by insertion order (most recent first).
+	// run-003 and run-002 should appear; run-001 should be excluded by --limit 2.
+	if !strings.Contains(stdout, "run-002") {
+		t.Errorf("expected run-002 in output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "run-003") {
+		t.Errorf("expected run-003 in output, got: %s", stdout)
+	}
+	if strings.Contains(stdout, "run-001") {
+		t.Errorf("run-001 should be excluded by --limit 2, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_NotFoundJob(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+
+	_, _, err := executeRootCommand("jobs", "runs", "nonexistent", "--config", cfgPath)
+	if err == nil {
+		t.Fatal("expected error for nonexistent job")
+	}
+}
+
+func TestJobsLogs_NoRuns(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	stdout, _, err := executeRootCommand("jobs", "logs", "abc1234567890001", "--config", cfgPath)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	if !strings.Contains(stdout, "No runs") {
+		t.Errorf("expected 'No runs' message, got: %s", stdout)
+	}
+}
+
+func TestJobsLogs_Fallback(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-001", backgroundjobs.RunStatusCompleted)
+
+	stdout, _, err := executeRootCommand("jobs", "logs", "abc1234567890001", "--config", cfgPath)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	// Should fall back to OutputSummary since no log file exists.
+	if !strings.Contains(stdout, "all good") {
+		t.Errorf("expected output summary in fallback, got: %s", stdout)
+	}
+}
+
+func TestJobsLogs_WithLogFile(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	// Create a run with a log file.
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
+	logDir := runStore.LogDir("abc1234567890001")
+	os.MkdirAll(logDir, 0o755)
+	logPath := filepath.Join(logDir, "run-001.log")
+	os.WriteFile(logPath, []byte("full provider output here"), 0o644)
+
+	run := backgroundjobs.Run{
+		ID:             "run-001",
+		JobID:          "abc1234567890001",
+		ScheduledFor:   time.Now().UTC(),
+		Status:         backgroundjobs.RunStatusCompleted,
+		StartedAt:      time.Now().UTC().Add(-5 * time.Second),
+		DurationMillis: 5000,
+		ProviderID:     "openclaude-cli",
+		OutputSummary:  "truncated",
+		LogPath:        logPath,
+	}
+	runStore.Append(run)
+
+	stdout, _, err := executeRootCommand("jobs", "logs", "abc1234567890001", "--config", cfgPath)
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	if !strings.Contains(stdout, "full provider output here") {
+		t.Errorf("expected full log content, got: %s", stdout)
+	}
+}
+
+func TestJobsLogs_SpecificRun(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-001", backgroundjobs.RunStatusCompleted)
+	createTestRun(t, outputRoot, "abc1234567890001", "run-002", backgroundjobs.RunStatusFailed)
+
+	stdout, _, err := executeRootCommand("jobs", "logs", "abc1234567890001", "--config", cfgPath, "--run", "run-002")
+	if err != nil {
+		t.Fatalf("logs --run: %v", err)
+	}
+	if !strings.Contains(stdout, "something went wrong") {
+		t.Errorf("expected error from run-002, got: %s", stdout)
+	}
+}
+
+func TestJobsLogs_NotFoundRun(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+	createTestRun(t, outputRoot, "abc1234567890001", "run-001", backgroundjobs.RunStatusCompleted)
+
+	_, _, err := executeRootCommand("jobs", "logs", "abc1234567890001", "--config", cfgPath, "--run", "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent run")
+	}
+}
+
+func TestJobsRun_DryRun(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	stdout, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath, "--dry-run")
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if !strings.Contains(stdout, "test-job") {
+		t.Errorf("expected job name in dry-run output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "openclaude-cli") {
+		t.Errorf("expected provider in dry-run output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "daily") {
+		t.Errorf("expected schedule kind in dry-run output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Timeout:") {
+		t.Errorf("expected timeout line in dry-run output, got: %s", stdout)
+	}
+}
+
+func TestJobsRun_DryRun_DisabledJob(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+
+	// Create a disabled job.
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	store.AddJob(&backgroundjobs.Job{
+		ID:          "abc1234567890001",
+		Name:        "disabled-job",
+		Prompt:      "test",
+		ProjectPath: t.TempDir(),
+		ProviderID:  "openclaude-cli",
+		Schedule:    backgroundjobs.ScheduleSpec{Kind: backgroundjobs.ScheduleDaily, TimeOfDay: "09:00", Timezone: "UTC"},
+		Enabled:     false,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+		Permissions: backgroundjobs.PermissionProfile{FileAccess: backgroundjobs.FileAccessReadOnly},
+	})
+
+	// --dry-run should work even on disabled jobs.
+	stdout, _, err := executeRootCommand("jobs", "run", "abc1234567890001", "--config", cfgPath, "--dry-run")
+	if err != nil {
+		t.Fatalf("dry-run disabled: %v", err)
+	}
+	if !strings.Contains(stdout, "disabled-job") {
+		t.Errorf("expected job name in dry-run output, got: %s", stdout)
+	}
+}
+
+func TestJobsRun_OutputFile(t *testing.T) {
+	// --output-file is accepted alongside --dry-run (no provider needed).
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	outputFile := filepath.Join(t.TempDir(), "output.txt")
+
+	stdout, _, err := executeRootCommand("jobs", "run", "abc1234567890001",
+		"--config", cfgPath, "--dry-run", "--output-file", outputFile)
+	if err != nil {
+		t.Fatalf("run --dry-run --output-file: %v", err)
+	}
+	// --dry-run prints job info; --output-file is accepted (no effect in dry-run).
+	if !strings.Contains(stdout, "test-job") {
+		t.Errorf("expected job name in dry-run output, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_HasFlags(t *testing.T) {
+	cmd := newJobsRunsCommand()
+	if cmd.Flag("json") == nil {
+		t.Error("runs command should have --json flag")
+	}
+	if cmd.Flag("limit") == nil {
+		t.Error("runs command should have --limit flag")
+	}
+	if cmd.Flag("status") == nil {
+		t.Error("runs command should have --status flag")
+	}
+}
+
+func TestJobsLogs_HasFlags(t *testing.T) {
+	cmd := newJobsLogsCommand()
+	if cmd.Flag("run") == nil {
+		t.Error("logs command should have --run flag")
+	}
+	if cmd.Flag("tail") == nil {
+		t.Error("logs command should have --tail flag")
+	}
+	if cmd.Flag("follow") == nil {
+		t.Error("logs command should have --follow flag")
+	}
+}
+
+func TestJobsRun_HasNewFlags(t *testing.T) {
+	cmd := newJobsRunCommand()
+	if cmd.Flag("output-file") == nil {
+		t.Error("run command should have --output-file flag")
+	}
+	if cmd.Flag("dry-run") == nil {
+		t.Error("run command should have --dry-run flag")
+	}
+}
+
+func TestJobsLogs_Tail(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+	createTestJob(t, outputRoot, "abc1234567890001")
+
+	// Create a run with a multi-line log file.
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
+	logDir := runStore.LogDir("abc1234567890001")
+	os.MkdirAll(logDir, 0o755)
+	logPath := filepath.Join(logDir, "run-tail.log")
+	os.WriteFile(logPath, []byte("line1\nline2\nline3\nline4\nline5"), 0o644)
+
+	run := backgroundjobs.Run{
+		ID:        "run-tail",
+		JobID:     "abc1234567890001",
+		Status:    backgroundjobs.RunStatusCompleted,
+		StartedAt: time.Now().UTC(),
+		LogPath:   logPath,
+	}
+	runStore.Append(run)
+
+	stdout, _, err := executeRootCommand("jobs", "logs", "abc1234567890001", "--config", cfgPath, "--tail", "2")
+	if err != nil {
+		t.Fatalf("logs --tail: %v", err)
+	}
+	if !strings.Contains(stdout, "line4") {
+		t.Errorf("expected line4, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "line5") {
+		t.Errorf("expected line5, got: %s", stdout)
+	}
+	if strings.Contains(stdout, "line1") {
+		t.Errorf("line1 should be excluded by --tail 2, got: %s", stdout)
+	}
+}
+
+func TestJobsRuns_MissingArg(t *testing.T) {
+	stdout, _, err := executeRootCommand("jobs", "runs")
+	if err == nil {
+		t.Fatal("expected error for missing job-id")
+	}
+	if !strings.Contains(err.Error(), "job-id") {
+		t.Errorf("expected error mentioning job-id, got: %s", err)
+	}
+	_ = stdout
+}
+
+func TestJobsLogs_MissingArg(t *testing.T) {
+	stdout, _, err := executeRootCommand("jobs", "logs")
+	if err == nil {
+		t.Fatal("expected error for missing job-id")
+	}
+	if !strings.Contains(err.Error(), "job-id") {
+		t.Errorf("expected error mentioning job-id, got: %s", err)
+	}
+	_ = stdout
+}
+
+func TestWaitForRunCompletion_TransitionsToCompleted(t *testing.T) {
+	outputRoot := t.TempDir()
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
+
+	// Insert a running run.
+	running := backgroundjobs.Run{
+		ID:        "run-follow-1",
+		JobID:     "job-1",
+		Status:    backgroundjobs.RunStatusRunning,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := runStore.Append(running); err != nil {
+		t.Fatalf("append running run: %v", err)
+	}
+
+	// After 100ms, append a completed run with the same ID.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		completed := backgroundjobs.Run{
+			ID:         "run-follow-1",
+			JobID:      "job-1",
+			Status:     backgroundjobs.RunStatusCompleted,
+			StartedAt:  running.StartedAt,
+			FinishedAt: func() *time.Time { v := time.Now().UTC(); return &v }(),
+		}
+		runStore.Append(completed)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := waitForRunCompletion(ctx, runStore, "job-1", "run-follow-1")
+	if err != nil {
+		t.Fatalf("waitForRunCompletion: %v", err)
+	}
+	if result.Status != backgroundjobs.RunStatusCompleted {
+		t.Errorf("status = %q, want %q", result.Status, backgroundjobs.RunStatusCompleted)
+	}
+}
+
+func TestWaitForRunCompletion_ContextCancelled(t *testing.T) {
+	outputRoot := t.TempDir()
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	runStore := backgroundjobs.NewRunStore(store.Dir(), lg)
+
+	// Insert a running run (never transitions).
+	running := backgroundjobs.Run{
+		ID:        "run-cancel-1",
+		JobID:     "job-1",
+		Status:    backgroundjobs.RunStatusRunning,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := runStore.Append(running); err != nil {
+		t.Fatalf("append running run: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	_, err := waitForRunCompletion(ctx, runStore, "job-1", "run-cancel-1")
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }
