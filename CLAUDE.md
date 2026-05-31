@@ -13,6 +13,7 @@ make test-race                # tests with race detector
 make vet                      # go vet
 make fmt                      # gofmt -w .
 make lint                     # golangci-lint (auto-installs if missing)
+make quality                  # dreamer-specific type-aware code quality checks (baseline-aware)
 make cover                    # test coverage summary
 make cover-html               # test coverage HTML report
 make vulncheck                # dependency vulnerability check
@@ -27,6 +28,7 @@ go run . <command> [flags]                              # run dreamer CLI
 go test ./...                                           # full test suite
 go test ./cmd -run TestName                             # single test
 go test -race ./...                                     # race detector
+go run ./tools/quality --baseline .quality-baseline.json  # quality checks
 ```
 
 **Important:** Always use `-trimpath` when building. It strips local filesystem paths from the binary so stack traces don't leak your directory structure and builds are reproducible. The binary warns at startup if built without it. Use `-tags notrimpath` to suppress the check (e.g. for CI fast-builds).
