@@ -1,4 +1,4 @@
-.PHONY: build build-dev build-linux dev install test test-race vet fmt lint cover cover-html vulncheck install-hooks clean
+.PHONY: build build-dev build-linux dev install test test-race vet fmt lint cover cover-html vulncheck tools install-hooks clean
 
 # Auto-detect host OS/arch via the active Go toolchain.
 GOOS   ?= $(shell go env GOOS)
@@ -88,10 +88,29 @@ vulncheck:
 		$(GOPATH_BIN)/govulncheck ./...; \
 	fi
 
-# Install git hooks (points git at .githooks/ directory)
+# Install developer tools used by the git hooks (pinned versions).
+# gofumpt/goimports/gitleaks/lefthook install into $GOPATH/bin.
+GOFUMPT_VERSION   := v0.7.0
+GOIMPORTS_VERSION := latest
+GITLEAKS_VERSION  := v8.30.1
+LEFTHOOK_VERSION  := v1.7.22
+tools:
+	go install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
+	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
+	go install github.com/gitleaks/gitleaks/v8@$(GITLEAKS_VERSION)
+	go install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION)
+	@echo "dev tools installed to $(GOPATH_BIN)"
+
+# Install git hooks via lefthook (reads lefthook.yml). Falls back to a clear
+# message if lefthook isn't on PATH yet — run `make tools` first.
 install-hooks:
-	@git config core.hooksPath .githooks
-	@echo "pre-commit hook installed (hooks now read from .githooks/)"
+	@if command -v lefthook >/dev/null 2>&1; then \
+		lefthook install; \
+		echo "git hooks installed (lefthook.yml)"; \
+	else \
+		echo "lefthook not found — run 'make tools' first, then 'make install-hooks'"; \
+		exit 1; \
+	fi
 
 # Remove built binaries
 clean:
