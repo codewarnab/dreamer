@@ -11,6 +11,11 @@ func TestSettesthome(t *testing.T) {
 	analysistest.Run(t, testdata, settesthomeAnalyzer, "settesthometest")
 }
 
+func TestTheatricaltest(t *testing.T) {
+	testdata := analysistest.TestData()
+	analysistest.Run(t, testdata, theatricaltestAnalyzer, "theatricaltest")
+}
+
 func TestCanonicalEnvVarList(t *testing.T) {
 	// Verify the canonical list matches CLAUDE.md rule #4 exactly.
 	expected := []string{
