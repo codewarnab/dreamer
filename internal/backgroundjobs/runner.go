@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -312,7 +313,11 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 	if job.Permissions.FileAccess == FileAccessFullWorkspace {
 		providerCfg.SandboxProjectWrite = true
 	} else if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
-		providerCfg.SandboxWritableDirs = job.Permissions.WritablePaths
+		providerCfg.SandboxWritableDirs = append([]string(nil), job.Permissions.WritablePaths...)
+		if strings.HasSuffix(job.ProviderID, "-acp") {
+			e.Logger.Warn("ACP provider selected_writes: per-path sandbox stored but enforced only via system prompt, not OS-level",
+				logging.String("provider", job.ProviderID))
+		}
 	}
 
 	provider, err := e.NewProvider(config.ProviderID(job.ProviderID), providerCfg)
@@ -475,8 +480,13 @@ func globalOverlayPath() string {
 // This ensures all job invocations produce a visible trace in the run history.
 func (e *Executor) recordEarlyFailure(jobID, providerID string, runErr error) {
 	now := time.Now().UTC()
+	runID, genErr := GenerateRunID()
+	if genErr != nil {
+		runID = fmt.Sprintf("error-%d", now.UnixMilli())
+		e.Logger.Warn("failed to generate run ID for early failure", logging.Any("err", genErr))
+	}
 	run := Run{
-		ID:             mustGenerateRunID(),
+		ID:             runID,
 		JobID:          jobID,
 		ScheduledFor:   now,
 		Status:         RunStatusFailed,
@@ -509,7 +519,7 @@ func (e *Executor) writeRunLog(jobID, runID, output string) (string, error) {
 		return "", fmt.Errorf("create run log dir: %w", err)
 	}
 	logPath := filepath.Join(logDir, runID+".log")
-	if err := os.WriteFile(logPath, []byte(output), fsutil.FilePerms); err != nil {
+	if err := os.WriteFile(logPath, []byte(output), fsutil.SecretPerms); err != nil {
 		return "", fmt.Errorf("write run log: %w", err)
 	}
 	return logPath, nil

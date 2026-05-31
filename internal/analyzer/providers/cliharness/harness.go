@@ -164,7 +164,7 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 	if err != nil {
 		return nil, fmt.Errorf("%s: resolve home dir for sandbox writable paths: %w", spec.ErrPrefix, err)
 	}
-	writable := append([]string{os.TempDir(), configDir}, p.Options.SandboxWritableDirs...)
+	writable := append([]string{os.TempDir(), configDir}, append([]string(nil), p.Options.SandboxWritableDirs...)...)
 	return &Session{
 		command:    command,
 		env:        p.Options.Env,

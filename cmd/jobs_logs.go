@@ -94,6 +94,8 @@ func newJobsLogsCommand() *cobra.Command {
 					return waitErr
 				}
 				run = completed
+			} else if follow {
+				cmd.Println("Run already finished; showing logs.")
 			}
 
 			// Try to read the per-run log file first.
@@ -160,8 +162,8 @@ func printRunFallback(cmd *cobra.Command, run *backgroundjobs.Run) {
 	cmd.Printf("Started: %s\n", run.StartedAt.Format("2006-01-02 15:04:05"))
 
 	if run.FinishedAt != nil {
-		cmd.Printf("Finished: %s (took %dms)\n",
-			run.FinishedAt.Format("2006-01-02 15:04:05"), run.DurationMillis)
+		cmd.Printf("Finished: %s (took %s)\n",
+			run.FinishedAt.Format("2006-01-02 15:04:05"), formatRunDuration(run.DurationMillis))
 	}
 
 	if run.LogPath == "" {

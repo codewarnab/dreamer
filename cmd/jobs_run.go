@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"dreamer/internal/backgroundjobs"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 
 	"github.com/spf13/cobra"
@@ -77,13 +79,23 @@ func newJobsRunCommand() *cobra.Command {
 			// --dry-run: print resolution and exit without executing.
 			if dryRun {
 				cmd.Printf("Job:         %s (%s)\n", job.Name, job.ID)
+				cmd.Printf("Enabled:     %v\n", job.Enabled)
 				cmd.Printf("Provider:    %s\n", job.ProviderID)
 				if job.Model != "" {
 					cmd.Printf("Model:       %s\n", job.Model)
 				}
-				cmd.Printf("Schedule:    %s\n", job.Schedule.Kind)
+				cmd.Printf("ProjectPath: %s\n", job.ProjectPath)
+				cmd.Printf("FileAccess:  %s\n", job.Permissions.FileAccess)
+				if job.Schedule.Kind == backgroundjobs.ScheduleInterval && job.Schedule.Every != "" {
+					cmd.Printf("Schedule:    interval (every %s)\n", job.Schedule.Every)
+				} else {
+					cmd.Printf("Schedule:    %s\n", job.Schedule.Kind)
+				}
 				cmd.Printf("Timeout:     %s\n", effectiveTimeout)
 				cmd.Printf("Prompt:      %s\n", truncateForDisplay(job.Prompt, 120))
+				if outputFile != "" {
+					cmd.Println("Note:        --output-file ignored with --dry-run")
+				}
 				return nil
 			}
 
@@ -96,7 +108,7 @@ func newJobsRunCommand() *cobra.Command {
 				if readErr != nil {
 					return fmt.Errorf("read run token file: %w", readErr)
 				}
-				if validateErr := backgroundjobs.ValidateRunToken(store.Dir(), string(providedToken)); validateErr != nil {
+				if validateErr := backgroundjobs.ValidateRunToken(store.Dir(), strings.TrimSpace(string(providedToken))); validateErr != nil {
 					return fmt.Errorf("run token validation failed: %w", validateErr)
 				}
 			} else {
@@ -187,12 +199,12 @@ func copyRunOutput(record backgroundjobs.Run, target string) error {
 	if record.LogPath != "" {
 		data, err := os.ReadFile(record.LogPath)
 		if err == nil {
-			return os.WriteFile(target, data, 0o644)
+			return os.WriteFile(target, data, fsutil.SecretPerms)
 		}
 	}
 	// Fallback: write OutputSummary.
 	if record.OutputSummary != "" {
-		return os.WriteFile(target, []byte(record.OutputSummary), 0o644)
+		return os.WriteFile(target, []byte(record.OutputSummary), fsutil.SecretPerms)
 	}
-	return os.WriteFile(target, []byte("(no output captured)\n"), 0o644)
+	return os.WriteFile(target, []byte("(no output captured)\n"), fsutil.SecretPerms)
 }

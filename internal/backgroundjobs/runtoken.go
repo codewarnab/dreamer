@@ -2,10 +2,12 @@ package backgroundjobs
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"dreamer/internal/fsutil"
 )
@@ -20,7 +22,7 @@ func LoadOrCreateRunToken(storeDir string) (string, error) {
 	path := filepath.Join(storeDir, runTokenFile)
 	data, err := os.ReadFile(path)
 	if err == nil {
-		token := string(data)
+		token := strings.TrimSpace(string(data))
 		if token != "" {
 			return token, nil
 		}
@@ -37,7 +39,7 @@ func LoadOrCreateRunToken(storeDir string) (string, error) {
 	if err := os.MkdirAll(storeDir, fsutil.DirPerms); err != nil {
 		return "", fmt.Errorf("create token dir: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(path, []byte(token), 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(path, []byte(token), fsutil.SecretPerms); err != nil {
 		return "", fmt.Errorf("write run token: %w", err)
 	}
 	return token, nil
@@ -56,7 +58,9 @@ func ValidateRunToken(storeDir, providedToken string) error {
 	if err != nil {
 		return fmt.Errorf("read run token: %w", err)
 	}
-	if string(stored) != providedToken {
+	storedTrimmed := strings.TrimSpace(string(stored))
+	providedTrimmed := strings.TrimSpace(providedToken)
+	if subtle.ConstantTimeCompare([]byte(storedTrimmed), []byte(providedTrimmed)) != 1 {
 		return fmt.Errorf("run token mismatch")
 	}
 	return nil
@@ -69,5 +73,5 @@ func ReadRunToken(storeDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(data), nil
+	return strings.TrimSpace(string(data)), nil
 }

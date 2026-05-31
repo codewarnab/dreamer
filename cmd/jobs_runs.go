@@ -63,6 +63,9 @@ func newJobsRunsCommand() *cobra.Command {
 
 			// Apply --status filter.
 			if status != "" {
+				if !isValidRunStatus(status) {
+					return fmt.Errorf("invalid --status %q; valid values: completed, failed, timed_out, cancelled, skipped, running, idle, never_run", status)
+				}
 				statusLower := strings.ToLower(status)
 				var filtered []backgroundjobs.Run
 				for _, r := range runs {
@@ -121,10 +124,8 @@ func printRunsTable(cmd *cobra.Command, jobID string, runs []backgroundjobs.Run)
 		if errMsg == "" && r.SkippedReason != "" {
 			errMsg = r.SkippedReason
 		}
-		// Truncate error for table display.
-		if len(errMsg) > 50 {
-			errMsg = errMsg[:47] + "..."
-		}
+		// Truncate error for table display (rune-safe).
+		errMsg = truncateForDisplay(errMsg, 50)
 		cmd.Printf("%-20s %-12s %-10s %-18s %s\n",
 			started, r.Status, duration, r.ID, errMsg)
 	}
@@ -142,4 +143,21 @@ func formatRunDuration(millis int64) string {
 		return fmt.Sprintf("%.1fs", d.Seconds())
 	}
 	return fmt.Sprintf("%.1fm", d.Minutes())
+}
+
+// validRunStatuses is the set of valid values for the --status flag.
+var validRunStatuses = map[string]bool{
+	"completed":  true,
+	"failed":     true,
+	"timed_out":  true,
+	"cancelled":  true,
+	"skipped":    true,
+	"running":    true,
+	"idle":       true,
+	"never_run":  true,
+}
+
+// isValidRunStatus reports whether s is a recognized run status value.
+func isValidRunStatus(s string) bool {
+	return validRunStatuses[strings.ToLower(s)]
 }
