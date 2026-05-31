@@ -674,6 +674,85 @@ func TestExecutor_Run_DisabledJob_EmitsAuditEvent(t *testing.T) {
 	}
 }
 
+// Phase 1: Early-exit failures should produce a failed run record.
+func TestExecutor_Run_JobNotFound_RecordsFailedRun(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, _, runStore := newTestExecutor(t, provider)
+
+	_, err := executor.Run(context.Background(), "nonexistent000001")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	// Verify a failed run was recorded even though the job doesn't exist.
+	runs, listErr := runStore.List("nonexistent000001")
+	if listErr != nil {
+		t.Fatalf("list runs: %v", listErr)
+	}
+	if len(runs) == 0 {
+		t.Fatal("expected early-exit failure run to be recorded, got 0 runs")
+	}
+	if runs[0].Status != RunStatusFailed {
+		t.Errorf("status = %q, want %q", runs[0].Status, RunStatusFailed)
+	}
+	if !strings.Contains(runs[0].Error, "not found") {
+		t.Errorf("error = %q, want contains 'not found'", runs[0].Error)
+	}
+}
+
+// Phase 1: Validation failures should produce a failed run record.
+func TestExecutor_Run_InvalidSchedule_RecordsFailedRun(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, runStore := newTestExecutor(t, provider)
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Schedule = ScheduleSpec{Kind: ScheduleDaily} // Missing TimeOfDay.
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	runs, listErr := runStore.List(job.ID)
+	if listErr != nil {
+		t.Fatalf("list runs: %v", listErr)
+	}
+	if len(runs) == 0 {
+		t.Fatal("expected early-exit failure run to be recorded, got 0 runs")
+	}
+	if runs[0].Status != RunStatusFailed {
+		t.Errorf("status = %q, want %q", runs[0].Status, RunStatusFailed)
+	}
+}
+
+// Phase 1: Early failure should emit a job.run.early_failure audit event.
+func TestExecutor_Run_EarlyFailure_EmitsAuditEvent(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, _ := newTestExecutor(t, provider)
+
+	_, err := executor.Run(context.Background(), "nonexistent000001")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	audit := NewAuditWriter(store.Dir())
+	events, auditErr := audit.ReadAll(100)
+	if auditErr != nil {
+		t.Fatalf("read audit: %v", auditErr)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.Event == "job.run.early_failure" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected job.run.early_failure audit event, not found")
+	}
+}
+
 // B10: Claim audit should be written after lock acquisition, not before.
 // This test verifies the ordering is correct by checking that a successful
 // run has both claim and finish events in the correct order.

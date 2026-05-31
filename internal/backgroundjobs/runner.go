@@ -109,16 +109,19 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	// Step 1: Load job.
 	state, err := e.Store.Load()
 	if err != nil {
+		e.recordEarlyFailure(jobID, "", fmt.Errorf("load job store: %w", err))
 		return RunResult{}, fmt.Errorf("load job store: %w", err)
 	}
 	job := state.Jobs[jobID]
 	if job == nil {
+		e.recordEarlyFailure(jobID, "", fmt.Errorf("job %q not found", jobID))
 		return RunResult{}, fmt.Errorf("job %q not found", jobID)
 	}
 
 	// Step 2: Validate.
 	skipped, skipResult, err := e.validateJob(job, jobID)
 	if err != nil {
+		e.recordEarlyFailure(jobID, job.ProviderID, err)
 		return RunResult{}, err
 	}
 	if skipped {
@@ -128,6 +131,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	// Step 3: Resolve provider config (before self-repair to avoid re-installing for broken configs).
 	providerCfg, err := e.resolveProvider(job)
 	if err != nil {
+		e.recordEarlyFailure(jobID, job.ProviderID, err)
 		return RunResult{}, err
 	}
 
@@ -181,6 +185,10 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	defer release()
 
 	// Write job.run.claim audit event after lock acquired (best-effort, non-fatal).
+	e.Logger.Info("job run claimed",
+		logging.String("job_id", jobID),
+		logging.String("run_id", runID),
+	)
 	if auditErr := e.AuditWriter.Write(AuditEvent{
 		Event: "job.run.claim",
 		JobID: jobID,
@@ -216,6 +224,11 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		}
 	}()
 
+	e.Logger.Info("job run starting",
+		logging.String("job_id", jobID),
+		logging.String("run_id", runID),
+		logging.String("provider", job.ProviderID),
+	)
 	output, runErr := e.executeJob(ctx, job, providerCfg, runID)
 
 	// Record result.
@@ -240,6 +253,24 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		}
 	} else {
 		run.Status = RunStatusCompleted
+	}
+
+	// Log completion.
+	if runErr != nil {
+		e.Logger.Error("job run failed",
+			logging.String("job_id", jobID),
+			logging.String("run_id", runID),
+			logging.String("status", string(run.Status)),
+			logging.Any("duration_ms", run.DurationMillis),
+			logging.Any("error", runErr),
+		)
+	} else {
+		e.Logger.Info("job run finished",
+			logging.String("job_id", jobID),
+			logging.String("run_id", runID),
+			logging.String("status", string(run.Status)),
+			logging.Any("duration_ms", run.DurationMillis),
+		)
 	}
 
 	// Step 8: Update job.
@@ -413,4 +444,35 @@ func globalOverlayPath() string {
 		return ""
 	}
 	return path
+}
+
+// recordEarlyFailure appends a failed Run record when Executor.Run exits before
+// a run record exists (load failure, validation error, provider resolution failure).
+// This ensures all job invocations produce a visible trace in the run history.
+func (e *Executor) recordEarlyFailure(jobID, providerID string, runErr error) {
+	now := time.Now().UTC()
+	run := Run{
+		ID:             mustGenerateRunID(),
+		JobID:          jobID,
+		ScheduledFor:   now,
+		Status:         RunStatusFailed,
+		StartedAt:      now,
+		FinishedAt:     &now,
+		DurationMillis: 0,
+		ProviderID:     providerID,
+		Error:          runErr.Error(),
+	}
+	if appendErr := e.RunStore.Append(run); appendErr != nil {
+		e.Logger.Warn("failed to record early-exit run", logging.Any("err", appendErr))
+	}
+	if auditErr := e.AuditWriter.Write(AuditEvent{
+		Event: "job.run.early_failure",
+		JobID: jobID,
+		Details: map[string]any{
+			"run_id": run.ID,
+			"error":  runErr.Error(),
+		},
+	}); auditErr != nil {
+		e.Logger.Warn("audit write failed (early failure)", logging.Any("err", auditErr))
+	}
 }
