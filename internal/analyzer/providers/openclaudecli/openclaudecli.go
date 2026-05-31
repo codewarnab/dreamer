@@ -149,6 +149,9 @@ func readStreamJSON(r io.Reader) (string, error) {
 		return "", fmt.Errorf("openclaude-cli: all %d output lines failed to parse (provider schema change?)", totalLines)
 	}
 	if resultText != "" {
+		if assistantText.Len() > 0 {
+			return strings.TrimSpace(assistantText.String() + "\n\n" + resultText), nil
+		}
 		return strings.TrimSpace(resultText), nil
 	}
 	return strings.TrimSpace(assistantText.String()), nil
