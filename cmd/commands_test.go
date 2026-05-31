@@ -151,7 +151,7 @@ func TestAnalyzeReturnsAnalyzerClientStartupError(t *testing.T) {
 	}
 }
 
-func TestDaemonReturnsErrorWhenNoProjectsConfigured(t *testing.T) {
+func TestDaemonStartsWithNoProjects(t *testing.T) {
 	homeDir := t.TempDir()
 	setTestHome(t, homeDir)
 	t.Setenv("APPDATA", t.TempDir())
@@ -168,14 +168,20 @@ func TestDaemonReturnsErrorWhenNoProjectsConfigured(t *testing.T) {
 			"log_level":         "info",
 			"output_root":       outputRoot,
 		},
+		"web": map[string]any{
+			"enabled": false,
+		},
 	})
 
-	_, _, err := executeRootCommand("daemon", "--config", configPath)
-	if err == nil {
-		t.Fatalf("daemon expected no-projects error")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	stdout, _, err := executeRootCommandWithContext(ctx, "daemon", "--config", configPath)
+	if err != nil {
+		t.Fatalf("daemon returned unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "has no projects configured") {
-		t.Fatalf("error = %q, want no-projects error", err)
+	if !strings.Contains(stdout, "no projects configured") {
+		t.Fatalf("stdout = %q, want web-only mode message", stdout)
 	}
 }
 
@@ -248,7 +254,12 @@ func TestListChatsRejectsProjectPathFile(t *testing.T) {
 }
 
 func executeRootCommand(args ...string) (string, string, error) {
+	return executeRootCommandWithContext(context.Background(), args...)
+}
+
+func executeRootCommandWithContext(ctx context.Context, args ...string) (string, string, error) {
 	command := newRootCommand()
+	command.SetContext(ctx)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.SetOut(&stdout)

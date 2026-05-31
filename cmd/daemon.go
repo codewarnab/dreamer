@@ -71,11 +71,6 @@ func newDaemonCommand() *cobra.Command {
 				overrides.maxChunkBytesSet = true
 				overrides.maxChunkBytes = analyzerFlags.chunkSize
 			}
-			if len(cfg.Projects) == 0 {
-				logger.Error("daemon configuration has no projects", logging.Any("config", resolvedConfigPath))
-				return fmt.Errorf("config %q has no projects configured", resolvedConfigPath)
-			}
-
 			baseCtx := commandContext(cmd)
 			ctx, stop, queue, discoveryCache, events, releaseLock, err := initDaemonRuntime(baseCtx, cfg, logger)
 			if err != nil {
@@ -112,6 +107,11 @@ func newDaemonCommand() *cobra.Command {
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
+
+			if len(cfg.Projects) == 0 {
+				cmd.Printf("no projects configured; daemon running with web dashboard and config watcher only\n")
+				logger.Warn("daemon started with no projects configured")
+			}
 
 			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
 			cmd.Printf("daemon started: frequency=%s projects=%d max_concurrent=%d\n",
