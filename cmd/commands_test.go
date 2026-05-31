@@ -168,6 +168,9 @@ func TestDaemonStartsWithNoProjects(t *testing.T) {
 			"log_level":         "info",
 			"output_root":       outputRoot,
 		},
+		"web": map[string]any{
+			"enabled": false,
+		},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -251,15 +254,7 @@ func TestListChatsRejectsProjectPathFile(t *testing.T) {
 }
 
 func executeRootCommand(args ...string) (string, string, error) {
-	command := newRootCommand()
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	command.SetOut(&stdout)
-	command.SetErr(&stderr)
-	command.SetArgs(args)
-
-	err := command.Execute()
-	return stdout.String(), stderr.String(), err
+	return executeRootCommandWithContext(context.Background(), args...)
 }
 
 func executeRootCommandWithContext(ctx context.Context, args ...string) (string, string, error) {

@@ -110,7 +110,7 @@ func newDaemonCommand() *cobra.Command {
 
 			if len(cfg.Projects) == 0 {
 				cmd.Printf("no projects configured; daemon running with web dashboard and config watcher only\n")
-				logger.Info("daemon started with no projects configured")
+				logger.Warn("daemon started with no projects configured")
 			}
 
 			frequency := time.Duration(cfg.Daemon.FrequencySeconds) * time.Second
