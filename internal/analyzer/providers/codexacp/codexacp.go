@@ -27,6 +27,7 @@ func init() {
 			DefaultModel:     providerConfig.DefaultModel,
 			Sandbox:             providerConfig.Sandbox,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
+			SandboxWritableDirs: providerConfig.SandboxWritableDirs,
 			SandboxNetwork:      providerConfig.SandboxNetwork,
 			SandboxSeccomp:      providerConfig.SandboxSeccomp,
 			SandboxResources: sandbox.ResourceLimits{

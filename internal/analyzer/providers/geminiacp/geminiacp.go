@@ -23,6 +23,7 @@ func init() {
 			ModelFallbacks:   config.ModelFallbacksFor(string(ID)),
 			Sandbox:             providerConfig.Sandbox,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
+			SandboxWritableDirs: providerConfig.SandboxWritableDirs,
 			SandboxNetwork:      providerConfig.SandboxNetwork,
 			SandboxSeccomp:      providerConfig.SandboxSeccomp,
 			SandboxResources: sandbox.ResourceLimits{

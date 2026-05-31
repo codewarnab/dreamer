@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 	"unicode/utf8"
@@ -239,6 +240,13 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	run.DurationMillis = now.Sub(startedAt).Milliseconds()
 	run.OutputSummary = truncateUTF8(output, maxOutputSummaryRunes)
 
+	// Persist full output to a per-run log file so `jobs logs` can retrieve it.
+	if logPath, writeErr := e.writeRunLog(jobID, runID, output); writeErr != nil {
+		e.Logger.Warn("write run log failed", logging.Any("err", writeErr))
+	} else {
+		run.LogPath = logPath
+	}
+
 	if runErr != nil {
 		// Classify off the returned error, not the parent context.
 		// session.Run may surface a session-level timeout as a non-nil
@@ -296,11 +304,15 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 // executeJob starts a provider session and runs the job prompt.
 // Returns the response text and any error.
 func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyzer.ProviderConfig, runID string) (string, error) {
-	// Map full_workspace to sandbox write posture so the OS sandbox grants
-	// project-dir writes.  selected_writes relies on prompt-only enforcement
-	// (documented gap — per-path sandbox not yet implemented).
+	// Map file access mode to sandbox write posture.
+	// - full_workspace: grant project-dir writes via SandboxProjectWrite.
+	// - selected_writes: grant per-path writes via SandboxWritableDirs.
+	//   ValidateWritablePaths (called in validateJob) already ensures every
+	//   path resolves inside the project root and avoids protected dirs.
 	if job.Permissions.FileAccess == FileAccessFullWorkspace {
 		providerCfg.SandboxProjectWrite = true
+	} else if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
+		providerCfg.SandboxWritableDirs = job.Permissions.WritablePaths
 	}
 
 	provider, err := e.NewProvider(config.ProviderID(job.ProviderID), providerCfg)
@@ -487,4 +499,18 @@ func (e *Executor) recordEarlyFailure(jobID, providerID string, runErr error) {
 	}); auditErr != nil {
 		e.Logger.Warn("audit write failed (early failure)", logging.Any("err", auditErr))
 	}
+}
+
+// writeRunLog persists the full provider output to a per-run log file at
+// <runs_dir>/<job_id>/<run_id>.log. Returns the absolute path on success.
+func (e *Executor) writeRunLog(jobID, runID, output string) (string, error) {
+	logDir := filepath.Join(e.RunStore.Dir(), jobID)
+	if err := os.MkdirAll(logDir, fsutil.DirPerms); err != nil {
+		return "", fmt.Errorf("create run log dir: %w", err)
+	}
+	logPath := filepath.Join(logDir, runID+".log")
+	if err := os.WriteFile(logPath, []byte(output), fsutil.FilePerms); err != nil {
+		return "", fmt.Errorf("write run log: %w", err)
+	}
+	return logPath, nil
 }

@@ -869,6 +869,67 @@ func TestExecutor_Run_FullWorkspace_SandboxPosture(t *testing.T) {
 	}
 }
 
+// selected_writes must set SandboxWritableDirs on ProviderConfig so the
+// OS sandbox grants write access to the declared paths.
+func TestExecutor_Run_SelectedWrites_SandboxWritableDirs(t *testing.T) {
+	var capturedProviderCfg analyzer.ProviderConfig
+
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			capturedProviderCfg = cfg
+			return provider, nil
+		},
+	}
+
+	job := testReadOnlyJob(t, "abc1234567890002")
+	job.Permissions.FileAccess = FileAccessSelectedWrites
+	job.Permissions.WritablePaths = []string{
+		filepath.Join(job.ProjectPath, "output.txt"),
+		filepath.Join(job.ProjectPath, "logs"),
+	}
+	insertTestJob(t, store, job)
+
+	result, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Record.Status != RunStatusCompleted {
+		t.Fatalf("status = %q, want %q", result.Record.Status, RunStatusCompleted)
+	}
+
+	// Verify provider config: SandboxWritableDirs must contain the declared paths.
+	if len(capturedProviderCfg.SandboxWritableDirs) != 2 {
+		t.Fatalf("SandboxWritableDirs len = %d, want 2", len(capturedProviderCfg.SandboxWritableDirs))
+	}
+	if capturedProviderCfg.SandboxWritableDirs[0] != job.Permissions.WritablePaths[0] {
+		t.Errorf("SandboxWritableDirs[0] = %q, want %q",
+			capturedProviderCfg.SandboxWritableDirs[0], job.Permissions.WritablePaths[0])
+	}
+	if capturedProviderCfg.SandboxWritableDirs[1] != job.Permissions.WritablePaths[1] {
+		t.Errorf("SandboxWritableDirs[1] = %q, want %q",
+			capturedProviderCfg.SandboxWritableDirs[1], job.Permissions.WritablePaths[1])
+	}
+
+	// Verify SandboxProjectWrite is NOT set for selected_writes.
+	if capturedProviderCfg.SandboxProjectWrite {
+		t.Error("SandboxProjectWrite = true, want false for selected_writes")
+	}
+}
+
 // Phase 2: full_workspace system message must grant write access.
 func TestExecutor_Run_FullWorkspace_SystemMessage(t *testing.T) {
 	var capturedCfg analyzer.SessionConfig

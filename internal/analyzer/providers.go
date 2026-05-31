@@ -72,6 +72,11 @@ type ProviderConfig struct {
 
 	// SandboxProjectWrite adds ProjectDir to the writable list when true.
 	SandboxProjectWrite bool
+	// SandboxWritableDirs adds per-path writable entries for selected_writes
+	// jobs. CLI providers append these to sandbox.Config.WritableDirs at
+	// session time. ACP providers store the value but do not yet enforce it
+	// per-session (architectural limitation — project dir unknown at spawn).
+	SandboxWritableDirs []string
 	// SandboxNetwork is the network isolation mode ("isolated" or "open").
 	SandboxNetwork string
 	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").

@@ -66,6 +66,7 @@ type Options struct {
 	Model            string
 	DefaultModel     string
 	SandboxProjectWrite bool
+	SandboxWritableDirs []string
 	SandboxNetwork      string
 	SandboxSeccomp      string
 	SandboxResources    sandbox.ResourceLimits
@@ -163,7 +164,7 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 	if err != nil {
 		return nil, fmt.Errorf("%s: resolve home dir for sandbox writable paths: %w", spec.ErrPrefix, err)
 	}
-	writable := []string{os.TempDir(), configDir}
+	writable := append([]string{os.TempDir(), configDir}, p.Options.SandboxWritableDirs...)
 	return &Session{
 		command:    command,
 		env:        p.Options.Env,
