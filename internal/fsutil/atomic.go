@@ -61,6 +61,7 @@ func WriteFileAtomic(path string, contentBytes []byte, perm os.FileMode) error {
 	// Fsync parent dir to persist the rename itself. Best-effort: some
 	// filesystems (e.g. tmpfs, NFS) reject this; we don't fail the write.
 	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		//astcheck:ignore[discardederr] best-effort: see comment above
 		_ = dir.Sync()
 		_ = dir.Close()
 	}

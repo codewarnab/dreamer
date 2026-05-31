@@ -18,8 +18,8 @@ import (
 
 // BaselineFile is the on-disk format of .quality-baseline.json.
 type BaselineFile struct {
-	Version  int                       `json:"version"`
-	Findings map[string]BaselineEntry  `json:"findings"`
+	Version  int                      `json:"version"`
+	Findings map[string]BaselineEntry `json:"findings"`
 }
 
 // BaselineEntry stores the components of a position-stable finding key.

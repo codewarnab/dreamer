@@ -133,9 +133,9 @@ func init() {
 		line int
 		want string
 	}{
-		{6, "main"},        // log.Printf in main()
+		{6, "main"},          // log.Printf in main()
 		{12, "Server.Start"}, // log.Fatal in (s *Server).Start()
-		{16, "init"},       // log.Println in init()
+		{16, "init"},         // log.Println in init()
 	}
 
 	for _, tt := range tests {
@@ -211,9 +211,9 @@ func main() {
 
 func TestIsSuppressed(t *testing.T) {
 	suppressed := map[int][]string{
-		6:  {""},             // blanket
-		9:  {"nodirectlog"},  // specific
-		10: {"settesthome"},  // different check
+		6:  {""},            // blanket
+		9:  {"nodirectlog"}, // specific
+		10: {"settesthome"}, // different check
 	}
 
 	tests := []struct {

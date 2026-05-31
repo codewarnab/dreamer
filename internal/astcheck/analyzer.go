@@ -8,6 +8,17 @@
 // All analyzers in this package are intra-package only — no cross-package
 // [analysis.Fact] propagation. Whole-program checks (e.g. truly-unused exports)
 // are delegated to external tools like `deadcode`.
+//
+// Registered analyzers (suppress any with //astcheck:ignore[<name>]):
+//
+//	nodirectlog      error  direct stdlib log use; use logging.Logger          (default on)
+//	settesthome      error  setTestHome env-var hygiene                         (default on)
+//	theatricaltest   warn   tests that don't assert their advertised behavior   (default on)
+//	atomicwrite      warn   os.WriteFile; use fsutil.WriteFileAtomic            (default on)
+//	discardederr     warn   _-discard of a curated callee's error return        (default on)
+//	unboundedread    warn   io.ReadAll on stdin/request body without a cap      (default on)
+//	overlaybool      warn   overlay-merged bool field; use *bool                (default on)
+//	goroutinerecover info   pipeline goroutine without a recover() guard        (default OFF)
 package astcheck
 
 import (

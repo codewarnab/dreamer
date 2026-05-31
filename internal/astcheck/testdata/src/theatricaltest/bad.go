@@ -22,9 +22,9 @@ func TestOnlySideEffects(t *testing.T) { // want "test TestOnlySideEffects has n
 // Check 2: Assertion-only-on-non-target — mock assertions without return value checks.
 type mockDB struct{}
 
-func (m *mockDB) GetUser(id int) string                    { return "alice" }
-func (m *mockDB) AssertExpectations(t *testing.T)          {}
-func (m *mockDB) AssertCalled(t *testing.T, method string) {}
+func (m *mockDB) GetUser(id int) string                                      { return "alice" }
+func (m *mockDB) AssertExpectations(t *testing.T)                            {}
+func (m *mockDB) AssertCalled(t *testing.T, method string)                   {}
 func (m *mockDB) AssertNumberOfCalls(t *testing.T, method string, count int) {}
 
 func TestMockOnlyAssertions(t *testing.T) { // want "test TestMockOnlyAssertions only asserts on non-T receivers"
