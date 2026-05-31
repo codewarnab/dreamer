@@ -103,7 +103,8 @@ func newJobsLogsCommand() *cobra.Command {
 				if err := printLogFile(cmd, run.LogPath, tail); err == nil {
 					return nil
 				}
-				// Fall through to fallback if log file is missing/corrupt.
+				// Log file exists in the record but couldn't be read — warn and fall through.
+				cmd.Printf("Warning: could not read log file %s: %v\n", run.LogPath, err)
 			}
 
 			// Fallback: show Error + OutputSummary from the Run record.
@@ -180,7 +181,7 @@ func printRunFallback(cmd *cobra.Command, run *backgroundjobs.Run) {
 			cmd.Printf("\n")
 		}
 		cmd.Printf("Output (truncated to %d chars):\n%s\n",
-			maxOutputSummaryRunes, run.OutputSummary)
+			backgroundjobs.MaxOutputSummaryRunes, run.OutputSummary)
 	}
 	if !hasContent && run.OutputSummary == "" {
 		cmd.Printf("\n(no output captured)\n")
@@ -211,5 +212,3 @@ func waitForRunCompletion(ctx context.Context, runStore *backgroundjobs.RunStore
 	}
 }
 
-// maxOutputSummaryRunes mirrors the constant in runner.go for display.
-const maxOutputSummaryRunes = 500

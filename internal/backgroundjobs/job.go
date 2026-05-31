@@ -126,7 +126,7 @@ type SchedulingHealth string
 const (
 	SchedulingNotInstalled SchedulingHealth = "not_installed"
 	SchedulingNeedsInstall SchedulingHealth = "needs_install"
-	SystemSchedulingValid        SchedulingHealth = "valid"
+	SchedulingValid        SchedulingHealth = "valid"
 	SchedulingError        SchedulingHealth = "error"
 )
 

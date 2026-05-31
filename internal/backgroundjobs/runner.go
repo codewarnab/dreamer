@@ -44,12 +44,13 @@ type RunResult struct {
 	Record Run
 }
 
-// maxPromptSnapshotRunes caps the prompt stored in a Run record.
+// MaxPromptSnapshotRunes caps the prompt stored in a Run record.
 // Prevents JSONL bloat from verbose prompts while preserving debugging context.
-const maxPromptSnapshotRunes = 500
+const MaxPromptSnapshotRunes = 500
 
-// maxOutputSummaryRunes caps the output stored in a Run record.
-const maxOutputSummaryRunes = 500
+// MaxOutputSummaryRunes caps the output stored in a Run record.
+// Exported so CLI commands (e.g. jobs logs) can reference the same limit.
+const MaxOutputSummaryRunes = 500
 
 // defaultRunRetention is the maximum number of runs kept per job.
 const defaultRunRetention = 100
@@ -167,7 +168,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		StartedAt:      startedAt,
 		ProviderID:     job.ProviderID,
 		Model:          providerCfg.Model,
-		PromptSnapshot: truncateUTF8(job.Prompt, maxPromptSnapshotRunes),
+		PromptSnapshot: truncateUTF8(job.Prompt, MaxPromptSnapshotRunes),
 	}
 
 	// Step 6: Acquire per-job lock first, then write audit claim.
@@ -239,7 +240,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	now := time.Now().UTC()
 	run.FinishedAt = &now
 	run.DurationMillis = now.Sub(startedAt).Milliseconds()
-	run.OutputSummary = truncateUTF8(output, maxOutputSummaryRunes)
+	run.OutputSummary = truncateUTF8(output, MaxOutputSummaryRunes)
 
 	// Persist full output to a per-run log file so `jobs logs` can retrieve it.
 	if logPath, writeErr := e.writeRunLog(jobID, runID, output); writeErr != nil {

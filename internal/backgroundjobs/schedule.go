@@ -2,6 +2,7 @@ package backgroundjobs
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -222,7 +223,7 @@ func parseCronParts(field string, lo, hi int) ([]int, error) {
 	if len(result) == 0 {
 		return nil, fmt.Errorf("empty field")
 	}
-	sortInts(result)
+	slices.Sort(result)
 	return result, nil
 }
 
@@ -274,15 +275,6 @@ func parseCronInt(s string) (int, error) {
 	return val, nil
 }
 
-// sortInts sorts a slice of ints in ascending order (simple insertion sort for small slices).
-func sortInts(s []int) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
-}
-
 // nextCronRun finds the next run time for a cron expression after 'now'.
 // Searches up to 366 days into the future to avoid infinite loops on rare expressions.
 func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, error) {
@@ -301,7 +293,7 @@ func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, err
 		checkDate := candidate.AddDate(0, 0, day)
 
 		// Check month.
-		if !intSliceContains(fields.month, int(checkDate.Month())) {
+		if !slices.Contains(fields.month, int(checkDate.Month())) {
 			continue
 		}
 
@@ -314,12 +306,12 @@ func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, err
 		case domWildcard && dowWildcard:
 			dayMatch = true
 		case domWildcard && !dowWildcard:
-			dayMatch = intSliceContains(fields.dow, int(checkDate.Weekday()))
+			dayMatch = slices.Contains(fields.dow, int(checkDate.Weekday()))
 		case !domWildcard && dowWildcard:
-			dayMatch = intSliceContains(fields.dom, checkDate.Day())
+			dayMatch = slices.Contains(fields.dom, checkDate.Day())
 		default:
-			dayMatch = intSliceContains(fields.dom, checkDate.Day()) ||
-				intSliceContains(fields.dow, int(checkDate.Weekday()))
+			dayMatch = slices.Contains(fields.dom, checkDate.Day()) ||
+				slices.Contains(fields.dow, int(checkDate.Weekday()))
 		}
 		if !dayMatch {
 			continue
@@ -347,15 +339,6 @@ func isWildcard(values []int, lo, hi int) bool {
 	return len(values) == hi-lo+1 && values[0] == lo && values[len(values)-1] == hi
 }
 
-// intSliceContains checks if a sorted int slice contains a value.
-func intSliceContains(s []int, v int) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
 
 // DefaultTimeoutFor derives a session timeout from the schedule.
 // For interval schedules, uses 80% of the interval capped at 1 hour.
