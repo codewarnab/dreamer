@@ -81,6 +81,15 @@ const (
 // only requires EXECUTE permission on the target binary, not WRITE — and
 // the restricted token only restricts writes via the capability SID.
 //
+// Job Object breakaway: Tools that spawn processes through WMI or the
+// Service Control Manager create new process trees outside the current
+// Job Object. KILL_ON_JOB_CLOSE only terminates processes inside the job.
+//
+//   wmic process call create "cmd /c ..."        — WMI process creation
+//   psexec -s cmd.exe                            — SCM-based process spawn
+//   Start-Process -FilePath "cmd.exe"            — PowerShell wrapper
+//   powershell -Command "Start-Process cmd.exe"  — indirect invocation
+//
 // Mitigation plan (not yet implemented):
 //
 //   Layer 1 — Deny FILE_GENERIC_EXECUTE on writable directories for the
@@ -90,10 +99,13 @@ const (
 //   Program Files), the attack surface shrinks to OS-provided binaries.
 //
 //   Layer 2 — Deny FILE_GENERIC_EXECUTE on the capability SID for known
-//   scheduling binaries: schtasks.exe, at.exe, PowerShell.exe, pwsh.exe,
-//   and their SysWOW64/WinSxS variants. This blocks direct invocation
-//   of scheduler tools. Paths are enumerate-and-deny (whack-a-mole) but
-//   cover the realistic attack surface for prompt injection.
+//   escape binaries:
+//     Scheduler: schtasks.exe, at.exe, Register-ScheduledTask (COM)
+//     Shells: powershell.exe, pwsh.exe, cmd.exe (breakaway via Start-Process)
+//     WMI: wmic.exe (breakaway via process call create)
+//     SCM: psexec.exe, psexec64.exe (Sysinternals SCM spawn)
+//   Paths are enumerate-and-deny (whack-a-mole) but cover the realistic
+//   attack surface for prompt injection.
 //
 //   Layer 3 (future) — AppContainer (LowBox) via NtCreateLowBoxToken.
 //   Provides kernel-enforced process + network isolation with a
