@@ -66,6 +66,7 @@ type RunStore interface {
 	List(jobID string) ([]backgroundjobs.Run, error)
 	Latest(jobID string) (*backgroundjobs.Run, error)
 	Count(jobID string) (int, error)
+	Dir() string
 }
 
 // AuditWriter is the subset of backgroundjobs.AuditWriter needed by web handlers.
@@ -876,6 +877,12 @@ func JobDetail(deps Deps) http.HandlerFunc {
 			jobView["next_run_at"] = job.NextRunAt
 		}
 
+		// Sandbox status from the latest run (if available).
+		var sandboxStatus any
+		if latestRun != nil {
+			sandboxStatus = latestRun.SandboxStatus
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
 			"job":              jobView,
 			"latest_run":       latestRun,
@@ -883,6 +890,7 @@ func JobDetail(deps Deps) http.HandlerFunc {
 			"os_schedule":      osSchedule,
 			"schedule_summary": buildScheduleSummary(job.Schedule),
 			"next_3_runs":      nextRuns,
+			"sandbox_status":   sandboxStatus,
 		})
 	}
 }
@@ -1188,6 +1196,55 @@ func JobRunDetail(deps Deps) http.HandlerFunc {
 	}
 }
 
+// JobActivity returns an http.HandlerFunc for
+// GET /api/jobs/{id}/runs/{rid}/activity.
+// Returns the activity events (process/network) for a specific run.
+func JobActivity(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireJobStore(w, deps.Jobs.Store) {
+			return
+		}
+		if deps.Jobs.Runs == nil {
+			writeJSONError(w, http.StatusNotFound, "run not found")
+			return
+		}
+
+		jobID, runID := extractJobIDAndRunID(r.URL.Path)
+		if jobID == "" || runID == "" {
+			writeJSONError(w, http.StatusBadRequest, "missing job or run id")
+			return
+		}
+
+		// Find the run to get the activity log path.
+		runs, err := deps.Jobs.Runs.List(jobID)
+		if err != nil {
+			deps.Logger.Error("activity list runs", logging.ErrAttr(err)...)
+			writeJSONError(w, http.StatusInternalServerError, "failed to list runs")
+			return
+		}
+
+		var targetRun *backgroundjobs.Run
+		for i := range runs {
+			if runs[i].ID == runID {
+				targetRun = &runs[i]
+				break
+			}
+		}
+		if targetRun == nil {
+			writeJSONError(w, http.StatusNotFound, "run not found")
+			return
+		}
+
+		// Read activity events from the JSONL file.
+		events, _ := backgroundjobs.ReadAllActivity(deps.Jobs.Runs.Dir(), jobID, runID)
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"events":  events,
+			"summary": targetRun.ActivitySummary,
+		})
+	}
+}
+
 // --- Route dispatcher ---
 
 // RouteJobs returns a handler that dispatches /api/jobs[/...] requests.
@@ -1206,6 +1263,7 @@ func RouteJobs(deps Deps) http.HandlerFunc {
 	preview := JobPreview(deps)
 	health := JobHealth(deps)
 	auditLog := JobAuditLog(deps)
+	activityH := JobActivity(deps)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Strip both /api/jobs/ and /api/jobs prefixes.
@@ -1311,6 +1369,16 @@ func RouteJobs(deps Deps) http.HandlerFunc {
 				return
 			}
 			runDetail(w, r)
+		case len(parts) == 4 && parts[1] == "runs" && parts[3] == "activity":
+			if err := backgroundjobs.ValidateJobID(parts[0]); err != nil {
+				writeJSONError(w, http.StatusBadRequest, "invalid job id")
+				return
+			}
+			if r.Method != http.MethodGet {
+				writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			activityH(w, r)
 		default:
 			http.NotFound(w, r)
 		}

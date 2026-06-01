@@ -81,6 +81,8 @@ func (m *mockRunStore) Count(jobID string) (int, error) {
 	return count, nil
 }
 
+func (m *mockRunStore) Dir() string { return "" }
+
 type mockAuditWriter struct {
 	events    []backgroundjobs.AuditEvent
 	readError error // if set, ReadAll returns this error
