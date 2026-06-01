@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -16,6 +17,7 @@ import (
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
+	"dreamer/internal/sandbox"
 )
 
 // SelfRepairConfig holds the fields needed for OS schedule self-repair.
@@ -169,6 +171,21 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		ProviderID:     job.ProviderID,
 		Model:          providerCfg.Model,
 		PromptSnapshot: truncateUTF8(job.Prompt, MaxPromptSnapshotRunes),
+	}
+
+	// Warn when the OS sandbox is unavailable — the provider runs
+	// fully permissive with no kernel-enforced file access control.
+	if !sandbox.Available() && isCLIProvider(job.ProviderID) {
+		warn := fmt.Sprintf(
+			"OS sandbox unavailable on this platform (%s/%s); "+
+				"background job runs fully permissive with no file access restrictions",
+			runtime.GOOS, runtime.GOARCH)
+		run.Warnings = append(run.Warnings, warn)
+		e.Logger.Warn("sandbox unavailable for background job",
+			logging.String("job_id", jobID),
+			logging.String("provider", job.ProviderID),
+			logging.String("platform", runtime.GOOS+"/"+runtime.GOARCH),
+		)
 	}
 
 	// Step 6: Acquire per-job lock first, then write audit claim.
@@ -526,4 +543,19 @@ func (e *Executor) writeRunLog(jobID, runID, output string) (string, error) {
 		return "", fmt.Errorf("write run log: %w", err)
 	}
 	return logPath, nil
+}
+
+// isCLIProvider reports whether the provider ID identifies a CLI-harness
+// provider (one that spawns a child process and relies on the OS sandbox
+// or its own policy flags for file access control).
+func isCLIProvider(id string) bool {
+	switch config.ProviderID(id) {
+	case config.ProviderClaudeCLI,
+		config.ProviderOpenClaudeCLI,
+		config.ProviderGeminiCLI,
+		config.ProviderCodexCLI:
+		return true
+	default:
+		return false
+	}
 }

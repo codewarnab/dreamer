@@ -679,6 +679,12 @@ func newJobsShowCommand() *cobra.Command {
 					cmd.Printf("%-20s %-12s %-20s %-10s %s\n",
 						started, r.Status, finished, duration, r.ID)
 				}
+				// Show warnings from recent runs.
+				for i := 0; i < limit; i++ {
+					for _, w := range runs[i].Warnings {
+						cmd.Printf("  ⚠ %s [%s]\n", w, runs[i].ID)
+					}
+				}
 			}
 
 			return nil

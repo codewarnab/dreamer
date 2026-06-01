@@ -3,9 +3,11 @@ package backgroundjobs
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"dreamer/internal/logging"
+	"dreamer/internal/sandbox"
 )
 
 // HealthIssue is a single diagnostic issue with a severity.
@@ -61,6 +63,18 @@ func (h *HealthChecker) CheckHealth(ctx context.Context) (SystemHealth, error) {
 
 	health := SystemHealth{
 		TotalJobs: len(state.Jobs),
+		Issues:    []HealthIssue{},
+		JobHealth: []JobHealth{},
+	}
+
+	// System-level check: sandbox availability.
+	if !sandbox.Available() {
+		health.Issues = append(health.Issues, HealthIssue{
+			Severity: HealthSeverityWarning,
+			Message: fmt.Sprintf(
+				"OS sandbox unavailable (%s/%s); background jobs run fully permissive with no file access restrictions",
+				runtime.GOOS, runtime.GOARCH),
+		})
 	}
 
 	// Check each job.

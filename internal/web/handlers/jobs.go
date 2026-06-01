@@ -1014,12 +1014,16 @@ func JobRunNow(deps Deps) http.HandlerFunc {
 				return
 			}
 
-			publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, map[string]any{
+			eventData := map[string]any{
 				"job_id":          jobID,
 				"run_id":          result.Record.ID,
 				"status":          string(result.Record.Status),
 				"duration_millis": result.Record.DurationMillis,
-			})
+			}
+			if len(result.Record.Warnings) > 0 {
+				eventData["warnings"] = result.Record.Warnings
+			}
+			publishJobEvent(deps.Jobs.Events, pipeline.EventJobRunDone, eventData)
 		}()
 	}
 }

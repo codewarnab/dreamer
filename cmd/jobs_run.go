@@ -192,6 +192,9 @@ func newJobsRunCommand() *cobra.Command {
 
 			cmd.Printf("job %q finished: %s (took %dms)\n",
 				jobID, string(result.Record.Status), result.Record.DurationMillis)
+			for _, w := range result.Record.Warnings {
+				cmd.Printf("  ⚠ %s\n", w)
+			}
 			return nil
 		},
 	}

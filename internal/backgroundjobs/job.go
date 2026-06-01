@@ -80,6 +80,9 @@ type Run struct {
 	OutputSummary  string     `json:"output_summary,omitempty"`
 	SkippedReason  string     `json:"skipped_reason,omitempty"`
 	LogPath        string     `json:"log_path,omitempty"`
+	// Warnings carries non-fatal alerts surfaced during execution
+	// (e.g. sandbox unavailable, permissive mode without OS boundary).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // FileAccessMode controls what the job may write.

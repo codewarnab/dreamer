@@ -130,6 +130,13 @@ func printRunsTable(cmd *cobra.Command, jobID string, runs []backgroundjobs.Run)
 			started, r.Status, duration, r.ID, errMsg)
 	}
 
+	// Show warnings from any run that carried them.
+	for _, r := range runs {
+		for _, w := range r.Warnings {
+			cmd.Printf("  ⚠ %s [%s]\n", w, r.ID)
+		}
+	}
+
 	return nil
 }
 
