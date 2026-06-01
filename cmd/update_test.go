@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -97,5 +101,91 @@ func TestUpdateCommandAlreadyUpToDate(t *testing.T) {
 	}
 	if cmd.Flags().Lookup("force") == nil {
 		t.Error("--force flag not registered")
+	}
+}
+
+func TestParseChecksum(t *testing.T) {
+	data := []byte("abc123def456  dreamer_linux_amd64\n7890abcdef12  dreamer_windows_amd64.exe\n")
+	got, err := parseChecksum(data, "dreamer_windows_amd64.exe")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "7890abcdef12" {
+		t.Errorf("got %q, want %q", got, "7890abcdef12")
+	}
+}
+
+func TestParseChecksumMissing(t *testing.T) {
+	data := []byte("abc123def456  dreamer_linux_amd64\n")
+	_, err := parseChecksum(data, "dreamer_plan9_amd64")
+	if err == nil {
+		t.Fatal("expected error for missing asset")
+	}
+}
+
+func TestParseChecksumInvalidHex(t *testing.T) {
+	data := []byte("ZZZZZZ  dreamer_linux_amd64\n")
+	_, err := parseChecksum(data, "dreamer_linux_amd64")
+	if err == nil {
+		t.Fatal("expected error for invalid hex")
+	}
+}
+
+func TestFetchChecksum(t *testing.T) {
+	wantHash := "abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	checksumsContent := fmt.Sprintf("%s  dreamer_%s_%s\n", wantHash, runtime.GOOS, runtime.GOARCH)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(checksumsContent))
+	}))
+	defer srv.Close()
+
+	got, err := fetchChecksum(srv.URL, fmt.Sprintf("dreamer_%s_%s", runtime.GOOS, runtime.GOARCH))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != wantHash {
+		t.Errorf("got %q, want %q", got, wantHash)
+	}
+}
+
+func TestFetchChecksumMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("abc123  dreamer_linux_amd64\n"))
+	}))
+	defer srv.Close()
+
+	_, err := fetchChecksum(srv.URL, "dreamer_plan9_amd64")
+	if err == nil {
+		t.Fatal("expected error for missing asset")
+	}
+}
+
+func TestVerifySHA256Match(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("test binary content")
+	path := filepath.Join(dir, "testfile")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := sha256.Sum256(content)
+	expected := hex.EncodeToString(h[:])
+
+	if err := verifySHA256(path, expected); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifySHA256Mismatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testfile")
+	if err := os.WriteFile(path, []byte("test binary content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := verifySHA256(path, "0000000000000000000000000000000000000000000000000000000000000000")
+	if err == nil {
+		t.Fatal("expected checksum mismatch error")
 	}
 }

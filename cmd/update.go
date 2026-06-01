@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,7 +68,8 @@ func newUpdateCommand() *cobra.Command {
 				return fmt.Errorf("no release asset found for %s", wantAsset)
 			}
 
-			if err := downloadAndReplace(asset.BrowserDownloadURL); err != nil {
+			checksumURL := strings.Replace(asset.BrowserDownloadURL, wantAsset, "checksums.txt", 1)
+			if err := downloadAndReplace(asset.BrowserDownloadURL, checksumURL, wantAsset); err != nil {
 				return err
 			}
 
@@ -143,10 +146,11 @@ func fetchLatestRelease() (*githubRelease, error) {
 	return &release, nil
 }
 
-// downloadAndReplace downloads the binary from url and replaces the running
-// executable. Uses a same-directory temp file so the rename stays on one
-// filesystem (required for atomic rename on Unix).
-func downloadAndReplace(url string) error {
+// downloadAndReplace downloads the binary from binaryURL, verifies its SHA-256
+// checksum against checksums.txt fetched from checksumURL, and replaces the
+// running executable. Uses a same-directory temp file so the rename stays on
+// one filesystem (required for atomic rename on Unix).
+func downloadAndReplace(binaryURL, checksumURL, assetName string) error {
 	selfPath, err := resolveSelfExecutable()
 	if err != nil {
 		return err
@@ -168,7 +172,7 @@ func downloadAndReplace(url string) error {
 	}()
 
 	client := &http.Client{Timeout: updateTimeout}
-	resp, err := client.Get(url)
+	resp, err := client.Get(binaryURL)
 	if err != nil {
 		return fmt.Errorf("download release: %w", err)
 	}
@@ -185,6 +189,15 @@ func downloadAndReplace(url string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
+	// Verify SHA-256 checksum before replacing the running binary.
+	expectedHash, err := fetchChecksum(checksumURL, assetName)
+	if err != nil {
+		return fmt.Errorf("fetch checksum: %w", err)
+	}
+	if err := verifySHA256(tmpPath, expectedHash); err != nil {
+		return err
+	}
+
 	// Make executable (Unix). On Windows Chmod is a no-op for this purpose.
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return fmt.Errorf("set permissions: %w", err)
@@ -195,6 +208,76 @@ func downloadAndReplace(url string) error {
 	}
 
 	success = true
+	return nil
+}
+
+// fetchChecksum downloads checksums.txt from checksumURL and returns the
+// expected SHA-256 hex digest for assetName. The file uses goreleaser's format:
+//
+//	<sha256hex>  <filename>
+func fetchChecksum(checksumURL, assetName string) (string, error) {
+	client := &http.Client{Timeout: updateTimeout}
+	resp, err := client.Get(checksumURL)
+	if err != nil {
+		return "", fmt.Errorf("download checksums: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksums download returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return "", fmt.Errorf("read checksums: %w", err)
+	}
+
+	return parseChecksum(body, assetName)
+}
+
+// parseChecksum parses goreleaser-format checksums.txt and returns the hex
+// SHA-256 for the given asset name.
+func parseChecksum(data []byte, assetName string) (string, error) {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: "<sha256>  <filename>" (two-space separator)
+		parts := strings.SplitN(line, "  ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if strings.TrimSpace(parts[1]) == assetName {
+			hash := strings.TrimSpace(parts[0])
+			if _, err := hex.DecodeString(hash); err != nil {
+				return "", fmt.Errorf("invalid checksum format for %s", assetName)
+			}
+			return hash, nil
+		}
+	}
+	return "", fmt.Errorf("checksum for %s not found in checksums.txt", assetName)
+}
+
+// verifySHA256 computes the SHA-256 of the file at path and compares it to the
+// expected hex digest. Returns an error on mismatch with both hashes in the
+// message.
+func verifySHA256(path, expected string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open file for verification: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("compute checksum: %w", err)
+	}
+	actual := hex.EncodeToString(h.Sum(nil))
+
+	if actual != expected {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s — binary may be corrupted or tampered with", expected, actual)
+	}
 	return nil
 }
 
