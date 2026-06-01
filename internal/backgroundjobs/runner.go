@@ -188,6 +188,30 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		)
 	}
 
+	// Build sandbox status snapshot for audit.
+	sbStatus := SandboxStatus{
+		Available:   sandbox.Available(),
+		// Intentionally hardcoded to true: Windows cannot isolate network for
+		// Job Object children; on Linux/macOS the sandbox may isolate, but we
+		// conservatively report open since the provider itself always has network.
+		NetworkOpen: true,
+		FileAccess:  string(job.Permissions.FileAccess),
+	}
+	if !sbStatus.Available {
+		sbStatus.Warnings = append(sbStatus.Warnings, run.Warnings...)
+	}
+	// Warn about network being open on Windows where isolation is unavailable.
+	if sbStatus.Available && runtime.GOOS == "windows" {
+		run.Warnings = append(run.Warnings, "Network is open — external connections are not restricted")
+		sbStatus.Warnings = append(sbStatus.Warnings, "Network is open — external connections are not restricted")
+	}
+	// Warn about full workspace write access.
+	if job.Permissions.FileAccess == FileAccessFullWorkspace {
+		run.Warnings = append(run.Warnings, "Full workspace access — provider can write to project files")
+		sbStatus.Warnings = append(sbStatus.Warnings, "Full workspace access — provider can write to project files")
+	}
+	run.SandboxStatus = sbStatus
+
 	// Step 6: Acquire per-job lock first, then write audit claim.
 	lockPath := filepath.Join(e.Store.Dir(), "locks", jobID+".lock")
 	release, lockErr := fsutil.AcquireLock(lockPath, e.Logger)
@@ -251,7 +275,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		logging.String("run_id", runID),
 		logging.String("provider", job.ProviderID),
 	)
-	output, runErr := e.executeJob(ctx, job, providerCfg, runID)
+	output, runErr := e.executeJob(ctx, job, providerCfg, runID, &run)
 
 	// Record result.
 	now := time.Now().UTC()
@@ -321,8 +345,9 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 }
 
 // executeJob starts a provider session and runs the job prompt.
-// Returns the response text and any error.
-func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyzer.ProviderConfig, runID string) (string, error) {
+// Returns the response text and any error. The run parameter is used to
+// store activity monitoring results (process/network events).
+func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyzer.ProviderConfig, runID string, run *Run) (string, error) {
 	// Map file access mode to sandbox write posture.
 	// - full_workspace: grant project-dir writes via SandboxProjectWrite.
 	// - selected_writes: grant per-path writes via SandboxWritableDirs.
@@ -378,7 +403,31 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 			sessionTimeout = DefaultTimeoutFor(job.Schedule)
 		}
 	}
+	// Set up activity monitoring. The PostStartHook is called by the
+	// harness after the child process starts and the Job Object is
+	// created. We create the store here and the monitor inside the hook
+	// (since we need the job handle from the OS).
+	var actStore *ActivityStore
+	var actMonitor *ActivityMonitor
+	actStore = NewActivityStore(e.RunStore.Dir(), job.ID, runID)
+	defer actStore.Close()
+	run.ActivityLogPath = ActivityLogPath(e.RunStore.Dir(), job.ID, runID)
+	sessionCfg.PostStartHook = func(jobHandle uintptr) {
+		actMonitor = NewActivityMonitor(jobHandle, 0, actStore, e.Logger)
+		if startErr := actMonitor.Start(ctx); startErr != nil {
+			e.Logger.Warn("activity monitor start failed", logging.Any("err", startErr))
+			actMonitor = nil
+		}
+	}
+
 	output, err := session.Run(ctx, job.Prompt, sessionTimeout)
+
+	// Finalize activity monitoring.
+	if actMonitor != nil {
+		summary := actMonitor.Stop()
+		run.ActivitySummary = &summary
+	}
+
 	if err != nil {
 		return output, fmt.Errorf("session run: %w", err)
 	}
