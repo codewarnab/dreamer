@@ -123,6 +123,15 @@ func (runStore *RunStore) Prune(jobID string, keep int) (int, error) {
 	runStore.mu.Lock()
 	defer runStore.mu.Unlock()
 
+	// Acquire file lock BEFORE reading so concurrent Append from another
+	// process cannot sneak in between readAll and the file truncation.
+	lockPath := filepath.Join(runStore.dir, jobID+".jsonl.lock")
+	release, err := fsutil.AcquireLock(lockPath, runStore.logger)
+	if err != nil {
+		return 0, fmt.Errorf("acquire run lock for prune: %w", err)
+	}
+	defer release()
+
 	runs, err := runStore.readAll(jobID)
 	if err != nil {
 		return 0, err
@@ -136,13 +145,6 @@ func (runStore *RunStore) Prune(jobID string, keep int) (int, error) {
 	pruned := runs[keep:]
 	runs = runs[:keep]
 	removed := len(pruned)
-
-	lockPath := filepath.Join(runStore.dir, jobID+".jsonl.lock")
-	release, err := fsutil.AcquireLock(lockPath, runStore.logger)
-	if err != nil {
-		return 0, fmt.Errorf("acquire run lock for prune: %w", err)
-	}
-	defer release()
 
 	// Write kept runs back (most recent first order preserved).
 	path := runStore.filePath(jobID)
