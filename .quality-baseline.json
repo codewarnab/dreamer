@@ -1,6 +1,11 @@
 {
   "version": 1,
   "findings": {
+    "atomicwrite:Executor.writeRunLog:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
+      "check": "atomicwrite",
+      "symbol": "Executor.writeRunLog",
+      "message": "os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes"
+    },
     "atomicwrite:ResolveInstallID:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
       "check": "atomicwrite",
       "symbol": "ResolveInstallID",
@@ -35,6 +40,16 @@
       "check": "discardederr",
       "symbol": "tryAcquire",
       "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "permissionbypass:Executor.executeJob:SandboxProjectWrite set without sandbox.Available() check": {
+      "check": "permissionbypass",
+      "symbol": "Executor.executeJob",
+      "message": "SandboxProjectWrite set without sandbox.Available() check"
+    },
+    "permissionbypass:Executor.executeJob:SandboxWritableDirs set without sandbox.Available() check": {
+      "check": "permissionbypass",
+      "symbol": "Executor.executeJob",
+      "message": "SandboxWritableDirs set without sandbox.Available() check"
     }
   }
 }

@@ -116,7 +116,7 @@ func Run(cfg Config) (*Result, error) {
 			}
 			for _, f := range finds {
 				// Apply severity filter.
-				if f.Severity < cfg.MinSeverity {
+				if f.Severity > cfg.MinSeverity {
 					continue
 				}
 				// Apply suppression.

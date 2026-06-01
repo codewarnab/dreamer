@@ -20,6 +20,8 @@
 //	overlaybool      warn   overlay-merged bool field; use *bool                (default on)
 //	lockorder        error  read before fsutil.AcquireLock; TOCTOU race        (default on)
 //	lockskip         error  exported method on mutex struct skips lock          (default on)
+//	permissionbypass error  sandbox write-posture without Available() check     (default on)
+//	stringconst      warn   repeated string literals across files; use constants(default on)
 //	goroutinerecover info   pipeline goroutine without a recover() guard        (default OFF)
 package astcheck
 
