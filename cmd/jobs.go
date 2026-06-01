@@ -17,6 +17,7 @@ import (
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/sandbox"
 )
 
 const outputRootFlag = "output-root"
@@ -409,6 +410,14 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 		JobID: jobID,
 		Actor: "cli",
 	})
+
+	// Sandbox warning.
+	if !sandbox.Available() {
+		cmd.Printf("WARNING: OS sandbox is not available on this platform (%s/%s). The provider will run with full access to your system.\n", runtime.GOOS, runtime.GOARCH)
+		cmd.Printf("Only create background jobs in workspaces you trust.\n")
+	} else {
+		cmd.Printf("NOTE: This job will run with network access and %s file permissions.\n", job.Permissions.FileAccess)
+	}
 
 	cmd.Printf("job created: %s\n", jobID)
 	return nil

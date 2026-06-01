@@ -37,6 +37,12 @@ type SessionConfig struct {
 	// for this session. Providers that spawn child processes read this
 	// to decide whether to apply OS-level sandboxing.
 	Sandbox string
+
+	// PostStartHook, if set, is called after the child process starts
+	// and the sandbox is applied (PostStart). Receives the Job Object
+	// handle as uintptr (0 on platforms without Job Objects).
+	// Used by the background job runner to start activity monitoring.
+	PostStartHook func(jobHandle uintptr)
 }
 
 // Phase2Mode names the tool-based Phase 2 transport.
