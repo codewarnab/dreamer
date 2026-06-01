@@ -3,9 +3,11 @@ package backgroundjobs
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"dreamer/internal/logging"
+	"dreamer/internal/sandbox"
 )
 
 // HealthIssue is a single diagnostic issue with a severity.
@@ -61,6 +63,18 @@ func (h *HealthChecker) CheckHealth(ctx context.Context) (SystemHealth, error) {
 
 	health := SystemHealth{
 		TotalJobs: len(state.Jobs),
+		Issues:    []HealthIssue{},
+		JobHealth: []JobHealth{},
+	}
+
+	// System-level check: sandbox availability.
+	if !sandbox.Available() {
+		health.Issues = append(health.Issues, HealthIssue{
+			Severity: HealthSeverityWarning,
+			Message: fmt.Sprintf(
+				"OS sandbox unavailable (%s/%s); background jobs run fully permissive with no file access restrictions",
+				runtime.GOOS, runtime.GOARCH),
+		})
 	}
 
 	// Check each job.
@@ -137,6 +151,17 @@ func (h *HealthChecker) checkJob(ctx context.Context, jobID string, job *Job) Jo
 				Message:  fmt.Sprintf("last run was %s ago", staleDuration.Truncate(time.Hour)),
 			})
 		}
+	}
+
+	// Check for overdue NextRunAt — daemon may be down or schedule needs reconcile.
+	const nextRunGrace = 10 * time.Minute
+	if job.Enabled && job.NextRunAt != nil && job.NextRunAt.Before(time.Now().UTC().Add(-nextRunGrace)) {
+		overdue := time.Since(*job.NextRunAt).Truncate(time.Minute)
+		jh.Issues = append(jh.Issues, HealthIssue{
+			JobID:    jobID,
+			Severity: HealthSeverityWarning,
+			Message:  fmt.Sprintf("next run is overdue by %s — daemon may be down or schedule needs reconcile", overdue),
+		})
 	}
 
 	// Check for repeated timeouts (distinct from failures).

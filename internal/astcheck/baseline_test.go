@@ -189,12 +189,12 @@ func main() {
 	suppressed := computeSuppressedLines(fset, file)
 
 	// Line 6: //astcheck:ignore (blanket) — should suppress both line 6 and 7.
-	if names, ok := suppressed[6]; !ok || len(names) == 0 {
+	if names, ok := suppressed["test.go:6"]; !ok || len(names) == 0 {
 		t.Error("line 6 should be suppressed")
 	}
 
 	// Line 9: //astcheck:ignore[nodirectlog] — should suppress line 9 and 10.
-	if names, ok := suppressed[9]; !ok {
+	if names, ok := suppressed["test.go:9"]; !ok {
 		t.Error("line 9 should be suppressed")
 	} else {
 		found := false
@@ -210,30 +210,35 @@ func main() {
 }
 
 func TestIsSuppressed(t *testing.T) {
-	suppressed := map[int][]string{
-		6:  {""},            // blanket
-		9:  {"nodirectlog"}, // specific
-		10: {"settesthome"}, // different check
+	suppressed := map[string][]string{
+		"a.go:6":  {""},            // blanket
+		"a.go:9":  {"nodirectlog"}, // specific
+		"a.go:10": {"settesthome"}, // different check
+		"b.go:6":  {"nodirectlog"}, // same line number, different file
 	}
 
 	tests := []struct {
-		line  int
-		check string
-		want  bool
+		file    string
+		line    int
+		check   string
+		want    bool
 	}{
-		{6, "nodirectlog", true},   // blanket matches any
-		{6, "settesthome", true},   // blanket matches any
-		{9, "nodirectlog", true},   // specific match
-		{9, "settesthome", false},  // specific, different check
-		{10, "settesthome", true},  // specific match
-		{10, "nodirectlog", false}, // specific, different check
-		{99, "nodirectlog", false}, // not suppressed
+		{"a.go", 6, "nodirectlog", true},   // blanket matches any
+		{"a.go", 6, "settesthome", true},   // blanket matches any
+		{"a.go", 9, "nodirectlog", true},   // specific match
+		{"a.go", 9, "settesthome", false},  // specific, different check
+		{"a.go", 10, "settesthome", true},  // specific match
+		{"a.go", 10, "nodirectlog", false}, // specific, different check
+		{"a.go", 99, "nodirectlog", false}, // not suppressed
+		{"b.go", 6, "nodirectlog", true},   // different file, its own suppression
+		{"b.go", 6, "settesthome", false},  // b.go:6 only has nodirectlog
+		{"c.go", 6, "nodirectlog", false},  // file not in map at all
 	}
 
 	for _, tt := range tests {
-		got := isSuppressed(tt.line, tt.check, suppressed)
+		got := isSuppressed(tt.file, tt.line, tt.check, suppressed)
 		if got != tt.want {
-			t.Errorf("isSuppressed(%d, %q) = %v, want %v", tt.line, tt.check, got, tt.want)
+			t.Errorf("isSuppressed(%q, %d, %q) = %v, want %v", tt.file, tt.line, tt.check, got, tt.want)
 		}
 	}
 }

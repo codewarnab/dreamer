@@ -61,6 +61,11 @@ type Options struct {
 	// for future use when per-session sandboxing is implemented.
 	SandboxProjectWrite bool
 
+	// SandboxWritableDirs carries per-path writable entries for
+	// selected_writes jobs. Like SandboxProjectWrite, ACP providers
+	// store this but do not yet enforce it per-session.
+	SandboxWritableDirs []string
+
 	// SandboxNetwork is the network isolation mode ("isolated" or "open").
 	SandboxNetwork string
 	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
@@ -85,6 +90,7 @@ func New(options Options) (analyzer.Provider, error) {
 		modelFallbacks:      append([]string(nil), options.ModelFallbacks...),
 		sandboxMode:         options.Sandbox,
 		sandboxProjectWrite: options.SandboxProjectWrite,
+		sandboxWritableDirs: append([]string(nil), options.SandboxWritableDirs...),
 		sandboxNetwork:      options.SandboxNetwork,
 		sandboxSeccomp:      options.SandboxSeccomp,
 		sandboxResources:    options.SandboxResources,
@@ -99,6 +105,7 @@ type provider struct {
 	modelFallbacks   []string
 	sandboxMode         string
 	sandboxProjectWrite bool
+	sandboxWritableDirs []string
 	sandboxNetwork      string
 	sandboxSeccomp      string
 	sandboxResources    sandbox.ResourceLimits

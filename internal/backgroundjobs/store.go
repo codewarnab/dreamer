@@ -10,13 +10,33 @@ import (
 
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
+	"dreamer/internal/migrate"
 )
 
 const (
 	jobsFile      = "jobs.json"
 	storeLockFile = "store.lock"
 	storeDir      = "background-jobs"
+
+	// storeVersion is the current schema version for jobs.json.
+	storeVersion = 1
 )
+
+// jobsMigrations is the ordered migration registry for jobs.json.
+var jobsMigrations = migrate.Registry{
+	Name:       "jobs.json",
+	CurrentVer: storeVersion,
+	Migrations: []migrate.Migration{
+		{
+			FromVersion: 0,
+			ToVersion:   1,
+			Description: "add version field to legacy files",
+			Migrate: func(data []byte) ([]byte, error) {
+				return migrate.SetVersion(data, 1)
+			},
+		},
+	},
+}
 
 // Store provides cross-process CRUD for background job state. All mutations
 // go through Update, which acquires a file-based lock, loads current state,
@@ -74,6 +94,8 @@ func (s *Store) Update(ctx context.Context, mutate func(*State) error) error {
 
 // Load returns a read-only snapshot. Use Update for mutations.
 func (s *Store) Load() (*State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.load()
 }
 
@@ -81,13 +103,17 @@ func (s *Store) load() (*State, error) {
 	path := filepath.Join(s.dir, jobsFile)
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &State{Jobs: map[string]*Job{}, Version: 1}, nil
+		return &State{Jobs: map[string]*Job{}, Version: storeVersion}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read jobs file: %w", err)
 	}
+	migrated, _, err := jobsMigrations.Run(data)
+	if err != nil {
+		return nil, fmt.Errorf("migrate jobs file: %w", err)
+	}
 	var st State
-	if err := json.Unmarshal(data, &st); err != nil {
+	if err := json.Unmarshal(migrated, &st); err != nil {
 		return nil, fmt.Errorf("unmarshal jobs: %w", err)
 	}
 	if st.Jobs == nil {
@@ -97,10 +123,26 @@ func (s *Store) load() (*State, error) {
 }
 
 func (s *Store) save(state *State) error {
+	path := filepath.Join(s.dir, jobsFile)
+
+	// Backup on upgrade.
+	if priorData, readErr := os.ReadFile(path); readErr == nil {
+		priorVersion, hasVersion, _ := migrate.PeekVersion(priorData)
+		if !hasVersion {
+			priorVersion = 0
+		}
+		if priorVersion < storeVersion {
+			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
+			if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+				_ = fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms)
+			}
+		}
+	}
+
+	state.Version = storeVersion
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	path := filepath.Join(s.dir, jobsFile)
 	return fsutil.WriteFileAtomic(path, data, fsutil.FilePerms)
 }

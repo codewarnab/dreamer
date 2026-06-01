@@ -101,10 +101,10 @@ func Run(cfg Config) (*Result, error) {
 		}
 
 		// Build suppression map from all files in this package.
-		suppressed := make(map[int][]string)
+		suppressed := make(map[string][]string)
 		for _, file := range pkg.Syntax {
-			for line, checks := range computeSuppressedLines(pkg.Fset, file) {
-				suppressed[line] = append(suppressed[line], checks...)
+			for key, checks := range computeSuppressedLines(pkg.Fset, file) {
+				suppressed[key] = append(suppressed[key], checks...)
 			}
 		}
 
@@ -116,11 +116,11 @@ func Run(cfg Config) (*Result, error) {
 			}
 			for _, f := range finds {
 				// Apply severity filter.
-				if f.Severity < cfg.MinSeverity {
+				if f.Severity > cfg.MinSeverity {
 					continue
 				}
 				// Apply suppression.
-				if isSuppressed(f.Pos.Line, f.Check, suppressed) {
+				if isSuppressed(f.Pos.Filename, f.Pos.Line, f.Check, suppressed) {
 					continue
 				}
 				// Apply diff filter.

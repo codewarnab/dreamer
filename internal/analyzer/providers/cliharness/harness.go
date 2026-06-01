@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -66,9 +67,15 @@ type Options struct {
 	Model            string
 	DefaultModel     string
 	SandboxProjectWrite bool
+	SandboxWritableDirs []string
 	SandboxNetwork      string
 	SandboxSeccomp      string
 	SandboxResources    sandbox.ResourceLimits
+	// Background indicates the session is for a background job. When true,
+	// the default command uses a permissive permission mode (e.g.
+	// --permission-mode auto instead of plan) so the provider can execute
+	// commands, not just plan them.
+	Background bool
 }
 
 // Provider holds per-instance state shared across sessions for one provider.
@@ -77,6 +84,7 @@ type Provider struct {
 	Options            Options
 	Command            []string
 	UsesDefaultCommand bool
+	Background         bool // true when created for a background job
 }
 
 // NewProvider creates a Provider from options and spec, resolving the default
@@ -92,18 +100,20 @@ func NewProvider(options Options, spec *Spec) *Provider {
 		Options:            options,
 		Command:            command,
 		UsesDefaultCommand: usesDefault,
+		Background:         options.Background,
 	}
 }
 
 // Session is the shared session struct created by NewSession.
 type Session struct {
-	command    []string
-	env        map[string]string
-	workingDir string
-	systemMsg  string
-	runID      string
-	sandboxCfg sandbox.Config
-	spec       *Spec
+	command        []string
+	env            map[string]string
+	workingDir     string
+	systemMsg      string
+	runID          string
+	sandboxCfg     sandbox.Config
+	spec           *Spec
+	postStartHook  func(jobHandle uintptr)
 }
 
 // Command returns the resolved command slice for testing.
@@ -146,6 +156,13 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 	}
 	useNative := sandbox.ShouldUseNative(sbMode)
 	command := CommandForMode(p, useNative)
+	// Background jobs need execution capability. When not using the native
+	// sandbox, the default command uses a read-only permission mode (plan/
+	// read-only) that blocks all execution. Switch to a permissive mode so
+	// the provider can actually run commands.
+	if p.Background && !useNative {
+		command = adjustForBackground(command, spec.ID)
+	}
 	if spec.WorkingDirFlag != "" {
 		command = append(command, spec.WorkingDirFlag, wd)
 	}
@@ -163,7 +180,12 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 	if err != nil {
 		return nil, fmt.Errorf("%s: resolve home dir for sandbox writable paths: %w", spec.ErrPrefix, err)
 	}
-	writable := []string{os.TempDir(), configDir}
+	writable := append([]string{os.TempDir(), configDir}, append([]string(nil), p.Options.SandboxWritableDirs...)...)
+	// Node.js processes (openclaude-cli, claude-cli, gemini-cli, codex-cli)
+	// write to npm-cache and local temp dirs that aren't in the standard
+	// writable list. Without these, the Windows sandbox crashes the process
+	// with STATUS_HEAP_CORRUPTION.
+	writable = append(writable, nodeJSExtraDirs(command)...)
 	return &Session{
 		command:    command,
 		env:        p.Options.Env,
@@ -183,7 +205,8 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 				FDs:       p.Options.SandboxResources.FDs,
 			},
 		},
-		spec: spec,
+		spec:           spec,
+		postStartHook:  sessionConfig.PostStartHook,
 	}, nil
 }
 
@@ -201,6 +224,7 @@ func (s *Session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd := exec.CommandContext(ctx, s.command[0], s.command[1:]...)
 	cmd.Dir = s.workingDir
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
+	setNoWindow(cmd)
 
 	prepareCleanup, err := sandbox.Prepare(cmd, s.sandboxCfg)
 	if err != nil {
@@ -224,11 +248,15 @@ func (s *Session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", s.spec.CmdStartErr(err)
 	}
 
-	postCleanup, err := sandbox.PostStartOrKill(cmd, s.sandboxCfg, stdin, stdout, s.spec.ID)
+	jobHandle, postCleanup, err := sandbox.PostStartWithHandleOrKill(cmd, s.sandboxCfg, stdin, stdout, s.spec.ID)
 	if err != nil {
 		return "", err
 	}
 	defer postCleanup()
+
+	if s.postStartHook != nil {
+		s.postStartHook(jobHandle)
+	}
 
 	go func() {
 		defer stdin.Close()
@@ -255,13 +283,15 @@ func (s *Session) Run(ctx context.Context, prompt string, timeout time.Duration)
 }
 
 // handleErrorsWaitFirst checks waitErr first (claude, gemini pattern).
+// Returns the parsed output alongside the error when available, so the
+// caller can persist partial output to the run log even on failure.
 func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final string) (string, error) {
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
 		if transport.IsRateLimitMessage(stderr) {
 			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if parseErr != nil {
 		err := fmt.Errorf("%s: parse stream-json: %w (stderr: %s)", spec.ErrPrefix, parseErr, stderr)
@@ -277,20 +307,22 @@ func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final st
 }
 
 // handleErrorsParseFirst checks parseErr first (openclaude, codex pattern).
+// Returns the parsed output alongside the error when available, so the
+// caller can persist partial output to the run log even on failure.
 func handleErrorsParseFirst(spec *Spec, parseErr, waitErr error, stderr, final string) (string, error) {
 	if parseErr != nil {
 		err := fmt.Errorf("%s: %w (stderr: %s)", spec.ErrPrefix, parseErr, stderr)
 		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderr) {
 			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
-		if transport.IsRateLimitMessage(stderr) {
+		if transport.IsRateLimitMessage(stderr) || transport.IsRateLimitMessage(waitErr.Error()) {
 			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if final == "" {
 		return "", fmt.Errorf("%s: no assistant content emitted (stderr: %s)", spec.ErrPrefix, stderr)
@@ -401,4 +433,56 @@ func ConfigDirHardcoded(subdir string) func(map[string]string) (string, error) {
 		}
 		return filepath.Join(home, subdir), nil
 	}
+}
+
+// adjustForBackground switches read-only permission flags to permissive
+// ones so background jobs can execute commands. Each provider CLI uses a
+// different flag for this:
+//   - Claude/OpenClaude: --permission-mode plan → auto (skipped if bypassPermissions)
+//   - Gemini: --approval-mode plan → yolo (skipped if --yolo present)
+//   - Codex: --sandbox read-only → full-auto (skipped if already full-auto)
+func adjustForBackground(command []string, providerID string) []string {
+	switch providerID {
+	case "claude-cli", "openclaude-cli":
+		if flagutil.HasFlagValue(command, "--permission-mode", "bypassPermissions") {
+			return command
+		}
+		return flagutil.ReplaceFlag(command, "--permission-mode", "plan", "auto")
+	case "gemini-cli":
+		if flagutil.HasFlag(command, "--yolo") {
+			return command
+		}
+		return flagutil.ReplaceFlag(command, "--approval-mode", "plan", "yolo")
+	case "codex-cli":
+		if flagutil.HasFlagValue(command, "--sandbox", "full-auto") {
+			return command
+		}
+		return flagutil.ReplaceFlag(command, "--sandbox", "read-only", "full-auto")
+	default:
+		return command
+	}
+}
+
+// nodeJSExtraDirs returns Node.js-specific writable directories when the
+// command is a Node.js-based CLI. These dirs are required for the Windows
+// sandbox to not crash Node.js processes with STATUS_HEAP_CORRUPTION.
+//
+// NOTE: Not all npm-distributed CLIs are Node.js processes. Codex CLI
+// was rewritten in Rust (the npm package is a thin JS shim wrapping a
+// native binary). Kiro CLI is also a native binary. Only add Node.js
+// extra dirs for CLIs that actually run on the Node.js runtime.
+func nodeJSExtraDirs(command []string) []string {
+	if len(command) == 0 {
+		return nil
+	}
+	binary := filepath.Base(command[0])
+	// Strip .exe on Windows for consistent matching.
+	if runtime.GOOS == "windows" && len(binary) > 4 && binary[len(binary)-4:] == ".exe" {
+		binary = binary[:len(binary)-4]
+	}
+	switch binary {
+	case "openclaude", "claude", "gemini", "copilot", "codebuff", "node":
+		return sandbox.NodeJSExtraDirs()
+	}
+	return nil
 }

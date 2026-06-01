@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -253,5 +254,114 @@ func TestRunStore_ConcurrentAppend(t *testing.T) {
 	}
 	if len(runs) != 10 {
 		t.Errorf("len(runs) = %d, want 10", len(runs))
+	}
+}
+
+func TestRunStore_Dir(t *testing.T) {
+	parent := t.TempDir()
+	lg := testLogger(t)
+	rs := NewRunStore(parent, lg)
+
+	want := filepath.Join(parent, "runs")
+	if rs.Dir() != want {
+		t.Errorf("Dir() = %q, want %q", rs.Dir(), want)
+	}
+}
+
+func TestRunStore_LogDir(t *testing.T) {
+	parent := t.TempDir()
+	lg := testLogger(t)
+	rs := NewRunStore(parent, lg)
+
+	want := filepath.Join(parent, "runs", "job-abc")
+	if rs.LogDir("job-abc") != want {
+		t.Errorf("LogDir() = %q, want %q", rs.LogDir("job-abc"), want)
+	}
+}
+
+func TestRun_LogPathJSONRoundTrip(t *testing.T) {
+	run := Run{
+		ID:      "run-log",
+		JobID:   "job-log",
+		Status:  RunStatusCompleted,
+		LogPath: "/tmp/runs/job-log/run-log.log",
+	}
+	data, err := json.Marshal(run)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded Run
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.LogPath != run.LogPath {
+		t.Errorf("LogPath = %q, want %q", decoded.LogPath, run.LogPath)
+	}
+}
+
+func TestRun_LogPathOmittedWhenEmpty(t *testing.T) {
+	run := Run{ID: "run-no-log", JobID: "job-no-log", Status: RunStatusCompleted}
+	data, err := json.Marshal(run)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(data), "log_path") {
+		t.Errorf("log_path should be omitted when empty, got: %s", data)
+	}
+}
+
+func TestRunStore_PruneRemovesOrphanedLogFiles(t *testing.T) {
+	rs := newTestRunStore(t)
+
+	// Create a job directory with log files.
+	logDir := rs.LogDir("job-prune-logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	base := time.Now().UTC()
+	for i := 0; i < 5; i++ {
+		runID := "run-" + string(rune('a'+i))
+		run := Run{
+			ID:        runID,
+			JobID:     "job-prune-logs",
+			StartedAt: base.Add(time.Duration(i) * time.Minute),
+			LogPath:   filepath.Join(logDir, runID+".log"),
+		}
+		if err := rs.Append(run); err != nil {
+			t.Fatalf("Append %d: %v", i, err)
+		}
+		// Create the log file.
+		logPath := filepath.Join(logDir, runID+".log")
+		if err := os.WriteFile(logPath, []byte("output for "+runID), 0o644); err != nil {
+			t.Fatalf("write log: %v", err)
+		}
+	}
+
+	// Prune to keep only 2 runs.
+	removed, err := rs.Prune("job-prune-logs", 2)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if removed != 3 {
+		t.Errorf("removed = %d, want 3", removed)
+	}
+
+	// Verify pruned log files are removed (oldest 3: run-a, run-b, run-c).
+	for i := 0; i < 3; i++ {
+		runID := "run-" + string(rune('a'+i))
+		logPath := filepath.Join(logDir, runID+".log")
+		if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
+			t.Errorf("log file %s should have been removed", logPath)
+		}
+	}
+
+	// Verify kept log files still exist (most recent 2: run-d, run-e).
+	for i := 3; i < 5; i++ {
+		runID := "run-" + string(rune('a'+i))
+		logPath := filepath.Join(logDir, runID+".log")
+		if _, statErr := os.Stat(logPath); statErr != nil {
+			t.Errorf("log file %s should still exist: %v", logPath, statErr)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package jobqueue
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -250,5 +251,53 @@ func TestRecoverMissingFile(t *testing.T) {
 	s := q.Status()
 	if len(s.Jobs) != 0 {
 		t.Fatalf("expected 0 jobs, got %d", len(s.Jobs))
+	}
+}
+
+func TestRecoverRejectsCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jobs.json")
+	if err := os.WriteFile(path, []byte("{bad json!"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	q := New(Options{StorePath: path, MaxConcurrent: 1, MaxDuration: time.Hour})
+	if err := q.Recover(); err == nil {
+		t.Fatal("expected error on corrupt file")
+	}
+}
+
+func TestRecoverRejectsWrongVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jobs.json")
+	if err := os.WriteFile(path, []byte(`{"version":99,"jobs":[]}`), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	q := New(Options{StorePath: path, MaxConcurrent: 1, MaxDuration: time.Hour})
+	if err := q.Recover(); err == nil {
+		t.Fatal("expected error on wrong version")
+	}
+}
+
+func TestRecoverCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jobs.json")
+	if err := os.WriteFile(path, []byte("{bad json!!!"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	q := New(Options{StorePath: path, MaxConcurrent: 1, MaxDuration: time.Hour})
+	if err := q.Recover(); err == nil {
+		t.Fatal("expected error on corrupt file")
+	}
+}
+
+func TestRecoverWrongVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jobs.json")
+	if err := os.WriteFile(path, []byte(`{"version":99,"jobs":[]}`), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	q := New(Options{StorePath: path, MaxConcurrent: 1, MaxDuration: time.Hour})
+	if err := q.Recover(); err == nil {
+		t.Fatal("expected error on wrong version")
 	}
 }

@@ -10,6 +10,9 @@ func detachedProcessAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
 
+// suppressConsoleWindow is a no-op on non-Windows platforms.
+func suppressConsoleWindow() {}
+
 // killDaemon sends SIGTERM to the daemon's process group. The negative PID
 // targets the entire process group (the daemon is a session leader via Setsid).
 func killDaemon(pid int) error {

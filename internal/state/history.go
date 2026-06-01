@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"dreamer/internal/fsutil"
+	"dreamer/internal/migrate"
 )
 
 const (
@@ -16,6 +17,22 @@ const (
 	historyVersion = 1
 	maxHistoryDays = 90
 )
+
+// historyMigrations is the ordered migration registry for history.json.
+var historyMigrations = migrate.Registry{
+	Name:       "history.json",
+	CurrentVer: historyVersion,
+	Migrations: []migrate.Migration{
+		{
+			FromVersion: 0,
+			ToVersion:   1,
+			Description: "add version field to legacy files",
+			Migrate: func(data []byte) ([]byte, error) {
+				return migrate.SetVersion(data, 1)
+			},
+		},
+	},
+}
 
 // History is the per-project daily rollup.
 type History struct {
@@ -66,17 +83,19 @@ func LoadHistory(outputRoot, projectName string) (*History, error) {
 		}
 		return nil, fmt.Errorf("read history %q: %w", path, err)
 	}
-	var history History
-	if err := json.Unmarshal(historyBytes, &history); err != nil {
-		return nil, fmt.Errorf("unmarshal history %q: %w", path, err)
+	migrated, _, err := historyMigrations.Run(historyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("migrate history %q: %w", path, err)
 	}
-	if history.Version == 0 {
-		history.Version = historyVersion
+	var history History
+	if err := json.Unmarshal(migrated, &history); err != nil {
+		return nil, fmt.Errorf("unmarshal history %q: %w", path, err)
 	}
 	return &history, nil
 }
 
-// SaveHistory writes the history atomically.
+// SaveHistory writes the history atomically. On schema upgrade the prior
+// file is preserved at <path>.v<old>.bak.
 func SaveHistory(outputRoot, projectName string, h *History) error {
 	path, err := HistoryPath(outputRoot, projectName)
 	if err != nil {
@@ -85,6 +104,23 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 	if err := os.MkdirAll(filepath.Dir(path), fsutil.DirPerms); err != nil {
 		return err
 	}
+	// Backup on upgrade.
+	if priorData, readErr := os.ReadFile(path); readErr == nil {
+		priorVersion, hasVersion, _ := migrate.PeekVersion(priorData)
+		if !hasVersion {
+			priorVersion = 0
+		}
+		if priorVersion < historyVersion {
+			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
+			if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+				// Best-effort backup; log but don't fail the save.
+				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms); writeErr != nil {
+					return fmt.Errorf("backup history %q: %w", backupPath, writeErr)
+				}
+			}
+		}
+	}
+	h.Version = historyVersion
 	historyBytes, err := json.MarshalIndent(h, "", "  ")
 	if err != nil {
 		return err
@@ -138,6 +174,5 @@ func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryD
 	if len(history.Days) > maxHistoryDays {
 		history.Days = history.Days[len(history.Days)-maxHistoryDays:]
 	}
-	history.Version = historyVersion
 	return SaveHistory(outputRoot, projectName, history)
 }

@@ -11,6 +11,9 @@ const (
 	DirPerms = 0o755
 	// FilePerms is the default permission for newly created files.
 	FilePerms = 0o644
+	// SecretPerms is the permission for files containing secrets (tokens, keys).
+	// Only the owner can read or write.
+	SecretPerms = 0o600
 )
 
 // WriteFileAtomic writes contentBytes to path via a unique temp file + rename,

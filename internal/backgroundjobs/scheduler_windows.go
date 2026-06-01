@@ -8,7 +8,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -27,11 +29,25 @@ type windowsScheduler struct {
 	runCmd func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
+// runExternalCommandNoWindow is like runExternalCommand but sets HideWindow
+// on the child process. HideWindow uses STARTF_USESHOWWINDOW+SW_HIDE rather
+// than CREATE_NO_WINDOW — both suppress the console window, but HideWindow
+// is the conventional approach for schtasks.exe invocations.
+func runExternalCommandNoWindow(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.Bytes(), err
+}
+
 func newPlatformScheduler(cfg SchedulerConfig, logger *logging.Logger) Scheduler {
 	return &windowsScheduler{
 		cfg:    cfg,
 		logger: logger,
-		runCmd: runExternalCommand,
+		runCmd: runExternalCommandNoWindow,
 	}
 }
 
@@ -224,7 +240,7 @@ func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 		Enabled:        enabledStr,
 		TimeLimit:      executionTimeLimit(params.Schedule),
 		ExecutablePath: xmlEscapeText(s.cfg.ExecutablePath),
-		Arguments:      xmlEscapeText(fmt.Sprintf("jobs run %s --config %s", params.JobID, s.cfg.ConfigPath)),
+		Arguments:      xmlEscapeText(fmt.Sprintf("jobs run %s --config %s --run-token-file %s", params.JobID, s.cfg.ConfigPath, RunTokenPath(s.cfg.StoreDir))),
 		WorkingDir:     xmlEscapeText(s.cfg.StoreDir),
 		TriggerXML:     triggerXML,
 	}
@@ -266,8 +282,11 @@ const taskXMLTemplate = `<Task version="1.2" xmlns="http://schemas.microsoft.com
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>{{.Enabled}}</Enabled>
-    <Hidden>false</Hidden>
+    <!-- Hidden: hides from Task Scheduler UI (not the console window).
+         Console window suppression is handled by CREATE_NO_WINDOW/HideWindow. -->
+    <Hidden>true</Hidden>
     <ExecutionTimeLimit>{{.TimeLimit}}</ExecutionTimeLimit>
+    <!-- Priority 7 = below normal; background jobs shouldn't compete with foreground. -->
     <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">
@@ -290,7 +309,7 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
 			}
 		}
 		return fmt.Sprintf(`<CalendarTrigger>
-      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <Repetition>
         <Interval>%s</Interval>
@@ -298,29 +317,31 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, interval), nil
+    </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05"), interval), nil
 
 	case ScheduleDaily:
 		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
 		if err != nil {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
+		startBoundary := time.Now().Format("2006-01-02") + fmt.Sprintf("T%02d:%02d:00", hour, min)
 		return fmt.Sprintf(`<CalendarTrigger>
-      <StartBoundary>2026-01-01T%02d:%02d:00</StartBoundary>
+      <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, hour, min), nil
+    </CalendarTrigger>`, startBoundary), nil
 
 	case ScheduleWeekly:
 		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
 		if err != nil {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
+		startBoundary := time.Now().Format("2006-01-02") + fmt.Sprintf("T%02d:%02d:00", hour, min)
 		dayElement := weekdayToXMLElement(strings.ToLower(spec.DayOfWeek))
 		return fmt.Sprintf(`<CalendarTrigger>
-      <StartBoundary>2026-01-01T%02d:%02d:00</StartBoundary>
+      <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <WeeksInterval>1</WeeksInterval>
@@ -328,7 +349,7 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
           <%s/>
         </DaysOfWeek>
       </ScheduleByWeek>
-    </CalendarTrigger>`, hour, min, dayElement), nil
+    </CalendarTrigger>`, startBoundary, dayElement), nil
 
 	case ScheduleCron:
 		return "", fmt.Errorf("cron schedules cannot be expressed as Windows Task Scheduler triggers; use daily or weekly instead")
@@ -356,7 +377,8 @@ func weekdayToXMLElement(day string) string {
 	case "saturday":
 		return "Saturday"
 	default:
-		return "Monday"
+		// Unreachable: ValidateSchedule rejects unknown days upstream.
+		panic("weekdayToXMLElement: unknown day " + day)
 	}
 }
 

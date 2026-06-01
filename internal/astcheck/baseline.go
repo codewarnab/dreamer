@@ -134,6 +134,8 @@ func EnclosingSymbol(fset *token.FileSet, file *ast.File, pos token.Pos) string 
 						if id, ok := star.X.(*ast.Ident); ok {
 							best = id.Name + "." + decl.Name.Name
 						}
+					} else if id, ok := recv.(*ast.Ident); ok {
+						best = id.Name + "." + decl.Name.Name
 					}
 					if best == "" {
 						best = decl.Name.Name
@@ -161,11 +163,13 @@ func EnclosingSymbol(fset *token.FileSet, file *ast.File, pos token.Pos) string 
 }
 
 // computeSuppressedLines scans file comments for //astcheck:ignore directives
-// and returns the set of 1-based line numbers that should be suppressed.
+// and returns the set of lines that should be suppressed, keyed by
+// "filename:line" to avoid cross-file collisions when multiple files are
+// processed in the same package.
 // If the directive includes a check name (e.g. //astcheck:ignore[nodirectlog]),
 // only that check is suppressed on that line.
-func computeSuppressedLines(fset *token.FileSet, file *ast.File) map[int][]string {
-	suppressed := make(map[int][]string)
+func computeSuppressedLines(fset *token.FileSet, file *ast.File) map[string][]string {
+	suppressed := make(map[string][]string)
 	for _, cg := range file.Comments {
 		for _, c := range cg.List {
 			if !strings.Contains(c.Text, "astcheck:ignore") {
@@ -193,26 +197,29 @@ func computeSuppressedLines(fset *token.FileSet, file *ast.File) map[int][]strin
 				}
 			}
 
-			commentLine := fset.Position(c.Pos()).Line
+			commentPos := fset.Position(c.Pos())
+			commentLine := commentPos.Line
+			filename := commentPos.Filename
 
 			// The directive applies to the same line or the next line.
 			// If the comment is on its own line (no code before it),
 			// apply to the next line. If inline, apply to the same line.
 			// We can't easily tell from AST alone, so apply to both
 			// the comment line and the line after.
-			lines := []int{commentLine, commentLine + 1}
-			for _, l := range lines {
-				suppressed[l] = append(suppressed[l], checkName)
+			for _, l := range []int{commentLine, commentLine + 1} {
+				key := fmt.Sprintf("%s:%d", filename, l)
+				suppressed[key] = append(suppressed[key], checkName)
 			}
 		}
 	}
 	return suppressed
 }
 
-// isSuppressed reports whether a finding at the given line should be
-// suppressed based on the suppression map.
-func isSuppressed(line int, check string, suppressed map[int][]string) bool {
-	names, ok := suppressed[line]
+// isSuppressed reports whether a finding at the given file and line should be
+// suppressed based on the suppression map. The map is keyed by "filename:line".
+func isSuppressed(filename string, line int, check string, suppressed map[string][]string) bool {
+	key := fmt.Sprintf("%s:%d", filename, line)
+	names, ok := suppressed[key]
 	if !ok {
 		return false
 	}

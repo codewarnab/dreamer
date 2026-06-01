@@ -533,3 +533,55 @@ func TestExecutionTimeLimit_HourlyEvery(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultTimeoutFor(t *testing.T) {
+	tests := []struct {
+		name string
+		spec ScheduleSpec
+		want time.Duration
+	}{
+		{
+			name: "interval default (1h)",
+			spec: ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
+			want: 48 * time.Minute, // 1h * 0.8
+		},
+		{
+			name: "interval 5m",
+			spec: ScheduleSpec{Kind: ScheduleInterval, Every: "5m", Timezone: "UTC"},
+			want: 4 * time.Minute, // 5m * 0.8
+		},
+		{
+			name: "interval 15m",
+			spec: ScheduleSpec{Kind: ScheduleInterval, Every: "15m", Timezone: "UTC"},
+			want: 12 * time.Minute, // 15m * 0.8
+		},
+		{
+			name: "interval 2h capped at 1h",
+			spec: ScheduleSpec{Kind: ScheduleInterval, Every: "2h", Timezone: "UTC"},
+			want: 1 * time.Hour, // hard cap
+		},
+		{
+			name: "daily",
+			spec: ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "09:00", Timezone: "UTC"},
+			want: 30 * time.Minute,
+		},
+		{
+			name: "weekly",
+			spec: ScheduleSpec{Kind: ScheduleWeekly, DayOfWeek: "Monday", TimeOfDay: "09:00", Timezone: "UTC"},
+			want: 30 * time.Minute,
+		},
+		{
+			name: "cron",
+			spec: ScheduleSpec{Kind: ScheduleCron, Cron: "*/5 * * * *", Timezone: "UTC"},
+			want: 30 * time.Minute,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DefaultTimeoutFor(tt.spec)
+			if got != tt.want {
+				t.Errorf("DefaultTimeoutFor(%+v) = %v, want %v", tt.spec, got, tt.want)
+			}
+		})
+	}
+}

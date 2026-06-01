@@ -17,6 +17,7 @@ import (
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/sandbox"
 )
 
 const outputRootFlag = "output-root"
@@ -81,6 +82,8 @@ func newJobsCommand() *cobra.Command {
 	command.AddCommand(newJobsResumeCommand())
 	command.AddCommand(newJobsDeleteCommand())
 	command.AddCommand(newJobsRunCommand())
+	command.AddCommand(newJobsRunsCommand())
+	command.AddCommand(newJobsLogsCommand())
 	command.AddCommand(newJobsReconcileCommand())
 	command.AddCommand(newJobsHealthCommand())
 
@@ -253,6 +256,11 @@ func buildSchedulerDeps(outputRoot, configPath string, lg *logging.Logger) (sche
 		ExecHash:       backgroundjobs.HashExecutablePath(execPath),
 	}
 
+	// Ensure the per-install run token exists before any scheduler operation.
+	if _, err := backgroundjobs.LoadOrCreateRunToken(store.Dir()); err != nil {
+		return schedulerDeps{}, fmt.Errorf("create run token: %w", err)
+	}
+
 	return schedulerDeps{
 		scheduler: backgroundjobs.NewScheduler(cfg, lg),
 		store:     store,
@@ -402,6 +410,14 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 		JobID: jobID,
 		Actor: "cli",
 	})
+
+	// Sandbox warning.
+	if !sandbox.Available() {
+		cmd.Printf("WARNING: OS sandbox is not available on this platform (%s/%s). The provider will run with full access to your system.\n", runtime.GOOS, runtime.GOARCH)
+		cmd.Printf("Only create background jobs in workspaces you trust.\n")
+	} else {
+		cmd.Printf("NOTE: This job will run with network access and %s file permissions.\n", job.Permissions.FileAccess)
+	}
 
 	cmd.Printf("job created: %s\n", jobID)
 	return nil
@@ -672,6 +688,12 @@ func newJobsShowCommand() *cobra.Command {
 					cmd.Printf("%-20s %-12s %-20s %-10s %s\n",
 						started, r.Status, finished, duration, r.ID)
 				}
+				// Show warnings from recent runs.
+				for i := 0; i < limit; i++ {
+					for _, w := range runs[i].Warnings {
+						cmd.Printf("  ⚠ %s [%s]\n", w, runs[i].ID)
+					}
+				}
 			}
 
 			return nil
@@ -771,7 +793,7 @@ func printJobDetail(cmd *cobra.Command, job *backgroundjobs.Job) error {
 }
 
 func newJobsPauseCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "pause <job-id>",
 		Short: "Disable a job.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -783,10 +805,12 @@ func newJobsPauseCommand() *cobra.Command {
 			return setJobEnabled(cmd, args[0], false)
 		},
 	}
+	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+	return command
 }
 
 func newJobsResumeCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "resume <job-id>",
 		Short: "Re-enable a paused job.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -798,6 +822,8 @@ func newJobsResumeCommand() *cobra.Command {
 			return setJobEnabled(cmd, args[0], true)
 		},
 	}
+	command.Flags().String(outputRootFlag, "", "Override daemon.output_root from config.")
+	return command
 }
 
 func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
@@ -820,7 +846,14 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 			return fmt.Errorf("job %q not found", jobID)
 		}
 		job.Enabled = enabled
-		job.UpdatedAt = time.Now().UTC()
+		now := time.Now().UTC()
+		job.UpdatedAt = now
+		// Recompute NextRunAt when resuming so it doesn't hold a stale past value.
+		if enabled {
+			if nextRun, err := backgroundjobs.NextRun(job.Schedule, now); err == nil {
+				job.NextRunAt = &nextRun
+			}
+		}
 		return nil
 	}); err != nil {
 		return err

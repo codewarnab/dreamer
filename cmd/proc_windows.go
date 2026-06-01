@@ -14,8 +14,20 @@ import (
 // console; CREATE_NEW_PROCESS_GROUP gives it its own group (enables Ctrl+C
 // independence).
 func detachedProcessAttr() *syscall.SysProcAttr {
+	const detachedProcess = 0x00000008 // DETACHED_PROCESS — child gets no inherited console
 	return &syscall.SysProcAttr{
-		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008, // DETACHED_PROCESS
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess,
+	}
+}
+
+// suppressConsoleWindow detaches the current process from its console,
+// closing the window. Used by background job commands that log to files.
+func suppressConsoleWindow() {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	if proc := kernel32.NewProc("FreeConsole"); proc.Find() == nil {
+		// FreeConsole returns nonzero on success; ignore error — best-effort
+		// cleanup and the caller has no actionable recovery.
+		proc.Call() //nolint:errcheck
 	}
 }
 

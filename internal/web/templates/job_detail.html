@@ -52,6 +52,32 @@
     </div>
   </div>
 
+  <!-- Sandbox status card -->
+  <div class="card" style="margin-bottom: var(--space-4);" x-show="sandboxStatus">
+    <div class="kicker">security</div>
+    <div style="margin-top: var(--space-3); display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center;">
+      <div>
+        <span class="label-mono">sandbox:</span>
+        <span class="pill" :class="sandboxStatus?.available ? 'pill--healthy' : 'pill--warn'" x-text="sandboxStatus?.available ? 'active' : 'unavailable'"></span>
+      </div>
+      <div>
+        <span class="label-mono">network:</span>
+        <span class="pill" :class="sandboxStatus?.network_open ? 'pill--warn' : 'pill--healthy'" x-text="sandboxStatus?.network_open ? 'open' : 'isolated'"></span>
+      </div>
+      <div>
+        <span class="label-mono">file access:</span>
+        <span class="pill" x-text="sandboxStatus?.file_access || '—'"></span>
+      </div>
+    </div>
+    <template x-if="sandboxStatus?.warnings?.length">
+      <div style="margin-top: var(--space-3);">
+        <template x-for="w in sandboxStatus.warnings" :key="w">
+          <div style="color: #ffd166; font-size: var(--text-sm);">&#9888; <span x-text="w"></span></div>
+        </template>
+      </div>
+    </template>
+  </div>
+
   <!-- Run history table -->
   <div class="card">
     <div class="kicker">run history</div>
@@ -67,15 +93,65 @@
       </thead>
       <tbody>
         <template x-for="run in runs" :key="run.id">
-          <tr>
-            <td x-text="run.id.substring(0, 8)" style="font-family: var(--font-mono);"></td>
-            <td>
-              <span class="pill" :class="runStatusPill(run).class" x-text="runStatusPill(run).label"></span>
-            </td>
-            <td x-text="new Date(run.scheduled_for).toLocaleString()"></td>
-            <td x-text="formatDuration(run.duration_millis)"></td>
-            <td x-text="run.output_summary || run.error || run.skipped_reason || '—'" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></td>
-          </tr>
+          <tbody>
+            <tr @click="toggleActivity(run.id)" style="cursor: pointer;">
+              <td x-text="run.id.substring(0, 8)" style="font-family: var(--font-mono);"></td>
+              <td>
+                <span class="pill" :class="runStatusPill(run).class" x-text="runStatusPill(run).label"></span>
+              </td>
+              <td x-text="new Date(run.scheduled_for).toLocaleString()"></td>
+              <td x-text="formatDuration(run.duration_millis)"></td>
+              <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <span x-text="run.output_summary || run.error || run.skipped_reason || '—'"></span>
+                <span x-show="run.activity_summary" style="margin-left: var(--space-2); font-size: var(--text-xs); color: var(--text-secondary);"
+                  x-text="run.activity_summary ? run.activity_summary.processes + 'p, ' + run.activity_summary.connections + 'c' : ''"></span>
+              </td>
+            </tr>
+            <tr x-show="expandedRun === run.id && activityData" x-cloak>
+              <td colspan="5" style="padding: 0;">
+                <div style="padding: var(--space-3); background: var(--surface-1);">
+                  <div x-show="activityLoading" style="color: var(--text-secondary);">Loading activity...</div>
+                  <div x-show="!activityLoading && activityData">
+                    <!-- Process events -->
+                    <div x-show="activityData?.events?.some(e => e.type === 'process_start')">
+                      <div class="kicker" style="margin-bottom: var(--space-2);">processes</div>
+                      <table class="table" style="font-size: var(--text-sm);">
+                        <thead><tr><th>time</th><th>process</th><th>PID</th><th>detail</th></tr></thead>
+                        <tbody>
+                          <template x-for="evt in activityData.events.filter(e => e.type === 'process_start')" :key="evt.ts + evt.pid">
+                            <tr :style="evt.detail === 'SHELL_INTERPRETER' ? 'color: #ef476f' : ''">
+                              <td x-text="new Date(evt.ts).toLocaleTimeString()"></td>
+                              <td x-text="evt.exe || 'unknown'"></td>
+                              <td x-text="evt.pid"></td>
+                              <td x-text="evt.detail || '—'"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                    <!-- Network events -->
+                    <div x-show="activityData?.events?.some(e => e.type === 'connection')" style="margin-top: var(--space-3);">
+                      <div class="kicker" style="margin-bottom: var(--space-2);">network connections</div>
+                      <table class="table" style="font-size: var(--text-sm);">
+                        <thead><tr><th>process</th><th>remote</th><th>host</th><th>state</th></tr></thead>
+                        <tbody>
+                          <template x-for="evt in activityData.events.filter(e => e.type === 'connection')" :key="evt.ts + evt.remote">
+                            <tr>
+                              <td x-text="evt.exe || 'pid:' + evt.pid"></td>
+                              <td x-text="evt.remote || '—'"></td>
+                              <td x-text="evt.host || '—'"></td>
+                              <td x-text="evt.state || '—'"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div x-show="!activityData?.events?.length" style="color: var(--text-secondary);">No activity recorded for this run.</div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </tbody>
         </template>
       </tbody>
     </table>
@@ -93,10 +169,14 @@ window.jobDetailPage = function (jobID) {
     runs: [],
     latestRun: null,
     osSchedule: null,
+    sandboxStatus: null,
     nextRuns: [],
     loading: true,
     running: false,
     error: '',
+    expandedRun: null,
+    activityData: null,
+    activityLoading: false,
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || '';
     },
@@ -115,6 +195,7 @@ window.jobDetailPage = function (jobID) {
           this.osSchedule = data.os_schedule;
           this.nextRuns = data.next_3_runs || [];
           this.scheduleSummary = data.schedule_summary || '';
+          this.sandboxStatus = data.sandbox_status || null;
         } else if (detailRes.status === 404) {
           this.error = 'Job not found.';
           return;
@@ -204,6 +285,26 @@ window.jobDetailPage = function (jobID) {
         case 'cancelled': return { label: 'cancelled', class: '' };
         case 'skipped': return { label: 'skipped', class: '' };
         default: return { label: run.status, class: '' };
+      }
+    },
+    toggleActivity: async function (runID) {
+      if (this.expandedRun === runID) {
+        this.expandedRun = null;
+        this.activityData = null;
+        return;
+      }
+      this.expandedRun = runID;
+      this.activityLoading = true;
+      this.activityData = null;
+      try {
+        var r = await fetch('/api/jobs/' + this.jobID + '/runs/' + runID + '/activity');
+        if (r.ok) {
+          this.activityData = await r.json();
+        }
+      } catch (e) {
+        this.activityData = { events: [] };
+      } finally {
+        this.activityLoading = false;
       }
     },
   };

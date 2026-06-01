@@ -72,12 +72,22 @@ type ProviderConfig struct {
 
 	// SandboxProjectWrite adds ProjectDir to the writable list when true.
 	SandboxProjectWrite bool
+	// SandboxWritableDirs adds per-path writable entries for selected_writes
+	// jobs. CLI providers append these to sandbox.Config.WritableDirs at
+	// session time. ACP providers store the value but do not yet enforce it
+	// per-session (architectural limitation — project dir unknown at spawn).
+	SandboxWritableDirs []string
 	// SandboxNetwork is the network isolation mode ("isolated" or "open").
 	SandboxNetwork string
 	// SandboxSeccomp is the seccomp filter profile ("off", "minimal", "full").
 	SandboxSeccomp string
 	// SandboxResources configures OS resource caps.
 	SandboxResources sandbox.ResourceLimits
+
+	// Background indicates the session is for a background job. CLI
+	// providers use this to switch from read-only to permissive permission
+	// mode so the provider can execute commands.
+	Background bool
 }
 
 // ProviderFactory builds a Provider instance.

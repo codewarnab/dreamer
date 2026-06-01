@@ -27,11 +27,25 @@ type RunStore struct {
 // NewRunStore creates a RunStore rooted at <backgroundJobsDir>/runs.
 // The parentDir parameter is the background-jobs store directory
 // (i.e., Store.Dir()), NOT the output root.
+// Creates the runs directory eagerly so run history is visible even
+// when the first job execution fails before Append is called.
 func NewRunStore(parentDir string, logger *logging.Logger) *RunStore {
+	dir := filepath.Join(parentDir, runsDir)
+	if err := os.MkdirAll(dir, fsutil.DirPerms); err != nil {
+		logger.Warn("create runs dir eagerly (non-fatal)", logging.Any("err", err))
+	}
 	return &RunStore{
-		dir:    filepath.Join(parentDir, runsDir),
+		dir:    dir,
 		logger: logger,
 	}
+}
+
+// Dir returns the runs directory path.
+func (runStore *RunStore) Dir() string { return runStore.dir }
+
+// LogDir returns the per-run log directory for a job: <runs_dir>/<job_id>/.
+func (runStore *RunStore) LogDir(jobID string) string {
+	return filepath.Join(runStore.dir, jobID)
 }
 
 // Append adds a run record to runs/<job_id>.jsonl.
@@ -104,9 +118,19 @@ func (runStore *RunStore) Count(jobID string) (int, error) {
 
 // Prune removes runs beyond the retention limit (default 100).
 // Returns the number of runs removed. Rewrites file under lock.
+// Also removes orphaned per-run log files for pruned runs.
 func (runStore *RunStore) Prune(jobID string, keep int) (int, error) {
 	runStore.mu.Lock()
 	defer runStore.mu.Unlock()
+
+	// Acquire file lock BEFORE reading so concurrent Append from another
+	// process cannot sneak in between readAll and the file truncation.
+	lockPath := filepath.Join(runStore.dir, jobID+".jsonl.lock")
+	release, err := fsutil.AcquireLock(lockPath, runStore.logger)
+	if err != nil {
+		return 0, fmt.Errorf("acquire run lock for prune: %w", err)
+	}
+	defer release()
 
 	runs, err := runStore.readAll(jobID)
 	if err != nil {
@@ -117,15 +141,10 @@ func (runStore *RunStore) Prune(jobID string, keep int) (int, error) {
 		return 0, nil
 	}
 
-	removed := len(runs) - keep
+	// Collect IDs of runs that will be pruned so we can remove their log files.
+	pruned := runs[keep:]
 	runs = runs[:keep]
-
-	lockPath := filepath.Join(runStore.dir, jobID+".jsonl.lock")
-	release, err := fsutil.AcquireLock(lockPath, runStore.logger)
-	if err != nil {
-		return 0, fmt.Errorf("acquire run lock for prune: %w", err)
-	}
-	defer release()
+	removed := len(pruned)
 
 	// Write kept runs back (most recent first order preserved).
 	path := runStore.filePath(jobID)
@@ -148,6 +167,15 @@ func (runStore *RunStore) Prune(jobID string, keep int) (int, error) {
 
 	if err := f.Sync(); err != nil {
 		return 0, fmt.Errorf("sync runs file after prune: %w", err)
+	}
+
+	// Remove orphaned per-run log files (best-effort, non-fatal).
+	logDir := runStore.LogDir(jobID)
+	for _, r := range pruned {
+		logPath := filepath.Join(logDir, r.ID+".log")
+		if removeErr := os.Remove(logPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			runStore.logger.Warn("remove orphaned run log", logging.String("path", logPath), logging.Any("err", removeErr))
+		}
 	}
 
 	return removed, nil

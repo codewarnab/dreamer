@@ -229,7 +229,7 @@ func TestLoadStateAcceptsMissingVersionAsLegacy(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(statePath, []byte(`{"chat_hashes":{"/a":"k"}}`), 0o644); err != nil {
+	if err := os.WriteFile(statePath, []byte(`{"chat_hashes":{"/a":"k"},"finding_hashes":["f1"]}`), 0o644); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	loaded, err := Load("", "project-a")
@@ -239,8 +239,14 @@ func TestLoadStateAcceptsMissingVersionAsLegacy(t *testing.T) {
 	if loaded.Version != StateVersion {
 		t.Fatalf("Version = %d, want %d (after legacy upgrade)", loaded.Version, StateVersion)
 	}
-	if loaded.ChatHashes["/a"] != "k" {
-		t.Fatalf("legacy data lost during upgrade: ChatHashes=%v", loaded.ChatHashes)
+	// Legacy files run through all migrations including v1→v2 which
+	// clears ChatHashes (cache key derivation changed).
+	if len(loaded.ChatHashes) != 0 {
+		t.Fatalf("ChatHashes must be cleared during v1→v2 migration, got %v", loaded.ChatHashes)
+	}
+	// FindingHashes must survive the migration chain.
+	if len(loaded.FindingHashes) != 1 || loaded.FindingHashes[0] != "f1" {
+		t.Fatalf("FindingHashes lost during upgrade: %v", loaded.FindingHashes)
 	}
 }
 

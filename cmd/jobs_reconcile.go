@@ -36,7 +36,7 @@ func newJobsReconcileCommand() *cobra.Command {
 
 			lg := logging.Silent()
 			if verbose {
-				lg, err = logging.New(outputRoot, "info", 10)
+				lg, err = logging.New(outputRoot, "info", defaultJobLogMaxSizeMB)
 				if err != nil {
 					return fmt.Errorf("create logger: %w", err)
 				}

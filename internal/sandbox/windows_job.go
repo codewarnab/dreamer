@@ -16,10 +16,19 @@ import (
 // defer the cleanup after cmd.Wait() returns, not before — closing the
 // handle triggers KILL_ON_JOB_CLOSE which terminates the child.
 func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
+	_, cleanup, err = postStartWithHandle(cmd, cfg)
+	return cleanup, err
+}
+
+// postStartWithHandle is like postStart but also returns the raw Job
+// Object handle for use by the activity monitor (IO completion port).
+func postStartWithHandle(cmd *exec.Cmd, cfg Config) (jobHandle uintptr, cleanup func(), err error) {
 	jobHandle, _, lastErr := procCreateJobObjectW.Call(0, 0)
 	if jobHandle == 0 {
-		return nil, fmt.Errorf("sandbox: CreateJobObject: %w", lastErr)
+		return 0, func() {}, fmt.Errorf("sandbox: CreateJobObject: %w", lastErr)
 	}
+
+	closeHandle := func() { windows.CloseHandle(windows.Handle(jobHandle)) }
 
 	info := struct {
 		BasicLimitInformation windows.JOBOBJECT_BASIC_LIMIT_INFORMATION
@@ -41,8 +50,8 @@ func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		unsafe.Sizeof(info),
 	)
 	if ret == 0 {
-		windows.CloseHandle(windows.Handle(jobHandle))
-		return nil, fmt.Errorf("sandbox: SetInformationJobObject: %w", lastErr)
+		closeHandle()
+		return 0, func() {}, fmt.Errorf("sandbox: SetInformationJobObject: %w", lastErr)
 	}
 
 	procHandle, err := windows.OpenProcess(
@@ -51,8 +60,8 @@ func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		uint32(cmd.Process.Pid),
 	)
 	if err != nil {
-		windows.CloseHandle(windows.Handle(jobHandle))
-		return nil, fmt.Errorf("sandbox: OpenProcess(%d): %w", cmd.Process.Pid, err)
+		closeHandle()
+		return 0, func() {}, fmt.Errorf("sandbox: OpenProcess(%d): %w", cmd.Process.Pid, err)
 	}
 	defer windows.CloseHandle(procHandle)
 
@@ -62,12 +71,12 @@ func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		uintptr(unsafe.Pointer(&exitCode)),
 	)
 	if ret == 0 {
-		windows.CloseHandle(windows.Handle(jobHandle))
-		return nil, fmt.Errorf("sandbox: GetExitCodeProcess(%d): %w", cmd.Process.Pid, lastErr)
+		closeHandle()
+		return 0, func() {}, fmt.Errorf("sandbox: GetExitCodeProcess(%d): %w", cmd.Process.Pid, lastErr)
 	}
 	if exitCode != stillActive {
-		windows.CloseHandle(windows.Handle(jobHandle))
-		return nil, fmt.Errorf("sandbox: process %d exited before job assignment", cmd.Process.Pid)
+		closeHandle()
+		return 0, func() {}, fmt.Errorf("sandbox: process %d exited before job assignment", cmd.Process.Pid)
 	}
 
 	ret, _, lastErr = procAssignProcessToJob.Call(
@@ -75,12 +84,9 @@ func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		uintptr(procHandle),
 	)
 	if ret == 0 {
-		windows.CloseHandle(windows.Handle(jobHandle))
-		return nil, fmt.Errorf("sandbox: AssignProcessToJobObject failed; orphan cleanup is best-effort: %w", lastErr)
+		closeHandle()
+		return 0, func() {}, fmt.Errorf("sandbox: AssignProcessToJobObject failed; orphan cleanup is best-effort: %w", lastErr)
 	}
 
-	cleanup = func() {
-		windows.CloseHandle(windows.Handle(jobHandle))
-	}
-	return cleanup, nil
+	return jobHandle, closeHandle, nil
 }

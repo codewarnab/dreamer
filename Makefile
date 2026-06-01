@@ -6,12 +6,18 @@ GOARCH ?= $(shell go env GOARCH)
 EXE    := $(if $(filter windows,$(GOOS)),.exe,)
 BIN    := dreamer$(EXE)
 
+# Version injection — git tag or "dev" when no tags exist.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+LDFLAGS := -s -w -X dreamer/cmd.version=$(VERSION) -X dreamer/cmd.commit=$(COMMIT) -X dreamer/cmd.date=$(DATE)
+
 # Release build: stripped binary (~18MB, no debug symbols)
 # -trimpath removes local filesystem paths from the binary so stack traces
 # and debug symbols don't leak the build machine's directory structure.
 # Also makes builds reproducible (same source → identical binary hash).
 build:
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags="-s -w" -o $(BIN) .
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN) .
 
 # Optional: further compress with UPX (~6-8MB). Not default — may trigger
 # antivirus false positives and adds ~50ms startup overhead.
@@ -27,11 +33,11 @@ build:
 # Development build: full debug symbols (for delve/dlv)
 # -trimpath included so dev builds don't leak local paths either.
 build-dev:
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -o $(BIN) .
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN) .
 
 # Cross-compile for Linux
 build-linux:
-	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dreamer .
+	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o dreamer .
 
 # Live-reload daemon during development (requires: go install github.com/air-verse/air@latest)
 dev:
@@ -39,7 +45,7 @@ dev:
 
 # Build + install to $GOPATH/bin (makes "dreamer" available on PATH)
 install:
-	go install -trimpath .
+	go install -trimpath -ldflags="$(LDFLAGS)" .
 
 # Run full test suite
 test:

@@ -6,7 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -14,6 +17,7 @@ import (
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
+	"dreamer/internal/sandbox"
 )
 
 // SelfRepairConfig holds the fields needed for OS schedule self-repair.
@@ -42,15 +46,13 @@ type RunResult struct {
 	Record Run
 }
 
-// maxPromptSnapshotRunes caps the prompt stored in a Run record.
+// MaxPromptSnapshotRunes caps the prompt stored in a Run record.
 // Prevents JSONL bloat from verbose prompts while preserving debugging context.
-const maxPromptSnapshotRunes = 500
+const MaxPromptSnapshotRunes = 500
 
-// maxOutputSummaryRunes caps the output stored in a Run record.
-const maxOutputSummaryRunes = 500
-
-// defaultSessionTimeout is the fallback when no schedule-derived timeout exists.
-const defaultSessionTimeout = 10 * time.Minute
+// MaxOutputSummaryRunes caps the output stored in a Run record.
+// Exported so CLI commands (e.g. jobs logs) can reference the same limit.
+const MaxOutputSummaryRunes = 500
 
 // defaultRunRetention is the maximum number of runs kept per job.
 const defaultRunRetention = 100
@@ -66,12 +68,17 @@ If the task cannot be completed, explain why in the final output.`
 // allowed write paths when the job has selected_writes access.
 func buildBackgroundSystemMessage(job *Job) string {
 	msg := backgroundSystemMessage
-	if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
-		msg += "\n\nYou may write to these specific files only:\n"
-		for _, p := range job.Permissions.WritablePaths {
-			msg += "  - " + p + "\n"
+	switch job.Permissions.FileAccess {
+	case FileAccessSelectedWrites:
+		if len(job.Permissions.WritablePaths) > 0 {
+			msg += "\n\nYou may write to these specific files only:\n"
+			for _, p := range job.Permissions.WritablePaths {
+				msg += "  - " + p + "\n"
+			}
+			msg += "Do not write to any other files."
 		}
-		msg += "Do not write to any other files."
+	case FileAccessFullWorkspace:
+		msg += "\n\nYou may write to any file within the project directory."
 	}
 	return msg
 }
@@ -98,7 +105,7 @@ func truncateUTF8(s string, maxRunes int) string {
 // Run executes a background job by ID. It:
 // 1. Loads job from store; returns error if not found or deleted.
 // 2. Validates: enabled, schedule valid, provider background-safe.
-// 3. Rejects selected_writes and full_workspace (only read_only is supported).
+// 3. Validates file access mode (read_only, selected_writes, full_workspace).
 // 4. Resolves provider config from current config + overlay.
 // 5. Creates a run record with status "running"; writes job.run.claim audit.
 // 6. Acquires per-job lock, starts provider, runs prompt with timeout.
@@ -109,16 +116,19 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	// Step 1: Load job.
 	state, err := e.Store.Load()
 	if err != nil {
+		e.recordEarlyFailure(jobID, "", fmt.Errorf("load job store: %w", err))
 		return RunResult{}, fmt.Errorf("load job store: %w", err)
 	}
 	job := state.Jobs[jobID]
 	if job == nil {
+		e.recordEarlyFailure(jobID, "", fmt.Errorf("job %q not found", jobID))
 		return RunResult{}, fmt.Errorf("job %q not found", jobID)
 	}
 
 	// Step 2: Validate.
 	skipped, skipResult, err := e.validateJob(job, jobID)
 	if err != nil {
+		e.recordEarlyFailure(jobID, job.ProviderID, err)
 		return RunResult{}, err
 	}
 	if skipped {
@@ -128,6 +138,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	// Step 3: Resolve provider config (before self-repair to avoid re-installing for broken configs).
 	providerCfg, err := e.resolveProvider(job)
 	if err != nil {
+		e.recordEarlyFailure(jobID, job.ProviderID, err)
 		return RunResult{}, err
 	}
 
@@ -159,8 +170,47 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		StartedAt:      startedAt,
 		ProviderID:     job.ProviderID,
 		Model:          providerCfg.Model,
-		PromptSnapshot: truncateUTF8(job.Prompt, maxPromptSnapshotRunes),
+		PromptSnapshot: truncateUTF8(job.Prompt, MaxPromptSnapshotRunes),
 	}
+
+	// Warn when the OS sandbox is unavailable — the provider runs
+	// fully permissive with no kernel-enforced file access control.
+	if !sandbox.Available() && isCLIProvider(job.ProviderID) {
+		warn := fmt.Sprintf(
+			"OS sandbox unavailable on this platform (%s/%s); "+
+				"background job runs fully permissive with no file access restrictions",
+			runtime.GOOS, runtime.GOARCH)
+		run.Warnings = append(run.Warnings, warn)
+		e.Logger.Warn("sandbox unavailable for background job",
+			logging.String("job_id", jobID),
+			logging.String("provider", job.ProviderID),
+			logging.String("platform", runtime.GOOS+"/"+runtime.GOARCH),
+		)
+	}
+
+	// Build sandbox status snapshot for audit.
+	sbStatus := SandboxStatus{
+		Available:   sandbox.Available(),
+		// Intentionally hardcoded to true: Windows cannot isolate network for
+		// Job Object children; on Linux/macOS the sandbox may isolate, but we
+		// conservatively report open since the provider itself always has network.
+		NetworkOpen: true,
+		FileAccess:  string(job.Permissions.FileAccess),
+	}
+	if !sbStatus.Available {
+		sbStatus.Warnings = append(sbStatus.Warnings, run.Warnings...)
+	}
+	// Warn about network being open on Windows where isolation is unavailable.
+	if sbStatus.Available && runtime.GOOS == "windows" {
+		run.Warnings = append(run.Warnings, "Network is open — external connections are not restricted")
+		sbStatus.Warnings = append(sbStatus.Warnings, "Network is open — external connections are not restricted")
+	}
+	// Warn about full workspace write access.
+	if job.Permissions.FileAccess == FileAccessFullWorkspace {
+		run.Warnings = append(run.Warnings, "Full workspace access — provider can write to project files")
+		sbStatus.Warnings = append(sbStatus.Warnings, "Full workspace access — provider can write to project files")
+	}
+	run.SandboxStatus = sbStatus
 
 	// Step 6: Acquire per-job lock first, then write audit claim.
 	lockPath := filepath.Join(e.Store.Dir(), "locks", jobID+".lock")
@@ -181,6 +231,10 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 	defer release()
 
 	// Write job.run.claim audit event after lock acquired (best-effort, non-fatal).
+	e.Logger.Info("job run claimed",
+		logging.String("job_id", jobID),
+		logging.String("run_id", runID),
+	)
 	if auditErr := e.AuditWriter.Write(AuditEvent{
 		Event: "job.run.claim",
 		JobID: jobID,
@@ -216,13 +270,25 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		}
 	}()
 
-	output, runErr := e.executeJob(ctx, job, providerCfg, runID)
+	e.Logger.Info("job run starting",
+		logging.String("job_id", jobID),
+		logging.String("run_id", runID),
+		logging.String("provider", job.ProviderID),
+	)
+	output, runErr := e.executeJob(ctx, job, providerCfg, runID, &run)
 
 	// Record result.
 	now := time.Now().UTC()
 	run.FinishedAt = &now
 	run.DurationMillis = now.Sub(startedAt).Milliseconds()
-	run.OutputSummary = truncateUTF8(output, maxOutputSummaryRunes)
+	run.OutputSummary = truncateUTF8(output, MaxOutputSummaryRunes)
+
+	// Persist full output to a per-run log file so `jobs logs` can retrieve it.
+	if logPath, writeErr := e.writeRunLog(jobID, runID, output); writeErr != nil {
+		e.Logger.Warn("write run log failed", logging.Any("err", writeErr))
+	} else {
+		run.LogPath = logPath
+	}
 
 	if runErr != nil {
 		// Classify off the returned error, not the parent context.
@@ -240,6 +306,24 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 		}
 	} else {
 		run.Status = RunStatusCompleted
+	}
+
+	// Log completion.
+	if runErr != nil {
+		e.Logger.Error("job run failed",
+			logging.String("job_id", jobID),
+			logging.String("run_id", runID),
+			logging.String("status", string(run.Status)),
+			logging.Any("duration_ms", run.DurationMillis),
+			logging.Any("error", runErr),
+		)
+	} else {
+		e.Logger.Info("job run finished",
+			logging.String("job_id", jobID),
+			logging.String("run_id", runID),
+			logging.String("status", string(run.Status)),
+			logging.Any("duration_ms", run.DurationMillis),
+		)
 	}
 
 	// Step 8: Update job.
@@ -261,8 +345,30 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 }
 
 // executeJob starts a provider session and runs the job prompt.
-// Returns the response text and any error.
-func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyzer.ProviderConfig, runID string) (string, error) {
+// Returns the response text and any error. The run parameter is used to
+// store activity monitoring results (process/network events).
+func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyzer.ProviderConfig, runID string, run *Run) (string, error) {
+	// Map file access mode to sandbox write posture.
+	// - full_workspace: grant project-dir writes via SandboxProjectWrite.
+	// - selected_writes: grant per-path writes via SandboxWritableDirs.
+	//   ValidateWritablePaths (called in validateJob) already ensures every
+	//   path resolves inside the project root and avoids protected dirs.
+	if job.Permissions.FileAccess == FileAccessFullWorkspace {
+		providerCfg.SandboxProjectWrite = true
+	} else if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
+		providerCfg.SandboxWritableDirs = append([]string(nil), job.Permissions.WritablePaths...)
+		if strings.HasSuffix(job.ProviderID, "-acp") {
+			// ACP providers spawn once before the project dir is known, so
+			// SandboxWritableDirs can't be wired into the OS sandbox at
+			// session time. The per-path restriction is passed via system
+			// prompt only — a model that ignores the prompt can write
+			// anywhere. CLI providers honor it via sandbox.Config.WritableDirs.
+			// See providers.go SandboxWritableDirs for the architectural note.
+			e.Logger.Warn("ACP provider selected_writes: per-path sandbox stored but enforced only via system prompt, not OS-level",
+				logging.String("provider", job.ProviderID))
+		}
+	}
+
 	provider, err := e.NewProvider(config.ProviderID(job.ProviderID), providerCfg)
 	if err != nil {
 		return "", fmt.Errorf("create provider: %w", err)
@@ -279,6 +385,7 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 		ReadOnly:         job.Permissions.FileAccess == FileAccessReadOnly,
 		SystemMessage:    buildBackgroundSystemMessage(job),
 		RunID:            runID,
+		Sandbox:          providerCfg.Sandbox,
 	}
 
 	session, err := provider.NewSession(ctx, sessionCfg)
@@ -287,15 +394,40 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 	}
 	defer session.Close()
 
-	// Derive session timeout from context deadline when available.
-	sessionTimeout := defaultSessionTimeout
+	// Derive session timeout from context deadline when available,
+	// falling back to a schedule-derived default.
+	sessionTimeout := DefaultTimeoutFor(job.Schedule)
 	if deadline, ok := ctx.Deadline(); ok {
 		sessionTimeout = time.Until(deadline)
 		if sessionTimeout <= 0 {
-			sessionTimeout = defaultSessionTimeout
+			sessionTimeout = DefaultTimeoutFor(job.Schedule)
 		}
 	}
+	// Set up activity monitoring. The PostStartHook is called by the
+	// harness after the child process starts and the Job Object is
+	// created. We create the store here and the monitor inside the hook
+	// (since we need the job handle from the OS).
+	var actStore *ActivityStore
+	var actMonitor *ActivityMonitor
+	actStore = NewActivityStore(e.RunStore.Dir(), job.ID, runID)
+	defer actStore.Close()
+	run.ActivityLogPath = ActivityLogPath(e.RunStore.Dir(), job.ID, runID)
+	sessionCfg.PostStartHook = func(jobHandle uintptr) {
+		actMonitor = NewActivityMonitor(jobHandle, 0, actStore, e.Logger)
+		if startErr := actMonitor.Start(ctx); startErr != nil {
+			e.Logger.Warn("activity monitor start failed", logging.Any("err", startErr))
+			actMonitor = nil
+		}
+	}
+
 	output, err := session.Run(ctx, job.Prompt, sessionTimeout)
+
+	// Finalize activity monitoring.
+	if actMonitor != nil {
+		summary := actMonitor.Stop()
+		run.ActivitySummary = &summary
+	}
+
 	if err != nil {
 		return output, fmt.Errorf("session run: %w", err)
 	}
@@ -354,8 +486,10 @@ func (e *Executor) validateJob(job *Job, jobID string) (skipped bool, result Run
 		if err := ValidateWritablePaths(job.ProjectPath, job.Permissions.WritablePaths); err != nil {
 			return false, RunResult{}, fmt.Errorf("invalid writable paths: %w", err)
 		}
+	case FileAccessFullWorkspace:
+		// ok — no WritablePaths required; sandbox posture resolved at execution time.
 	default:
-		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only and selected_writes are allowed", job.Permissions.FileAccess)
+		return false, RunResult{}, fmt.Errorf("file access %q is not supported; only read_only, selected_writes, and full_workspace are allowed", job.Permissions.FileAccess)
 	}
 
 	return false, RunResult{}, nil
@@ -372,6 +506,7 @@ func (e *Executor) resolveProvider(job *Job) (analyzer.ProviderConfig, error) {
 	if job.Model != "" {
 		providerCfg.Model = job.Model
 	}
+	providerCfg.Background = true
 	return providerCfg, nil
 }
 
@@ -413,4 +548,69 @@ func globalOverlayPath() string {
 		return ""
 	}
 	return path
+}
+
+// recordEarlyFailure appends a failed Run record when Executor.Run exits before
+// a run record exists (load failure, validation error, provider resolution failure).
+// This ensures all job invocations produce a visible trace in the run history.
+func (e *Executor) recordEarlyFailure(jobID, providerID string, runErr error) {
+	now := time.Now().UTC()
+	runID, genErr := GenerateRunID()
+	if genErr != nil {
+		runID = fmt.Sprintf("error-%d", now.UnixMilli())
+		e.Logger.Warn("failed to generate run ID for early failure", logging.Any("err", genErr))
+	}
+	run := Run{
+		ID:             runID,
+		JobID:          jobID,
+		ScheduledFor:   now,
+		Status:         RunStatusFailed,
+		StartedAt:      now,
+		FinishedAt:     &now,
+		DurationMillis: 0,
+		ProviderID:     providerID,
+		Error:          runErr.Error(),
+	}
+	if appendErr := e.RunStore.Append(run); appendErr != nil {
+		e.Logger.Warn("failed to record early-exit run", logging.Any("err", appendErr))
+	}
+	if auditErr := e.AuditWriter.Write(AuditEvent{
+		Event: "job.run.early_failure",
+		JobID: jobID,
+		Details: map[string]any{
+			"run_id": run.ID,
+			"error":  runErr.Error(),
+		},
+	}); auditErr != nil {
+		e.Logger.Warn("audit write failed (early failure)", logging.Any("err", auditErr))
+	}
+}
+
+// writeRunLog persists the full provider output to a per-run log file at
+// <runs_dir>/<job_id>/<run_id>.log. Returns the absolute path on success.
+func (e *Executor) writeRunLog(jobID, runID, output string) (string, error) {
+	logDir := filepath.Join(e.RunStore.Dir(), jobID)
+	if err := os.MkdirAll(logDir, fsutil.DirPerms); err != nil {
+		return "", fmt.Errorf("create run log dir: %w", err)
+	}
+	logPath := filepath.Join(logDir, runID+".log")
+	if err := fsutil.WriteFileAtomic(logPath, []byte(output), fsutil.SecretPerms); err != nil {
+		return "", fmt.Errorf("write run log: %w", err)
+	}
+	return logPath, nil
+}
+
+// isCLIProvider reports whether the provider ID identifies a CLI-harness
+// provider (one that spawns a child process and relies on the OS sandbox
+// or its own policy flags for file access control).
+func isCLIProvider(id string) bool {
+	switch config.ProviderID(id) {
+	case config.ProviderClaudeCLI,
+		config.ProviderOpenClaudeCLI,
+		config.ProviderGeminiCLI,
+		config.ProviderCodexCLI:
+		return true
+	default:
+		return false
+	}
 }

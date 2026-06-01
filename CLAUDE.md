@@ -13,6 +13,7 @@ make test-race                # tests with race detector
 make vet                      # go vet
 make fmt                      # gofmt -w .
 make lint                     # golangci-lint (auto-installs if missing)
+make quality                  # dreamer-specific type-aware code quality checks (baseline-aware)
 make cover                    # test coverage summary
 make cover-html               # test coverage HTML report
 make vulncheck                # dependency vulnerability check
@@ -27,6 +28,7 @@ go run . <command> [flags]                              # run dreamer CLI
 go test ./...                                           # full test suite
 go test ./cmd -run TestName                             # single test
 go test -race ./...                                     # race detector
+go run ./tools/quality --baseline .quality-baseline.json  # quality checks
 ```
 
 **Important:** Always use `-trimpath` when building. It strips local filesystem paths from the binary so stack traces don't leak your directory structure and builds are reproducible. The binary warns at startup if built without it. Use `-tags notrimpath` to suppress the check (e.g. for CI fast-builds).
@@ -45,6 +47,7 @@ Cobra commands registered in `cmd/root.go`:
 - `web` — opens the running daemon's dashboard (`--open` shells out to the OS opener) using the port from `<output_root>/web.port`.
 - `ls-chats` — debug command to list discovered chat sources for a directory.
 - `startup install|uninstall|status` — Windows-only Task Scheduler integration (`schtasks.exe`). Guarded by `runtime.GOOS == "windows"`.
+- `jobs` — background jobs root command. No args launches interactive TUI dashboard (bubbletea). Subcommands: `list` (--json, --verbose, --since), `create` (interactive wizard or non-interactive flags), `edit` (partial updates), `show` (detail + last 10 runs), `pause`/`resume` (toggle enabled + OS schedule), `delete` (--yes required), `run` (on-demand execution with --timeout, --force, --run-token-file), `runs` (run history with --status filter), `logs` (per-run provider output with --tail, --follow), `reconcile` (sync OS schedules with store), `health` (diagnostics).
 
 `internal/pipeline/pipeline.go:Run` is the analysis core (spec §17, since v1.5). Both `analyze` and `daemon` call into it. Pipeline per project:
 1. `resolveAbsoluteProjectPath` + `DeriveProjectName` derive the absolute path and the `project-<basename>[-<hash>]` directory name used under the output root.
@@ -147,6 +150,34 @@ Pipeline integration: dismissed-hash findings are folded into the orchestrator's
 ### Logging (`internal/logging`)
 
 Daemon and analysis emit structured-ish key=value lines via `logging.Logger` to `<output_root>/dreamer.log` plus stderr at the configured level. Tests inject loggers; never call `log.*` directly.
+
+### Background Jobs (`internal/backgroundjobs/`)
+
+Recurring natural-language tasks executed via OS scheduling (Task Scheduler on Windows, systemd on Linux, LaunchAgents on macOS). Each job runs a prompt against an analyzer provider session with configurable permissions, schedule, and timeout.
+
+**Core types** (`job.go`): `Job` (ID, name, prompt, project path, provider, model, schedule, permissions, health), `Run` (execution record with status/duration/log path), `ScheduleSpec` (interval/daily/weekly/cron with timezone and missed-run policy), `PermissionProfile` (file access: `read_only`/`selected_writes`/`full_workspace`, tool access, network).
+
+**Store** (`store.go`): Cross-process CRUD at `<output_root>/background-jobs/jobs.json`. All mutations go through `Update(ctx, func(*State) error)` which acquires a file lock + in-process mutex. `Load()` returns a read-only snapshot.
+
+**RunStore** (`runs.go`): Per-job JSONL run history at `<store_dir>/runs/<job_id>.jsonl` with per-run log files at `<store_dir>/runs/<job_id>/<run_id>.log`. Retention capped at 100 runs per job. Cross-process safe via per-job file locks.
+
+**Executor** (`runner.go`): Runs a single job — validates eligibility, resolves provider config, performs self-repair, creates run record, acquires per-job lock, starts provider session, runs prompt with timeout, classifies result (completed/failed/timed_out/cancelled), writes output to log file, updates job timestamps and health, writes audit events. Panic recovery and early-failure recording included.
+
+**Scheduler** (`scheduler.go` + platform files): Interface with `Install`/`Update`/`Remove`/`Inspect`/`ListOwn`. Platform dispatch: `scheduler_windows.go` (schtasks XML), `scheduler_linux.go` (systemd user timers), `scheduler_darwin.go` (launchctl plists), `scheduler_noop.go` (fallback). Invokes `dreamer jobs run <jobID> --config <path> --run-token-file <path>`.
+
+**Reconciler** (`reconcile.go`): Computes and applies actions to sync OS schedules with the job store. Detects missing installs, disabled jobs with active schedules, orphaned OS schedules, config/spec hash drift. `SelfRepair` for bounded single-job repair before execution.
+
+**HealthChecker** (`health.go`): Diagnostics for OS schedule existence, stale last run (>7 days), overdue NextRunAt, repeated timeouts, orphaned OS schedules. Returns `SystemHealth` with per-job `JobHealth`.
+
+**Audit** (`audit.go`): Append-only JSONL at `<store_dir>/audit.jsonl`. Events: `job.created`, `job.deleted`, `job.edit`, `job.run.claim`, `job.run.finish`, `job.run.skipped`, `job.run.forced`, `job.run.early_failure`.
+
+**Run token** (`runtoken.go`): Per-install 64-hex-char secret at `<store_dir>/run.token`. OS schedulers pass the file path; the runner validates it before execution. Prevents unauthorized job execution.
+
+**Persistence layout** under `<output_root>/background-jobs/`: `jobs.json` (state), `store.lock`, `install_id`, `run.token`, `audit.jsonl`, `runs/<job_id>.jsonl`, `runs/<job_id>/<run_id>.log`, `locks/<job_id>.lock`.
+
+**Web integration**: `handlers.JobDeps` wired into daemon at startup. Full REST API: `POST/GET/PATCH/DELETE /api/jobs`, `POST /api/jobs/{id}/run`, `GET /api/jobs/{id}/runs`, `GET /api/jobs/{id}/logs`, `GET /api/jobs/health`, `POST /api/jobs/reconcile`, `GET /api/jobs/audit`.
+
+**Daemon integration**: At startup (`cmd/daemon.go`), creates Store/RunStore/AuditWriter/InstallID, builds Scheduler and SelfRepairConfig, creates Executor wired to real provider factory, passes `JobDeps` to web server, runs startup reconciliation in a goroutine.
 
 ## Conventions
 

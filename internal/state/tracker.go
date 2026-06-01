@@ -16,6 +16,7 @@ import (
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
+	"dreamer/internal/migrate"
 )
 
 const (
@@ -27,6 +28,41 @@ const (
 	// which makes prior ChatHashes entries hash-incompatible.
 	StateVersion = 2
 )
+
+// stateMigrations is the ordered migration registry for state.json.
+// Each migration receives raw JSON bytes from the prior version and
+// returns bytes for the next version. Add new migrations here when
+// bumping StateVersion — no if-chains to edit.
+var stateMigrations = migrate.Registry{
+	Name:       "state.json",
+	CurrentVer: StateVersion,
+	Migrations: []migrate.Migration{
+		{
+			FromVersion: 0,
+			ToVersion:   1,
+			Description: "add version field to legacy files",
+			Migrate: func(data []byte) ([]byte, error) {
+				return migrate.SetVersion(data, 1)
+			},
+		},
+		{
+			FromVersion: 1,
+			ToVersion:   2,
+			Description: "length-prefixed ChatCacheKey; clear ChatHashes",
+			Migrate: func(data []byte) ([]byte, error) {
+				var m map[string]json.RawMessage
+				if err := json.Unmarshal(data, &m); err != nil {
+					return nil, fmt.Errorf("unmarshal: %w", err)
+				}
+				// ChatCacheKey is now length-prefixed, so prior entries
+				// no longer compare equal to freshly-computed keys.
+				m["chat_hashes"] = []byte("{}")
+				m["version"] = []byte("2")
+				return json.Marshal(m)
+			},
+		},
+	},
+}
 
 // ProviderUsage records aggregate counters per provider id.
 type ProviderUsage struct {
@@ -149,54 +185,21 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 		return LoadResult{}, fmt.Errorf("read state file %q: %w", path, err)
 	}
 
-	var peek map[string]json.RawMessage
-	if err := json.Unmarshal(stateBytes, &peek); err != nil {
-		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
-	}
-	versionRaw, hasVersion := peek["version"]
-	priorVersion := 0
-	if hasVersion {
-		var fileVersion int
-		if err := json.Unmarshal(versionRaw, &fileVersion); err != nil {
-			return LoadResult{}, fmt.Errorf("unmarshal version in state file %q: %w", path, err)
-		}
-		if fileVersion == 0 {
-			return LoadResult{}, fmt.Errorf("state file %q has explicit version=0; refusing to load (suspect truncation)", path)
-		}
-		if fileVersion > StateVersion {
-			return LoadResult{}, fmt.Errorf("state file %q has version %d but this binary supports up to %d; refusing to load (downgrade risk)", path, fileVersion, StateVersion)
-		}
-		priorVersion = fileVersion
+	migrated, result, err := stateMigrations.Run(stateBytes)
+	if err != nil {
+		return LoadResult{}, fmt.Errorf("migrate state file %q: %w", path, err)
 	}
 
 	var current State
-	if err := json.Unmarshal(stateBytes, &current); err != nil {
+	if err := json.Unmarshal(migrated, &current); err != nil {
 		return LoadResult{}, fmt.Errorf("unmarshal state file %q: %w", path, err)
-	}
-	migrated := false
-	if !hasVersion {
-		// Pre-versioning legacy file (predates the StateVersion gate). Upgrade
-		// in memory; Save will materialize the new schema on disk.
-		current.Version = StateVersion
-		migrated = true
-	}
-	if hasVersion && current.Version < StateVersion {
-		// v1 → v2: ChatCacheKey is now length-prefixed, so prior ChatHashes
-		// no longer compare equal to freshly-computed keys. Drop them so
-		// the next run re-establishes the cache from scratch. The user's
-		// prior file is preserved at <path>.v<old>.bak by Save.
-		// TODO when adding v3: convert this branch into a per-version
-		// migration registry instead of a single conditional.
-		current.ChatHashes = map[string]string{}
-		current.Version = StateVersion
-		migrated = true
 	}
 	normalizeState(&current)
 	return LoadResult{
 		State:          &current,
-		PriorVersion:   priorVersion,
+		PriorVersion:   result.FromVersion,
 		CurrentVersion: StateVersion,
-		Migrated:       migrated,
+		Migrated:       result.Migrated(),
 	}, nil
 }
 
@@ -218,8 +221,11 @@ func Save(outputRoot, projectName string, state *State) error {
 	}
 
 	if priorData, readErr := os.ReadFile(path); readErr == nil {
-		priorVersion := parsePriorVersion(priorData)
-		if priorVersion >= 0 && priorVersion < StateVersion {
+		priorVersion, hasVersion, _ := migrate.PeekVersion(priorData)
+		if !hasVersion {
+			priorVersion = 0
+		}
+		if priorVersion < StateVersion {
 			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
 			if _, err := os.Stat(backupPath); os.IsNotExist(err) {
 				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms); writeErr != nil {
@@ -245,19 +251,6 @@ func Save(outputRoot, projectName string, state *State) error {
 	return nil
 }
 
-func parsePriorVersion(data []byte) int {
-	var peek map[string]json.RawMessage
-	if err := json.Unmarshal(data, &peek); err != nil {
-		return 0
-	}
-	raw, ok := peek["version"]
-	if !ok {
-		return 0
-	}
-	var version int
-	_ = json.Unmarshal(raw, &version)
-	return version
-}
 
 func defaultState() *State {
 	return &State{

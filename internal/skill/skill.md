@@ -94,6 +94,6 @@ cat ~/.dreamer/output/project-<name>/todos.md
 
 - `setup` without `--non-interactive` launches a TUI that will hang your subprocess.
 - `jobs create` without `--prompt` also launches a TUI. Always pass `--prompt "..."`.
-- `jobs run` requires `DREAMER_RUN_TOKEN` env var to be set.
+- `jobs run` validates a per-install token via `--run-token-file`; use `--force` to bypass.
 - Config path defaults to `<UserConfigDir>/dreamer/config.yaml`.
 - Output root must be an absolute path.

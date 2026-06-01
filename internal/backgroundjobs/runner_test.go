@@ -249,7 +249,7 @@ func TestExecutor_Run_ProviderNotBackgroundSafe(t *testing.T) {
 	}
 }
 
-func TestExecutor_Run_FullWorkspaceRejected(t *testing.T) {
+func TestExecutor_Run_FullWorkspaceAccepted(t *testing.T) {
 	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
 	executor, store, _ := newTestExecutor(t, provider)
 
@@ -257,12 +257,12 @@ func TestExecutor_Run_FullWorkspaceRejected(t *testing.T) {
 	job.Permissions.FileAccess = FileAccessFullWorkspace
 	insertTestJob(t, store, job)
 
-	_, err := executor.Run(context.Background(), job.ID)
-	if err == nil {
-		t.Fatal("expected error for full_workspace mode")
+	result, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not supported") {
-		t.Errorf("error = %q, want contains 'not supported'", err.Error())
+	if result.Record.Status != RunStatusCompleted {
+		t.Errorf("status = %q, want %q", result.Record.Status, RunStatusCompleted)
 	}
 }
 
@@ -528,6 +528,22 @@ func (c *capturingProvider) NewSession(ctx context.Context, cfg analyzer.Session
 	return c.inner.NewSession(ctx, cfg)
 }
 
+// providerConfigCapturingProvider wraps a mockProvider to capture both the
+// ProviderConfig (at factory time) and SessionConfig (at NewSession time).
+type providerConfigCapturingProvider struct {
+	inner            *mockProvider
+	providerCfg      *analyzer.ProviderConfig
+	capturedSession  *analyzer.SessionConfig
+}
+
+func (p *providerConfigCapturingProvider) ID() string                      { return p.inner.id }
+func (p *providerConfigCapturingProvider) Start(ctx context.Context) error { return p.inner.Start(ctx) }
+func (p *providerConfigCapturingProvider) Close() error                    { return p.inner.Close() }
+func (p *providerConfigCapturingProvider) NewSession(ctx context.Context, cfg analyzer.SessionConfig) (analyzer.Session, error) {
+	*p.capturedSession = cfg
+	return p.inner.NewSession(ctx, cfg)
+}
+
 func TestExecutor_Run_JobDeletedDuringRun(t *testing.T) {
 	provider := &mockProvider{
 		id: "openclaude-cli",
@@ -674,6 +690,85 @@ func TestExecutor_Run_DisabledJob_EmitsAuditEvent(t *testing.T) {
 	}
 }
 
+// Phase 1: Early-exit failures should produce a failed run record.
+func TestExecutor_Run_JobNotFound_RecordsFailedRun(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, _, runStore := newTestExecutor(t, provider)
+
+	_, err := executor.Run(context.Background(), "nonexistent000001")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	// Verify a failed run was recorded even though the job doesn't exist.
+	runs, listErr := runStore.List("nonexistent000001")
+	if listErr != nil {
+		t.Fatalf("list runs: %v", listErr)
+	}
+	if len(runs) == 0 {
+		t.Fatal("expected early-exit failure run to be recorded, got 0 runs")
+	}
+	if runs[0].Status != RunStatusFailed {
+		t.Errorf("status = %q, want %q", runs[0].Status, RunStatusFailed)
+	}
+	if !strings.Contains(runs[0].Error, "not found") {
+		t.Errorf("error = %q, want contains 'not found'", runs[0].Error)
+	}
+}
+
+// Phase 1: Validation failures should produce a failed run record.
+func TestExecutor_Run_InvalidSchedule_RecordsFailedRun(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, runStore := newTestExecutor(t, provider)
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Schedule = ScheduleSpec{Kind: ScheduleDaily} // Missing TimeOfDay.
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	runs, listErr := runStore.List(job.ID)
+	if listErr != nil {
+		t.Fatalf("list runs: %v", listErr)
+	}
+	if len(runs) == 0 {
+		t.Fatal("expected early-exit failure run to be recorded, got 0 runs")
+	}
+	if runs[0].Status != RunStatusFailed {
+		t.Errorf("status = %q, want %q", runs[0].Status, RunStatusFailed)
+	}
+}
+
+// Phase 1: Early failure should emit a job.run.early_failure audit event.
+func TestExecutor_Run_EarlyFailure_EmitsAuditEvent(t *testing.T) {
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+	executor, store, _ := newTestExecutor(t, provider)
+
+	_, err := executor.Run(context.Background(), "nonexistent000001")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	audit := NewAuditWriter(store.Dir())
+	events, auditErr := audit.ReadAll(100)
+	if auditErr != nil {
+		t.Fatalf("read audit: %v", auditErr)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.Event == "job.run.early_failure" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected job.run.early_failure audit event, not found")
+	}
+}
+
 // B10: Claim audit should be written after lock acquisition, not before.
 // This test verifies the ordering is correct by checking that a successful
 // run has both claim and finish events in the correct order.
@@ -717,5 +812,223 @@ func TestExecutor_Run_ClaimAuditAfterLock(t *testing.T) {
 	// ReadAll returns newest-first, so finish (written after claim) has lower index.
 	if claimIdx >= 0 && finishIdx >= 0 && finishIdx > claimIdx {
 		t.Error("job.run.claim should be written before job.run.finish (claim should appear later in newest-first order)")
+	}
+}
+
+// Phase 2: full_workspace must set SandboxProjectWrite=true on ProviderConfig
+// and ReadOnly=false on SessionConfig.
+func TestExecutor_Run_FullWorkspace_SandboxPosture(t *testing.T) {
+	var capturedProviderCfg analyzer.ProviderConfig
+	var capturedSessionCfg analyzer.SessionConfig
+
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			capturedProviderCfg = cfg
+			return &providerConfigCapturingProvider{
+				inner:           provider,
+				providerCfg:     &capturedProviderCfg,
+				capturedSession: &capturedSessionCfg,
+			}, nil
+		},
+	}
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Permissions.FileAccess = FileAccessFullWorkspace
+	insertTestJob(t, store, job)
+
+	result, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Record.Status != RunStatusCompleted {
+		t.Fatalf("status = %q, want %q", result.Record.Status, RunStatusCompleted)
+	}
+
+	// Verify provider config: SandboxProjectWrite must be true.
+	if !capturedProviderCfg.SandboxProjectWrite {
+		t.Error("SandboxProjectWrite = false, want true for full_workspace")
+	}
+
+	// Verify session config: ReadOnly must be false.
+	if capturedSessionCfg.ReadOnly {
+		t.Error("ReadOnly = true, want false for full_workspace")
+	}
+}
+
+// selected_writes must set SandboxWritableDirs on ProviderConfig so the
+// OS sandbox grants write access to the declared paths.
+func TestExecutor_Run_SelectedWrites_SandboxWritableDirs(t *testing.T) {
+	var capturedProviderCfg analyzer.ProviderConfig
+
+	provider := &mockProvider{id: "openclaude-cli", session: &mockSession{}}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			capturedProviderCfg = cfg
+			return provider, nil
+		},
+	}
+
+	job := testReadOnlyJob(t, "abc1234567890002")
+	job.Permissions.FileAccess = FileAccessSelectedWrites
+	job.Permissions.WritablePaths = []string{
+		filepath.Join(job.ProjectPath, "output.txt"),
+		filepath.Join(job.ProjectPath, "logs"),
+	}
+	insertTestJob(t, store, job)
+
+	result, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if result.Record.Status != RunStatusCompleted {
+		t.Fatalf("status = %q, want %q", result.Record.Status, RunStatusCompleted)
+	}
+
+	// Verify provider config: SandboxWritableDirs must contain the declared paths.
+	if len(capturedProviderCfg.SandboxWritableDirs) != 2 {
+		t.Fatalf("SandboxWritableDirs len = %d, want 2", len(capturedProviderCfg.SandboxWritableDirs))
+	}
+	if capturedProviderCfg.SandboxWritableDirs[0] != job.Permissions.WritablePaths[0] {
+		t.Errorf("SandboxWritableDirs[0] = %q, want %q",
+			capturedProviderCfg.SandboxWritableDirs[0], job.Permissions.WritablePaths[0])
+	}
+	if capturedProviderCfg.SandboxWritableDirs[1] != job.Permissions.WritablePaths[1] {
+		t.Errorf("SandboxWritableDirs[1] = %q, want %q",
+			capturedProviderCfg.SandboxWritableDirs[1], job.Permissions.WritablePaths[1])
+	}
+
+	// Verify SandboxProjectWrite is NOT set for selected_writes.
+	if capturedProviderCfg.SandboxProjectWrite {
+		t.Error("SandboxProjectWrite = true, want false for selected_writes")
+	}
+}
+
+// Phase 2: full_workspace system message must grant write access.
+func TestExecutor_Run_FullWorkspace_SystemMessage(t *testing.T) {
+	var capturedCfg analyzer.SessionConfig
+	provider := &mockProvider{
+		id: "openclaude-cli",
+		session: &mockSession{
+			runFunc: func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return "ok", nil
+			},
+		},
+	}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			return &capturingProvider{
+				inner:    provider,
+				captured: &capturedCfg,
+			}, nil
+		},
+	}
+
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.Permissions.FileAccess = FileAccessFullWorkspace
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !strings.Contains(capturedCfg.SystemMessage, "You may write to any file within the project directory") {
+		t.Errorf("system message = %q, want contains 'You may write to any file within the project directory'", capturedCfg.SystemMessage)
+	}
+}
+
+// Phase 2: selected_writes system message must list writable paths.
+func TestExecutor_Run_SelectedWrites_SystemMessage(t *testing.T) {
+	var capturedCfg analyzer.SessionConfig
+	provider := &mockProvider{
+		id: "openclaude-cli",
+		session: &mockSession{
+			runFunc: func(ctx context.Context, prompt string, timeout time.Duration) (string, error) {
+				return "ok", nil
+			},
+		},
+	}
+
+	outputRoot := t.TempDir()
+	lg := newTestLogger(t)
+	store := NewStore(outputRoot, lg)
+	runStore := NewRunStore(store.Dir(), lg)
+	audit := NewAuditWriter(store.Dir())
+	cfgPath := writeMinimalConfig(t)
+
+	executor := &Executor{
+		Store:       store,
+		RunStore:    runStore,
+		AuditWriter: audit,
+		ConfigPath:  cfgPath,
+		Logger:      lg,
+		NewProvider: func(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
+			return &capturingProvider{
+				inner:    provider,
+				captured: &capturedCfg,
+			}, nil
+		},
+	}
+
+	projectDir := t.TempDir()
+	job := testReadOnlyJob(t, "abc1234567890001")
+	job.ProjectPath = projectDir
+	job.Permissions.FileAccess = FileAccessSelectedWrites
+	job.Permissions.WritablePaths = []string{"output.txt", "logs/"}
+	insertTestJob(t, store, job)
+
+	_, err := executor.Run(context.Background(), job.ID)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !strings.Contains(capturedCfg.SystemMessage, "output.txt") {
+		t.Errorf("system message missing 'output.txt': %q", capturedCfg.SystemMessage)
+	}
+	if !strings.Contains(capturedCfg.SystemMessage, "logs/") {
+		t.Errorf("system message missing 'logs/': %q", capturedCfg.SystemMessage)
+	}
+	if !strings.Contains(capturedCfg.SystemMessage, "Do not write to any other files") {
+		t.Errorf("system message missing restriction: %q", capturedCfg.SystemMessage)
 	}
 }

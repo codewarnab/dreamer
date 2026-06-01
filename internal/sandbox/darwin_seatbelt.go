@@ -59,6 +59,41 @@ func buildSeatbeltProfile(cfg Config, writableDirs []string) string {
 	// full containment. Under (allow default), processes can read any
 	// file on the system (including secrets) and execute any binary.
 	// Network isolation is applied when cfg.Network != NetworkOpen.
+	//
+	// KNOWN LIMITATION — OS scheduler manipulation (persistence) is NOT blocked.
+	//
+	// The (deny file-write*) rule prevents file mutation but does NOT
+	// prevent the sandboxed child from executing scheduling binaries.
+	// A prompt-injection attack could cause the child to run:
+	//
+	//   launchctl load ~/Library/LaunchAgents/com.evil.plist
+	//   crontab -e                                    # install a cron job
+	//   at now + 1 hour                               # schedule a one-shot
+	//   osascript -e 'tell application "Calendar" ...' # schedule via Calendar
+	//
+	// These succeed because (allow default) permits process-exec by
+	// default — only operations explicitly denied are blocked.
+	//
+	// Mitigation plan — SBPL exec deny (not yet implemented):
+	//
+	//   (deny process-exec
+	//     (literal "/usr/bin/crontab")
+	//     (literal "/usr/bin/at")
+	//     (literal "/usr/bin/atq")
+	//     (literal "/usr/bin/atrm")
+	//     (literal "/usr/bin/batch")
+	//     (literal "/usr/bin/launchctl")
+	//     (literal "/usr/sbin/periodic")
+	//     (regex "^/usr/bin/osascript"))
+	//
+	// Seatbelt evaluates process-exec rules before the process starts
+	// (kernel-enforced, no race window). This is the cleanest fix on
+	// macOS because SBPL was designed for path-based exec control.
+	//
+	// Note: (deny process-exec*) with a re-allow list (default-deny,
+	// allow known-good) would be stronger but requires enumerating
+	// every binary the provider CLI might invoke — fragile with
+	// Homebrew, Xcode toolchain, etc.
 	b.WriteString(`(version 1)
 (allow default)
 
