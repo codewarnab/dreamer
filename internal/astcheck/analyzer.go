@@ -19,6 +19,7 @@
 //	unboundedread    warn   io.ReadAll on stdin/request body without a cap      (default on)
 //	overlaybool      warn   overlay-merged bool field; use *bool                (default on)
 //	lockorder        error  read before fsutil.AcquireLock; TOCTOU race        (default on)
+//	lockskip         error  exported method on mutex struct skips lock          (default on)
 //	goroutinerecover info   pipeline goroutine without a recover() guard        (default OFF)
 package astcheck
 

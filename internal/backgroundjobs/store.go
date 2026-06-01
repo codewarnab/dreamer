@@ -94,6 +94,8 @@ func (s *Store) Update(ctx context.Context, mutate func(*State) error) error {
 
 // Load returns a read-only snapshot. Use Update for mutations.
 func (s *Store) Load() (*State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.load()
 }
 
