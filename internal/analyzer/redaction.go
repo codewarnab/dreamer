@@ -90,6 +90,6 @@ func defaultRedactionPatterns() []RedactionPattern {
 		// redacting PATH, HOME, LANG, TERM, SHELL, and other benign vars.
 		// The keyword may appear anywhere in the var name (e.g. AWS_SECRET_ACCESS_KEY,
 		// OPENAI_API_KEY, DB_PASSWORD, GH_TOKEN, STRIPE_SECRET_KEY).
-		{Name: "env-line", Pattern: regexp.MustCompile(`(?m)^[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL|AUTH|PRIVATE|API)[A-Z0-9_]*\s*=\s*\S.*$`)},
+		{Name: "env-line", Pattern: regexp.MustCompile(`(?m)^[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL|AUTH|PRIVATE|API|URL|URI|DSN|CONN)[A-Z0-9_]*\s*=\s*\S.*$`)},
 	}
 }
