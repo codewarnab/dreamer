@@ -134,6 +134,8 @@ func EnclosingSymbol(fset *token.FileSet, file *ast.File, pos token.Pos) string 
 						if id, ok := star.X.(*ast.Ident); ok {
 							best = id.Name + "." + decl.Name.Name
 						}
+					} else if id, ok := recv.(*ast.Ident); ok {
+						best = id.Name + "." + decl.Name.Name
 					}
 					if best == "" {
 						best = decl.Name.Name

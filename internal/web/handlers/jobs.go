@@ -175,6 +175,9 @@ func applyJobEdits(job *backgroundjobs.Job, payload editPayload, lookup func(str
 		if job.Permissions.FileAccess != backgroundjobs.FileAccessSelectedWrites {
 			return false, nil, fmt.Errorf("writable_paths requires file_access=selected_writes")
 		}
+		if err := backgroundjobs.ValidateWritablePaths(job.ProjectPath, *payload.WritablePaths); err != nil {
+			return false, nil, fmt.Errorf("writable_paths validation: %w", err)
+		}
 		job.Permissions.WritablePaths = *payload.WritablePaths
 	}
 

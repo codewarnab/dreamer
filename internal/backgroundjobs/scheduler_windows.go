@@ -30,8 +30,6 @@ type windowsScheduler struct {
 }
 
 // runExternalCommandNoWindow is like runExternalCommand but sets HideWindow
-// to suppress the console window that schtasks.exe would otherwise allocate.
-// runExternalCommandNoWindow is like runExternalCommand but sets HideWindow
 // on the child process. HideWindow uses STARTF_USESHOWWINDOW+SW_HIDE rather
 // than CREATE_NO_WINDOW — both suppress the console window, but HideWindow
 // is the conventional approach for schtasks.exe invocations.

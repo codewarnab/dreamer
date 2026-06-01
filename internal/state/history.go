@@ -113,7 +113,10 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 		if priorVersion < historyVersion {
 			backupPath := fmt.Sprintf("%s.v%d.bak", path, priorVersion)
 			if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
-				_ = fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms)
+				// Best-effort backup; log but don't fail the save.
+				if writeErr := fsutil.WriteFileAtomic(backupPath, priorData, fsutil.FilePerms); writeErr != nil {
+					return fmt.Errorf("backup history %q: %w", backupPath, writeErr)
+				}
 			}
 		}
 	}

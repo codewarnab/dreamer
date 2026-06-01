@@ -594,7 +594,7 @@ func (e *Executor) writeRunLog(jobID, runID, output string) (string, error) {
 		return "", fmt.Errorf("create run log dir: %w", err)
 	}
 	logPath := filepath.Join(logDir, runID+".log")
-	if err := os.WriteFile(logPath, []byte(output), fsutil.SecretPerms); err != nil {
+	if err := fsutil.WriteFileAtomic(logPath, []byte(output), fsutil.SecretPerms); err != nil {
 		return "", fmt.Errorf("write run log: %w", err)
 	}
 	return logPath, nil
