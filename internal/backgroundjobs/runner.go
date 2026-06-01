@@ -333,6 +333,12 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 	} else if job.Permissions.FileAccess == FileAccessSelectedWrites && len(job.Permissions.WritablePaths) > 0 {
 		providerCfg.SandboxWritableDirs = append([]string(nil), job.Permissions.WritablePaths...)
 		if strings.HasSuffix(job.ProviderID, "-acp") {
+			// ACP providers spawn once before the project dir is known, so
+			// SandboxWritableDirs can't be wired into the OS sandbox at
+			// session time. The per-path restriction is passed via system
+			// prompt only — a model that ignores the prompt can write
+			// anywhere. CLI providers honor it via sandbox.Config.WritableDirs.
+			// See providers.go SandboxWritableDirs for the architectural note.
 			e.Logger.Warn("ACP provider selected_writes: per-path sandbox stored but enforced only via system prompt, not OS-level",
 				logging.String("provider", job.ProviderID))
 		}
