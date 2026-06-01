@@ -67,6 +67,45 @@ const (
 	stillActive = 259
 )
 
+// KNOWN LIMITATION — OS scheduler manipulation (persistence) is NOT blocked.
+//
+// The WRITE_RESTRICTED token prevents file writes to protected directories,
+// but does NOT prevent the sandboxed child from executing arbitrary binaries
+// on the host PATH. A prompt-injection attack could cause the child to run:
+//
+//   schtasks /Create /TN "Backdoor" /TR "powershell -c ..." /SC DAILY
+//   Register-ScheduledTask -TaskName "Backdoor" -Action (New-ScheduledTaskAction ...)
+//   at.exe \\target 12:00 cmd /c "malicious payload"
+//
+// These commands succeed because the kernel's DAC check for CreateProcess
+// only requires EXECUTE permission on the target binary, not WRITE — and
+// the restricted token only restricts writes via the capability SID.
+//
+// Mitigation plan (not yet implemented):
+//
+//   Layer 1 — Deny FILE_GENERIC_EXECUTE on writable directories for the
+//   capability SID. This prevents copy-rename attacks where the child
+//   stages a binary in a writable dir and executes it from there.
+//   If the child can only execute from read-only paths (System32,
+//   Program Files), the attack surface shrinks to OS-provided binaries.
+//
+//   Layer 2 — Deny FILE_GENERIC_EXECUTE on the capability SID for known
+//   scheduling binaries: schtasks.exe, at.exe, PowerShell.exe, pwsh.exe,
+//   and their SysWOW64/WinSxS variants. This blocks direct invocation
+//   of scheduler tools. Paths are enumerate-and-deny (whack-a-mole) but
+//   cover the realistic attack surface for prompt injection.
+//
+//   Layer 3 (future) — AppContainer (LowBox) via NtCreateLowBoxToken.
+//   Provides kernel-enforced process + network isolation with a
+//   capability-based model. Processes can't access objects outside
+//   their capability set regardless of ACLs. This is the only layer
+//   that blocks Win32 COM API calls to ITaskService directly.
+//   See internal/sandbox/windows_appcontainer.go (planned).
+//
+// COM API gap: Even with Layers 1-2, a sophisticated attacker could call
+// ITaskService::NewTask via COM directly (taskschd.dll is Microsoft-signed
+// and in read-only System32). Only AppContainer (Layer 3) prevents this.
+//
 // prepare creates a restricted token with a capability SID and applies
 // Allow-Write ACLs on writable directories. The project directory needs
 // no ACL changes — writes are blocked because its DACL doesn't mention

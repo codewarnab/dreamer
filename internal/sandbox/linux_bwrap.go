@@ -251,6 +251,45 @@ func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, origin
 		// PID namespace — kills grandchildren on exit.
 		"--unshare-pid",
 		// Entire host filesystem read-only (default-deny writes).
+		//
+		// KNOWN LIMITATION — OS scheduler manipulation (persistence) is NOT blocked.
+		//
+		// The read-only root mount prevents file writes but does NOT prevent
+		// the sandboxed child from executing scheduling binaries that exist
+		// on the host filesystem. A prompt-injection attack could cause the
+		// child to run:
+		//
+		//   crontab -e        # install a cron job
+		//   at now + 1 hour   # schedule a one-shot command
+		//   systemctl --user enable malicious.timer  # (if systemd user session active)
+		//
+		// These succeed because bwrap does not filter execve — the child
+		// can execute any binary visible through the read-only root mount.
+		// The seccomp profile (minimal/full) only blocks ptrace and privilege
+		// escalation syscalls, not process creation.
+		//
+		// Mitigation plan — shadow bind (not yet implemented):
+		//
+		//   --ro-bind /dev/null /usr/bin/crontab
+		//   --ro-bind /dev/null /usr/bin/at
+		//   --ro-bind /dev/null /usr/bin/atq
+		//   --ro-bind /dev/null /usr/bin/atrm
+		//   --ro-bind /dev/null /usr/bin/batch
+		//
+		// This replaces scheduling binaries with /dev/null inside the sandbox,
+		// so any attempt to execute them reads an empty file and exits
+		// immediately. The child's view of the filesystem is modified before
+		// execve, so there's no race window. This is the same technique
+		// used by Flatpak and Snap for binary blocking.
+		//
+		// systemctl is intentionally NOT in the shadow list — some provider
+		// CLIs may legitimately need it. If blocked, use a targeted
+		// allowlist approach instead.
+		//
+		// Seccomp cannot do path-based exec filtering because BPF cannot
+		// safely dereference userspace pointers (the filename argument to
+		// execve). Landlock LSM (kernel >= 5.13) could provide path-based
+		// EXECUTE deny as an alternative to shadow binding.
 		"--ro-bind", "/", "/",
 		// Minimal device tree (null, zero, random, urandom, tty).
 		"--dev", "/dev",
