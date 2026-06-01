@@ -106,13 +106,14 @@ func NewProvider(options Options, spec *Spec) *Provider {
 
 // Session is the shared session struct created by NewSession.
 type Session struct {
-	command    []string
-	env        map[string]string
-	workingDir string
-	systemMsg  string
-	runID      string
-	sandboxCfg sandbox.Config
-	spec       *Spec
+	command        []string
+	env            map[string]string
+	workingDir     string
+	systemMsg      string
+	runID          string
+	sandboxCfg     sandbox.Config
+	spec           *Spec
+	postStartHook  func(jobHandle uintptr)
 }
 
 // Command returns the resolved command slice for testing.
@@ -204,7 +205,8 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 				FDs:       p.Options.SandboxResources.FDs,
 			},
 		},
-		spec: spec,
+		spec:           spec,
+		postStartHook:  sessionConfig.PostStartHook,
 	}, nil
 }
 
@@ -246,11 +248,15 @@ func (s *Session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", s.spec.CmdStartErr(err)
 	}
 
-	postCleanup, err := sandbox.PostStartOrKill(cmd, s.sandboxCfg, stdin, stdout, s.spec.ID)
+	jobHandle, postCleanup, err := sandbox.PostStartWithHandleOrKill(cmd, s.sandboxCfg, stdin, stdout, s.spec.ID)
 	if err != nil {
 		return "", err
 	}
 	defer postCleanup()
+
+	if s.postStartHook != nil {
+		s.postStartHook(jobHandle)
+	}
 
 	go func() {
 		defer stdin.Close()

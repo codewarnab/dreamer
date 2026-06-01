@@ -108,6 +108,11 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 // postStart is a no-op on Linux. Unlike Windows (where Job Objects manage
 // child lifecycle), bwrap's --die-with-parent and --unshare-pid ensure all
 // descendants are killed when the parent exits. No kernel handles to release.
-func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
+func postStart(_ *exec.Cmd, _ Config) (cleanup func(), err error) {
 	return func() {}, nil
+}
+
+// postStartWithHandle is a no-op on Linux. Returns 0 for the handle.
+func postStartWithHandle(_ *exec.Cmd, _ Config) (uintptr, func(), error) {
+	return 0, func() {}, nil
 }

@@ -133,6 +133,11 @@ func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	return func() {}, nil
 }
 
+// postStartWithHandle is a no-op on macOS. Returns 0 for the handle.
+func postStartWithHandle(cmd *exec.Cmd, cfg Config) (uintptr, func(), error) {
+	return 0, func() {}, nil
+}
+
 // pathContains reports whether child is under parent (or equal to parent).
 // Both paths must be absolute and cleaned.
 func pathContains(parent, child string) bool {

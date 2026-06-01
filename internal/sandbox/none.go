@@ -13,3 +13,7 @@ func Available() bool { return false }
 func prepare(cmd *exec.Cmd, cfg Config) (func(), error) { return func() {}, nil }
 
 func postStart(cmd *exec.Cmd, cfg Config) (func(), error) { return func() {}, nil }
+
+func postStartWithHandle(cmd *exec.Cmd, cfg Config) (uintptr, func(), error) {
+	return 0, func() {}, nil
+}
