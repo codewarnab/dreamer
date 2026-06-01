@@ -83,6 +83,33 @@ type Run struct {
 	// Warnings carries non-fatal alerts surfaced during execution
 	// (e.g. sandbox unavailable, permissive mode without OS boundary).
 	Warnings []string `json:"warnings,omitempty"`
+	// SandboxStatus captures the OS sandbox state at run time.
+	SandboxStatus SandboxStatus `json:"sandbox_status,omitempty"`
+	// ActivityLogPath is the path to the per-run activity JSONL file
+	// containing process and network events observed during execution.
+	ActivityLogPath string `json:"activity_log_path,omitempty"`
+	// ActivitySummary provides quick counts of observed activity without
+	// loading the full activity log.
+	ActivitySummary *ActivitySummary `json:"activity_summary,omitempty"`
+}
+
+// SandboxStatus captures the OS sandbox state at run time.
+type SandboxStatus struct {
+	Available   bool     `json:"available"`
+	NetworkOpen bool     `json:"network_open"`
+	FileAccess  string   `json:"file_access"`
+	Warnings    []string `json:"warnings,omitempty"`
+}
+
+// ActivitySummary provides quick counts of observed activity during a run.
+type ActivitySummary struct {
+	Processes   int `json:"processes"`
+	Connections int `json:"connections"`
+	// ShellInterpreters counts processes matching known shell interpreters
+	// (powershell, cmd, bash, sh, python, node, ruby, perl, etc.) that
+	// were spawned during the run. A high count may indicate the provider
+	// was executing arbitrary code rather than using direct tool calls.
+	ShellInterpreters int `json:"shell_interpreters"`
 }
 
 // FileAccessMode controls what the job may write.
