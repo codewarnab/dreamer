@@ -155,7 +155,6 @@ func TestWeekdayToXMLElement(t *testing.T) {
 		{"monday", "Monday"}, {"tuesday", "Tuesday"}, {"wednesday", "Wednesday"},
 		{"thursday", "Thursday"}, {"friday", "Friday"}, {"saturday", "Saturday"},
 		{"sunday", "Sunday"},
-		{"unknown", "Monday"}, // default fallback
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -165,6 +164,15 @@ func TestWeekdayToXMLElement(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWeekdayToXMLElement_UnknownPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("weekdayToXMLElement(\"unknown\") did not panic")
+		}
+	}()
+	weekdayToXMLElement("unknown")
 }
 
 // B14: Description with special XML characters should be properly escaped.

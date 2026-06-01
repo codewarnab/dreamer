@@ -322,21 +322,25 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
     </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05"), interval), nil
 
 	case ScheduleDaily:
-		if _, _, err := parseTimeOfDay(spec.TimeOfDay); err != nil {
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
+		startBoundary := time.Now().Format("2006-01-02") + fmt.Sprintf("T%02d:%02d:00", hour, min)
 		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05")), nil
+    </CalendarTrigger>`, startBoundary), nil
 
 	case ScheduleWeekly:
-		if _, _, err := parseTimeOfDay(spec.TimeOfDay); err != nil {
+		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
+		if err != nil {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
+		startBoundary := time.Now().Format("2006-01-02") + fmt.Sprintf("T%02d:%02d:00", hour, min)
 		dayElement := weekdayToXMLElement(strings.ToLower(spec.DayOfWeek))
 		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>%s</StartBoundary>
@@ -347,7 +351,7 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
           <%s/>
         </DaysOfWeek>
       </ScheduleByWeek>
-    </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05"), dayElement), nil
+    </CalendarTrigger>`, startBoundary, dayElement), nil
 
 	case ScheduleCron:
 		return "", fmt.Errorf("cron schedules cannot be expressed as Windows Task Scheduler triggers; use daily or weekly instead")
@@ -375,7 +379,8 @@ func weekdayToXMLElement(day string) string {
 	case "saturday":
 		return "Saturday"
 	default:
-		return "Monday"
+		// Unreachable: ValidateSchedule rejects unknown days upstream.
+		panic("weekdayToXMLElement: unknown day " + day)
 	}
 }
 
