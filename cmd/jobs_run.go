@@ -221,12 +221,12 @@ func copyRunOutput(record backgroundjobs.Run, target string) error {
 	if record.LogPath != "" {
 		data, err := os.ReadFile(record.LogPath)
 		if err == nil {
-			return os.WriteFile(target, data, fsutil.SecretPerms)
+			return fsutil.WriteFileAtomic(target, data, fsutil.SecretPerms)
 		}
 	}
 	// Fallback: write OutputSummary.
 	if record.OutputSummary != "" {
-		return os.WriteFile(target, []byte(record.OutputSummary), fsutil.SecretPerms)
+		return fsutil.WriteFileAtomic(target, []byte(record.OutputSummary), fsutil.SecretPerms)
 	}
-	return os.WriteFile(target, []byte("(no output captured)\n"), fsutil.SecretPerms)
+	return fsutil.WriteFileAtomic(target, []byte("(no output captured)\n"), fsutil.SecretPerms)
 }

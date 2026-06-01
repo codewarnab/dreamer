@@ -203,6 +203,10 @@ func TestReadStreamJSON_ResultSuccessEvent(t *testing.T) {
 	}
 }
 
+// KNOWN FAIL: readStreamJSON currently concatenates assistant + result text
+// instead of replacing. The test asserts the expected "result replaces assistant"
+// behavior. Verify with real OpenClaude CLI output before fixing — the production
+// behavior may already be correct and the test assumption wrong.
 func TestReadStreamJSON_ResultPreferredOverAssistant(t *testing.T) {
 	events := []string{
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"Assistant text"}]}}`,

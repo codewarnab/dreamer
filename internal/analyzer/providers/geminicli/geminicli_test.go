@@ -213,6 +213,10 @@ func TestReadStreamJSON_ResultEvent(t *testing.T) {
 	}
 }
 
+// KNOWN FAIL: readStreamJSON currently concatenates message + result text
+// instead of replacing. The test asserts the expected "result replaces message"
+// behavior. Verify with real Gemini CLI output before fixing — the production
+// behavior may already be correct and the test assumption wrong.
 func TestReadStreamJSON_ResultPreferredOverMessage(t *testing.T) {
 	events := []string{
 		`{"type":"message","role":"assistant","content":"Partial"}`,

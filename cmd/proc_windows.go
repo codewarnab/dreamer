@@ -25,7 +25,9 @@ func detachedProcessAttr() *syscall.SysProcAttr {
 func suppressConsoleWindow() {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
 	if proc := kernel32.NewProc("FreeConsole"); proc.Find() == nil {
-		proc.Call()
+		// FreeConsole returns nonzero on success; ignore error — best-effort
+		// cleanup and the caller has no actionable recovery.
+		proc.Call() //nolint:errcheck
 	}
 }
 
