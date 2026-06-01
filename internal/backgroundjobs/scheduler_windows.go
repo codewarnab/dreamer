@@ -311,7 +311,7 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
 			}
 		}
 		return fmt.Sprintf(`<CalendarTrigger>
-      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
+      <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <Repetition>
         <Interval>%s</Interval>
@@ -319,29 +319,27 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, interval), nil
+    </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05"), interval), nil
 
 	case ScheduleDaily:
-		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
-		if err != nil {
+		if _, _, err := parseTimeOfDay(spec.TimeOfDay); err != nil {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
 		return fmt.Sprintf(`<CalendarTrigger>
-      <StartBoundary>2026-01-01T%02d:%02d:00</StartBoundary>
+      <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
-    </CalendarTrigger>`, hour, min), nil
+    </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05")), nil
 
 	case ScheduleWeekly:
-		hour, min, err := parseTimeOfDay(spec.TimeOfDay)
-		if err != nil {
+		if _, _, err := parseTimeOfDay(spec.TimeOfDay); err != nil {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
 		dayElement := weekdayToXMLElement(strings.ToLower(spec.DayOfWeek))
 		return fmt.Sprintf(`<CalendarTrigger>
-      <StartBoundary>2026-01-01T%02d:%02d:00</StartBoundary>
+      <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <WeeksInterval>1</WeeksInterval>
@@ -349,7 +347,7 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
           <%s/>
         </DaysOfWeek>
       </ScheduleByWeek>
-    </CalendarTrigger>`, hour, min, dayElement), nil
+    </CalendarTrigger>`, time.Now().Format("2006-01-02T15:04:05"), dayElement), nil
 
 	case ScheduleCron:
 		return "", fmt.Errorf("cron schedules cannot be expressed as Windows Task Scheduler triggers; use daily or weekly instead")
