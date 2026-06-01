@@ -15,6 +15,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	// defaultJobLogMaxSizeMB is the max log file size for background job runs.
+	// The daemon uses cfg.Logging.MaxSizeMB; jobs use this constant since
+	// they run outside the daemon config context.
+	defaultJobLogMaxSizeMB = 10
+
+	// maxDryRunPromptWidth limits prompt display length in --dry-run output.
+	maxDryRunPromptWidth = 120
+)
+
 // newJobsRunCommand returns "dreamer jobs run <job_id>".
 // Executes a background job on demand, safe for use from OS schedulers.
 // Returns exit code 0 on success, 1 on failure.
@@ -51,7 +61,7 @@ func newJobsRunCommand() *cobra.Command {
 				return err
 			}
 
-			lg, err := logging.New(outputRoot, "info", 10)
+			lg, err := logging.New(outputRoot, "info", defaultJobLogMaxSizeMB)
 			if err != nil {
 				return fmt.Errorf("create logger: %w", err)
 			}
@@ -92,7 +102,7 @@ func newJobsRunCommand() *cobra.Command {
 					cmd.Printf("Schedule:    %s\n", job.Schedule.Kind)
 				}
 				cmd.Printf("Timeout:     %s\n", effectiveTimeout)
-				cmd.Printf("Prompt:      %s\n", truncateForDisplay(job.Prompt, 120))
+				cmd.Printf("Prompt:      %s\n", truncateForDisplay(job.Prompt, maxDryRunPromptWidth))
 				if outputFile != "" {
 					cmd.Println("Note:        --output-file ignored with --dry-run")
 				}
@@ -121,6 +131,11 @@ func newJobsRunCommand() *cobra.Command {
 					lg.Warn("audit write failed (forced run)", logging.Any("err", auditErr))
 				}
 			}
+
+			// Close console window now that interactive output (--dry-run,
+			// --force, errors) is done. From here on, output goes to the
+			// log file and run store, not stdout.
+			suppressConsoleWindow()
 
 			// Build scheduler for self-repair (best-effort).
 			var selfRepair *backgroundjobs.SelfRepairConfig

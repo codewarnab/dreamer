@@ -389,6 +389,7 @@ type permissionHandler func(req map[string]any) map[string]any
 func dialStdio(ctx context.Context, providerID string, command []string, env map[string]string, sandboxMode string, sandboxProjectWrite bool, sandboxNetwork, sandboxSeccomp string, sandboxResources sandbox.ResourceLimits) (*transport, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Env = transportutil.MergeWithProcessEnv(env)
+	setNoWindow(cmd)
 
 	// Apply OS-level sandbox if configured.
 	sbMode, err := sandbox.ParseMode(sandboxMode)

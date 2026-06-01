@@ -21,6 +21,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"dreamer/internal/procutil"
 )
 
 // Available reports whether the OS-level sandbox is supported.
@@ -106,6 +108,9 @@ func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Token = token
+	// CREATE_NO_WINDOW prevents the sandboxed child from allocating a console
+	// window. Sandboxed processes are headless — they communicate via pipes.
+	cmd.SysProcAttr.CreationFlags |= procutil.CreateNoWindow
 
 	var writableReleases []func()
 	defer func() {

@@ -8,7 +8,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -27,11 +29,27 @@ type windowsScheduler struct {
 	runCmd func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
+// runExternalCommandNoWindow is like runExternalCommand but sets HideWindow
+// to suppress the console window that schtasks.exe would otherwise allocate.
+// runExternalCommandNoWindow is like runExternalCommand but sets HideWindow
+// on the child process. HideWindow uses STARTF_USESHOWWINDOW+SW_HIDE rather
+// than CREATE_NO_WINDOW — both suppress the console window, but HideWindow
+// is the conventional approach for schtasks.exe invocations.
+func runExternalCommandNoWindow(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.Bytes(), err
+}
+
 func newPlatformScheduler(cfg SchedulerConfig, logger *logging.Logger) Scheduler {
 	return &windowsScheduler{
 		cfg:    cfg,
 		logger: logger,
-		runCmd: runExternalCommand,
+		runCmd: runExternalCommandNoWindow,
 	}
 }
 
@@ -266,8 +284,11 @@ const taskXMLTemplate = `<Task version="1.2" xmlns="http://schemas.microsoft.com
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>{{.Enabled}}</Enabled>
-    <Hidden>false</Hidden>
+    <!-- Hidden: hides from Task Scheduler UI (not the console window).
+         Console window suppression is handled by CREATE_NO_WINDOW/HideWindow. -->
+    <Hidden>true</Hidden>
     <ExecutionTimeLimit>{{.TimeLimit}}</ExecutionTimeLimit>
+    <!-- Priority 7 = below normal; background jobs shouldn't compete with foreground. -->
     <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">

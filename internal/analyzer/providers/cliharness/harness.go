@@ -222,6 +222,7 @@ func (s *Session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	cmd := exec.CommandContext(ctx, s.command[0], s.command[1:]...)
 	cmd.Dir = s.workingDir
 	cmd.Env = transport.MergeWithProcessEnv(s.env)
+	setNoWindow(cmd)
 
 	prepareCleanup, err := sandbox.Prepare(cmd, s.sandboxCfg)
 	if err != nil {
