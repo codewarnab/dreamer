@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/pflag"
+
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
-	"github.com/spf13/pflag"
 )
 
 // resolveSelfExecutable returns the absolute path of the running dreamer
@@ -73,6 +74,23 @@ func resolveConfigPath(configPath string) (string, error) {
 	}
 
 	return filepath.Clean(expandedPath), nil
+}
+
+// loadConfigAndLogger loads config with overlay and creates the file logger.
+// Shared by `daemon` and `web --serve` — both bootstrap the same config+logger
+// pair before standing up their respective runtimes. Emits the v1.2 `since`
+// default notices as a side effect so every entry point surfaces them.
+func loadConfigAndLogger(configPath, overlayPath string) (*config.App, *logging.Logger, error) {
+	cfg, err := config.LoadConfigWithOverlay(configPath, overlayPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load config %q: %w", configPath, err)
+	}
+	logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
+	if err != nil {
+		return nil, nil, err
+	}
+	logDefaultedSinceNotices(logger, cfg)
+	return cfg, logger, nil
 }
 
 // logDefaultedSinceNotices emits one info line per project whose `since` was

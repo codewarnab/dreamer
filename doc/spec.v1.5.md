@@ -119,14 +119,30 @@ against it.
 ### 2.2 `dreamer web` (new, thin convenience)
 
 ```
-$ dreamer web [--open]
+$ dreamer web [--serve] [--open] [--port <n>]
 ```
 
-Prints the web URL (`http://127.0.0.1:<port>`). With `--open`, opens the
-URL in the OS default browser (`open` / `xdg-open` / `start`). Does NOT
-spawn the daemon — fails with a clear message if the port is not
-listening, instructing the user to run `dreamer daemon` (or `systemctl
---user start dreamer` if `startup install` ran).
+**Default (no `--serve`) — discovery.** Prints the web URL
+(`http://127.0.0.1:<port>`). With `--open`, opens the URL in the OS
+default browser (`open` / `xdg-open` / `start`). Does NOT spawn the
+daemon — fails with a clear message if the port is not listening,
+instructing the user to run `dreamer daemon` (or
+`systemctl --user start dreamer` if `startup install` ran) or to run a
+standalone server with `dreamer web --serve`.
+
+**`--serve` — standalone, read-only server.** Runs a web server in the
+foreground without a daemon. Reuses the daemon's config+logger bootstrap
+(`loadConfigAndLogger`) and signal set (SIGINT, plus SIGTERM on Unix), but
+wires none of the producer hooks (`EnqueueRun`, `RestartHook`, `Activity`,
+`Jobs`, `OverlayPath`). The read-only surface (dashboard, projects,
+findings, chats, history, providers, log tail, settings view, SPA shell)
+serves from state/history/todos files; the write/producer endpoints
+(`POST /run`, `POST /daemon/restart`, `/api/jobs/*`, `PUT /settings`)
+return `503` by design. `--serve` ignores `web.enabled` (that gate only
+governs the daemon's embedded server). `--port <n>` overrides the bound
+port; `--port 0` binds an ephemeral port and writes
+`<output_root>/web.port`. Ctrl+C shuts down gracefully within
+`webShutdownTimeout`.
 
 ### 2.3 Other commands — unchanged
 

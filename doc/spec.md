@@ -36,7 +36,7 @@ dreamer analyze --path <abs project dir>
 dreamer daemon   [--config <path>]
 dreamer setup    [--advanced]
 dreamer add      [<path>]
-dreamer web      [--open]
+dreamer web      [--serve] [--open] [--port <n>]
 dreamer ls-chats --project-path <dir>
 dreamer start|stop|status
 dreamer startup  {install|status|uninstall} [--config <path>]
