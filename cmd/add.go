@@ -108,7 +108,7 @@ func appendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, 
 		return nil, fmt.Errorf("config yaml root is not a mapping")
 	}
 
-	projectsKey, projectsVal := findMappingChild(doc, "projects")
+	projectsKey, projectsVal := config.FindMappingChild(doc, "projects")
 	entry := projectMappingNode(name, path, since)
 
 	if projectsVal == nil {
@@ -144,15 +144,6 @@ func appendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, 
 	return []byte(buf.String()), nil
 }
 
-func findMappingChild(node *yaml.Node, key string) (k, v *yaml.Node) {
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			return node.Content[i], node.Content[i+1]
-		}
-	}
-	return nil, nil
-}
-
 func findDuplicateProject(seq *yaml.Node, name, path string) string {
 	// Normalize the input path so ~/foo, /abs/x, and C:\abs\x all
 	// compare consistently regardless of how they were typed.
@@ -161,8 +152,8 @@ func findDuplicateProject(seq *yaml.Node, name, path string) string {
 		if item.Kind != yaml.MappingNode {
 			continue
 		}
-		_, nameNode := findMappingChild(item, "name")
-		_, pathNode := findMappingChild(item, "path")
+		_, nameNode := config.FindMappingChild(item, "name")
+		_, pathNode := config.FindMappingChild(item, "path")
 		if nameNode != nil && nameNode.Value == name {
 			return fmt.Sprintf("name=%q", name)
 		}
