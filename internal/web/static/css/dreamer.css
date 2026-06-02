@@ -77,6 +77,24 @@
   --hairline-uv: 1px solid var(--ultraviolet);
 }
 
+[data-theme="light"] {
+  --canvas-black: #f8f9fa;
+  --surface-slate: #e9ecef;
+  --image-frame: #dee2e6;
+  --hazard-white: #000000;
+  --absolute-black: #ffffff;
+  --jelly-mint: #0d9b6a;
+  --ultraviolet: #6f42c1;
+  --console-mint-border: #0d9b6a;
+  --purple-rule: #6f42c1;
+  --deep-link-blue: #2563eb;
+  --focus-cyan: #0284c7;
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b7280;
+  --text-muted: #374151;
+  --text-inverted: #f8f9fa;
+}
+
 * { box-sizing: border-box; }
 
 html, body { margin: 0; padding: 0; }

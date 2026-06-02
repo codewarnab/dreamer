@@ -110,6 +110,27 @@ document.addEventListener("alpine:init", function () {
     },
   });
 
+  // Theme store — persists preference in localStorage, applies via data-theme attribute.
+  Alpine.store("theme", {
+    current: "dark",
+
+    init: function () {
+      var saved = localStorage.getItem("dreamer-theme");
+      this.current = (saved === "light" || saved === "dark") ? saved : "dark";
+      this._apply();
+    },
+
+    toggle: function () {
+      this.current = this.current === "dark" ? "light" : "dark";
+      localStorage.setItem("dreamer-theme", this.current);
+      this._apply();
+    },
+
+    _apply: function () {
+      document.documentElement.setAttribute("data-theme", this.current);
+    },
+  });
+
   // Toast store — non-blocking notifications.
   Alpine.store("toasts", {
     _items: [],
