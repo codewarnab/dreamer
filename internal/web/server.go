@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -191,13 +192,18 @@ func (s *Server) Start() error {
 	}
 	s.listener = l
 	s.addr = l.Addr().String()
-	if port == 0 {
+	if port == 0 && !s.opts.Standalone {
+		// NOTE: Standalone mode serves in the foreground and prints its URL directly to stdout,
+		// so port-file discovery is not needed. Skip writing the web.port file to prevent
+		// clobbering any running daemon's ephemeral discovery port marker.
 		portPath := filepath.Join(s.opts.Config.Daemon.OutputRoot, "web.port")
 		portBytes := []byte(fmt.Sprintf("%d\n", l.Addr().(*net.TCPAddr).Port))
 		// Atomic write (temp + rename) matches the project-wide convention
 		// from B3 so a racing `dreamer web` can never observe a partial
 		// or empty port file mid-write.
-		if err := fsutil.WriteFileAtomic(portPath, portBytes, fsutil.FilePerms); err != nil {
+		// Written with SecretPerms (owner read-write only) since the port is exposed without authentication
+		// and we want to prevent local unauthenticated access disclosure to other users on shared hosts.
+		if err := fsutil.WriteFileAtomic(portPath, portBytes, fsutil.SecretPerms); err != nil {
 			s.opts.Logger.Error("write port file failed", append([]logging.Attr{logging.Any("path", portPath)}, logging.ErrAttr(err)...)...)
 		}
 	}
@@ -219,6 +225,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	s.opts.Logger.Info("web stop")
+
+	// Best-effort cleanup of the ephemeral web.port file on shutdown to avoid leaving stale port discovery files on disk.
+	if s.opts.Config.Web.Port == 0 && !s.opts.Standalone {
+		portPath := filepath.Join(s.opts.Config.Daemon.OutputRoot, "web.port")
+		_ = os.Remove(portPath)
+	}
+
 	return s.httpSrv.Shutdown(ctx)
 }
 

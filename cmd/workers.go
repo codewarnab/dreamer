@@ -88,6 +88,11 @@ func (wp *workerPool) Stop() {
 func (wp *workerPool) stop(grace time.Duration) {
 	done := make(chan struct{})
 	go func() {
+		// NOTE: If the grace period expires, this spawned goroutine waiting on wg.Wait()
+		// will remain blocked. In production, this is harmless as it only occurs immediately
+		// before daemon process exit, at which point the OS reclaims all resources.
+		// Furthermore, stuck worker subprocesses are guaranteed to be terminated via SIGKILL
+		// because pipeline.Run executes commands using the canceled command context.
 		wp.wg.Wait()
 		close(done)
 	}()

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,9 +35,18 @@ func Events(deps Deps) http.HandlerFunc {
 		ch := deps.Events.Subscribe(sseSubscribeBuffer)
 		defer deps.Events.Unsubscribe(ch)
 		ctx := r.Context()
+		shutdownCtx := deps.ShutdownCtx
+		if shutdownCtx == nil {
+			shutdownCtx = context.Background()
+		}
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-shutdownCtx.Done():
+				// NOTE: Unblock promptly when the daemon triggers shutdown (Ctrl+C).
+				// This prevents open SSE connections from stalling the grace period
+				// of http.Server.Shutdown to its 5-second deadline.
 				return
 			case e, ok := <-ch:
 				if !ok {
