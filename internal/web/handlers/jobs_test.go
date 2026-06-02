@@ -1116,6 +1116,30 @@ func TestResolveProjectPath_EmptyUsesFirst(t *testing.T) {
 	}
 }
 
+// TestResolveProjectPath_EmptyMultipleIsAmbiguous ensures an empty project_name
+// is rejected when several projects exist, rather than silently targeting the
+// first — which would run the job against an unintended project.
+func TestResolveProjectPath_EmptyMultipleIsAmbiguous(t *testing.T) {
+	cfg := testConfig()
+	cfg.Projects = append(cfg.Projects, config.ProjectConfig{Name: "proj-b", Path: "/tmp/proj-b"})
+	_, err := resolveProjectPath(cfg, "")
+	if err == nil {
+		t.Fatal("expected error for empty project_name with multiple projects")
+	}
+	if !strings.Contains(err.Error(), "project_name is required") {
+		t.Fatalf("expected 'project_name is required' error, got: %v", err)
+	}
+}
+
+func TestResolveProjectPath_EmptyNoProjects(t *testing.T) {
+	cfg := testConfig()
+	cfg.Projects = nil
+	_, err := resolveProjectPath(cfg, "")
+	if err == nil {
+		t.Fatal("expected error when no projects configured")
+	}
+}
+
 func TestJobAuditLog_ReturnsEvents(t *testing.T) {
 	audit := &mockAuditWriter{
 		events: []backgroundjobs.AuditEvent{

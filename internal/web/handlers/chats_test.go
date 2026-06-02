@@ -349,6 +349,50 @@ func TestDeleteUpdatesChatHashes(t *testing.T) {
 	}
 }
 
+// TestDeleteInvalidatesDiscoverCache proves a successful delete drops the
+// project's entry from discoverChatsCache, so the SSE-driven GET refresh sees
+// fresh FS state instead of re-serving the just-deleted source for the TTL.
+func TestDeleteInvalidatesDiscoverCache(t *testing.T) {
+	fakeHome := t.TempDir()
+	setHomeForTest(t, fakeHome)
+
+	sessionDir := filepath.Join(fakeHome, ".copilot", "session-state")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chatPath := filepath.Join(sessionDir, "cached.jsonl")
+	if err := os.WriteFile(chatPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := t.TempDir()
+	cfg := &config.App{
+		Projects: []config.ProjectConfig{{Name: "proj", Path: projectDir, Since: "lifetime"}},
+		Daemon:   config.DaemonConfig{OutputRoot: t.TempDir()},
+	}
+
+	// Warm the cache the way a GET would, and confirm the entry landed.
+	if _, err := cachedDiscoverChats(projectDir); err != nil {
+		t.Fatalf("warm cache: %v", err)
+	}
+	if _, ok := discoverChatsCache.Load(projectDir); !ok {
+		t.Fatal("precondition: cache entry should exist after warm-up")
+	}
+
+	handler := ProjectChats(Deps{Config: func() *config.App { return cfg }, StateLock: NewProjectLock()})
+	body := `{"path":"` + strings.ReplaceAll(chatPath, `\`, `\\`) + `"}`
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj/chats", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	if _, ok := discoverChatsCache.Load(projectDir); ok {
+		t.Error("cache entry should be invalidated after a successful delete")
+	}
+}
+
 // TestBulkDeleteUpdatesChatHashes mirrors the single-delete invariant for
 // the :bulk-delete endpoint: all successful paths drop from state in one
 // save.

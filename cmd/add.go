@@ -56,7 +56,9 @@ func newAddCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := fsutil.WriteFileAtomic(cfgPath, updated, fsutil.FilePerms); err != nil {
+			// SecretPerms (0600): config.yaml may carry provider passwords;
+			// keep it consistent with `dreamer remove` and the web writers.
+			if err := fsutil.WriteFileAtomic(cfgPath, updated, fsutil.SecretPerms); err != nil {
 				return fmt.Errorf("write config %q: %w", cfgPath, err)
 			}
 			cmd.Printf("added project %q (path=%s since=%s) to %s\n", name, absPath, since, cfgPath)

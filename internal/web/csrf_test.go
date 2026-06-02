@@ -227,6 +227,12 @@ func TestCSRF_HostValidation_LoopbackHostsPassed(t *testing.T) {
 		"localhost:7777",
 		"[::1]",
 		"[::1]:7777",
+		// Non-default loopback IPs: config.validateWebHost accepts the whole
+		// 127.0.0.0/8 block, so the Host check must too or the UI 403s on a
+		// valid bind.
+		"127.0.0.2",
+		"127.0.0.2:7777",
+		"127.1.2.3:7777",
 	} {
 		r := httptest.NewRequest("GET", "/api/projects", nil)
 		r.Host = host
@@ -234,6 +240,28 @@ func TestCSRF_HostValidation_LoopbackHostsPassed(t *testing.T) {
 		h.ServeHTTP(w, r)
 		if w.Code != 200 {
 			t.Fatalf("Host=%q: GET status = %d, want 200", host, w.Code)
+		}
+	}
+}
+
+// TestIsLoopbackHost_MatchesConfigValidateWebHost locks the CSRF Host allowlist
+// to the same loopback definition config.validateWebHost enforces, so an
+// operator's accepted web.host can never be rejected at request time.
+func TestIsLoopbackHost_MatchesConfigValidateWebHost(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"127.0.0.1": true,
+		"127.0.0.2": true,
+		"127.1.2.3": true,
+		"localhost": true,
+		"::1":       true,
+		"":          false,
+		"10.0.0.1":  false,
+		"::":        false,
+	}
+	for host, want := range cases {
+		if got := isLoopbackHost(host); got != want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", host, got, want)
 		}
 	}
 }

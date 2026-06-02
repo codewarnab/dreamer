@@ -32,4 +32,20 @@ func (s *server) handleBad(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Handler with err.Error() in http.Error — the most common leak vector.
+func handleBad3(w http.ResponseWriter, r *http.Request) {
+	err := doSomething()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError) // want "err\\.Error\\(\\) used as HTTP response body; leaks filesystem paths — use a safe error message"
+	}
+}
+
+// Handler writing raw error bytes to the response.
+func handleBad4(w http.ResponseWriter, r *http.Request) {
+	err := doSomething()
+	if err != nil {
+		w.Write([]byte(err.Error())) // want "err\\.Error\\(\\) used as HTTP response body; leaks filesystem paths — use a safe error message"
+	}
+}
+
 func doSomething() error { return nil }

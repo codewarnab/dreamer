@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +70,34 @@ func TestValidateWritablePathsSymlinkEscape(t *testing.T) {
 	err := ValidateWritablePaths(root, []string{link})
 	if err == nil {
 		t.Fatal("expected error for symlink escaping project root")
+	}
+}
+
+// TestValidateWritablePathsSymlinkToProtectedDir guards the containment bypass
+// where a symlink with an innocent name points at a protected directory inside
+// the project root. The literal-name suffix check passes (no ".git" component),
+// containment passes (the target is still inside root), so the resolved-path
+// suffix re-check is the only thing that can catch it.
+func TestValidateWritablePathsSymlinkToProtectedDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on Windows")
+	}
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.Mkdir(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	link := filepath.Join(root, "innocent")
+	if err := os.Symlink(gitDir, link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	err := ValidateWritablePaths(root, []string{link})
+	if err == nil {
+		t.Fatal("expected error: symlink 'innocent' resolves into protected .git")
+	}
+	if !strings.Contains(err.Error(), "protected") {
+		t.Fatalf("expected a protected-directory error, got: %v", err)
 	}
 }
 

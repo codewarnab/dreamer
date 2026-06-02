@@ -55,12 +55,10 @@ func handleGood5(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// w.Write([]byte(err.Error())) is not flagged — detecting err.Error() inside
-// a byte-slice conversion requires deeper AST tracking than the current
-// verbatim-callee approach supports. Documented as intentionally out of scope.
+// w.Write with a static byte slice — not flagged (no err.Error()).
 func handleGood6(w http.ResponseWriter, r *http.Request) {
 	err := doSomething()
 	if err != nil {
-		w.Write([]byte(err.Error()))
+		w.Write([]byte("something went wrong"))
 	}
 }

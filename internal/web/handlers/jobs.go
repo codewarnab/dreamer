@@ -266,6 +266,11 @@ func resolveProjectPath(cfg *config.App, projectName string) (string, error) {
 		if len(cfg.Projects) == 0 {
 			return "", fmt.Errorf("no projects configured; pass project_name explicitly")
 		}
+		// Only default to the sole project. With several configured, silently
+		// picking the first would run the job against an unintended target.
+		if len(cfg.Projects) > 1 {
+			return "", fmt.Errorf("multiple projects configured; project_name is required")
+		}
 		return cfg.Projects[0].Path, nil
 	}
 	for _, p := range cfg.Projects {

@@ -101,6 +101,7 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBodyBytes)
 	body, err := readJSONObject(r)
 	if err != nil {
+		//astcheck:ignore[errverbatim] // JSON decode error on the caller's own request body; carries no filesystem paths and the detail helps the loopback client fix its payload
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -119,6 +120,12 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Serialize the overlay read-modify-write against ProjectDelete, which
+	// clears the projects: key from the same file under configFileMu. Without
+	// this lock a concurrent DELETE + PUT can interleave and lose either write.
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
 
 	existing := map[string]any{}
 	if data, err := os.ReadFile(overlayPath); err == nil {
@@ -139,10 +146,13 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 
 	out, err := yaml.Marshal(existing)
 	if err != nil {
+		//astcheck:ignore[errverbatim] // yaml.Marshal of an in-memory map; any error is a type/encoding fault with no filesystem path to leak
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := fsutil.WriteFileAtomic(overlayPath, out, fsutil.FilePerms); err != nil {
+	// SecretPerms (0600): the overlay can carry provider secrets, so it must
+	// not be world-readable on multi-user systems.
+	if err := fsutil.WriteFileAtomic(overlayPath, out, fsutil.SecretPerms); err != nil {
 		http.Error(w, fmt.Sprintf("write overlay: %v", err), http.StatusInternalServerError)
 		return
 	}

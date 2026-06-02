@@ -250,6 +250,25 @@ func TestProjectDelete_RejectSubpath(t *testing.T) {
 	}
 }
 
+// TestProjectDelete_RejectsInvalidName covers names the bare URL check lets
+// through but config.ValidateProjectName rejects: a Windows reserved device
+// name and a backslash separator. Both must 404 before any config rewrite.
+func TestProjectDelete_RejectsInvalidName(t *testing.T) {
+	for _, name := range []string{"CON", "a%5Cb"} {
+		cfg := buildProjectsCfg(t)
+		h := ProjectDelete(Deps{
+			Config:     func() *config.App { return cfg },
+			ConfigPath: func() string { return filepath.Join(t.TempDir(), "config.yaml") },
+		})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/projects/"+name, nil)
+		h(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("name %q: status = %d, want 404", name, rec.Code)
+		}
+	}
+}
+
 func TestProjectDelete_MethodNotAllowed(t *testing.T) {
 	cfg := buildProjectsCfg(t)
 	h := ProjectDelete(Deps{Config: func() *config.App { return cfg }})

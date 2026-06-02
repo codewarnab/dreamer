@@ -37,17 +37,9 @@ func validateSingleWritablePath(projectRoot, p string) error {
 	}
 	p = filepath.Clean(p)
 
-	// Check protected suffixes anywhere in the path (not just root prefix).
-	rel, err := filepath.Rel(projectRoot, p)
-	if err != nil {
-		return fmt.Errorf("path %q: cannot compute relative path: %w", p, err)
-	}
-	for _, comp := range strings.Split(filepath.ToSlash(rel), "/") {
-		for _, suffix := range protectedSuffixes {
-			if comp == suffix {
-				return fmt.Errorf("path %q targets protected directory %q", p, suffix)
-			}
-		}
+	// Reject protected directories named literally in the requested path.
+	if suffix := protectedComponent(projectRoot, p); suffix != "" {
+		return fmt.Errorf("path %q targets protected directory %q", p, suffix)
 	}
 
 	// Resolve symlinks through deepest existing ancestor.
@@ -55,13 +47,40 @@ func validateSingleWritablePath(projectRoot, p string) error {
 	if err != nil {
 		return fmt.Errorf("resolve symlinks for %q: %w", p, err)
 	}
+	resolved = filepath.Clean(resolved)
+
+	// Re-check protected directories on the resolved path. A symlink with an
+	// innocent name (e.g. "notes" -> ".git") passes the literal check above
+	// but must not grant write access to a protected directory it points at.
+	if suffix := protectedComponent(projectRoot, resolved); suffix != "" {
+		return fmt.Errorf("path %q resolves to protected directory %q", p, suffix)
+	}
 
 	// Check containment after resolution.
-	if !strings.HasPrefix(filepath.Clean(resolved)+string(filepath.Separator), projectRoot+string(filepath.Separator)) && resolved != projectRoot {
+	if !strings.HasPrefix(resolved+string(filepath.Separator), projectRoot+string(filepath.Separator)) && resolved != projectRoot {
 		return fmt.Errorf("path %q resolves outside project root to %q", p, resolved)
 	}
 
 	return nil
+}
+
+// protectedComponent returns the first protected directory name that appears
+// as a path component of p relative to projectRoot, or "" if none does. A path
+// outside projectRoot (rel computation fails or escapes) is treated as having
+// no protected component here; containment is enforced separately by the caller.
+func protectedComponent(projectRoot, p string) string {
+	rel, err := filepath.Rel(projectRoot, p)
+	if err != nil {
+		return ""
+	}
+	for _, comp := range strings.Split(filepath.ToSlash(rel), "/") {
+		for _, suffix := range protectedSuffixes {
+			if comp == suffix {
+				return suffix
+			}
+		}
+	}
+	return ""
 }
 
 // resolveAncestorSymlink resolves symlinks through the deepest existing

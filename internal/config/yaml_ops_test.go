@@ -95,9 +95,27 @@ func TestRemoveProjectFromYAML_ProjectsNotList(t *testing.T) {
 }
 
 func TestRemoveProjectFromYAML_NullProjects(t *testing.T) {
+	// `projects: null` parses as a ScalarNode, exercising the null-value
+	// branch (distinct from `projects: []`, which is an empty SequenceNode and
+	// falls through to the "not found" path covered below).
+	_, err := RemoveProjectFromYAML([]byte("projects: null\n"), "alpha")
+	if err == nil {
+		t.Fatalf("expected error for null projects value")
+	}
+	if !strings.Contains(err.Error(), "no projects configured") {
+		t.Fatalf("expected 'no projects configured' error, got: %v", err)
+	}
+}
+
+func TestRemoveProjectFromYAML_EmptySequence(t *testing.T) {
+	// `projects: []` is a valid but empty sequence: the named project simply
+	// isn't present, so removal reports it as not found.
 	_, err := RemoveProjectFromYAML([]byte("projects: []\n"), "alpha")
 	if err == nil {
 		t.Fatalf("expected error for empty projects list")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' error, got: %v", err)
 	}
 }
 

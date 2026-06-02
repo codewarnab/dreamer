@@ -42,7 +42,8 @@ func newRemoveCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := fsutil.WriteFileAtomic(cfgPath, updated, fsutil.FilePerms); err != nil {
+			// SecretPerms (0600): config.yaml may carry provider passwords.
+			if err := fsutil.WriteFileAtomic(cfgPath, updated, fsutil.SecretPerms); err != nil {
 				return fmt.Errorf("write config %q: %w", cfgPath, err)
 			}
 			cmd.Printf("removed project %q from %s\n", name, cfgPath)

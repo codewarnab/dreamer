@@ -22,13 +22,15 @@ type MyError struct{ Msg string }
 
 func (e *MyError) Error() string { return e.Msg }
 
-// Not flagged: .Error() on non-error type.
-type notError struct{ val string }
+// Not flagged: a genuine non-error type. label has no Error() method, so the
+// isErrorType check correctly skips it. (A type WITH an `Error() string`
+// method always implements error and is handled in bad.go.)
+type label struct{ val string }
 
-func (n notError) Error() string { return n.val }
+func (l label) Describe() string { return l.val }
 
-func nonErrorCall(n notError) bool {
-	return strings.Contains(n.Error(), "something")
+func nonErrorCall(l label) bool {
+	return strings.Contains(l.Describe(), "something")
 }
 
 // Not flagged: strings.Contains with non-literal second arg.

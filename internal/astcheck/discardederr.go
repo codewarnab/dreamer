@@ -119,18 +119,17 @@ func resultTypeAt(callType types.Type, i, n int) types.Type {
 	return nil
 }
 
-// isErrorType reports whether t is the predeclared error interface.
+// isErrorType reports whether t implements the error interface — the builtin
+// error itself, or any concrete/custom type with an `Error() string` method
+// (e.g. *os.PathError, *MyError). Matching only the predeclared error meant
+// the stringerr/errverbatim checks silently skipped every custom error type,
+// which is exactly where verbatim-leak and string-matching bugs hide.
 func isErrorType(t types.Type) bool {
 	if t == nil {
 		return false
 	}
-	named, ok := t.(*types.Named)
-	if !ok {
-		return false
-	}
-	// The builtin error type is a Named type declared in the universe scope
-	// (its object has a nil package).
-	return named.Obj().Name() == "error" && named.Obj().Pkg() == nil
+	errIface := types.Universe.Lookup("error").Type().Underlying().(*types.Interface)
+	return types.Implements(t, errIface)
 }
 
 // calleeKey returns the normalized identity of a call's callee, matching the

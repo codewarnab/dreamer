@@ -28,7 +28,12 @@ const discoverChatsTTL = 30 * time.Second
 
 // cachedDiscoverChats returns DiscoverChats results from a short-lived
 // per-project cache (30s TTL). DELETE handlers must NOT use this — they
-// need fresh FS state to validate targets.
+// need fresh FS state to validate targets, and they call
+// discoverChatsCache.Delete(projectPath) afterward to drop the stale entry.
+//
+// Contract: the returned slice is the shared cache entry and MUST be treated
+// as read-only. Callers that need to mutate (filter, sort) must copy first;
+// mutating in place would be a data race across concurrent requests.
 func cachedDiscoverChats(projectPath string) ([]chat.Source, error) {
 	if v, ok := discoverChatsCache.Load(projectPath); ok {
 		entry := v.(*discoverChatsCacheEntry)
@@ -242,6 +247,9 @@ func deleteProjectChat(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("delete chat source: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// Drop the cached discovery list so the SSE-driven GET refresh sees fresh
+	// FS state instead of re-serving the just-deleted source for up to the TTL.
+	discoverChatsCache.Delete(project.Path)
 	dropChatHashEntries(deps, name, []string{found.Path})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": found.Path})
 }
@@ -316,6 +324,9 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		successCount++
 	}
 	if successCount > 0 {
+		// Drop the cached discovery list so the SSE-driven GET refresh sees
+		// fresh FS state instead of re-serving just-deleted sources.
+		discoverChatsCache.Delete(project.Path)
 		deletedPaths := make([]string, 0, successCount)
 		for _, entry := range results {
 			if entry.OK {

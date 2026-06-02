@@ -44,6 +44,9 @@ existing comment therefore overstates the protection actually provided.
 **Acceptance.**
 - A GET with `Host: attacker.com` returns 403.
 - A GET with `Host: 127.0.0.1:7777` (and `localhost`, `[::1]`) passes.
+- `isLoopbackHost` accepts the full `127.0.0.0/8` block (e.g. `127.0.0.2`), matching
+  `config.validateWebHost`, so any operator-accepted `web.host` cannot be rejected at
+  request time and silently 403 the UI.
 - All existing CSRF tests still pass.
 
 **Design rules:** #4 Fail Fast at boundaries, #8 Design by Contract, #1 accurate comments.

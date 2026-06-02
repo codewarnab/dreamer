@@ -151,6 +151,13 @@ func (s *Server) initTemplates() {
 // HTML files are visible on the next browser refresh without a rebuild.
 func (s *Server) templateFor(page string) (*template.Template, error) {
 	if s.opts.DevDir != "" {
+		// page is always an allowlisted constant from the route tables in
+		// production, but in dev mode it lands in a filesystem path. Reject
+		// anything with a path separator or "." component so a future caller
+		// can't turn it into a traversal — matching the prod map-lookup guard.
+		if page == "" || strings.ContainsAny(page, `/\`) || strings.Contains(page, "..") {
+			return nil, fmt.Errorf("invalid page template name: %q", page)
+		}
 		layoutPath := filepath.Join(s.opts.DevDir, "templates", "layout.html")
 		pagePath := filepath.Join(s.opts.DevDir, "templates", page+".html")
 		return template.ParseFiles(layoutPath, pagePath)
