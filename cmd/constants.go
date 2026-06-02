@@ -28,6 +28,14 @@ const (
 	// activityRingSize is the number of recent events kept in the
 	// dashboard's live-activity ring buffer.
 	activityRingSize = 20
+
+	// workerShutdownGrace bounds how long daemon shutdown waits for
+	// in-flight analysis jobs to drain. The signal handler has already
+	// canceled the run context by the time Stop() is called, so workers
+	// are winding down; this is only an upper bound on how long we wait
+	// before abandoning a stuck provider subprocess. Without it, Ctrl+C
+	// could block for the full max_analysis_duration (default 8h).
+	workerShutdownGrace = 10 * time.Second
 )
 
 // Status command.

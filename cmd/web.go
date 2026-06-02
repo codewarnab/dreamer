@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -15,61 +16,132 @@ import (
 	"github.com/spf13/cobra"
 
 	"dreamer/internal/config"
+	"dreamer/internal/pipeline"
+	"dreamer/internal/state"
+	"dreamer/internal/web"
 )
 
 func newWebCommand() *cobra.Command {
 	var (
-		openFlag bool
+		openFlag  bool
+		serveFlag bool
+		portFlag  int
 	)
 	cmd := &cobra.Command{
 		Use:   "web",
-		Short: "Print the dreamer web UI URL (with --open, launch a browser).",
+		Short: "Open the dreamer web UI. With --serve, run a standalone server; otherwise print a running daemon's URL.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resolved, err := resolveConfigPath(configPath)
-			if err != nil {
-				return err
-			}
-			overlayPath, _ := config.GlobalOverlayPath()
-			cfg, err := config.LoadConfigWithOverlay(resolved, overlayPath)
-			if err != nil {
-				return fmt.Errorf("load config %q: %w", resolved, err)
-			}
-			port, err := resolveWebPort(cfg)
-			if err != nil {
-				return err
-			}
-			url := fmt.Sprintf("http://127.0.0.1:%d", port)
-			if err := probeHealth(url+"/api/health", healthProbeTimeout); err != nil {
-				line1 := fmt.Sprintf("daemon UI not running on %s", url)
-				line2 := "start with:"
-				line3 := "dreamer daemon"
-				maxLen := len(line1)
-				if len(line2)+2 > maxLen {
-					maxLen = len(line2) + 2
+			if serveFlag {
+				portOverride := -1
+				if cmd.Flags().Changed("port") {
+					portOverride = portFlag
 				}
-				if len(line3)+4 > maxLen {
-					maxLen = len(line3) + 4
-				}
-				w := maxLen + 4 // padding inside the box
-				fmt.Fprintf(cmd.OutOrStderr(), "╔%s╗\n", strings.Repeat("═", w))
-				fmt.Fprintf(cmd.OutOrStderr(), "║  %-*s  ║\n", maxLen, line1)
-				fmt.Fprintf(cmd.OutOrStderr(), "╠%s╣\n", strings.Repeat("═", w))
-				fmt.Fprintf(cmd.OutOrStderr(), "║  %-*s  ║\n", maxLen, line2)
-				fmt.Fprintf(cmd.OutOrStderr(), "║    %-*s  ║\n", maxLen-2, line3)
-				fmt.Fprintf(cmd.OutOrStderr(), "╚%s╝\n", strings.Repeat("═", w))
-				return nil
+				return serveWeb(cmd, portOverride, openFlag)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), url)
-			if openFlag {
-				if err := openBrowser(url); err != nil {
-					fmt.Fprintf(cmd.OutOrStderr(), "failed to launch browser: %v\n", err)
-				}
-			}
-			return nil
+			return discoverWebURL(cmd, openFlag)
 		},
 	}
 	cmd.Flags().BoolVar(&openFlag, "open", false, "Open the URL in the OS default browser.")
+	cmd.Flags().BoolVar(&serveFlag, "serve", false, "Run a standalone, read-only web server in the foreground (no daemon required).")
+	cmd.Flags().IntVar(&portFlag, "port", 0, "With --serve, override the bind port. 0 picks an ephemeral port and writes <output_root>/web.port.")
 	return cmd
+}
+
+// discoverWebURL prints the URL of a web server exposed by a running daemon,
+// or a hint to start one when none is reachable. This is the default behavior
+// of `dreamer web` (no --serve).
+func discoverWebURL(cmd *cobra.Command, openFlag bool) error {
+	resolved, err := resolveConfigPath(configPath)
+	if err != nil {
+		return err
+	}
+	overlayPath, _ := config.GlobalOverlayPath()
+	cfg, err := config.LoadConfigWithOverlay(resolved, overlayPath)
+	if err != nil {
+		return fmt.Errorf("load config %q: %w", resolved, err)
+	}
+	port, err := resolveWebPort(cfg)
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	if err := probeHealth(url+"/api/health", healthProbeTimeout); err != nil {
+		printBox(cmd.OutOrStderr(), []string{
+			fmt.Sprintf("daemon UI not running on %s", url),
+			"start with:",
+			"  dreamer daemon",
+			"or run a standalone server:",
+			"  dreamer web --serve",
+		})
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), url)
+	if openFlag {
+		if err := openBrowser(url); err != nil {
+			fmt.Fprintf(cmd.OutOrStderr(), "failed to launch browser: %v\n", err)
+		}
+	}
+	return nil
+}
+
+// serveWeb runs a standalone web server in the foreground until interrupted.
+// It reuses the daemon's config+logger bootstrap and signal set, but wires
+// none of the producer hooks (EnqueueRun, RestartHook, Activity, Jobs,
+// OverlayPath): the server is read-only, so the run/restart/jobs/settings-write
+// endpoints return 503 by design. portOverride < 0 means "no --port flag";
+// any value >= 0 (including 0 for an ephemeral port) overrides cfg.Web.Port.
+func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool) error {
+	resolved, err := resolveConfigPath(configPath)
+	if err != nil {
+		return err
+	}
+	overlayPath, _ := config.GlobalOverlayPath()
+	cfg, logger, err := loadConfigAndLogger(resolved, overlayPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = logger.Close() }()
+
+	// Server.Start reads cfg.Web.Port directly, so apply the override before
+	// constructing the server rather than through the live-config pointer.
+	if portOverride >= 0 {
+		cfg.Web.Port = portOverride
+	}
+
+	ctx, stop := signal.NotifyContext(commandContext(cmd), daemonSignals()...)
+	defer stop()
+
+	srv, err := web.NewServer(web.Options{
+		Config:      cfg,
+		Logger:      logger,
+		Events:      pipeline.NewEventBus(),
+		ShutdownCtx: ctx,
+		StateCache:  state.NewStateCache(),
+	})
+	if err != nil {
+		return fmt.Errorf("construct web server: %w", err)
+	}
+	if err := srv.Start(); err != nil {
+		return fmt.Errorf("start web server: %w", err)
+	}
+
+	url := "http://" + srv.Addr()
+	fmt.Fprintf(cmd.OutOrStdout(), "dreamer web (standalone, read-only) listening on %s\n", url)
+	fmt.Fprintln(cmd.OutOrStdout(), "press Ctrl+C to stop")
+	if openFlag {
+		if err := openBrowser(url); err != nil {
+			fmt.Fprintf(cmd.OutOrStderr(), "failed to launch browser: %v\n", err)
+		}
+	}
+
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown web server: %w", err)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "dreamer web stopped")
+	return nil
 }
 
 func resolveWebPort(cfg *config.App) (int, error) {

@@ -194,12 +194,31 @@ dreamer ls-chats [--project-path <dir>]
 
 #### `dreamer web`
 
-Print the web UI URL (with `--open`, launch a browser). Requires the
-daemon to be running.
+Open the dreamer web dashboard. By default it discovers a running daemon's
+web server and prints (or, with `--open`, launches) the URL.
 
 ```bash
 dreamer web [--open]
 ```
+
+With `--serve`, it runs a standalone, read-only web server in the foreground —
+no daemon required. This is handy for browsing prior findings, history, and
+chat sources without keeping the daemon running.
+
+```bash
+dreamer web --serve [--open] [--port <n>]
+```
+
+- `--serve` always serves, even when `web.enabled: false` in config (that gate
+  only governs the daemon's embedded server).
+- `--port <n>` overrides the configured port. `--port 0` binds an ephemeral
+  port and writes it to `<output_root>/web.port` so a separate `dreamer web`
+  can discover it.
+- Standalone mode is read-only: triggering runs, restarting the daemon, the
+  background-jobs endpoints, and saving settings return `503` because no daemon
+  is backing them. Everything read-only (dashboard, projects, findings, chats,
+  history, providers, log tail, settings view) works.
+- Press Ctrl+C to stop.
 
 ---
 

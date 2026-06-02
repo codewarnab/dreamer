@@ -72,9 +72,32 @@ func (wp *workerPool) Start() {
 	}
 }
 
-// Stop signals workers to exit and waits for them to finish their current job.
+// Stop waits for workers to drain their current job, but no longer than
+// workerShutdownGrace. The caller cancels the run context before calling
+// Stop, so workers are already winding down; the grace period is an upper
+// bound that prevents a stuck provider subprocess from blocking shutdown for
+// the full max_analysis_duration. On timeout we return and let process exit
+// reap any abandoned worker goroutines.
 func (wp *workerPool) Stop() {
-	wp.wg.Wait()
+	wp.stop(workerShutdownGrace)
+}
+
+// stop is the grace-parameterized core of Stop, split out so tests can drive
+// both the clean-drain and timeout branches without waiting the full
+// production grace period.
+func (wp *workerPool) stop(grace time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		wp.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return
+	case <-time.After(grace):
+		wp.logger.Warn("worker shutdown grace exceeded; abandoning in-flight jobs",
+			logging.Any("grace", grace))
+	}
 }
 
 // worker polls the queue until the context is cancelled. The ctx check sits

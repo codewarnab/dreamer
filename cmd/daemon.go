@@ -11,6 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/cobra"
+
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
@@ -21,8 +24,6 @@ import (
 	"dreamer/internal/state"
 	"dreamer/internal/web"
 	"dreamer/internal/web/handlers"
-	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/cobra"
 )
 
 // daemonSignals returns the OS-specific signals that trigger graceful shutdown.
@@ -57,7 +58,7 @@ func newDaemonCommand() *cobra.Command {
 			}
 			overlayPath, _ := config.GlobalOverlayPath()
 
-			cfg, logger, err := loadDaemonConfig(resolvedConfigPath, overlayPath)
+			cfg, logger, err := loadConfigAndLogger(resolvedConfigPath, overlayPath)
 			if err != nil {
 				return err
 			}
@@ -141,21 +142,6 @@ type daemonOverrides struct {
 	maxConcurrency   int
 	maxChunkBytes    int
 	maxChunkBytesSet bool
-}
-
-// loadDaemonConfig resolves the config path, loads config with overlay, and
-// creates the logger. Returns the config, logger, and any error.
-func loadDaemonConfig(configPath, overlayPath string) (*config.App, *logging.Logger, error) {
-	cfg, err := config.LoadConfigWithOverlay(configPath, overlayPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load config %q: %w", configPath, err)
-	}
-	logger, err := logging.New(cfg.Daemon.OutputRoot, cfg.Logging.Level, cfg.Logging.MaxSizeMB)
-	if err != nil {
-		return nil, nil, err
-	}
-	logDefaultedSinceNotices(logger, cfg)
-	return cfg, logger, nil
 }
 
 // initDaemonRuntime acquires the daemon lock, sets up signal-aware context,
