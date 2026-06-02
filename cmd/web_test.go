@@ -112,19 +112,28 @@ func TestServeWeb_StandaloneReadOnly(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cmd.SetContext(ctx)
 
+	portVal := freeTCPPort(t)
+
 	errCh := make(chan error, 1)
 	go func() {
-		// portOverride 0 → ephemeral port written to <output_root>/web.port.
-		errCh <- serveWeb(cmd, 0, false, "")
+		errCh <- serveWeb(cmd, portVal, false, "")
 	}()
 
-	port := readPortFile(t, dir)
-	base := "http://127.0.0.1:" + port
+	base := fmt.Sprintf("http://127.0.0.1:%d", portVal)
 
-	// Health is served even with no daemon behind it.
-	if err := probeHealth(base+"/api/health", 2*time.Second); err != nil {
+	// Health is served even with no daemon behind it. Poll until reachable.
+	deadline := time.Now().Add(3 * time.Second)
+	var healthy bool
+	for time.Now().Before(deadline) {
+		if err := probeHealth(base+"/api/health", 250*time.Millisecond); err == nil {
+			healthy = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !healthy {
 		cancel()
-		t.Fatalf("health probe failed: %v", err)
+		t.Fatalf("health probe failed: server did not become reachable on port %d", portVal)
 	}
 
 	client := http.Client{Timeout: 2 * time.Second}
