@@ -3,18 +3,22 @@
 # Usage:   make dev  (or: air -c .air.toml)
 #
 # Builds to $GOPATH/bin so `dreamer` is on PATH from any directory.
+#
+# Web dev mode: pass --dev to serve templates/static from disk instead of
+# the embedded FS, so HTML/CSS/JS changes show on refresh with no rebuild.
+# Air still rebuilds on .go changes (embed.go etc.) as normal.
 
 root = "."
 
 [build]
   cmd = "go install -trimpath ."
-  bin = "dreamer.exe daemon"
-  delay = 1000
+  bin = "dreamer.exe daemon --dev"
+  delay = 500
   stop_on_error = true
   send_interrupt = true
   kill_delay = "500ms"
 
-  include_ext = ["go"]
+  include_ext = ["go", "html", "css", "js"]
   exclude_dir = ["tmp", "vendor", ".gocache", "provider-codebase", ".claude"]
   exclude_regex = ["_test\\.go$"]
 
