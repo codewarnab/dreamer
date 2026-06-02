@@ -25,9 +25,13 @@ type Deps struct {
 	Logger *logging.Logger
 	// ShutdownCtx is cancelled when the daemon is shutting down.
 	// Use for background goroutines that should be cancelled on exit.
-	ShutdownCtx    context.Context
-	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
-	OverlayPath    func() string
+	ShutdownCtx context.Context
+	EnqueueRun  func(projectName string) (runID string, accepted bool, err error)
+	OverlayPath func() string
+	// ConfigPath returns the absolute path to config.yaml. Used by
+	// ProjectDelete to rewrite the base config (comment-preserving). Empty
+	// or nil disables web-side project removal (standalone read-only mode).
+	ConfigPath     func() string
 	RecentActivity func() []pipeline.Event
 	RestartDaemon  func() error
 	// StateLock serializes state Load→Mutate→Save cycles per project

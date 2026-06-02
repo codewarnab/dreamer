@@ -106,7 +106,7 @@ func TestServeWeb_StandaloneReadOnly(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		// portOverride 0 → ephemeral port written to <output_root>/web.port.
-		errCh <- serveWeb(cmd, 0, false)
+		errCh <- serveWeb(cmd, 0, false, "")
 	}()
 
 	port := readPortFile(t, dir)
@@ -166,7 +166,7 @@ func TestServeWeb_PortOverride(t *testing.T) {
 	cmd.SetContext(ctx)
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- serveWeb(cmd, port, false) }()
+	go func() { errCh <- serveWeb(cmd, port, false, "") }()
 
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	deadline := time.Now().Add(3 * time.Second)
