@@ -20,12 +20,12 @@ import (
 // a func to return the live (post-overlay-reload) snapshot. Events is the
 // shared pub-sub used by lifecycle handlers to publish finding.* events.
 type Deps struct {
-	Config         func() *config.App
-	Events         *pipeline.EventBus
-	Logger         *logging.Logger
+	Config func() *config.App
+	Events *pipeline.EventBus
+	Logger *logging.Logger
 	// ShutdownCtx is cancelled when the daemon is shutting down.
 	// Use for background goroutines that should be cancelled on exit.
-	ShutdownCtx context.Context
+	ShutdownCtx    context.Context
 	EnqueueRun     func(projectName string) (runID string, accepted bool, err error)
 	OverlayPath    func() string
 	RecentActivity func() []pipeline.Event

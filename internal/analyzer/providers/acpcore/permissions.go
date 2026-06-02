@@ -155,4 +155,3 @@ func translatePermissionRequest(req map[string]any) analyzer.PermissionRequest {
 	}
 	return out
 }
-

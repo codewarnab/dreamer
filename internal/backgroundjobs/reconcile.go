@@ -20,9 +20,9 @@ type ReconcileAction struct {
 type ReconcileActionKind int
 
 const (
-	ReconcileInstall      ReconcileActionKind = iota // install or reinstall schedule
-	ReconcileRemove                                   // remove orphaned OS schedule
-	ReconcileRemoveDisabled                           // remove OS schedule for a disabled job
+	ReconcileInstall        ReconcileActionKind = iota // install or reinstall schedule
+	ReconcileRemove                                    // remove orphaned OS schedule
+	ReconcileRemoveDisabled                            // remove OS schedule for a disabled job
 )
 
 // ReconcileResult captures the outcome of a ReconcileSchedules call.

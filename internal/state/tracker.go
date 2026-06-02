@@ -251,7 +251,6 @@ func Save(outputRoot, projectName string, state *State) error {
 	return nil
 }
 
-
 func defaultState() *State {
 	return &State{
 		Version:            StateVersion,

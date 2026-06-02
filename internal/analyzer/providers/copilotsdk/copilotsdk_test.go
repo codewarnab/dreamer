@@ -916,7 +916,7 @@ func TestProviderCloseStopError(t *testing.T) {
 
 type fakeSDKClientStopErr struct{}
 
-func (f *fakeSDKClientStopErr) Start(_ context.Context) error            { return nil }
+func (f *fakeSDKClientStopErr) Start(_ context.Context) error { return nil }
 func (f *fakeSDKClientStopErr) CreateSession(_ context.Context, _ *copilot.SessionConfig) (sdkSession, error) {
 	return &fakeSDKSession{}, nil
 }

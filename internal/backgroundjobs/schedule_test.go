@@ -28,11 +28,11 @@ func TestValidateSchedule_HourlyEvery(t *testing.T) {
 		{"90m", "90m", false},
 		{"23h", "23h", false},
 		{"empty", "", false},
-		{"30s", "30s", true},       // too small
-		{"24h", "24h", true},       // too large
-		{"bad", "abc", true},       // malformed
-		{"1d", "1d", true},         // unsupported unit
-		{"5", "5", true},           // missing unit
+		{"30s", "30s", true}, // too small
+		{"24h", "24h", true}, // too large
+		{"bad", "abc", true}, // malformed
+		{"1d", "1d", true},   // unsupported unit
+		{"5", "5", true},     // missing unit
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -416,8 +416,8 @@ func TestParseCronInt_RejectsTrailingJunk(t *testing.T) {
 // B6: parseCron should reject trailing junk in fields.
 func TestParseCron_RejectsTrailingJunk(t *testing.T) {
 	tests := []struct {
-		expr  string
-		desc  string
+		expr string
+		desc string
 	}{
 		{"5xxx * * * *", "minute field junk"},
 		{"* 5xxx * * *", "hour field junk"},

@@ -73,9 +73,9 @@ const (
 // but does NOT prevent the sandboxed child from executing arbitrary binaries
 // on the host PATH. A prompt-injection attack could cause the child to run:
 //
-//   schtasks /Create /TN "Backdoor" /TR "powershell -c ..." /SC DAILY
-//   Register-ScheduledTask -TaskName "Backdoor" -Action (New-ScheduledTaskAction ...)
-//   at.exe \\target 12:00 cmd /c "malicious payload"
+//	schtasks /Create /TN "Backdoor" /TR "powershell -c ..." /SC DAILY
+//	Register-ScheduledTask -TaskName "Backdoor" -Action (New-ScheduledTaskAction ...)
+//	at.exe \\target 12:00 cmd /c "malicious payload"
 //
 // These commands succeed because the kernel's DAC check for CreateProcess
 // only requires EXECUTE permission on the target binary, not WRITE — and
@@ -85,34 +85,34 @@ const (
 // Service Control Manager create new process trees outside the current
 // Job Object. KILL_ON_JOB_CLOSE only terminates processes inside the job.
 //
-//   wmic process call create "cmd /c ..."        — WMI process creation
-//   psexec -s cmd.exe                            — SCM-based process spawn
-//   Start-Process -FilePath "cmd.exe"            — PowerShell wrapper
-//   powershell -Command "Start-Process cmd.exe"  — indirect invocation
+//	wmic process call create "cmd /c ..."        — WMI process creation
+//	psexec -s cmd.exe                            — SCM-based process spawn
+//	Start-Process -FilePath "cmd.exe"            — PowerShell wrapper
+//	powershell -Command "Start-Process cmd.exe"  — indirect invocation
 //
 // Mitigation plan (not yet implemented):
 //
-//   Layer 1 — Deny FILE_GENERIC_EXECUTE on writable directories for the
-//   capability SID. This prevents copy-rename attacks where the child
-//   stages a binary in a writable dir and executes it from there.
-//   If the child can only execute from read-only paths (System32,
-//   Program Files), the attack surface shrinks to OS-provided binaries.
+//	Layer 1 — Deny FILE_GENERIC_EXECUTE on writable directories for the
+//	capability SID. This prevents copy-rename attacks where the child
+//	stages a binary in a writable dir and executes it from there.
+//	If the child can only execute from read-only paths (System32,
+//	Program Files), the attack surface shrinks to OS-provided binaries.
 //
-//   Layer 2 — Deny FILE_GENERIC_EXECUTE on the capability SID for known
-//   escape binaries:
-//     Scheduler: schtasks.exe, at.exe, Register-ScheduledTask (COM)
-//     Shells: powershell.exe, pwsh.exe, cmd.exe (breakaway via Start-Process)
-//     WMI: wmic.exe (breakaway via process call create)
-//     SCM: psexec.exe, psexec64.exe (Sysinternals SCM spawn)
-//   Paths are enumerate-and-deny (whack-a-mole) but cover the realistic
-//   attack surface for prompt injection.
+//	Layer 2 — Deny FILE_GENERIC_EXECUTE on the capability SID for known
+//	escape binaries:
+//	  Scheduler: schtasks.exe, at.exe, Register-ScheduledTask (COM)
+//	  Shells: powershell.exe, pwsh.exe, cmd.exe (breakaway via Start-Process)
+//	  WMI: wmic.exe (breakaway via process call create)
+//	  SCM: psexec.exe, psexec64.exe (Sysinternals SCM spawn)
+//	Paths are enumerate-and-deny (whack-a-mole) but cover the realistic
+//	attack surface for prompt injection.
 //
-//   Layer 3 (future) — AppContainer (LowBox) via NtCreateLowBoxToken.
-//   Provides kernel-enforced process + network isolation with a
-//   capability-based model. Processes can't access objects outside
-//   their capability set regardless of ACLs. This is the only layer
-//   that blocks Win32 COM API calls to ITaskService directly.
-//   See internal/sandbox/windows_appcontainer.go (planned).
+//	Layer 3 (future) — AppContainer (LowBox) via NtCreateLowBoxToken.
+//	Provides kernel-enforced process + network isolation with a
+//	capability-based model. Processes can't access objects outside
+//	their capability set regardless of ACLs. This is the only layer
+//	that blocks Win32 COM API calls to ITaskService directly.
+//	See internal/sandbox/windows_appcontainer.go (planned).
 //
 // COM API gap: Even with Layers 1-2, a sophisticated attacker could call
 // ITaskService::NewTask via COM directly (taskschd.dll is Microsoft-signed

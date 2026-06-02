@@ -16,11 +16,11 @@ func init() {
 			command = []string{"gemini", "--acp"}
 		}
 		return acpcore.New(acpcore.Options{
-			ID:               ID,
-			Command:          command,
-			Env:              providerConfig.Env,
-			DefaultModel:     providerConfig.DefaultModel,
-			ModelFallbacks:   config.ModelFallbacksFor(string(ID)),
+			ID:                  ID,
+			Command:             command,
+			Env:                 providerConfig.Env,
+			DefaultModel:        providerConfig.DefaultModel,
+			ModelFallbacks:      config.ModelFallbacksFor(string(ID)),
 			Sandbox:             providerConfig.Sandbox,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxWritableDirs: providerConfig.SandboxWritableDirs,

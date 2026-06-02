@@ -102,8 +102,8 @@ func TestIsValidHexID(t *testing.T) {
 		want bool
 	}{
 		{"0123456789abcdef", true},
-		{"0123456789ABCDEF", false}, // uppercase
-		{"0123456789abcde", false},  // too short
+		{"0123456789ABCDEF", false},  // uppercase
+		{"0123456789abcde", false},   // too short
 		{"0123456789abcdeff", false}, // too long
 		{"", false},
 		{"ghijklmnopqrstuv", false}, // non-hex

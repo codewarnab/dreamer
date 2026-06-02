@@ -815,14 +815,14 @@ func TestMergeProviderBlocks_SandboxOverride(t *testing.T) {
 
 func TestMergeProviderBlocks_EmptyOverridePreservesBase(t *testing.T) {
 	base := ProviderBlock{
-		Model:       "model",
-		CopilotHome: "/home",
-		CLIURL:      "http://url",
-		APIKeyEnv:   "KEY",
-		BaseURL:     "http://base",
-		Password:    "pw",
+		Model:          "model",
+		CopilotHome:    "/home",
+		CLIURL:         "http://url",
+		APIKeyEnv:      "KEY",
+		BaseURL:        "http://base",
+		Password:       "pw",
 		MaxInputTokens: 500,
-		Command:     []string{"cmd"},
+		Command:        []string{"cmd"},
 	}
 	override := ProviderBlock{}
 	got := MergeProviderBlock(base, override)

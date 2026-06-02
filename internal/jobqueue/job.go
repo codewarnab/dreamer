@@ -37,7 +37,7 @@ type Job struct {
 	ID            string        `json:"id"`
 	Project       string        `json:"project"`
 	ProjectPath   string        `json:"project_path"`
-	Status        Status     `json:"status"`
+	Status        Status        `json:"status"`
 	EnqueuedAt    time.Time     `json:"enqueued_at"`
 	StartedAt     *time.Time    `json:"started_at,omitempty"`
 	FinishedAt    *time.Time    `json:"finished_at,omitempty"`

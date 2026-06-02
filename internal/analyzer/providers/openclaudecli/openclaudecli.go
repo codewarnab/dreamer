@@ -16,17 +16,17 @@ import (
 const ID = "openclaude-cli"
 
 var providerSpec = &cliharness.Spec{
-	ID:              ID,
-	ErrPrefix:       "openclaude-cli",
-	DefaultCommand:  defaultCommand,
-	StartErr:        cliharness.StartErrNotInstalled("Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup."),
-	CmdStartErr:     cliharness.CmdStartErrUnavailable(ID),
-	WorkingDirFlag:  "--add-dir",
-	ConfigDir:       cliharness.ConfigDirHardcoded(".openclaude"),
-	ParseErrFirst:   true,
-	ReadStreamJSON:  readStreamJSON,
-	InjectPhase2:    cliharness.InjectMCPFlags,
-	ResolveModel:    cliharness.ResolveModel3Tier,
+	ID:             ID,
+	ErrPrefix:      "openclaude-cli",
+	DefaultCommand: defaultCommand,
+	StartErr:       cliharness.StartErrNotInstalled("Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup."),
+	CmdStartErr:    cliharness.CmdStartErrUnavailable(ID),
+	WorkingDirFlag: "--add-dir",
+	ConfigDir:      cliharness.ConfigDirHardcoded(".openclaude"),
+	ParseErrFirst:  true,
+	ReadStreamJSON: readStreamJSON,
+	InjectPhase2:   cliharness.InjectMCPFlags,
+	ResolveModel:   cliharness.ResolveModel3Tier,
 }
 
 func init() {

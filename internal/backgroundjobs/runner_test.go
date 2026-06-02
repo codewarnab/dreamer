@@ -531,9 +531,9 @@ func (c *capturingProvider) NewSession(ctx context.Context, cfg analyzer.Session
 // providerConfigCapturingProvider wraps a mockProvider to capture both the
 // ProviderConfig (at factory time) and SessionConfig (at NewSession time).
 type providerConfigCapturingProvider struct {
-	inner            *mockProvider
-	providerCfg      *analyzer.ProviderConfig
-	capturedSession  *analyzer.SessionConfig
+	inner           *mockProvider
+	providerCfg     *analyzer.ProviderConfig
+	capturedSession *analyzer.SessionConfig
 }
 
 func (p *providerConfigCapturingProvider) ID() string                      { return p.inner.id }

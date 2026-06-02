@@ -40,4 +40,3 @@ func (copilotProvider) ReadMessages(source Source) ([]readers.ChatMessage, error
 	}
 	return messages, nil
 }
-

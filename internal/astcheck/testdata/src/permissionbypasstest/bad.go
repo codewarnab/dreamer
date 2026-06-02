@@ -21,7 +21,7 @@ func badSetWritableDirs(cfg *ProviderConfig, paths []string) {
 }
 
 func badSetBoth(cfg *ProviderConfig, paths []string) {
-	cfg.SandboxProjectWrite = true                           // want `SandboxProjectWrite set without sandbox.Available\(\) check`
+	cfg.SandboxProjectWrite = true                            // want `SandboxProjectWrite set without sandbox.Available\(\) check`
 	cfg.SandboxWritableDirs = append([]string(nil), paths...) // want `SandboxWritableDirs set without sandbox.Available\(\) check`
 }
 

@@ -32,9 +32,9 @@ type ScheduleKind string
 
 const (
 	ScheduleInterval ScheduleKind = "hourly" // flexible repeat interval (e.g. every 5m)
-	ScheduleDaily  ScheduleKind = "daily"
-	ScheduleWeekly ScheduleKind = "weekly"
-	ScheduleCron   ScheduleKind = "cron"
+	ScheduleDaily    ScheduleKind = "daily"
+	ScheduleWeekly   ScheduleKind = "weekly"
+	ScheduleCron     ScheduleKind = "cron"
 )
 
 // ScheduleSpec describes when a job should run.
@@ -179,11 +179,11 @@ const (
 
 // HealthState carries per-job health indicators.
 type HealthState struct {
-	SystemScheduling SchedulingHealth `json:"system_scheduling"`
+	SystemScheduling SchedulingHealth    `json:"system_scheduling"`
 	JobSchedule      JobScheduleValidity `json:"job_schedule"`
-	RunState         RunStatus        `json:"run_state"`
-	PermissionState  PermissionHealth `json:"permission_state"`
-	LastChecked      *time.Time       `json:"last_checked,omitempty"`
+	RunState         RunStatus           `json:"run_state"`
+	PermissionState  PermissionHealth    `json:"permission_state"`
+	LastChecked      *time.Time          `json:"last_checked,omitempty"`
 }
 
 // State is the top-level persisted structure for background jobs.

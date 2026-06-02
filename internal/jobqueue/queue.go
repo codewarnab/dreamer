@@ -65,7 +65,6 @@ func (q *Queue) MaxConcurrent() int {
 	return q.maxConcurrent
 }
 
-
 // Wake returns the channel signalled on Enqueue. Workers can select on it
 // to pre-empt their idle wait without polling on a long ticker.
 func (q *Queue) Wake() <-chan struct{} {

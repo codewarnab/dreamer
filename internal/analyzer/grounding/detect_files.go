@@ -56,4 +56,3 @@ func DetectFiles(projectRoot string, cap int) ([]string, error) {
 	}
 	return files, nil
 }
-

@@ -717,12 +717,12 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 	}
 	today := time.Now().UTC().Format("2006-01-02")
 	if err := state.UpdateHistoryToday(discovery.outputRoot, discovery.projectName, today, state.DaySummaryDelta{
-		Runs:          1,
-		FindingsNew:   pipelineResult.Findings,
-		FindingsTotal: len(currentState.FindingHashes),
-		Tokens:        0,
+		Runs:              1,
+		FindingsNew:       pipelineResult.Findings,
+		FindingsTotal:     len(currentState.FindingHashes),
+		Tokens:            0,
 		RunDurationMillis: time.Since(runStart).Milliseconds(),
-		PerCategory:   perCategory,
+		PerCategory:       perCategory,
 	}); err != nil {
 		logger.Warn("history update failed", logging.Any("err", err))
 	}

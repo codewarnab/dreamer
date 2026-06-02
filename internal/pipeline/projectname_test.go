@@ -34,8 +34,8 @@ func TestDeriveProjectName_CollisionWithDifferentNames(t *testing.T) {
 	// Simulate pipeline.go's dual-key seeding: "project-<safe(base)>"
 	// plus bare name.
 	usedNames := map[string]string{
-		"project-myapp":  pathA, // from "project-" + safe(filepath.Base(path))
-		"custom-name-a":  pathA, // bare configured Name
+		"project-myapp": pathA, // from "project-" + safe(filepath.Base(path))
+		"custom-name-a": pathA, // bare configured Name
 	}
 
 	nameB := DeriveProjectName(pathB, usedNames)

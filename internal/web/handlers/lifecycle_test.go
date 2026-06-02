@@ -470,11 +470,11 @@ func TestUnresolve_DropsEntry(t *testing.T) {
 
 func TestParseProjectHashTransition(t *testing.T) {
 	tests := []struct {
-		name       string
-		urlPath    string
-		wantName   string
-		wantHash   string
-		wantTrans  string
+		name      string
+		urlPath   string
+		wantName  string
+		wantHash  string
+		wantTrans string
 	}{
 		{
 			name:      "valid apply",

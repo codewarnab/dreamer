@@ -211,8 +211,8 @@ func (m *ActivityMonitor) Stop() ActivitySummary {
 	connCount := m.snapshotTCPConnections()
 
 	return ActivitySummary{
-		Processes:        procCount,
-		Connections:      connCount,
+		Processes:         procCount,
+		Connections:       connCount,
 		ShellInterpreters: shellCount,
 	}
 }
