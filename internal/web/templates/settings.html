@@ -25,7 +25,7 @@
       </template>
       <button class="btn btn--primary" @click="save(sec.id)">save</button>
       <span x-show="saved[sec.id] === true" style="margin-left: var(--space-3); color: var(--jelly-mint);">saved</span>
-      <span x-show="saved[sec.id] === 'error'" style="margin-left: var(--space-3); color: #ef476f;">save failed</span>
+      <span x-show="saved[sec.id] === 'error'" style="margin-left: var(--space-3); color: var(--color-error);">save failed</span>
     </div>
   </template>
 </section>
@@ -59,6 +59,7 @@ window.settingsPage = function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || "";
     },
     load: async function () {
+      // TODO(audit): Show error state to user on API failure instead of silently showing empty fields (MEDIUM #25)
       const r = await fetch("/api/settings");
       if (!r.ok) return;
       const data = await r.json();

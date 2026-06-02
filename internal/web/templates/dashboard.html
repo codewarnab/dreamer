@@ -31,6 +31,7 @@
   <div class="card" style="margin-bottom: var(--space-4);">
     <div class="kicker">findings — 30 days</div>
     <div class="sparkline" style="margin-top: var(--space-3);">
+      <!-- TODO(audit): Add <title>, <desc>, or aria-label to SVG for screen reader accessibility (MEDIUM #20) -->
       <svg viewBox="0 0 300 60" preserveAspectRatio="none">
         <polyline :points="sparklinePoints()" fill="none" stroke="var(--jelly-mint)" stroke-width="2" vector-effect="non-scaling-stroke"/>
       </svg>
