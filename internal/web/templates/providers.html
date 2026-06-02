@@ -1,32 +1,114 @@
 {{define "content"}}
-<section x-data="providersPage()" x-init="load()">
+<section x-data="providersPage()" x-init="load()" style="animation: providers-fade-in 0.25s ease-out;">
   <header style="margin-bottom: var(--space-5);">
-    <span class="kicker">system</span>
-    <h1 class="headline-lg">providers</h1>
+    <span class="kicker">system diagnostics</span>
+    <h1 class="headline-lg" style="letter-spacing: -0.5px; margin-top: 2px;">providers</h1>
   </header>
 
-  <div class="card">
+  <!-- Table Card: Displays only if providers exist -->
+  <div class="card" x-show="providers.length > 0" style="border-color: rgba(255,255,255,0.08); background: rgba(26,26,26,0.3); backdrop-filter: blur(10px);">
     <table class="table">
       <thead><tr><th>id</th><th>model</th><th>status</th><th>runs</th><th>last success</th><th>tokens</th><th>failures</th></tr></thead>
       <tbody>
         <template x-for="p in providers" :key="p.id">
           <tr>
-            <td x-text="p.id"></td>
-            <td x-text="p.model || '—'"></td>
+            <td style="font-family: var(--font-mono); font-size: 13px;" x-text="p.id"></td>
+            <td style="font-family: var(--font-mono); font-size: 13px;" x-text="p.model || '—'"></td>
             <td>
               <span class="pill" :class="p.healthy ? 'pill--healthy' : 'pill--warn'" x-text="p.healthy ? 'healthy' : (p.runs > 0 ? 'stale' : 'unused')"></span>
             </td>
-            <td x-text="p.runs ?? 0"></td>
-            <td x-text="p.last_success_utc ? new Date(p.last_success_utc).toLocaleString() : '—'"></td>
-            <td x-text="p.total_tokens ?? 0"></td>
-            <td x-text="p.failures ?? 0"></td>
+            <td style="font-family: var(--font-mono); font-size: 13px;" x-text="p.runs ?? 0"></td>
+            <td style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);" x-text="p.last_success_utc ? new Date(p.last_success_utc).toLocaleString() : '—'"></td>
+            <td style="font-family: var(--font-mono); font-size: 13px; color: var(--jelly-mint);" x-text="p.total_tokens ?? 0"></td>
+            <td style="font-family: var(--font-mono); font-size: 13px;" :style="p.failures > 0 ? 'color: var(--color-error);' : 'color: var(--text-secondary);'" x-text="p.failures ?? 0"></td>
           </tr>
         </template>
       </tbody>
     </table>
-    <div x-show="providers.length === 0" style="color: var(--text-secondary);">no providers configured.</div>
+  </div>
+
+  <!-- Modern Aesthetic Empty State Card -->
+  <div class="card" x-show="providers.length === 0" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); border-color: rgba(255,255,255,0.08); background: rgba(26,26,26,0.3); backdrop-filter: blur(10px);">
+    <div style="background: rgba(60, 255, 208, 0.08); border: 1px solid rgba(60, 255, 208, 0.2); color: var(--jelly-mint); width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: pulse-mint 2.5s infinite;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+        <rect x="9" y="9" width="6" height="6"></rect>
+        <line x1="9" y1="1" x2="9" y2="4"></line>
+        <line x1="15" y1="1" x2="15" y2="4"></line>
+        <line x1="9" y1="20" x2="9" y2="23"></line>
+        <line x1="15" y1="20" x2="15" y2="23"></line>
+        <line x1="20" y1="9" x2="23" y2="9"></line>
+        <line x1="20" y1="15" x2="23" y2="15"></line>
+        <line x1="1" y1="9" x2="4" y2="9"></line>
+        <line x1="1" y1="15" x2="4" y2="15"></line>
+      </svg>
+    </div>
+    
+    <div style="max-width: 480px;">
+      <h3 class="headline-md" style="letter-spacing: -0.2px; margin-bottom: var(--space-2);">No Provider Telemetry Found</h3>
+      <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin: 0;">
+        Dreamer tracks the health, token consumption, and runtime metrics of your active AI providers. Adding a codebase project and running your first analysis will populate this dashboard.
+      </p>
+    </div>
+
+    <!-- Step-by-Step CLI Setup Guide -->
+    <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-lg); padding: var(--space-4); text-align: left; width: 100%; display: flex; flex-direction: column; gap: var(--space-3); box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
+      <div style="color: var(--focus-cyan); font-family: var(--font-mono); font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Setup Guide:</div>
+      
+      <!-- Step 1 -->
+      <div style="display: flex; flex-direction: column; gap: var(--space-1);">
+        <div style="font-family: var(--font-body); font-size: 12px; color: var(--text-muted); font-weight: 500;">
+          1. Run Setup TUI to configure your AI credentials & default models:
+        </div>
+        <div style="background: rgba(0,0,0,0.4); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+          <code>dreamer setup</code>
+          <button @click="copyCommand('dreamer setup', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); height: 20px; line-height: 1;" title="Copy command">Copy</button>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div style="display: flex; flex-direction: column; gap: var(--space-1);">
+        <div style="font-family: var(--font-body); font-size: 12px; color: var(--text-muted); font-weight: 500;">
+          2. Register a codebase project for scanning:
+        </div>
+        <div style="background: rgba(0,0,0,0.4); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+          <code>dreamer add &lt;absolute-project-path&gt;</code>
+          <button @click="copyCommand('dreamer add <project-path>', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); height: 20px; line-height: 1;" title="Copy command">Copy</button>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div style="display: flex; flex-direction: column; gap: var(--space-1);">
+        <div style="font-family: var(--font-body); font-size: 12px; color: var(--text-muted); font-weight: 500;">
+          3. Trigger the daemon or execute a one-shot analysis scan:
+        </div>
+        <div style="background: rgba(0,0,0,0.4); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+          <code>dreamer analyze --path &lt;project-path&gt;</code>
+          <button @click="copyCommand('dreamer analyze --path <project-path>', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); height: 20px; line-height: 1;" title="Copy command">Copy</button>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
+
+<!-- Sleek Dynamic CSS animations & utility classes -->
+<style>
+  @keyframes providers-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes pulse-mint {
+    0% { box-shadow: 0 0 0 0 rgba(60, 255, 208, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(60, 255, 208, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(60, 255, 208, 0); }
+  }
+
+  code {
+    font-family: var(--font-mono);
+    color: var(--jelly-mint);
+  }
+</style>
 
 <script>
 window.providersPage = function () {
@@ -38,6 +120,19 @@ window.providersPage = function () {
       const data = await r.json();
       this.providers = data.providers || data || [];
     },
+    copyCommand: function (text, event) {
+      navigator.clipboard.writeText(text);
+      const btn = event.currentTarget;
+      const originalText = btn.innerText;
+      btn.innerText = "Copied!";
+      btn.style.color = "var(--jelly-mint)";
+      btn.style.borderColor = "var(--jelly-mint)";
+      setTimeout(() => {
+        btn.innerText = originalText;
+        btn.style.color = "";
+        btn.style.borderColor = "";
+      }, 1500);
+    }
   };
 };
 </script>
