@@ -147,6 +147,11 @@ window.appState = function () {
     status: "idle",
     busy: false,
     msg: "",
+    sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
+    toggleSidebar: function () {
+      this.sidebarCollapsed = !this.sidebarCollapsed;
+      localStorage.setItem("sidebarCollapsed", this.sidebarCollapsed);
+    },
     csrf: function () {
       const meta = document.querySelector('meta[name="csrf-token"]');
       return meta ? meta.getAttribute("content") : "";

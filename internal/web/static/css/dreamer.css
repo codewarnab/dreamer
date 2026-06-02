@@ -149,12 +149,27 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
 /* Layout primitives */
 .app-shell {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: auto 1fr;
   min-height: 100vh;
+  position: relative;
 }
 .sidebar {
   background: var(--surface-slate);
   padding: var(--space-4);
+  width: 240px;
+  overflow: hidden;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.sidebar.collapsed {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 .sidebar nav { display: flex; flex-direction: column; gap: var(--space-1); }
 .sidebar nav a {
@@ -180,6 +195,46 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   align-items: center;
   padding: var(--space-3) var(--space-6);
   border-bottom: var(--hairline);
+}
+.btn-sidebar-toggle {
+  position: absolute;
+  top: 24px;
+  left: 228px; /* 240px width - 12px (half of 24px button width) */
+  z-index: 99;
+  width: 24px;
+  height: 24px;
+  background: var(--surface-slate);
+  border: var(--hairline);
+  color: var(--text-secondary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.2s,
+              color 0.2s,
+              border-color 0.2s;
+}
+.btn-sidebar-toggle.collapsed {
+  left: 12px;
+}
+.btn-sidebar-toggle:hover {
+  color: var(--jelly-mint);
+  border-color: var(--jelly-mint);
+  background-color: var(--canvas-black);
+}
+.btn-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--focus-cyan);
+  outline-offset: 2px;
+}
+.sidebar-toggle-icon {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: block;
+}
+.sidebar-toggle-icon.rotated {
+  transform: rotate(180deg);
 }
 
 /* Component primitives */
