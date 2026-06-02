@@ -34,6 +34,7 @@ func newWebCommand() *cobra.Command {
 		Short: "Open the dreamer web UI. With --serve, run a standalone server; otherwise print a running daemon's URL.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if serveFlag {
+				// -1 indicates the --port flag was not specified; see serveWeb implementation
 				portOverride := -1
 				if cmd.Flags().Changed("port") {
 					portOverride = portFlag
@@ -60,8 +61,8 @@ func newWebCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&openFlag, "open", false, "Open the URL in the OS default browser.")
-	cmd.Flags().BoolVar(&serveFlag, "serve", false, "Run a standalone, read-only web server in the foreground (no daemon required).")
-	cmd.Flags().IntVar(&portFlag, "port", 0, "With --serve, override the bind port. 0 picks an ephemeral port and writes <output_root>/web.port.")
+	cmd.Flags().BoolVar(&serveFlag, "serve", false, "Run a standalone, read-only web server in the foreground (no daemon required). NOTE: Binds loopback-only with no auth (same trust model as daemon).")
+	cmd.Flags().IntVar(&portFlag, "port", 0, "With --serve, override the bind port. 0 picks an ephemeral port.")
 	cmd.Flags().BoolVar(&devFlag, "dev", false, "With --serve, enable live-reload: templates and static files served from disk.")
 	cmd.Flags().StringVar(&devDirFlag, "dev-dir", "", "With --dev, override the path to internal/web/. Auto-detected from cwd if omitted.")
 	return cmd
@@ -71,6 +72,9 @@ func newWebCommand() *cobra.Command {
 // or a hint to start one when none is reachable. This is the default behavior
 // of `dreamer web` (no --serve).
 func discoverWebURL(cmd *cobra.Command, openFlag bool) error {
+	if cmd.Flags().Changed("port") {
+		fmt.Fprintln(cmd.OutOrStderr(), "warn: --port has no effect when running without --serve")
+	}
 	resolved, err := resolveConfigPath(configPath)
 	if err != nil {
 		return err
@@ -108,7 +112,22 @@ func discoverWebURL(cmd *cobra.Command, openFlag bool) error {
 // It reuses the daemon's config+logger bootstrap and signal set, but wires
 // none of the producer hooks (EnqueueRun, RestartHook, Activity, Jobs,
 // OverlayPath): the server is read-only, so the run/restart/jobs/settings-write
-// endpoints return 503 by design. portOverride < 0 means "no --port flag";
+// endpoints return 503 by design.
+//
+// NOTE: Standalone mode (dreamer web --serve) is historically documented as "read-only" because
+// it does not configure producer hooks (EnqueueRun, RestartHook, Activity, Jobs, OverlayPath).
+// However, it is NOT fully read-only: endpoints that mutate finding lifecycle state
+// (Apply, Undo, Dismiss, Resolve, Undismiss, Unresolve) and chat history (chats deletion and
+// bulk-deletion) remain active and write to disk using deps.Config() and deps.StateCache.
+// Similarly, project deletion is supported because ConfigPath is wired. This is intentional:
+// standalone mode is not going to stay read-only in future versions, and these mutating
+// features are kept active by design.
+//
+// NOTE: Standalone mode binds to the host specified in `web.host` which is strictly
+// validated to be a loopback address (127.0.0.1, ::1, or localhost) by config.LoadConfig.
+// This prevents unauthenticated remote LAN access to chat logs or findings.
+//
+// portOverride < 0 means "no --port flag";
 // any value >= 0 (including 0 for an ephemeral port) overrides cfg.Web.Port.
 // devDir, when non-empty, enables dev mode: templates and static files are
 // served from disk so edits are visible on browser refresh without a rebuild.
@@ -124,8 +143,15 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string
 	}
 	defer func() { _ = logger.Close() }()
 
+	// Warn if web.enabled is explicitly false but we are serving standalone
+	if cfg.Web.Enabled != nil && !*cfg.Web.Enabled {
+		fmt.Fprintln(cmd.OutOrStdout(), "info: web.enabled is false in config; starting standalone server anyway as --serve was explicitly requested")
+	}
+
 	// Server.Start reads cfg.Web.Port directly, so apply the override before
 	// constructing the server rather than through the live-config pointer.
+	// Mutating cfg in-place is completely safe here because loadConfigAndLogger returns
+	// a fresh config instance unique to this standalone serveWeb process.
 	if portOverride >= 0 {
 		cfg.Web.Port = portOverride
 	}
@@ -147,6 +173,11 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string
 		return fmt.Errorf("construct web server: %w", err)
 	}
 	if err := srv.Start(); err != nil {
+		if strings.Contains(err.Error(), "address already in use") || strings.Contains(err.Error(), "already in use") {
+			return fmt.Errorf("start web server failed: port %d is already in use.\n"+
+				"Hint: Another standalone server or daemon may be active on this port.\n"+
+				"Use 'dreamer web' (no --serve) to discover and open the active server, or run with '--port 0' to bind to an ephemeral port.\nOriginal error: %w", cfg.Web.Port, err)
+		}
 		return fmt.Errorf("start web server: %w", err)
 	}
 

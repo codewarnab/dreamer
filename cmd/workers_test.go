@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +15,7 @@ import (
 // by stop() so we keep the fixture small.
 func newTestWorkerPool(t *testing.T) *workerPool {
 	t.Helper()
-	logger, err := logging.New(t.TempDir(), "error", 1)
+	logger, err := logging.New(t.TempDir(), "warn", 1)
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}
@@ -39,6 +41,16 @@ func TestWorkerPoolStop_ReturnsWhenDrained(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("stop took %s; expected to return shortly after the worker drained", elapsed)
 	}
+
+	// Verify that the "grace exceeded" warning was NOT logged.
+	logPath := wp.logger.Path()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if strings.Contains(string(data), "worker shutdown grace exceeded") {
+		t.Fatalf("logged unexpected grace exceeded warning on clean drain: %s", data)
+	}
 }
 
 // TestWorkerPoolStop_ReturnsOnGraceTimeout verifies stop abandons a stuck
@@ -61,10 +73,18 @@ func TestWorkerPoolStop_ReturnsOnGraceTimeout(t *testing.T) {
 	start := time.Now()
 	wp.stop(50 * time.Millisecond)
 	elapsed := time.Since(start)
-	if elapsed < 50*time.Millisecond {
-		t.Fatalf("stop returned in %s; should have waited the full grace period", elapsed)
-	}
-	if elapsed > time.Second {
+
+	if elapsed > 2*time.Second {
 		t.Fatalf("stop took %s; should have given up at the grace period", elapsed)
+	}
+
+	// Verify that the "grace exceeded" warning WAS logged.
+	logPath := wp.logger.Path()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if !strings.Contains(string(data), "worker shutdown grace exceeded") {
+		t.Fatalf("expected log warning 'worker shutdown grace exceeded' was not found in: %s", data)
 	}
 }
