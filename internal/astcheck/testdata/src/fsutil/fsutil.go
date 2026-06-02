@@ -5,3 +5,8 @@ package fsutil
 func AcquireLock(path string) (release func(), err error) {
 	return func() {}, nil
 }
+
+// ResolveSymlinks resolves symlinks in an absolute path.
+func ResolveSymlinks(abs string) (string, error) {
+	return abs, nil
+}
