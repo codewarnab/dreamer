@@ -211,6 +211,15 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   color: var(--text-inverted);
   border: var(--hairline-mint);
 }
+.btn--run {
+  background: transparent;
+  color: var(--jelly-mint);
+  border: var(--hairline-mint);
+}
+.btn--run:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .btn--ghost {
   background: transparent;
   border: var(--hairline);
@@ -225,7 +234,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1.1px;
   text-transform: uppercase;
 }
@@ -496,4 +505,104 @@ label {
 
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
+}
+
+/* Remove button on dashboard project cards */
+.btn-remove {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.card:hover .btn-remove,
+.btn-remove:focus-visible {
+  opacity: 1;
+}
+.btn-remove:hover {
+  color: var(--color-error);
+  background: rgba(239, 71, 111, 0.15);
+}
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: modal-fade-in 0.15s ease;
+}
+.modal-dialog {
+  background: var(--surface-slate);
+  border: var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  max-width: 420px;
+  width: 90%;
+  animation: modal-slide-in 0.2s ease;
+}
+.modal-dialog h3 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--text-primary);
+}
+.modal-dialog p {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.modal-dialog code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--jelly-mint);
+}
+.modal-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+.modal-actions .btn {
+  font-size: 11px;
+  padding: var(--space-1) var(--space-3);
+}
+.modal-actions .btn--danger {
+  background: var(--color-error);
+  color: var(--text-primary);
+  border-color: var(--color-error);
+}
+.modal-actions .btn--danger:hover {
+  opacity: 0.85;
+}
+.modal-actions .btn--danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-slide-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }

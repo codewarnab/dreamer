@@ -57,7 +57,8 @@
     <div class="kicker">projects</div>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-3); margin-top: var(--space-3);">
       <template x-for="p in projects" :key="p.name">
-        <a :href="'/projects/' + p.name" class="card" style="display: block; text-decoration: none; color: inherit; padding: var(--space-3);">
+        <a :href="'/projects/' + p.name" class="card" style="display: block; text-decoration: none; color: inherit; padding: var(--space-3); position: relative;">
+          <span @click.prevent="confirmRemove(p.name)" class="btn-remove" role="button" tabindex="0" :aria-label="'Remove project ' + p.name" @keydown.enter.prevent="confirmRemove(p.name)" @keydown.space.prevent="confirmRemove(p.name)">&times;</span>
           <div class="label-mono" style="margin-bottom: var(--space-2);" x-text="p.name"></div>
           <div style="display: flex; gap: var(--space-3); font-size: 12px; color: var(--text-secondary);">
             <span x-text="(p.findings_open || 0) + ' open'"></span>
@@ -98,6 +99,38 @@
     </table>
   </div>
 
+  <!-- Remove project confirmation modal -->
+  <div
+    x-show="removeModal.open"
+    class="modal-overlay"
+    role="dialog"
+    aria-modal="true"
+    :aria-label="'Remove project ' + removeModal.name"
+    @keydown.escape.window="removeModal.open = false"
+    x-transition:enter="transition ease-out duration-150"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-100"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    style="display:none;"
+  >
+    <div class="modal-dialog" @click.stop>
+      <h3>remove project</h3>
+      <p>
+        Remove <code x-text="removeModal.name"></code> from dreamer?
+        <br><br>
+        This deletes the project from <code>config.yaml</code> (comments and other
+        settings are preserved). The daemon stops scheduling runs for it. Existing
+        findings and history on disk are not touched.
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" @click="removeModal.open = false" :disabled="removeModal.busy">cancel</button>
+        <button class="btn btn--danger" @click="doRemove()" :disabled="removeModal.busy" x-text="removeModal.busy ? 'removing…' : 'remove'"></button>
+      </div>
+    </div>
+  </div>
+
 </section>
 
 <script>
@@ -109,7 +142,12 @@ window.dashboardPage = function () {
     sparkline30d: [],
     topMistakeProviders: [],
     projects: [],
+    removeModal: { open: false, name: "", busy: false },
     _sseUnsub: [],
+    csrf: function () {
+      var m = document.querySelector('meta[name="csrf-token"]');
+      return m ? m.getAttribute("content") : "";
+    },
     load: async function () {
       var self = this;
       var dashP = fetch("/api/dashboard").then(function (r) { return r.ok ? r.json() : {}; });
@@ -145,10 +183,41 @@ window.dashboardPage = function () {
       this._sseUnsub.push(sse.on("finding.applied", refresh));
       this._sseUnsub.push(sse.on("finding.dismissed", refresh));
       this._sseUnsub.push(sse.on("finding.resolved", refresh));
+      this._sseUnsub.push(sse.on("config.reloaded", refresh));
     },
     destroy: function () {
       this._sseUnsub.forEach(function (fn) { fn(); });
       this._sseUnsub = [];
+    },
+    confirmRemove: function (name) {
+      this.removeModal.name = name;
+      this.removeModal.busy = false;
+      this.removeModal.open = true;
+    },
+    doRemove: async function () {
+      var self = this;
+      if (self.removeModal.busy) return;
+      self.removeModal.busy = true;
+      var name = self.removeModal.name;
+      try {
+        var r = await fetch("/api/projects/" + encodeURIComponent(name), {
+          method: "DELETE",
+          headers: { "X-Dreamer-CSRF": self.csrf() },
+        });
+        if (r.ok) {
+          self.removeModal.open = false;
+          Alpine.store("toasts").add("project " + name + " removed", "success");
+          // Optimistically remove from local list; SSE config.reloaded will confirm.
+          self.projects = self.projects.filter(function (p) { return p.name !== name; });
+        } else {
+          var body = {};
+          try { body = await r.json(); } catch (_) {}
+          Alpine.store("toasts").add("remove failed: " + (body.error || ("HTTP " + r.status)), "error");
+        }
+      } catch (e) {
+        Alpine.store("toasts").add("remove failed: " + e.message, "error");
+      }
+      self.removeModal.busy = false;
     },
     sparklinePoints: function () {
       var pts = this.sparkline30d;
