@@ -7,6 +7,7 @@
       <button class="btn btn--primary" @click="runNow()" :disabled="running" x-text="running ? 'running...' : 'run now'"></button>
       <button class="btn btn--ghost" x-show="job?.enabled" @click="pauseJob()">pause</button>
       <button class="btn btn--ghost" x-show="!job?.enabled" @click="resumeJob()">resume</button>
+      <button class="btn btn--ghost" x-show="job" @click="openEditModal()">edit</button>
       <button class="btn btn--ghost" @click="deleteJob()" style="color: var(--color-error);">delete</button>
     </div>
   </header>
@@ -52,30 +53,55 @@
     </div>
   </div>
 
-  <!-- Sandbox status card -->
-  <div class="card" style="margin-bottom: var(--space-4);" x-show="sandboxStatus">
-    <div class="kicker">security</div>
-    <div style="margin-top: var(--space-3); display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center;">
-      <div>
-        <span class="label-mono">sandbox:</span>
-        <span class="pill" :class="sandboxStatus?.available ? 'pill--healthy' : 'pill--warn'" x-text="sandboxStatus?.available ? 'active' : 'unavailable'"></span>
+  <!-- Security and Permissions Card -->
+  <div class="card" style="margin-bottom: var(--space-4);" x-show="job">
+    <div class="kicker">security & permissions</div>
+    <div style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3);">
+      
+      <!-- Static Configured Permissions -->
+      <div style="display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center; border-bottom: 1px dashed var(--surface-slate); padding-bottom: var(--space-3);">
+        <div>
+          <span class="label-mono">configured file access:</span>
+          <span class="pill pill--info" x-text="job?.permissions?.file_access || 'read_only'"></span>
+        </div>
+        <div x-show="job?.permissions?.writable_paths?.length > 0">
+          <span class="label-mono">writable paths:</span>
+          <span style="font-family: var(--font-mono); font-size: var(--text-sm);" x-text="job?.permissions?.writable_paths?.join(', ')"></span>
+        </div>
+        <div>
+          <span class="label-mono">network required:</span>
+          <span class="pill" :class="job?.permissions?.provider_network_required ? 'pill--warn' : 'pill--healthy'" x-text="job?.permissions?.provider_network_required ? 'yes' : 'no'"></span>
+        </div>
       </div>
-      <div>
-        <span class="label-mono">network:</span>
-        <span class="pill" :class="sandboxStatus?.network_open ? 'pill--warn' : 'pill--healthy'" x-text="sandboxStatus?.network_open ? 'open' : 'isolated'"></span>
+
+      <!-- Runtime Sandbox Status -->
+      <div x-show="sandboxStatus" style="display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center;">
+        <div>
+          <span class="label-mono">runtime sandbox:</span>
+          <span class="pill" :class="sandboxStatus?.available ? 'pill--healthy' : 'pill--warn'" x-text="sandboxStatus?.available ? 'active' : 'unavailable'"></span>
+        </div>
+        <div>
+          <span class="label-mono">runtime network:</span>
+          <span class="pill" :class="sandboxStatus?.network_open ? 'pill--warn' : 'pill--healthy'" x-text="sandboxStatus?.network_open ? 'open' : 'isolated'"></span>
+        </div>
+        <div>
+          <span class="label-mono">runtime file access:</span>
+          <span class="pill" x-text="sandboxStatus?.file_access || '—'"></span>
+        </div>
       </div>
-      <div>
-        <span class="label-mono">file access:</span>
-        <span class="pill" x-text="sandboxStatus?.file_access || '—'"></span>
+      
+      <div x-show="!sandboxStatus" style="font-size: var(--text-xs); color: var(--text-secondary); font-style: italic;">
+        No execution data available yet to display runtime sandbox diagnostics.
       </div>
+
+      <template x-if="sandboxStatus?.warnings?.length">
+        <div style="margin-top: var(--space-2);">
+          <template x-for="w in sandboxStatus.warnings" :key="w">
+            <div style="color: var(--color-warn); font-size: var(--text-sm);">&#9888; <span x-text="w"></span></div>
+          </template>
+        </div>
+      </template>
     </div>
-    <template x-if="sandboxStatus?.warnings?.length">
-      <div style="margin-top: var(--space-3);">
-        <template x-for="w in sandboxStatus.warnings" :key="w">
-          <div style="color: var(--color-warn); font-size: var(--text-sm);">&#9888; <span x-text="w"></span></div>
-        </template>
-      </div>
-    </template>
   </div>
 
   <!-- Run history table -->
@@ -159,6 +185,99 @@
   </div>
 
   <div x-show="error" style="color: var(--color-error); margin-top: var(--space-3);" x-text="error"></div>
+
+  <!-- Edit Modal Overlay -->
+  <div class="modal-overlay" x-show="showEditModal" x-cloak style="display: none;">
+    <div class="modal-dialog" style="max-width: 600px; width: 100%;">
+      <h3>edit background job</h3>
+      <p style="margin-bottom: var(--space-4);">Modify the configurations and permissions for this recurring background job.</p>
+      
+      <div style="display: flex; flex-direction: column; gap: var(--space-3); max-height: 60vh; overflow-y: auto; padding-right: var(--space-2); margin-bottom: var(--space-4);">
+        <div>
+          <label class="label-mono" for="edit-name">name</label>
+          <input class="input" id="edit-name" type="text" x-model="editForm.name" style="display: block; margin-top: var(--space-2); width: 100%;">
+        </div>
+        
+        <div>
+          <label class="label-mono" for="edit-prompt">prompt</label>
+          <textarea class="input" id="edit-prompt" rows="4" x-model="editForm.prompt" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);"></textarea>
+        </div>
+
+        <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="edit-provider">provider</label>
+            <select class="input" id="edit-provider" x-model="editForm.provider_id" style="display: block; margin-top: var(--space-2); width: 100%;">
+              <template x-for="p in providers" :key="p.id">
+                <option :value="p.id" x-text="p.display_name"></option>
+              </template>
+            </select>
+          </div>
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="edit-model">model (optional)</label>
+            <input class="input" id="edit-model" type="text" x-model="editForm.model" placeholder="e.g. gpt-4o, claude-3-5-sonnet" style="display: block; margin-top: var(--space-2); width: 100%;">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="edit-file-access">file access</label>
+            <select class="input" id="edit-file-access" x-model="editForm.file_access" style="display: block; margin-top: var(--space-2); width: 100%;">
+              <option value="read_only">read_only</option>
+              <option value="selected_writes">selected_writes</option>
+              <option value="full_workspace">full_workspace</option>
+            </select>
+          </div>
+        </div>
+
+        <div x-show="editForm.file_access === 'selected_writes'">
+          <label class="label-mono" for="edit-writable-paths">writable paths (comma-separated)</label>
+          <input class="input" id="edit-writable-paths" type="text" x-model="editForm.writable_paths" placeholder="e.g. src/output, logs/summary.json" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+        </div>
+
+        <div>
+          <label class="label-mono">schedule</label>
+          <div style="display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap;">
+            <button class="btn" :class="editForm.schedule_kind === 'hourly' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'hourly'">hourly</button>
+            <button class="btn" :class="editForm.schedule_kind === 'daily' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'daily'">daily</button>
+            <button class="btn" :class="editForm.schedule_kind === 'weekly' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'weekly'">weekly</button>
+            <button class="btn" :class="editForm.schedule_kind === 'cron' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'cron'">cron</button>
+          </div>
+        </div>
+
+        <div x-show="editForm.schedule_kind === 'daily' || editForm.schedule_kind === 'weekly'" style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+          <div x-show="editForm.schedule_kind === 'weekly'">
+            <label class="label-mono" for="edit-day">day of week</label>
+            <select class="input" id="edit-day" x-model="editForm.day_of_week" style="display: block; margin-top: var(--space-2);">
+              <option value="monday">monday</option>
+              <option value="tuesday">tuesday</option>
+              <option value="wednesday">wednesday</option>
+              <option value="thursday">thursday</option>
+              <option value="friday">friday</option>
+              <option value="saturday">saturday</option>
+              <option value="sunday">sunday</option>
+            </select>
+          </div>
+          <div>
+            <label class="label-mono" for="edit-time">time of day</label>
+            <input class="input" id="edit-time" type="time" x-model="editForm.time_of_day" style="display: block; margin-top: var(--space-2);">
+          </div>
+        </div>
+
+        <div x-show="editForm.schedule_kind === 'cron'">
+          <label class="label-mono" for="edit-cron">cron expression</label>
+          <input class="input" id="edit-cron" type="text" x-model="editForm.cron" placeholder="*/30 * * * *" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+          <small style="color: var(--color-warn); display: block; margin-top: var(--space-1); font-size: 11px;">⚠️ Cron schedules are not supported on Windows locally.</small>
+        </div>
+      </div>
+
+      <div x-show="editError" style="color: var(--color-error); margin-bottom: var(--space-3);" x-text="editError"></div>
+      
+      <div class="modal-actions">
+        <button class="btn btn--ghost" @click="showEditModal = false" :disabled="editLoading">cancel</button>
+        <button class="btn btn--primary" @click="saveJob()" :disabled="editLoading" x-text="editLoading ? 'saving...' : 'save changes'"></button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <script>
@@ -177,6 +296,22 @@ window.jobDetailPage = function (jobID) {
     expandedRun: null,
     activityData: null,
     activityLoading: false,
+    providers: [],
+    showEditModal: false,
+    editLoading: false,
+    editError: '',
+    editForm: {
+      name: '',
+      prompt: '',
+      provider_id: '',
+      model: '',
+      file_access: 'read_only',
+      writable_paths: '',
+      schedule_kind: 'daily',
+      time_of_day: '09:00',
+      day_of_week: 'monday',
+      cron: '',
+    },
     _sseUnsub: [],
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -185,9 +320,10 @@ window.jobDetailPage = function (jobID) {
       this.loading = true;
       this.error = '';
       try {
-        var [detailRes, runsRes] = await Promise.all([
+        var [detailRes, runsRes, settingsRes] = await Promise.all([
           fetch('/api/jobs/' + this.jobID),
           fetch('/api/jobs/' + this.jobID + '/runs?limit=50'),
+          fetch('/api/settings'),
         ]);
         if (detailRes.ok) {
           var data = await detailRes.json();
@@ -207,6 +343,13 @@ window.jobDetailPage = function (jobID) {
         if (runsRes.ok) {
           var runsData = await runsRes.json();
           this.runs = runsData.runs || [];
+        }
+        if (settingsRes.ok) {
+          var cfg = await settingsRes.json();
+          var provs = cfg.providers || {};
+          this.providers = Object.keys(provs).map(function (id) {
+            return { id: id, display_name: provs[id].display_name || id };
+          });
         }
         if (this._sseUnsub.length === 0) this._bindSSE();
       } catch (e) {
@@ -324,6 +467,75 @@ window.jobDetailPage = function (jobID) {
         this.activityData = { events: [] };
       } finally {
         this.activityLoading = false;
+      }
+    },
+    openEditModal: function () {
+      if (!this.job) return;
+      this.editError = '';
+      this.editLoading = false;
+      this.editForm.name = this.job.name || '';
+      this.editForm.prompt = this.job.prompt || '';
+      this.editForm.provider_id = this.job.provider_id || '';
+      this.editForm.model = this.job.model || '';
+      this.editForm.file_access = (this.job.permissions && this.job.permissions.file_access) || 'read_only';
+      this.editForm.writable_paths = (this.job.permissions && this.job.permissions.writable_paths) ? this.job.permissions.writable_paths.join(', ') : '';
+      
+      var sched = this.job.schedule || {};
+      this.editForm.schedule_kind = sched.kind || 'daily';
+      this.editForm.time_of_day = sched.time_of_day || '09:00';
+      this.editForm.day_of_week = sched.day_of_week || 'monday';
+      this.editForm.cron = sched.cron || '';
+      
+      this.showEditModal = true;
+    },
+    saveJob: async function () {
+      this.editError = '';
+      this.editLoading = true;
+      try {
+        var paths = [];
+        if (this.editForm.writable_paths) {
+          paths = this.editForm.writable_paths.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        }
+        
+        var sched = { kind: this.editForm.schedule_kind, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+        if (this.editForm.schedule_kind === 'daily') {
+          sched.time_of_day = this.editForm.time_of_day;
+        } else if (this.editForm.schedule_kind === 'weekly') {
+          sched.time_of_day = this.editForm.time_of_day;
+          sched.day_of_week = this.editForm.day_of_week;
+        } else if (this.editForm.schedule_kind === 'cron') {
+          sched.cron = this.editForm.cron;
+        }
+
+        var body = {
+          name: this.editForm.name,
+          prompt: this.editForm.prompt,
+          provider_id: this.editForm.provider_id,
+          model: this.editForm.model,
+          file_access: this.editForm.file_access,
+          writable_paths: paths,
+          schedule: sched,
+        };
+
+        var r = await fetch('/api/jobs/' + encodeURIComponent(this.jobID), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-Dreamer-CSRF': this.csrf() },
+          body: JSON.stringify(body),
+        });
+        
+        var data = await r.json();
+        if (!r.ok) {
+          this.editError = data.error || 'Failed to save changes.';
+          return;
+        }
+        
+        this.showEditModal = false;
+        Alpine.store('toasts').add('Job changes saved successfully', 'success');
+        await this.load();
+      } catch (e) {
+        this.editError = 'Network error saving changes.';
+      } finally {
+        this.editLoading = false;
       }
     },
   };
