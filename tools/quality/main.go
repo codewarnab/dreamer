@@ -34,7 +34,7 @@ func main() {
 }
 
 func run() error {
-	cfg, jsonOut, templatesDir, cssDir, err := parseFlags()
+	cfg, jsonOut, templatesDir, cssDir, jsDir, err := parseFlags()
 	if err != nil {
 		return err
 	}
@@ -48,10 +48,11 @@ func run() error {
 		fmt.Fprintf(os.Stderr, "quality: %s\n", e)
 	}
 
-	// Run webcheck on HTML templates and CSS files.
+	// Run webcheck on HTML templates, CSS files, and JS files.
 	webFindings, err := webcheck.Check(webcheck.Config{
 		TemplatesDir: templatesDir,
 		CSSDir:       cssDir,
+		JSDir:        jsDir,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "quality: webcheck: %v\n", err)
@@ -75,7 +76,7 @@ func run() error {
 
 // parseFlags processes CLI flags and returns a Config. Extracted from main
 // to stay under the funlen linter limit.
-func parseFlags() (*astcheck.Config, bool, string, string, error) {
+func parseFlags() (*astcheck.Config, bool, string, string, string, error) {
 	var (
 		diffFrom    string
 		baseline    string
@@ -86,6 +87,7 @@ func parseFlags() (*astcheck.Config, bool, string, string, error) {
 		jsonOut     bool
 		templatesDir string
 		cssDir       string
+		jsDir        string
 	)
 
 	flag.StringVar(&diffFrom, "diff-from", "", "report only findings in files changed vs this rev")
@@ -97,11 +99,13 @@ func parseFlags() (*astcheck.Config, bool, string, string, error) {
 	flag.BoolVar(&jsonOut, "json", false, "output findings as JSON")
 	flag.StringVar(&templatesDir, "templates-dir", "internal/web/templates", "directory containing HTML templates for webcheck")
 	flag.StringVar(&cssDir, "css-dir", "internal/web/static/css", "directory containing CSS files for webcheck")
+	flag.StringVar(&jsDir, "js-dir", "internal/web/static/js", "directory containing JavaScript files for webcheck")
 	flag.Parse()
 
 	severity, ok := astcheck.ParseSeverity(minSev)
 	if !ok {
-		return nil, false, "", "", fmt.Errorf("invalid --min-severity: %q (use error, warn, or info)", minSev)
+		return nil, false, "", "", "", fmt.Errorf("invalid --min-severity: %q (use error, warn, or info)", minSev)
+
 	}
 
 	var enabled, disabled []string
@@ -128,6 +132,11 @@ func parseFlags() (*astcheck.Config, bool, string, string, error) {
 			cssDir = abs
 		}
 	}
+	if jsDir != "" {
+		if abs, err := filepath.Abs(jsDir); err == nil {
+			jsDir = abs
+		}
+	}
 
 	return &astcheck.Config{
 		Patterns:      patterns,
@@ -137,7 +146,7 @@ func parseFlags() (*astcheck.Config, bool, string, string, error) {
 		DiffFrom:      diffFrom,
 		BaselinePath:  baseline,
 		WriteBaseline: writeBase,
-	}, jsonOut, templatesDir, cssDir, nil
+	}, jsonOut, templatesDir, cssDir, jsDir, nil
 }
 
 // convertWebFindings converts webcheck findings to astcheck findings for

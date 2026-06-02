@@ -11,6 +11,8 @@ type Config struct {
 	TemplatesDir string
 	// CSSDir is the directory containing CSS files.
 	CSSDir string
+	// JSDir is the directory containing JavaScript files.
+	JSDir string
 }
 
 // Check runs all webcheck scanners and returns the combined findings.
@@ -31,6 +33,14 @@ func Check(cfg Config) ([]Finding, error) {
 			return nil, err
 		}
 		all = append(all, CheckCSSTokens(cssFiles)...)
+	}
+
+	if cfg.JSDir != "" {
+		jsFiles, err := globDir(cfg.JSDir, ".js")
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, CheckAlpineInit(jsFiles)...)
 	}
 
 	return all, nil

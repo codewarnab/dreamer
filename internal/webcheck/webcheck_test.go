@@ -109,6 +109,42 @@ func TestCheckCSSGoodFile(t *testing.T) {
 	}
 }
 
+func TestCheckAlpineInitFindsBadPattern(t *testing.T) {
+	dir := filepath.Join(testDataDir(), "js")
+	findings, err := Check(Config{JSDir: dir})
+	if err != nil {
+		t.Fatalf("Check() error: %v", err)
+	}
+
+	var alpineFindings []Finding
+	for _, f := range findings {
+		if f.Check == "alpine-init-listener" {
+			alpineFindings = append(alpineFindings, f)
+		}
+	}
+
+	if len(alpineFindings) != 1 {
+		t.Fatalf("expected 1 alpine-init-listener finding, got %d: %v", len(alpineFindings), alpineFindings)
+	}
+	if alpineFindings[0].Line != 2 {
+		t.Errorf("expected alpine:init on line 2, got line %d", alpineFindings[0].Line)
+	}
+}
+
+func TestCheckAlpineInitGoodFile(t *testing.T) {
+	dir := filepath.Join(testDataDir(), "js")
+	findings, err := Check(Config{JSDir: dir})
+	if err != nil {
+		t.Fatalf("Check() error: %v", err)
+	}
+
+	for _, f := range findings {
+		if filepath.Base(f.File) == "good_stores.js" {
+			t.Errorf("unexpected finding in good_stores.js: %s", f)
+		}
+	}
+}
+
 func TestCheckEmptyConfig(t *testing.T) {
 	findings, err := Check(Config{})
 	if err != nil {
