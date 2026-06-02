@@ -137,7 +137,7 @@ The daemon spawns an embedded HTTP server bound to `127.0.0.1:<web.port>` (defau
 - Maps (`providers`, `analyzer.rules`): per-key, overlay wins.
 - Lists (`projects`, `redaction.patterns`): overlay REPLACES the entire list when non-empty.
 
-The daemon registers fsnotify watchers on both files; on WRITE it reloads, CAS-swaps `atomic.Pointer[Config]`, and publishes `config.reloaded` on the event bus. Parse errors surface on `cfg.Notices.OverlayParseError` and the daemon keeps the pre-error config active. The web UI's `PUT /api/settings` writes only to the overlay — `config.yaml` is never rewritten by the daemon. `dreamer setup` overwrites `config.yaml` directly and drops comments (Open Issue I6).
+The daemon registers fsnotify watchers on both files; on WRITE it reloads, CAS-swaps `atomic.Pointer[Config]`, and publishes `config.reloaded` on the event bus. Parse errors surface on `cfg.Notices.OverlayParseError` and the daemon keeps the pre-error config active. The web UI's `PUT /api/settings` writes only to the overlay. The one exception is project removal: `DELETE /api/projects/{name}` rewrites `config.yaml` directly via the comment-preserving `config.RemoveProjectFromYAML` (the same function `dreamer remove` uses), then clears any stale `projects:` key from the overlay so it can't shadow the base list. Projects are structural, not preferences, so they live in `config.yaml` rather than the overlay. Web-side config writes are serialized by a process mutex and use atomic temp+rename, matching the CLI. `dreamer setup` overwrites `config.yaml` directly and drops comments (Open Issue I6).
 
 ### Finding lifecycle (`state.Findings`) [v1.5]
 
