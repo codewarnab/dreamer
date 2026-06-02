@@ -133,6 +133,10 @@ func newRootCommand() *cobra.Command {
 	addCmd.GroupID = groupSetup
 	root.AddCommand(addCmd)
 
+	removeCmd := newRemoveCommand()
+	removeCmd.GroupID = groupSetup
+	root.AddCommand(removeCmd)
+
 	startupCmd := newStartupCommand()
 	startupCmd.GroupID = groupSetup
 	root.AddCommand(startupCmd)
