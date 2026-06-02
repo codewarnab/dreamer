@@ -125,12 +125,12 @@ func (o *Orchestrator) RunPhase2Only(ctx context.Context, rc RunConfig, mistakes
 }
 
 type chunkResult struct {
-	index         int
+	index              int
 	mistakesByCategory map[RuleCategory][]Mistake
-	summary       string
-	warnings      []string
-	err           error
-	parseErr      error
+	summary            string
+	warnings           []string
+	err                error
+	parseErr           error
 }
 
 // runPhase1 dispatches per-chunk calls; returns the union, count of clean chunks, warnings.

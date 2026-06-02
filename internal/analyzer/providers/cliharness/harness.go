@@ -62,10 +62,10 @@ type Spec struct {
 
 // Options is the per-provider configuration carried from YAML config.
 type Options struct {
-	Command          []string
-	Env              map[string]string
-	Model            string
-	DefaultModel     string
+	Command             []string
+	Env                 map[string]string
+	Model               string
+	DefaultModel        string
 	SandboxProjectWrite bool
 	SandboxWritableDirs []string
 	SandboxNetwork      string
@@ -106,14 +106,14 @@ func NewProvider(options Options, spec *Spec) *Provider {
 
 // Session is the shared session struct created by NewSession.
 type Session struct {
-	command        []string
-	env            map[string]string
-	workingDir     string
-	systemMsg      string
-	runID          string
-	sandboxCfg     sandbox.Config
-	spec           *Spec
-	postStartHook  func(jobHandle uintptr)
+	command       []string
+	env           map[string]string
+	workingDir    string
+	systemMsg     string
+	runID         string
+	sandboxCfg    sandbox.Config
+	spec          *Spec
+	postStartHook func(jobHandle uintptr)
 }
 
 // Command returns the resolved command slice for testing.
@@ -205,8 +205,8 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 				FDs:       p.Options.SandboxResources.FDs,
 			},
 		},
-		spec:           spec,
-		postStartHook:  sessionConfig.PostStartHook,
+		spec:          spec,
+		postStartHook: sessionConfig.PostStartHook,
 	}, nil
 }
 

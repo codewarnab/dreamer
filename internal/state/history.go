@@ -42,23 +42,23 @@ type History struct {
 
 // DaySummary captures one calendar-day's run counters.
 type DaySummary struct {
-	Date          string         `json:"date"`
-	Runs          int            `json:"runs"`
-	FindingsNew   int            `json:"findings_new"`
-	FindingsTotal int            `json:"findings_total"`
-	Tokens        int64          `json:"tokens"`
-	AvgRunDurationMillis  int64          `json:"avg_run_millis"`
-	PerCategory   map[string]int `json:"per_category,omitempty"`
+	Date                 string         `json:"date"`
+	Runs                 int            `json:"runs"`
+	FindingsNew          int            `json:"findings_new"`
+	FindingsTotal        int            `json:"findings_total"`
+	Tokens               int64          `json:"tokens"`
+	AvgRunDurationMillis int64          `json:"avg_run_millis"`
+	PerCategory          map[string]int `json:"per_category,omitempty"`
 }
 
 // DaySummaryDelta is the per-run contribution merged into today's bucket.
 type DaySummaryDelta struct {
-	Runs          int
-	FindingsNew   int
-	FindingsTotal int
-	Tokens        int64
-	RunDurationMillis     int64
-	PerCategory   map[string]int
+	Runs              int
+	FindingsNew       int
+	FindingsTotal     int
+	Tokens            int64
+	RunDurationMillis int64
+	PerCategory       map[string]int
 }
 
 // HistoryPath returns the per-project history.json path.

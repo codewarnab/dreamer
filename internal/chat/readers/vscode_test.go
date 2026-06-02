@@ -170,7 +170,7 @@ func TestIntFromValueBool(t *testing.T) {
 
 func TestVSCodeDeltaRequestIndexFromPathString(t *testing.T) {
 	record := map[string]any{
-		"path": "/requests/2/response",
+		"path":  "/requests/2/response",
 		"value": "some delta",
 	}
 	idx, ok := vscodeDeltaRequestIndex(record)

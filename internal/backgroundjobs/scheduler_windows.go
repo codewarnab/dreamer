@@ -205,13 +205,13 @@ func (s *windowsScheduler) writeTask(ctx context.Context, taskPath string, xmlBy
 
 // taskXMLData holds template data for XML generation.
 type taskXMLData struct {
-	Description     string
-	Enabled         string
-	TimeLimit       string
-	ExecutablePath  string
-	Arguments       string
-	WorkingDir      string
-	TriggerXML      string
+	Description    string
+	Enabled        string
+	TimeLimit      string
+	ExecutablePath string
+	Arguments      string
+	WorkingDir     string
+	TriggerXML     string
 }
 
 // buildTaskXML generates Windows Task Scheduler XML for a job.

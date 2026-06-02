@@ -83,12 +83,12 @@ func TestActivityStoreWriteReadRoundTrip(t *testing.T) {
 			Category:    string(CategoryTool),
 		},
 		{
-			Timestamp:   time.Date(2026, 6, 1, 12, 0, 1, 0, time.UTC),
-			Type:        ActivityTypeConnection,
-			PID:         1234,
-			RemoteAddr:  "140.82.112.3:443",
-			RemoteHost:  "github.com",
-			State:       "ESTABLISHED",
+			Timestamp:  time.Date(2026, 6, 1, 12, 0, 1, 0, time.UTC),
+			Type:       ActivityTypeConnection,
+			PID:        1234,
+			RemoteAddr: "140.82.112.3:443",
+			RemoteHost: "github.com",
+			State:      "ESTABLISHED",
 		},
 		{
 			Timestamp:   time.Date(2026, 6, 1, 12, 0, 2, 0, time.UTC),

@@ -12,9 +12,9 @@ import (
 
 func newJobsReconcileCommand() *cobra.Command {
 	var (
-		dryRun      bool
-		verbose     bool
-		jsonOutput  bool
+		dryRun     bool
+		verbose    bool
+		jsonOutput bool
 	)
 
 	command := &cobra.Command{

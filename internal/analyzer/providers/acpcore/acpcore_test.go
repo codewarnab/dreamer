@@ -281,4 +281,3 @@ func TestCopyStringMapCopies(t *testing.T) {
 		t.Fatalf("map was not copied")
 	}
 }
-

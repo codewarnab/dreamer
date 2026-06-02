@@ -154,14 +154,14 @@ func formatRunDuration(millis int64) string {
 
 // validRunStatuses is the set of valid values for the --status flag.
 var validRunStatuses = map[string]bool{
-	"completed":  true,
-	"failed":     true,
-	"timed_out":  true,
-	"cancelled":  true,
-	"skipped":    true,
-	"running":    true,
-	"idle":       true,
-	"never_run":  true,
+	"completed": true,
+	"failed":    true,
+	"timed_out": true,
+	"cancelled": true,
+	"skipped":   true,
+	"running":   true,
+	"idle":      true,
+	"never_run": true,
 }
 
 // isValidRunStatus reports whether s is a recognized run status value.

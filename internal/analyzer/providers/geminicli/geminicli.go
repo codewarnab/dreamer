@@ -16,17 +16,17 @@ import (
 const ID = "gemini-cli"
 
 var providerSpec = &cliharness.Spec{
-	ID:              ID,
-	ErrPrefix:       "gemini-cli",
-	DefaultCommand:  defaultCommand,
-	StartErr:        cliharness.StartErrNotInstalled("Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini` to authenticate (browser OAuth on first launch)."),
-	CmdStartErr:     cliharness.CmdStartErrPlain("gemini-cli"),
-	WorkingDirFlag:  "",
-	ConfigDir:       cliharness.ConfigDirFromEnv("GEMINI_HOME", ".gemini"),
-	ParseErrFirst:   false,
-	ReadStreamJSON:  readStreamJSON,
-	InjectPhase2:    cliharness.InjectCLITools,
-	ResolveModel:    cliharness.ResolveModel3Tier,
+	ID:             ID,
+	ErrPrefix:      "gemini-cli",
+	DefaultCommand: defaultCommand,
+	StartErr:       cliharness.StartErrNotInstalled("Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini` to authenticate (browser OAuth on first launch)."),
+	CmdStartErr:    cliharness.CmdStartErrPlain("gemini-cli"),
+	WorkingDirFlag: "",
+	ConfigDir:      cliharness.ConfigDirFromEnv("GEMINI_HOME", ".gemini"),
+	ParseErrFirst:  false,
+	ReadStreamJSON: readStreamJSON,
+	InjectPhase2:   cliharness.InjectCLITools,
+	ResolveModel:   cliharness.ResolveModel3Tier,
 }
 
 func init() {

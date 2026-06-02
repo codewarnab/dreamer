@@ -34,7 +34,7 @@ type fileBackedProvider struct {
 	sourceType SourceType
 }
 
-func (p fileBackedProvider) Type() SourceType                    { return p.sourceType }
+func (p fileBackedProvider) Type() SourceType                { return p.sourceType }
 func (fileBackedProvider) DeleteSource(s Source) error       { return deleteSourceFile(s.Path) }
 func (fileBackedProvider) SizeBytes(s Source) (int64, error) { return statSourceSize(s.Path) }
 

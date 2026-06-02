@@ -247,7 +247,6 @@ func normalizeCandidatePath(candidate string, normalizedRoot string) (string, er
 	return fsutil.ResolveSymlinks(abs)
 }
 
-
 func looksLikeNonFilesystemPath(candidate string) bool {
 	lower := strings.ToLower(candidate)
 	return strings.Contains(lower, "://") || strings.HasPrefix(lower, "file:")
@@ -259,5 +258,3 @@ func isVolumeRelativeRootedPath(candidate string) bool {
 	}
 	return filepath.VolumeName(candidate) == "" && strings.HasPrefix(filepath.Clean(candidate), string(filepath.Separator))
 }
-
-

@@ -25,11 +25,11 @@ const (
 	wizStepPath = iota
 	wizStepName
 	wizStepProvider
-	wizStepModel        // model override (optional)
-	wizStepCustomModel  // sub-step for custom model text input
+	wizStepModel       // model override (optional)
+	wizStepCustomModel // sub-step for custom model text input
 	wizStepPrompt
-	wizStepPermissions    // file access level picker
-	wizStepWritablePaths  // @ mention file picker (selected_writes only)
+	wizStepPermissions   // file access level picker
+	wizStepWritablePaths // @ mention file picker (selected_writes only)
 	wizStepScheduleKind
 	wizStepInterval  // sub-step for hourly
 	wizStepTimeOfDay // sub-step for daily/weekly

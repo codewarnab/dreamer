@@ -183,9 +183,9 @@ func TestTranslatePermissionRequestReadKind(t *testing.T) {
 
 func TestTranslatePermissionRequestShellKind(t *testing.T) {
 	req := map[string]any{
-		"kind":                      "shell",
-		"full_command_text":         "ls -la",
-		"read_only":                 true,
+		"kind":                       "shell",
+		"full_command_text":          "ls -la",
+		"read_only":                  true,
 		"has_write_file_redirection": false,
 	}
 	pr := translatePermissionRequest(req)

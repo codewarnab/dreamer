@@ -839,8 +839,8 @@ func buildConfigYAML(a setupAnswers) []byte {
 func newSetupCommand() *cobra.Command {
 	var (
 		advanced, force, noStartup, nonInteractive bool
-		niProvider, niModel, niOutputRoot           string
-		niFrequency                                 int
+		niProvider, niModel, niOutputRoot          string
+		niFrequency                                int
 	)
 	cmd := &cobra.Command{
 		Use:   "setup",

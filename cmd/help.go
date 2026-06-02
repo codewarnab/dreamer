@@ -11,9 +11,9 @@ import (
 
 // Color palette — mirrors cmd/setup.go.
 var (
-	colorAccent = lipgloss.Color("#3cffd0") // mint green
-	colorDesc   = lipgloss.Color("#949494") // gray
-	colorHeader = lipgloss.Color("#63")     // purple/indigo
+	colorAccent   = lipgloss.Color("#3cffd0") // mint green
+	colorDesc     = lipgloss.Color("#949494") // gray
+	colorHeader   = lipgloss.Color("#63")     // purple/indigo
 	colorDim      = lipgloss.Color("#666666") // dim
 	colorItemDesc = lipgloss.Color("#e9e9e9") // light gray for selected-item descriptions
 )

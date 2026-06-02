@@ -339,13 +339,12 @@ func isWildcard(values []int, lo, hi int) bool {
 	return len(values) == hi-lo+1 && values[0] == lo && values[len(values)-1] == hi
 }
 
-
 // DefaultTimeoutFor derives a session timeout from the schedule.
 // For interval schedules, uses 80% of the interval capped at 1 hour.
 // For daily/weekly/cron, returns 30 minutes.
 func DefaultTimeoutFor(spec ScheduleSpec) time.Duration {
 	const (
-		hardCap     = 1 * time.Hour
+		hardCap      = 1 * time.Hour
 		dailyDefault = 30 * time.Minute
 	)
 	switch spec.Kind {

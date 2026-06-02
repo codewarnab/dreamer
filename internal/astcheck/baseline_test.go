@@ -218,10 +218,10 @@ func TestIsSuppressed(t *testing.T) {
 	}
 
 	tests := []struct {
-		file    string
-		line    int
-		check   string
-		want    bool
+		file  string
+		line  int
+		check string
+		want  bool
 	}{
 		{"a.go", 6, "nodirectlog", true},   // blanket matches any
 		{"a.go", 6, "settesthome", true},   // blanket matches any

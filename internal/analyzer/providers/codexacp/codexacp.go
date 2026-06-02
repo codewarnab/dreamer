@@ -21,10 +21,10 @@ func init() {
 			command = []string{"codex-acp"}
 		}
 		return acpcore.New(acpcore.Options{
-			ID:               ID,
-			Command:          command,
-			Env:              providerConfig.Env,
-			DefaultModel:     providerConfig.DefaultModel,
+			ID:                  ID,
+			Command:             command,
+			Env:                 providerConfig.Env,
+			DefaultModel:        providerConfig.DefaultModel,
 			Sandbox:             providerConfig.Sandbox,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxWritableDirs: providerConfig.SandboxWritableDirs,

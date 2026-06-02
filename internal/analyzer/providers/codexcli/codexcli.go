@@ -25,17 +25,17 @@ const ID = "codex-cli"
 const codexMaxInputBytes = 400_000
 
 var providerSpec = &cliharness.Spec{
-	ID:              ID,
-	ErrPrefix:       "codex-cli",
-	DefaultCommand:  defaultCommand,
-	StartErr:        cliharness.StartErrNotInstalled("Install the OpenAI Codex CLI (`npm i -g @openai/codex`) and run `codex login`."),
-	CmdStartErr:     cliharness.CmdStartErrPlain("codex-cli"),
-	WorkingDirFlag:  "--cd",
-	ConfigDir:       cliharness.ConfigDirHardcoded(".codex"),
-	ParseErrFirst:   true,
-	ReadStreamJSON:  readStreamJSON,
-	PreStdinWrite:   capInput,
-	ResolveModel:    cliharness.ResolveModel3Tier,
+	ID:                   ID,
+	ErrPrefix:            "codex-cli",
+	DefaultCommand:       defaultCommand,
+	StartErr:             cliharness.StartErrNotInstalled("Install the OpenAI Codex CLI (`npm i -g @openai/codex`) and run `codex login`."),
+	CmdStartErr:          cliharness.CmdStartErrPlain("codex-cli"),
+	WorkingDirFlag:       "--cd",
+	ConfigDir:            cliharness.ConfigDirHardcoded(".codex"),
+	ParseErrFirst:        true,
+	ReadStreamJSON:       readStreamJSON,
+	PreStdinWrite:        capInput,
+	ResolveModel:         cliharness.ResolveModel3Tier,
 	SkipPhase2Validation: true,
 }
 

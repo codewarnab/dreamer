@@ -38,12 +38,12 @@ type SystemHealth struct {
 
 // JobHealth is the health status of a single job.
 type JobHealth struct {
-	JobID     string         `json:"job_id"`
-	Installed bool           `json:"installed"`
-	Enabled   bool           `json:"enabled"`
-	HasOSSchedule bool        `json:"has_os_schedule"` // has active OS schedule artifact
-	Healthy   bool           `json:"healthy"`
-	Issues    []HealthIssue  `json:"issues"`
+	JobID         string        `json:"job_id"`
+	Installed     bool          `json:"installed"`
+	Enabled       bool          `json:"enabled"`
+	HasOSSchedule bool          `json:"has_os_schedule"` // has active OS schedule artifact
+	Healthy       bool          `json:"healthy"`
+	Issues        []HealthIssue `json:"issues"`
 }
 
 // HealthChecker runs health diagnostics.

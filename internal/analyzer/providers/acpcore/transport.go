@@ -40,10 +40,10 @@ type transport struct {
 	sandboxCleanup func() // closes job handle after process exits
 	prepareCleanup func() // closes restricted token after process exits
 
-	stderrPipe   io.ReadCloser  // stored for explicit closure in close()
-	goroutines   sync.WaitGroup // tracks drainStderr + readLoop
-	cleanupOnce  sync.Once      // ensures resource-release path runs exactly once
-	releaseErr   error          // error from the resource-release path
+	stderrPipe  io.ReadCloser  // stored for explicit closure in close()
+	goroutines  sync.WaitGroup // tracks drainStderr + readLoop
+	cleanupOnce sync.Once      // ensures resource-release path runs exactly once
+	releaseErr  error          // error from the resource-release path
 }
 
 type sessionStream struct {

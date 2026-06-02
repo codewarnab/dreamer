@@ -190,7 +190,7 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 
 	// Build sandbox status snapshot for audit.
 	sbStatus := SandboxStatus{
-		Available:   sandbox.Available(),
+		Available: sandbox.Available(),
 		// Intentionally hardcoded to true: Windows cannot isolate network for
 		// Job Object children; on Linux/macOS the sandbox may isolate, but we
 		// conservatively report open since the provider itself always has network.
