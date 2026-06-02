@@ -124,11 +124,9 @@ The daemon spawns an embedded HTTP server bound to `127.0.0.1:<web.port>` (defau
 
 - `internal/web/server.go` — `http.Server` lifecycle, listener, port file (`<output_root>/web.port`), CSRF token mint, SPA route table.
 - `internal/web/csrf.go` — header-and-Origin CSRF middleware.
-- `internal/web/sse.go` — SSE writer bridging `*pipeline.EventBus` to `text/event-stream`.
 - `internal/web/activity.go` — bounded ring buffer of recent bus events for `/api/dashboard.live_activity`.
-- `internal/web/runner.go` — per-project single-worker queue for on-demand `pipeline.Run` invocations triggered by the SPA's "Run Now" button.
 - `internal/web/apply/apply.go` — atomic apply / undo engine. Strategies: `append-section` (auto-promotes to `replace-section` when the anchor exists), `replace-section`, `insert-after`, `append-file`, `replace-file`. Containment-checked via `filepath.EvalSymlinks` + project-root prefix; 4 MiB pre-image cap; SHA-256 pre/post recorded in `state.FindingReversal`.
-- `internal/web/handlers/*` — JSON API for `/api/dashboard`, `/api/projects[/{name}[/findings[/{hash}[/{transition}]]|/run|/chats|/history]]`, `/api/providers`, `/api/settings` (GET merged view; PUT writes `ui-overrides.yaml`), `/api/logs/tail`, `/api/events` (SSE), `/api/fs/exists`, `/api/daemon/restart`.
+- `internal/web/handlers/*` — JSON API for `/api/dashboard`, `/api/projects[/{name}[/findings[/{hash}[/{transition}]]|/run|/chats|/history]]`, `/api/providers`, `/api/settings` (GET merged view; PUT writes `ui-overrides.yaml`), `/api/logs/tail`, `/api/events` (SSE via `events.go`), `/api/fs/exists`, `/api/daemon/restart`, `/api/jobs` (background jobs CRUD via `jobs.go`), per-project run queue via `run.go`.
 - `internal/web/templates/*.html` — Go `html/template` SPA shell (`layout.html`) + per-page content blocks (dashboard, project tabs, settings, logs, providers). All assets embedded via `internal/web/embed.go` (`go:embed all:templates all:static`).
 - `internal/web/static/*` — Verge-token CSS (`css/dreamer.css`), vendored htmx + alpine + fonts (`vendor/`, `fonts/`). No CDN.
 
