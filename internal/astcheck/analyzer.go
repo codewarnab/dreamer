@@ -22,6 +22,10 @@
 //	lockskip         error  exported method on mutex struct skips lock          (default on)
 //	permissionbypass error  sandbox write-posture without Available() check     (default on)
 //	stringconst      warn   repeated string literals across files; use constants(default on)
+//	stringerr        warn   strings.Contains(err.Error(), literal); use errors.Is/As(default on)
+//	errverbatim      warn   err.Error() as HTTP response body; leaks paths       (default on)
+//	symlinkresolve   warn   filepath.Clean in containment check without EvalSymlinks(default on)
+//	implicitstatus   info   w.Write without preceding w.WriteHeader              (default on)
 //	goroutinerecover info   pipeline goroutine without a recover() guard        (default OFF)
 package astcheck
 
