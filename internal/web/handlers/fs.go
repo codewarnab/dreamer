@@ -25,6 +25,11 @@ func FSExists(deps Deps) http.HandlerFunc {
 			return
 		}
 		abs := filepath.Clean(path)
+		// Resolve symlinks before containment check to prevent traversal
+		// via symlink pointing outside project roots.
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = resolved
+		}
 		if !fsPathAllowed(deps, abs) {
 			writeJSONError(w, http.StatusForbidden, "path outside configured project roots")
 			return
