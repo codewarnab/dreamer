@@ -58,6 +58,24 @@
             </select>
           </div>
         </div>
+        <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="job-model">model (optional)</label>
+            <input class="input" id="job-model" type="text" x-model="form.model" placeholder="e.g. gpt-4o, claude-3-5-sonnet" style="display: block; margin-top: var(--space-2); width: 100%;">
+          </div>
+          <div style="flex: 1; min-width: 200px;">
+            <label class="label-mono" for="job-file-access">file access</label>
+            <select class="input" id="job-file-access" x-model="form.file_access" style="display: block; margin-top: var(--space-2); width: 100%;">
+              <option value="read_only">read_only</option>
+              <option value="selected_writes">selected_writes</option>
+              <option value="full_workspace">full_workspace</option>
+            </select>
+          </div>
+        </div>
+        <div x-show="form.file_access === 'selected_writes'">
+          <label class="label-mono" for="job-writable-paths">writable paths (comma-separated)</label>
+          <input class="input" id="job-writable-paths" type="text" x-model="form.writable_paths" placeholder="e.g. src/output, logs/summary.json" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+        </div>
         <div>
           <label class="label-mono">schedule</label>
           <div style="display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap;">
@@ -88,6 +106,7 @@
         <div x-show="form.schedule_kind === 'cron'">
           <label class="label-mono" for="job-cron">cron expression</label>
           <input class="input" id="job-cron" type="text" x-model="form.cron" placeholder="*/30 * * * *" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+          <small style="color: var(--color-warn); display: block; margin-top: var(--space-1); font-size: 11px;">⚠️ Cron schedules are not supported on Windows locally (use hourly, daily, or weekly instead).</small>
         </div>
         <div>
           <label class="label-mono" for="job-name">name (optional)</label>
@@ -105,6 +124,10 @@
             <div><span class="label-mono">schedule:</span> <span x-text="preview?.schedule_summary"></span></div>
             <div><span class="label-mono">next runs:</span> <span x-text="preview?.next_3_runs?.join(', ')"></span></div>
             <div><span class="label-mono">provider:</span> <span x-text="preview?.provider?.display_name"></span></div>
+            <div><span class="label-mono">file access:</span> <span class="pill" style="padding: 2px 8px; font-size: 11px;" x-text="preview?.permissions?.file_access"></span></div>
+            <div x-show="preview?.permissions?.writable_paths?.length > 0">
+              <span class="label-mono">writable paths:</span> <span x-text="preview?.permissions?.writable_paths?.join(', ')"></span>
+            </div>
             <div x-show="preview?.warnings?.length > 0" style="color: var(--text-secondary);">
               <span class="label-mono">warnings:</span> <span x-text="preview?.warnings?.join(', ')"></span>
             </div>
@@ -117,41 +140,61 @@
   <!-- Job list table -->
   <div class="card">
     <div class="kicker">jobs</div>
-    <table class="table" style="margin-top: var(--space-3);">
-      <thead>
-        <tr>
-          <th>name</th>
-          <th>provider</th>
-          <th>schedule</th>
-          <th>next run</th>
-          <th>status</th>
-          <th>runs</th>
-          <th>actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="job in jobs" :key="job.id">
+    
+    <!-- Table shown when jobs exist -->
+    <div x-show="jobs.length > 0" style="margin-top: var(--space-3); overflow-x: auto;">
+      <table class="table">
+        <thead>
           <tr>
-            <td><a :href="'/jobs/' + job.id" x-text="job.name" style="color: var(--text-primary);"></a></td>
-            <td x-text="job.provider_id"></td>
-            <td x-text="job.schedule_summary || '—'"></td>
-            <td x-text="job.next_run_at ? new Date(job.next_run_at).toLocaleString() : '—'"></td>
-            <td>
-              <span class="pill" :class="statusPill(job).class" x-text="statusPill(job).label"></span>
-            </td>
-            <td x-text="job.run_count"></td>
-            <td>
-              <div style="display: flex; gap: var(--space-2);">
-                <button class="btn btn--ghost" @click="runNow(job.id)" title="Run now">&#9654;</button>
-                <button class="btn btn--ghost" @click="job.enabled ? pauseJob(job.id) : resumeJob(job.id)" x-text="job.enabled ? 'pause' : 'resume'"></button>
-                <button class="btn btn--ghost" @click="deleteJob(job.id)" title="Delete" style="color: var(--color-error);">&times;</button>
-              </div>
-            </td>
+            <th>name</th>
+            <th>provider</th>
+            <th>schedule</th>
+            <th>next run</th>
+            <th>status</th>
+            <th>runs</th>
+            <th>actions</th>
           </tr>
-        </template>
-      </tbody>
-    </table>
-    <div x-show="jobs.length === 0" style="color: var(--text-secondary); padding: var(--space-4) 0;">No background jobs configured.</div>
+        </thead>
+        <tbody>
+          <template x-for="job in jobs" :key="job.id">
+            <tr>
+              <td><a :href="'/jobs/' + job.id" x-text="job.name" style="color: var(--text-primary); font-weight: 600;"></a></td>
+              <td x-text="job.provider_id" style="font-family: var(--font-mono); font-size: 13px;"></td>
+              <td x-text="job.schedule_summary || '—'"></td>
+              <td x-text="job.next_run_at ? new Date(job.next_run_at).toLocaleString() : '—'"></td>
+              <td>
+                <span class="pill" :class="statusPill(job).class" x-text="statusPill(job).label"></span>
+              </td>
+              <td x-text="job.run_count" style="font-family: var(--font-mono);"></td>
+              <td>
+                <div style="display: flex; gap: var(--space-2);">
+                  <button class="btn btn--ghost" @click="runNow(job.id)" title="Run now" style="padding: var(--space-1) var(--space-3);">&#9654;</button>
+                  <button class="btn btn--ghost" @click="job.enabled ? pauseJob(job.id) : resumeJob(job.id)" style="padding: var(--space-1) var(--space-3);" x-text="job.enabled ? 'pause' : 'resume'"></button>
+                  <button class="btn btn--ghost" @click="deleteJob(job.id)" title="Delete" style="color: var(--color-error); padding: var(--space-1) var(--space-2);">&times;</button>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Premium Empty State Panel -->
+    <div x-show="jobs.length === 0" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: var(--space-6) var(--space-4);">
+      <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(60, 255, 208, 0.05); border: 1px dashed var(--jelly-mint); display: flex; align-items: center; justify-content: center; margin-bottom: var(--space-4);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--jelly-mint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+      </div>
+      <h3 class="headline-md" style="margin-bottom: var(--space-2); font-size: 20px;">No background jobs configured</h3>
+      <p class="body" style="color: var(--text-secondary); max-width: 45ch; font-size: 14px; margin-bottom: var(--space-4);">
+        Automate periodic natural-language analyses, mistake scans, and code quality audits across your projects.
+      </p>
+      <button class="btn btn--primary" @click="showCreate = true; document.getElementById('job-prompt')?.focus();">
+        + configure your first job
+      </button>
+    </div>
   </div>
 
   <!-- Audit log -->
@@ -161,7 +204,9 @@
       <button class="btn btn--ghost" @click="showAudit = !showAudit; if (showAudit && auditEvents.length === 0) loadAudit()" x-text="showAudit ? 'collapse' : 'expand'"></button>
     </div>
     <div x-show="showAudit" style="margin-top: var(--space-3);">
-      <div x-show="auditEvents.length === 0" style="color: var(--text-secondary);">No audit events.</div>
+      <div x-show="auditEvents.length === 0" style="color: var(--text-secondary); text-align: center; padding: var(--space-4) 0; font-family: var(--font-mono); font-size: 13px; font-style: italic;">
+        No background job audit events recorded.
+      </div>
       <table x-show="auditEvents.length > 0" style="width: 100%; font-size: 0.85rem;">
         <thead>
           <tr>
@@ -202,6 +247,8 @@ window.jobsPage = function () {
       cron: '',
       name: '',
       model: '',
+      file_access: 'read_only',
+      writable_paths: '',
     },
     preview: null,
     providers: [],
@@ -271,19 +318,28 @@ window.jobsPage = function () {
       }
       return s;
     },
+    buildPayload: function () {
+      var paths = [];
+      if (this.form.writable_paths) {
+        paths = this.form.writable_paths.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      }
+      return {
+        prompt: this.form.prompt,
+        project_name: this.form.project_name,
+        provider_id: this.form.provider_id,
+        schedule: this.buildSchedule(),
+        name: this.form.name,
+        model: this.form.model,
+        file_access: this.form.file_access,
+        writable_paths: paths,
+      };
+    },
     previewJob: async function () {
       this.error = '';
       this.preview = null;
       this.loading = true;
       try {
-        var body = {
-          prompt: this.form.prompt,
-          project_name: this.form.project_name,
-          provider_id: this.form.provider_id,
-          schedule: this.buildSchedule(),
-          name: this.form.name,
-          model: this.form.model,
-        };
+        var body = this.buildPayload();
         var r = await fetch('/api/jobs/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Dreamer-CSRF': this.csrf() },
@@ -299,14 +355,7 @@ window.jobsPage = function () {
       this.error = '';
       this.loading = true;
       try {
-        var body = {
-          prompt: this.form.prompt,
-          project_name: this.form.project_name,
-          provider_id: this.form.provider_id,
-          schedule: this.buildSchedule(),
-          name: this.form.name,
-          model: this.form.model,
-        };
+        var body = this.buildPayload();
         var r = await fetch('/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Dreamer-CSRF': this.csrf() },
@@ -317,6 +366,9 @@ window.jobsPage = function () {
         this.preview = null;
         this.form.prompt = '';
         this.form.name = '';
+        this.form.model = '';
+        this.form.file_access = 'read_only';
+        this.form.writable_paths = '';
         this.showCreate = false;
         await this.load();
       } catch (e) { this.error = 'network error'; }
