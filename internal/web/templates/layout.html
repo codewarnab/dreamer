@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{.CSRFToken}}">
   <title>dreamer</title>
+  <script>
+    (function() {
+      var t = localStorage.getItem("dreamer-theme");
+      if (t === "light" || t === "dark") {
+        document.documentElement.setAttribute("data-theme", t);
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="/static/css/dreamer.css">
 </head>
 <body x-data="appState()">
@@ -45,6 +53,11 @@
           <span class="pill" :class="$store.sse.connected ? 'pill--healthy' : 'pill--warn'" x-text="$store.sse.connected ? 'sse: ok' : 'sse: reconnecting'" style="font-size: 10px;"></span>
         </div>
         <div style="display: flex; align-items: center; gap: var(--space-3);">
+          <button class="btn btn--ghost" @click="$store.theme.toggle()"
+                  :title="$store.theme.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+                  style="font-size: 16px; padding: var(--space-1) var(--space-2); line-height: 1;">
+            <span x-text="$store.theme.current === 'dark' ? '\u263E' : '\u2600'"></span>
+          </button>
           <button class="btn btn--primary" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
           <span x-show="msg" x-text="msg" style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);"></span>
         </div>
