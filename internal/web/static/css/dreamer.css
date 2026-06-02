@@ -1,5 +1,6 @@
 /* Verge design system tokens and component primitives for dreamer v1.5 UI. */
 
+/* TODO(audit): Anton only loads weight 400 but h1-h6 use font-weight: 700; browser synthesizes bold (suboptimal) (MEDIUM #29) */
 @font-face {
   font-family: "Anton";
   src: url("/static/fonts/Anton/Anton-Regular.woff2") format("woff2");
@@ -52,6 +53,14 @@
   --text-secondary: #949494;
   --text-muted: #e9e9e9;
   --text-inverted: #131313;
+  --text-sm: 13px;
+  --text-xs: 11px;
+
+  --surface-1: #1a1a1a;
+  --surface-2: #222222;
+
+  --color-error: #ef476f;
+  --color-warn: #ffd166;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -182,6 +191,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   background: var(--jelly-mint);
   color: var(--text-inverted);
 }
+/* TODO(audit): Add min-width: 0 or overflow-x: auto to prevent wide tables from pushing grid wider (MEDIUM #28) */
 .main { padding: var(--space-5) var(--space-6); }
 .topbar {
   display: flex;
@@ -197,16 +207,6 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   border: var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
-}
-.card--mint {
-  background: var(--jelly-mint);
-  color: var(--text-inverted);
-  border: var(--hairline-mint);
-}
-.card--uv {
-  background: var(--ultraviolet);
-  color: var(--text-primary);
-  border: var(--hairline-uv);
 }
 
 .btn {
@@ -249,8 +249,37 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   text-transform: uppercase;
 }
 .pill--healthy { background: var(--jelly-mint); color: var(--text-inverted); }
-.pill--warn { background: #ffd166; color: var(--text-inverted); }
-.pill--error { background: #ef476f; color: var(--text-primary); }
+.pill--warn { background: var(--color-warn); color: var(--text-inverted); }
+.pill--error { background: var(--color-error); color: var(--text-inverted); }
+.pill--danger { background: var(--color-error); color: var(--text-inverted); }
+.pill--info { background: var(--focus-cyan); color: var(--text-inverted); }
+.pill:focus-visible {
+  outline: 2px solid var(--focus-cyan);
+  outline-offset: 2px;
+}
+
+.input {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-slate);
+  color: var(--text-primary);
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+}
+
+.event-meta {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.banner {
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
 
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td {
@@ -295,12 +324,6 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   line-height: 1.1;
   text-transform: uppercase;
 }
-.stat-card .stat-delta {
-  font-family: var(--font-body);
-  font-weight: 500;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
 
 /* Activity strip */
 .activity-strip {
@@ -335,7 +358,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   overflow-x: auto;
 }
 .diff-preview .line-add { background: rgba(60,255,208,0.15); color: var(--jelly-mint); display: block; }
-.diff-preview .line-del { background: rgba(239,71,111,0.15); color: #ef476f; display: block; }
+.diff-preview .line-del { background: rgba(239,71,111,0.15); color: var(--color-error); display: block; }
 
 /* Form controls */
 input[type="text"],
@@ -352,12 +375,13 @@ select {
   color: var(--text-primary);
   border: var(--hairline);
   border-radius: var(--radius-md);
-  outline: none;
 }
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   border-color: var(--focus-cyan);
+  outline: 2px solid var(--focus-cyan);
+  outline-offset: 1px;
 }
 label {
   display: block;
@@ -371,7 +395,7 @@ label {
 
 /* Banners */
 .banner--error {
-  background: #ef476f;
+  background: var(--color-error);
   color: var(--text-primary);
   padding: var(--space-2) var(--space-4);
   font-family: var(--font-mono);
@@ -477,8 +501,8 @@ label {
   color: var(--jelly-mint);
 }
 .toast--error {
-  border-color: #ef476f;
-  color: #ef476f;
+  border-color: var(--color-error);
+  color: var(--color-error);
 }
 .toast--info {
   border-color: var(--focus-cyan);
@@ -487,4 +511,8 @@ label {
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
 }
