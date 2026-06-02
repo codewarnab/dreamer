@@ -40,6 +40,9 @@ const (
 // errJobNotFound is returned by store mutations when the job ID does not exist.
 var errJobNotFound = errors.New("job not found")
 
+// errJobLimitReached is returned when the maximum number of jobs is exceeded.
+var errJobLimitReached = fmt.Errorf("job limit reached (%d)", maxJobsPerInstall)
+
 // JobDeps holds the background job dependencies injected into handlers.
 // All fields are nil-safe: when nil, jobs endpoints return 503.
 type JobDeps struct {
@@ -464,7 +467,7 @@ func JobCreate(deps Deps) http.HandlerFunc {
 
 		if err := deps.Jobs.Store.Update(r.Context(), func(s *backgroundjobs.State) error {
 			if len(s.Jobs) >= maxJobsPerInstall {
-				return fmt.Errorf("job limit reached (%d)", maxJobsPerInstall)
+				return errJobLimitReached
 			}
 			if s.Jobs == nil {
 				s.Jobs = make(map[string]*backgroundjobs.Job)
@@ -472,7 +475,7 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			s.Jobs[jobID] = job
 			return nil
 		}); err != nil {
-			if strings.Contains(err.Error(), "job limit reached") {
+			if errors.Is(err, errJobLimitReached) {
 				writeJSONError(w, http.StatusBadRequest, err.Error())
 				return
 			}

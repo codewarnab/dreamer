@@ -78,6 +78,8 @@ func listProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO(audit): DiscoverChats does a full FS walk on every GET request.
+	// Consider caching results with a short TTL or invalidation on file changes. (MEDIUM #34)
 	sources, err := chat.DiscoverChats(project.Path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("discover chats: %v", err), http.StatusInternalServerError)
