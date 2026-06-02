@@ -2,12 +2,23 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/state"
 )
+
+// configWriteMu serializes config.yaml writes from web handlers so two
+// concurrent DELETE requests (e.g. from multiple browser tabs) can't race on
+// the read-modify-write cycle. Cross-process safety against the CLI relies on
+// atomic temp+rename writes, matching `dreamer add` / `dreamer remove`.
+var configWriteMu sync.Mutex
 
 // ProjectRollup is the per-project summary surfaced by both the list and
 // detail endpoints. Fields align with the spec.v1.5 §7.2 project rollup.
@@ -85,6 +96,122 @@ func ProjectDetail(deps Deps) http.HandlerFunc {
 		}
 		http.NotFound(w, r)
 	}
+}
+
+// ProjectDelete returns an http.HandlerFunc for DELETE /api/projects/{name}.
+// It removes the named project from config.yaml using the same
+// comment-preserving yaml.v3 Node rewrite that `dreamer remove` uses, then
+// clears any stale projects: list from the overlay so it can't shadow the
+// base config. The daemon's fsnotify watcher picks up the write and publishes
+// a config.reloaded SSE event, which the dashboard listens for to refresh.
+func ProjectDelete(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		const prefix = "/api/projects/"
+		if !strings.HasPrefix(r.URL.Path, prefix) {
+			http.NotFound(w, r)
+			return
+		}
+		tail := strings.TrimPrefix(r.URL.Path, prefix)
+		tail = strings.TrimSuffix(tail, "/")
+		if tail == "" || strings.Contains(tail, "/") {
+			http.NotFound(w, r)
+			return
+		}
+
+		if deps.ConfigPath == nil || deps.ConfigPath() == "" {
+			writeJSONError(w, http.StatusServiceUnavailable, "config path not configured; removal unavailable")
+			return
+		}
+		configPath := deps.ConfigPath()
+
+		cfg := deps.Config()
+		if cfg == nil {
+			http.Error(w, "config unavailable", http.StatusInternalServerError)
+			return
+		}
+		found := false
+		for _, p := range cfg.Projects {
+			if p.Name == tail {
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Serialize the read-modify-write of config.yaml against other web
+		// writers. fsutil.WriteFileAtomic (temp+rename) guards against the
+		// CLI writing concurrently from another process.
+		configWriteMu.Lock()
+		defer configWriteMu.Unlock()
+
+		configBytes, err := os.ReadFile(configPath)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "read config: "+err.Error())
+			return
+		}
+		updated, err := config.RemoveProjectFromYAML(configBytes, tail)
+		if err != nil {
+			// RemoveProjectFromYAML returns "project ... not found" when the
+			// name is absent from the base config (e.g. it only existed via an
+			// overlay). Surface that as a 404; everything else is a 500.
+			if strings.Contains(err.Error(), "not found") {
+				http.NotFound(w, r)
+				return
+			}
+			writeJSONError(w, http.StatusInternalServerError, "remove project: "+err.Error())
+			return
+		}
+		if err := fsutil.WriteFileAtomic(configPath, updated, fsutil.FilePerms); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "write config: "+err.Error())
+			return
+		}
+
+		// Clear any projects: key the overlay may carry. A non-empty overlay
+		// projects: list REPLACES the base list on reload (see overlay.go),
+		// which would resurrect the project we just deleted. Projects are
+		// owned by config.yaml, so the overlay should never carry them.
+		if deps.OverlayPath != nil && deps.OverlayPath() != "" {
+			if err := clearOverlayProjects(deps.OverlayPath()); err != nil && deps.Logger != nil {
+				deps.Logger.Warn("clear overlay projects failed: " + err.Error())
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "removed": tail})
+	}
+}
+
+// clearOverlayProjects removes the projects: key from the overlay file if
+// present, leaving all other overlay keys intact. A missing or empty overlay
+// is a no-op.
+func clearOverlayProjects(overlayPath string) error {
+	data, err := os.ReadFile(overlayPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var current map[string]any
+	if err := yaml.Unmarshal(data, &current); err != nil || current == nil {
+		// Leave a malformed overlay untouched; settings handler surfaces it.
+		return nil //nolint:nilerr // intentional: don't clobber an unparseable overlay
+	}
+	if _, ok := current["projects"]; !ok {
+		return nil
+	}
+	delete(current, "projects")
+	out, err := yaml.Marshal(current)
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFileAtomic(overlayPath, out, fsutil.FilePerms)
 }
 
 func projectRollup(cfg *config.App, p config.ProjectConfig, sc *state.StateCache) ProjectRollup {

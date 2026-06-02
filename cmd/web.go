@@ -23,9 +23,11 @@ import (
 
 func newWebCommand() *cobra.Command {
 	var (
-		openFlag  bool
-		serveFlag bool
-		portFlag  int
+		openFlag   bool
+		serveFlag  bool
+		portFlag   int
+		devFlag    bool
+		devDirFlag string
 	)
 	cmd := &cobra.Command{
 		Use:   "web",
@@ -36,7 +38,23 @@ func newWebCommand() *cobra.Command {
 				if cmd.Flags().Changed("port") {
 					portOverride = portFlag
 				}
-				return serveWeb(cmd, portOverride, openFlag)
+				var devDir string
+				if devFlag {
+					if cmd.Flags().Changed("dev-dir") {
+						devDir = devDirFlag
+					} else {
+						// Auto-detect internal/web/ relative to cwd.
+						if _, err := os.Stat("internal/web/embed.go"); err == nil {
+							devDir = "internal/web"
+						} else {
+							return fmt.Errorf("--dev: cannot find internal/web/ in current directory; use --dev-dir to specify the path")
+						}
+					}
+					if abs, err := filepath.Abs(devDir); err == nil {
+						devDir = abs
+					}
+				}
+				return serveWeb(cmd, portOverride, openFlag, devDir)
 			}
 			return discoverWebURL(cmd, openFlag)
 		},
@@ -44,6 +62,8 @@ func newWebCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&openFlag, "open", false, "Open the URL in the OS default browser.")
 	cmd.Flags().BoolVar(&serveFlag, "serve", false, "Run a standalone, read-only web server in the foreground (no daemon required).")
 	cmd.Flags().IntVar(&portFlag, "port", 0, "With --serve, override the bind port. 0 picks an ephemeral port and writes <output_root>/web.port.")
+	cmd.Flags().BoolVar(&devFlag, "dev", false, "With --serve, enable live-reload: templates and static files served from disk.")
+	cmd.Flags().StringVar(&devDirFlag, "dev-dir", "", "With --dev, override the path to internal/web/. Auto-detected from cwd if omitted.")
 	return cmd
 }
 
@@ -90,7 +110,9 @@ func discoverWebURL(cmd *cobra.Command, openFlag bool) error {
 // OverlayPath): the server is read-only, so the run/restart/jobs/settings-write
 // endpoints return 503 by design. portOverride < 0 means "no --port flag";
 // any value >= 0 (including 0 for an ephemeral port) overrides cfg.Web.Port.
-func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool) error {
+// devDir, when non-empty, enables dev mode: templates and static files are
+// served from disk so edits are visible on browser refresh without a rebuild.
+func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string) error {
 	resolved, err := resolveConfigPath(configPath)
 	if err != nil {
 		return err
@@ -118,6 +140,8 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool) error {
 		ShutdownCtx: ctx,
 		StateCache:  state.NewStateCache(),
 		Standalone:  true,
+		DevDir:      devDir,
+		ConfigPath:  resolved,
 	})
 	if err != nil {
 		return fmt.Errorf("construct web server: %w", err)
@@ -127,7 +151,11 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool) error {
 	}
 
 	url := "http://" + srv.Addr()
-	fmt.Fprintf(cmd.OutOrStdout(), "dreamer web listening on %s (read-only)\n", url)
+	mode := "read-only"
+	if devDir != "" {
+		mode = "dev (live-reload from " + devDir + ")"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "dreamer web listening on %s (%s)\n", url, mode)
 	if openFlag {
 		if err := openBrowser(url); err != nil {
 			fmt.Fprintf(cmd.OutOrStderr(), "  failed to launch browser: %v\n", err)

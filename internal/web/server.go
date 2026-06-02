@@ -47,6 +47,10 @@ type Options struct {
 	// OverlayPath is the absolute path to ui-overrides.yaml used by the
 	// settings PUT handler. Empty disables overlay writes.
 	OverlayPath string
+	// ConfigPath is the absolute path to config.yaml. Used by the project
+	// delete handler to rewrite the base config (comment-preserving). Empty
+	// disables web-side project removal (e.g. standalone read-only mode).
+	ConfigPath string
 	// EnqueueRun, when non-nil, enqueues on-demand runs for the run handler.
 	// Returns (jobID, true, nil) on success; ("", false, nil) when a job is
 	// already active for the project (queue-level dedup).
@@ -70,6 +74,11 @@ type Options struct {
 	// CLI wrapper can print its own user-facing startup banner without
 	// duplication.
 	Standalone bool
+	// DevDir, when non-empty, is the absolute path to the internal/web
+	// source directory. Templates and static files are served directly from
+	// disk instead of the embedded FS, so HTML/CSS/JS edits take effect on
+	// the next browser refresh without a rebuild.
+	DevDir string
 }
 
 // Server is the embedded HTTP server lifecycle handle.
@@ -80,7 +89,9 @@ type Server struct {
 	listener  net.Listener
 	addr      string
 	// templates caches parsed HTML templates keyed by page name.
-	// Populated once at startup; never mutated afterward.
+	// In dev mode (opts.DevDir != "") templates are re-parsed per request
+	// so edits are reflected immediately. In production they are parsed
+	// once at startup and never mutated.
 	templates map[string]*template.Template
 }
 
@@ -102,7 +113,13 @@ func NewServer(opts Options) (*Server, error) {
 
 // initTemplates parses all page templates once at startup and caches
 // them so renderPage never re-parses per request.
+// In dev mode (opts.DevDir != "") this is a no-op; templates are parsed
+// from disk on every request instead.
 func (s *Server) initTemplates() {
+	if s.opts.DevDir != "" {
+		s.templates = nil // dev mode: parse on demand from disk
+		return
+	}
 	s.templates = make(map[string]*template.Template)
 	for _, page := range []string{
 		"dashboard",
@@ -125,6 +142,23 @@ func (s *Server) initTemplates() {
 		}
 		s.templates[page] = tmpl
 	}
+}
+
+// templateFor returns the parsed template for the given page name.
+// In production it is fetched from the pre-built cache.
+// In dev mode it is re-parsed from disk on every call so that edits to
+// HTML files are visible on the next browser refresh without a rebuild.
+func (s *Server) templateFor(page string) (*template.Template, error) {
+	if s.opts.DevDir != "" {
+		layoutPath := filepath.Join(s.opts.DevDir, "templates", "layout.html")
+		pagePath := filepath.Join(s.opts.DevDir, "templates", page+".html")
+		return template.ParseFiles(layoutPath, pagePath)
+	}
+	tmpl, ok := s.templates[page]
+	if !ok {
+		return nil, fmt.Errorf("unknown page template: %s", page)
+	}
+	return tmpl, nil
 }
 
 // Addr returns the bound TCP address (host:port) after Start.
@@ -190,11 +224,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	staticSub, err := fs.Sub(assets, "static")
-	if err != nil {
-		panic("embed: static subtree missing: " + err.Error())
+	if s.opts.DevDir != "" {
+		// Dev mode: serve static files directly from disk so CSS/JS edits
+		// are visible on browser refresh without a rebuild.
+		staticDir := filepath.Join(s.opts.DevDir, "static")
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	} else {
+		staticSub, err := fs.Sub(assets, "static")
+		if err != nil {
+			panic("embed: static subtree missing: " + err.Error())
+		}
+		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	mux.HandleFunc("/", s.handleIndex)
 	s.attachAPI(mux)
 	return CSRFMiddleware(s.csrfToken, mux)
@@ -270,8 +311,8 @@ func (s *Server) layoutData(extra any) layoutData {
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate string, extra any) {
 	// Normalize: "dashboard.html" → "dashboard", "project_overview.html" → "project_overview".
 	dir := strings.TrimSuffix(pageTemplate, ".html")
-	tmpl, ok := s.templates[dir]
-	if !ok {
+	tmpl, err := s.templateFor(dir)
+	if err != nil {
 		http.Error(w, "unknown page template: "+pageTemplate, http.StatusInternalServerError)
 		return
 	}
@@ -359,6 +400,9 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 		OverlayPath: func() string {
 			return s.opts.OverlayPath
 		},
+		ConfigPath: func() string {
+			return s.opts.ConfigPath
+		},
 		RecentActivity: func() []pipeline.Event {
 			if s.opts.Activity == nil {
 				return nil
@@ -422,6 +466,10 @@ func (s *Server) routeProject(deps handlers.Deps) http.HandlerFunc {
 		parts := strings.Split(rest, "/")
 		switch {
 		case len(parts) == 1:
+			if r.Method == http.MethodDelete {
+				handlers.ProjectDelete(deps)(w, r)
+				return
+			}
 			handlers.ProjectDetail(deps)(w, r)
 		case len(parts) == 2 && parts[1] == "findings":
 			handlers.ProjectFindings(deps)(w, r)
