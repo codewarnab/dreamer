@@ -14,8 +14,9 @@
 // SSE store — single EventSource shared across all pages.
 // Pages watch $store.sse.connected and $store.sse.lastEvent instead of
 // opening their own connections.
-document.addEventListener("alpine:init", function () {
-  Alpine.store("sse", {
+// NOTE: We register stores directly (not via alpine:init) because Alpine v3
+// with `defer` fires alpine:init before app.js loads.
+Alpine.store("sse", {
     connected: false,
     lastEvent: null,
     _es: null,
@@ -77,6 +78,9 @@ document.addEventListener("alpine:init", function () {
         });
         es.addEventListener("job.resumed", function (ev) {
           self._dispatch("job.resumed", ev);
+        });
+        es.addEventListener("config.reloaded", function (ev) {
+          self._dispatch("config.reloaded", ev);
         });
 
         this._es = es;
@@ -152,13 +156,12 @@ document.addEventListener("alpine:init", function () {
 
     get items() { return this._items; },
   });
-});
 
 // Alpine root state — exposed as `appState()`. Manages the topbar status
 // pill and run-now action.
 window.appState = function () {
   return {
-    status: "running",
+    status: "idle",
     busy: false,
     msg: "",
     csrf: function () {
@@ -168,26 +171,31 @@ window.appState = function () {
     init: function () {
       var self = this;
       // React to SSE events for topbar status.
-      Alpine.store("sse").on("run.start", function () {
-        self.status = "running";
-      });
-      Alpine.store("sse").on("run.done", function (p) {
-        self.status = "idle";
-        self.busy = false;
-        self.msg = "";
-        if (p) {
-          Alpine.store("toasts").add(
-            "run complete: " + (p.project || "all") + " — " + (p.findings_new || 0) + " new finding(s)",
-            "success"
-          );
+      try {
+        var sse = Alpine.store("sse");
+        if (sse && sse.on) {
+          sse.on("run.start", function () {
+            self.status = "running";
+          });
+          sse.on("run.done", function (p) {
+            self.status = "idle";
+            self.busy = false;
+            self.msg = "";
+            if (p) {
+              Alpine.store("toasts").add(
+                "run complete: " + (p.project || "all") + " — " + (p.findings_new || 0) + " new finding(s)",
+                "success"
+              );
+            }
+          });
+          sse.on("run.error", function (p) {
+            self.status = "idle";
+            self.busy = false;
+            self.msg = "run failed: " + ((p && p.error) || "unknown error");
+            Alpine.store("toasts").add("run failed: " + ((p && p.error) || "unknown error"), "error");
+          });
         }
-      });
-      Alpine.store("sse").on("run.error", function (p) {
-        self.status = "idle";
-        self.busy = false;
-        self.msg = "run failed: " + ((p && p.error) || "unknown error");
-        Alpine.store("toasts").add("run failed: " + ((p && p.error) || "unknown error"), "error");
-      });
+      } catch (e) { console.error("SSE store init failed:", e); }
     },
     restartDaemon: async function () {
       try {

@@ -21,7 +21,7 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="Primary navigation">
       <div class="brand">
-        <span class="display-hero" style="font-size: 36px; line-height: 1;">DREAMER</span>
+        <a href="/" class="display-hero" style="font-size: 36px; line-height: 1; text-decoration: none; color: inherit;">DREAMER</a>
       </div>
       <nav class="kicker" aria-label="Projects" style="margin-top: var(--space-5);">
         <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">projects</div>
@@ -43,15 +43,10 @@
       <header class="topbar">
         <div style="display: flex; align-items: center; gap: var(--space-3);">
           <span class="pill" :class="status === 'running' ? 'pill--healthy' : 'pill--warn'" x-text="status">running</span>
-          <span class="pill" :class="$store.sse.connected ? 'pill--healthy' : 'pill--warn'" x-text="$store.sse.connected ? 'sse: ok' : 'sse: reconnecting'" style="font-size: 10px;"></span>
+          <span class="pill" :class="$store.sse.connected ? 'pill--healthy' : 'pill--warn'" x-text="$store.sse.connected ? 'sse: ok' : 'sse: reconnecting'">sse: connecting</span>
         </div>
         <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <button class="btn btn--ghost" @click="$store.theme.toggle()"
-                  :title="$store.theme.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-                  style="font-size: 16px; padding: var(--space-1) var(--space-2); line-height: 1;">
-            <span x-text="$store.theme.current === 'dark' ? '\u263E' : '\u2600'"></span>
-          </button>
-          <button class="btn btn--primary" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
+          <button class="btn btn--run" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
           <span x-show="msg" x-text="msg" style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);"></span>
         </div>
       </header>
@@ -73,7 +68,7 @@
     </template>
   </div>
   <script defer src="/static/vendor/htmx.min.js"></script>
-  <script defer src="/static/vendor/alpine.min.js"></script>
   <script defer src="/static/js/app.js"></script>
+  <script defer src="/static/vendor/alpine.min.js"></script>
 </body>
 </html>
