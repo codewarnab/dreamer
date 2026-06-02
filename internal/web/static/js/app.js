@@ -80,7 +80,7 @@ document.addEventListener("alpine:init", function () {
         });
 
         this._es = es;
-      } catch (_) { /* SSE unsupported */ }
+      } catch (e) { console.error("SSE connection failed:", e); }
     },
 
     _dispatch: function (type, ev) {
@@ -91,7 +91,7 @@ document.addEventListener("alpine:init", function () {
       var fns = this._listeners[type];
       if (fns) {
         for (var i = 0; i < fns.length; i++) {
-          try { fns[i](payload); } catch (_) {}
+          try { fns[i](payload); } catch (e) { console.error("SSE listener error (" + type + "):", e); }
         }
       }
     },

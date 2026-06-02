@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{.CSRFToken}}">
   <title>dreamer</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="stylesheet" href="/static/css/dreamer.css">
 </head>
 <body x-data="appState()">
@@ -14,6 +15,7 @@
   {{if .RestartRequired}}
   <div class="banner banner--info" role="alert">
     settings changed that require a daemon restart: {{range $i, $f := .RestartRequired}}{{if $i}}, {{end}}{{$f}}{{end}}.
+    <!-- TODO(audit): Add success/failure feedback for restart button (hx-swap="none" gives no user feedback) (MEDIUM #36) -->
     <button class="btn btn--ghost" hx-post="/api/daemon/restart" hx-swap="none">restart daemon</button>
   </div>
   {{end}}
@@ -61,7 +63,7 @@
     </div>
   </div>
   <!-- Toast container -->
-  <div class="toast-container" x-data>
+  <div class="toast-container" x-data aria-live="polite">
     <template x-for="t in $store.toasts.items" :key="t.id">
       <div class="toast" :class="'toast--' + t.type" @click="$store.toasts.dismiss(t.id)" x-text="t.msg"></div>
     </template>

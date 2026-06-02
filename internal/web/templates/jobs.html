@@ -33,7 +33,7 @@
       <div class="kicker">create job</div>
       <button class="btn btn--ghost" @click="showCreate = !showCreate" x-text="showCreate ? 'collapse' : 'expand'"></button>
     </div>
-    <div x-show="showCreate" x-collapse style="margin-top: var(--space-4);">
+    <div x-show="showCreate" style="margin-top: var(--space-4);">
       <div style="display: flex; flex-direction: column; gap: var(--space-3);">
         <div>
           <label class="label-mono" for="job-prompt">prompt</label>
@@ -96,7 +96,7 @@
         <div style="display: flex; gap: var(--space-3); align-items: center;">
           <button class="btn btn--ghost" @click="previewJob()" :disabled="loading">preview</button>
           <button class="btn btn--primary" @click="createJob()" :disabled="loading" x-text="loading ? 'creating...' : 'create'"></button>
-          <span x-show="error" x-text="error" style="color: #ef476f;"></span>
+          <span x-show="error" x-text="error" style="color: var(--color-error);"></span>
         </div>
         <!-- Preview result -->
         <div x-show="preview" class="card" style="background: var(--surface-1); margin-top: var(--space-2);">
@@ -144,7 +144,7 @@
               <div style="display: flex; gap: var(--space-2);">
                 <button class="btn btn--ghost" @click="runNow(job.id)" title="Run now">&#9654;</button>
                 <button class="btn btn--ghost" @click="job.enabled ? pauseJob(job.id) : resumeJob(job.id)" x-text="job.enabled ? 'pause' : 'resume'"></button>
-                <button class="btn btn--ghost" @click="deleteJob(job.id)" title="Delete" style="color: #ef476f;">&times;</button>
+                <button class="btn btn--ghost" @click="deleteJob(job.id)" title="Delete" style="color: var(--color-error);">&times;</button>
               </div>
             </td>
           </tr>
@@ -160,7 +160,7 @@
       <div class="kicker">audit log</div>
       <button class="btn btn--ghost" @click="showAudit = !showAudit; if (showAudit && auditEvents.length === 0) loadAudit()" x-text="showAudit ? 'collapse' : 'expand'"></button>
     </div>
-    <div x-show="showAudit" x-collapse style="margin-top: var(--space-3);">
+    <div x-show="showAudit" style="margin-top: var(--space-3);">
       <div x-show="auditEvents.length === 0" style="color: var(--text-secondary);">No audit events.</div>
       <table x-show="auditEvents.length > 0" style="width: 100%; font-size: 0.85rem;">
         <thead>
@@ -338,10 +338,19 @@ window.jobsPage = function () {
     },
     deleteJob: async function (id) {
       if (!confirm('Delete this job?')) return;
-      await fetch('/api/jobs/' + id, {
-        method: 'DELETE',
-        headers: { 'X-Dreamer-CSRF': this.csrf() },
-      });
+      try {
+        var r = await fetch('/api/jobs/' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          this.error = 'delete failed: HTTP ' + r.status;
+          return;
+        }
+      } catch (e) {
+        this.error = 'delete failed: ' + e.message;
+        return;
+      }
       await this.load();
     },
     runNow: async function (id) {

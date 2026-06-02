@@ -1,5 +1,5 @@
 {{define "content"}}
-<section x-data="logsPage()" x-init="load(); $watch('autoRefresh', v => v && start())">
+<section x-data="logsPage()" x-init="load(); $watch('autoRefresh', v => v && start())" x-effect="if (!$el.isConnected && _timer) { clearInterval(_timer); _timer = null; }">
   <header style="margin-bottom: var(--space-5);">
     <span class="kicker">system</span>
     <h1 class="headline-lg">logs</h1>
