@@ -1,6 +1,5 @@
 /* Verge design system tokens and component primitives for dreamer v1.5 UI. */
 
-/* TODO(audit): Anton only loads weight 400 but h1-h6 use font-weight: 700; browser synthesizes bold (suboptimal) (MEDIUM #29) */
 @font-face {
   font-family: "Anton";
   src: url("/static/fonts/Anton/Anton-Regular.woff2") format("woff2");
@@ -117,6 +116,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
 .display-hero {
   font-family: var(--font-display);
   font-size: clamp(48px, 8vw, 96px);
+  font-weight: 400;
   line-height: 0.95;
   color: var(--text-primary);
   text-transform: uppercase;
@@ -173,8 +173,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   background: var(--jelly-mint);
   color: var(--text-inverted);
 }
-/* TODO(audit): Add min-width: 0 or overflow-x: auto to prevent wide tables from pushing grid wider (MEDIUM #28) */
-.main { padding: var(--space-5) var(--space-6); }
+.main { padding: var(--space-5) var(--space-6); min-width: 0; }
 .topbar {
   display: flex;
   justify-content: space-between;

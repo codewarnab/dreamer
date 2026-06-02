@@ -15,8 +15,7 @@
   {{if .RestartRequired}}
   <div class="banner banner--info" role="alert">
     settings changed that require a daemon restart: {{range $i, $f := .RestartRequired}}{{if $i}}, {{end}}{{$f}}{{end}}.
-    <!-- TODO(audit): Add success/failure feedback for restart button (hx-swap="none" gives no user feedback) (MEDIUM #36) -->
-    <button class="btn btn--ghost" hx-post="/api/daemon/restart" hx-swap="none">restart daemon</button>
+    <button class="btn btn--ghost" @click="restartDaemon()">restart daemon</button>
   </div>
   {{end}}
   <div class="app-shell">

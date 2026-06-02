@@ -17,6 +17,7 @@ func TestEmbed_FindsTemplatesAndStatic(t *testing.T) {
 		"templates/settings.html",
 		"templates/logs.html",
 		"templates/providers.html",
+		"static/favicon.svg",
 		"static/vendor/htmx.min.js",
 		"static/vendor/alpine.min.js",
 		"static/fonts/Anton/Anton-Regular.woff2",

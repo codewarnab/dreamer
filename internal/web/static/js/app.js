@@ -168,6 +168,21 @@ window.appState = function () {
         Alpine.store("toasts").add("run failed: " + ((p && p.error) || "unknown error"), "error");
       });
     },
+    restartDaemon: async function () {
+      try {
+        var r = await fetch("/api/daemon/restart", {
+          method: "POST",
+          headers: { "X-Dreamer-CSRF": this.csrf() },
+        });
+        if (r.ok) {
+          Alpine.store("toasts").add("daemon restart signal sent", "success");
+        } else {
+          Alpine.store("toasts").add("restart failed: HTTP " + r.status, "error");
+        }
+      } catch (e) {
+        Alpine.store("toasts").add("restart failed: " + e.message, "error");
+      }
+    },
     runNow: async function () {
       if (this.busy) return;
       this.busy = true;

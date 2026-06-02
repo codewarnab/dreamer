@@ -117,6 +117,7 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool) error {
 		Events:      pipeline.NewEventBus(),
 		ShutdownCtx: ctx,
 		StateCache:  state.NewStateCache(),
+		Standalone:  true,
 	})
 	if err != nil {
 		return fmt.Errorf("construct web server: %w", err)
@@ -126,13 +127,15 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool) error {
 	}
 
 	url := "http://" + srv.Addr()
-	fmt.Fprintf(cmd.OutOrStdout(), "dreamer web (standalone, read-only) listening on %s\n", url)
-	fmt.Fprintln(cmd.OutOrStdout(), "press Ctrl+C to stop")
+	fmt.Fprintf(cmd.OutOrStdout(), "dreamer web listening on %s (read-only)\n", url)
 	if openFlag {
 		if err := openBrowser(url); err != nil {
-			fmt.Fprintf(cmd.OutOrStderr(), "failed to launch browser: %v\n", err)
+			fmt.Fprintf(cmd.OutOrStderr(), "  failed to launch browser: %v\n", err)
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "  opening browser...")
 		}
 	}
+	fmt.Fprintln(cmd.OutOrStdout(), "press Ctrl+C to stop")
 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), webShutdownTimeout)

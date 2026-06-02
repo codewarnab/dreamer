@@ -66,6 +66,10 @@ type Options struct {
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs handlers.JobDeps
+	// Standalone suppresses the internal "web start" log line so the
+	// CLI wrapper can print its own user-facing startup banner without
+	// duplication.
+	Standalone bool
 }
 
 // Server is the embedded HTTP server lifecycle handle.
@@ -165,7 +169,9 @@ func (s *Server) Start() error {
 	}
 	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: readHeaderTimeout}
 	go func() {
-		s.opts.Logger.Info("web start", logging.Any("host", host), logging.Any("port", port), logging.Any("bind_addr", s.addr))
+		if !s.opts.Standalone {
+			s.opts.Logger.Info("web start", logging.Any("host", host), logging.Any("port", port), logging.Any("bind_addr", s.addr))
+		}
 		if err := s.httpSrv.Serve(l); err != nil && err != http.ErrServerClosed {
 			s.opts.Logger.Error("web server error", logging.Any("err", err))
 		}

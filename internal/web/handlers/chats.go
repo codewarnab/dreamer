@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"dreamer/internal/chat"
@@ -14,6 +15,37 @@ import (
 	"dreamer/internal/pipeline"
 	"dreamer/internal/state"
 )
+
+// discoverChatsCacheEntry holds a cached DiscoverChats result with its fetch time.
+type discoverChatsCacheEntry struct {
+	sources []chat.Source
+	fetched time.Time
+}
+
+var discoverChatsCache sync.Map // map[string]*discoverChatsCacheEntry
+
+const discoverChatsTTL = 30 * time.Second
+
+// cachedDiscoverChats returns DiscoverChats results from a short-lived
+// per-project cache (30s TTL). DELETE handlers must NOT use this — they
+// need fresh FS state to validate targets.
+func cachedDiscoverChats(projectPath string) ([]chat.Source, error) {
+	if v, ok := discoverChatsCache.Load(projectPath); ok {
+		entry := v.(*discoverChatsCacheEntry)
+		if time.Since(entry.fetched) < discoverChatsTTL {
+			return entry.sources, nil
+		}
+	}
+	sources, err := chat.DiscoverChats(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	discoverChatsCache.Store(projectPath, &discoverChatsCacheEntry{
+		sources: sources,
+		fetched: time.Now(),
+	})
+	return sources, nil
+}
 
 // ChatSourceDTO is the JSON payload entry for one discovered chat source.
 type ChatSourceDTO struct {
@@ -78,9 +110,7 @@ func listProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO(audit): DiscoverChats does a full FS walk on every GET request.
-	// Consider caching results with a short TTL or invalidation on file changes. (MEDIUM #34)
-	sources, err := chat.DiscoverChats(project.Path)
+	sources, err := cachedDiscoverChats(project.Path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("discover chats: %v", err), http.StatusInternalServerError)
 		return
