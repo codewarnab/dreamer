@@ -9,6 +9,8 @@
     </p>
   </header>
 
+  <div x-show="loadError" class="banner banner--error" role="alert" x-text="loadError"></div>
+
   <template x-for="sec in sections" :key="sec.id">
     <div class="card" style="margin-bottom: var(--space-4);">
       <div class="kicker" x-text="sec.label"></div>
@@ -55,13 +57,14 @@ window.settingsPage = function () {
     ],
     values: { general: {}, daemon: {}, analyzer: {}, logging: {}, redaction: {}, web: {} },
     saved: {},
+    loadError: "",
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || "";
     },
     load: async function () {
-      // TODO(audit): Show error state to user on API failure instead of silently showing empty fields (MEDIUM #25)
+      this.loadError = "";
       const r = await fetch("/api/settings");
-      if (!r.ok) return;
+      if (!r.ok) { this.loadError = "failed to load settings (HTTP " + r.status + ")"; return; }
       const data = await r.json();
       // general.default_provider is a scalar at the top level.
       this.values.general.default_provider = data.default_provider || "";

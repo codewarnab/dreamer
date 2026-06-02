@@ -37,8 +37,7 @@
     <div x-show="findings.length === 0" style="color: var(--text-secondary);">no findings yet.</div>
   </div>
 
-  <!-- TODO(audit): Add role="dialog", aria-modal="true", and focus trap for accessibility (MEDIUM #18) -->
-  <div x-show="active" x-cloak class="modal" @click.self="active=null" style="position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index: 100;">
+  <div x-show="active" x-cloak class="modal" role="dialog" aria-modal="true" aria-label="Finding details" @click.self="active=null" @keydown.escape.window="active=null" style="position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index: 100;">
     <div class="card" style="max-width: 720px; width: 90%;">
       <div class="kicker">finding</div>
       <h2 class="headline-lg" x-text="active?.category"></h2>

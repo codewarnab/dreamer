@@ -160,7 +160,6 @@
 </section>
 
 <script>
-// TODO(audit): Add SSE listeners for run completion events so new runs appear without manual refresh (MEDIUM #35)
 window.jobDetailPage = function (jobID) {
   return {
     jobID: jobID,
@@ -176,6 +175,7 @@ window.jobDetailPage = function (jobID) {
     expandedRun: null,
     activityData: null,
     activityLoading: false,
+    _sseUnsub: [],
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || '';
     },
@@ -206,11 +206,25 @@ window.jobDetailPage = function (jobID) {
           var runsData = await runsRes.json();
           this.runs = runsData.runs || [];
         }
+        if (this._sseUnsub.length === 0) this._bindSSE();
       } catch (e) {
         this.error = 'Network error loading job.';
       } finally {
         this.loading = false;
       }
+    },
+    _bindSSE: function () {
+      var self = this;
+      var sse = Alpine.store('sse');
+      var refresh = function (p) {
+        if (!p || p.job_id === self.jobID) self.load();
+      };
+      this._sseUnsub.push(sse.on('job.run.start', refresh));
+      this._sseUnsub.push(sse.on('job.run.done', refresh));
+    },
+    destroy: function () {
+      this._sseUnsub.forEach(function (fn) { fn(); });
+      this._sseUnsub = [];
     },
     pauseJob: async function () {
       await fetch('/api/jobs/' + this.jobID + '/pause', {
