@@ -93,6 +93,7 @@
       </thead>
       <tbody>
         <template x-for="run in runs" :key="run.id">
+          <tbody>
           <tr @click="toggleActivity(run.id)" style="cursor: pointer;">
               <td x-text="run.id.substring(0, 8)" style="font-family: var(--font-mono);"></td>
               <td>
@@ -150,6 +151,7 @@
                 </div>
               </td>
             </tr>
+          </tbody>
         </template>
       </tbody>
     </table>
