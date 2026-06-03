@@ -1,3 +1,8 @@
+<!-- 
+  GLOBAL FRONTEND DEVELOPER NOTE:
+  Do not add SVG icons to empty states, menus, or layout components unless 
+  explicitly required and adding clear visual/UX value to the interface.
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -86,6 +91,206 @@
       <div class="toast" :class="'toast--' + t.type" @click="$store.toasts.dismiss(t.id)" x-text="t.msg"></div>
     </template>
   </div>
+  <!-- Add project modal overlay -->
+  <div
+    x-data="addProjectModal()"
+    x-show="isOpen"
+    class="modal-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Add project"
+    @open-modal.window="if ($event.detail === 'add-project') openModal()"
+    @keydown.escape.window="isOpen = false"
+    style="display:none;"
+  >
+    <div class="modal-dialog" @click.stop style="max-width: 500px;">
+      <h3 style="margin-bottom: var(--space-3);">add project</h3>
+      <p style="margin-bottom: var(--space-4); font-size: 13px; color: var(--text-secondary); line-height: 1.4;">
+        Register a codebase project to scan for local AI assistant chat transcripts (Copilot, Claude Code, Gemini CLI, etc.), extract recurring mistakes, and synthesize preventative guardrails.
+      </p>
+      
+      <form @submit.prevent="submitForm()">
+        <div style="margin-bottom: var(--space-4);">
+          <label class="label-mono" style="display: block; margin-bottom: var(--space-2); color: var(--text-secondary); font-size: 11px;">project path</label>
+          <div style="display: flex; gap: var(--space-2); align-items: center;">
+            <input 
+              type="text" 
+              x-model="path" 
+              placeholder="e.g. C:\Users\User\code\my-app" 
+              required 
+              class="input-styled"
+              style="flex-grow: 1; min-width: 0; box-sizing: border-box;"
+            >
+            <button 
+              type="button" 
+              class="btn btn--ghost" 
+              @click="pickDirectory()"
+              :disabled="isPicking || isBusy"
+              style="white-space: nowrap; font-size: 11px; padding: var(--space-2) var(--space-3);"
+            >
+              <span x-text="isPicking ? 'picking...' : 'browse...'"></span>
+            </button>
+          </div>
+          <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block; line-height: 1.4;">
+            The absolute path to the directory containing the code you want to scan.
+          </span>
+        </div>
+
+        <div style="margin-bottom: var(--space-4);">
+          <label class="label-mono" style="display: block; margin-bottom: var(--space-2); color: var(--text-secondary); font-size: 11px;">project name (optional)</label>
+          <input 
+            type="text" 
+            x-model="name" 
+            placeholder="e.g. my-app (defaults to folder name)" 
+            class="input-styled"
+            style="width: 100%; box-sizing: border-box;"
+          >
+        </div>
+
+        <div style="margin-bottom: var(--space-4);">
+          <div style="display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2);">
+            <label class="label-mono" style="margin-bottom: 0; color: var(--text-secondary); font-size: 11px;">lookback window (since)</label>
+            <div class="tooltip-container">
+              <span class="tooltip-trigger" style="opacity: 0.8;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 16v-4"/>
+                  <path d="M12 8h.01"/>
+                </svg>
+              </span>
+              <div class="tooltip-content">
+                Only processes assistant chats that have been updated within this timeframe (e.g. 24h, 1w). Select "lifetime" to scan all history.
+              </div>
+            </div>
+          </div>
+          <select x-model="since" class="input-styled select-styled" style="width: 100%; box-sizing: border-box;">
+            <option value="24h">24 hours (default)</option>
+            <option value="1h">1 hour</option>
+            <option value="12h">12 hours</option>
+            <option value="3d">3 days</option>
+            <option value="1w">1 week</option>
+            <option value="1mo">1 month</option>
+            <option value="lifetime">lifetime</option>
+          </select>
+        </div>
+
+        <div class="modal-actions" style="margin-top: var(--space-5);">
+          <button type="button" class="btn btn--ghost" @click="isOpen = false" :disabled="isBusy">cancel</button>
+          <button type="submit" class="btn btn--primary" :disabled="isBusy" x-text="isBusy ? 'adding...' : 'add project'"></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // addProjectModal controls the state and submission of the "Add Project" modal dialog.
+    window.addProjectModal = function() {
+      return {
+        isOpen: false,
+        isBusy: false,
+        isPicking: false,
+        name: "",
+        path: "",
+        since: "24h",
+        openModal: function() {
+          this.name = "";
+          this.path = "";
+          this.since = "24h";
+          this.isBusy = false;
+          this.isPicking = false;
+          this.isOpen = true;
+        },
+        pickDirectory: async function() {
+          if (this.isPicking || this.isBusy) return;
+          this.isPicking = true;
+          const token = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
+          try {
+            const res = await fetch("/api/fs/pick-directory", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Dreamer-CSRF": token
+              }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.path) {
+                this.path = data.path;
+                // If project name is empty, default it to the folder's name
+                if (!this.name) {
+                  const parts = data.path.split(/[\\/]/);
+                  const folderName = parts[parts.length - 1] || parts[parts.length - 2] || "";
+                  this.name = folderName;
+                }
+              }
+            } else {
+              const body = await res.json().catch(() => ({}));
+              Alpine.store("toasts").add("Failed to pick directory: " + (body.error || "HTTP " + res.status), "error");
+            }
+          } catch (e) {
+            Alpine.store("toasts").add("Failed to pick directory: " + e.message, "error");
+          } finally {
+            this.isPicking = false;
+          }
+        },
+        submitForm: async function() {
+          if (this.isBusy) return;
+          this.isBusy = true;
+          // Retrieve the CSRF token from the layout's meta tag. This token is required to authenticate
+          // non-GET request methods (POST/DELETE) and prevent cross-site request forgery.
+          const token = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
+          try {
+            const res = await fetch("/api/projects", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Dreamer-CSRF": token
+              },
+              body: JSON.stringify({
+                name: this.name,
+                path: this.path,
+                since: this.since
+              })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.isOpen = false;
+              Alpine.store("toasts").add("Project " + data.name + " added successfully!", "success");
+              
+              // To provide a smooth user experience, we wait for the Server-Sent Events (SSE) bus to signal
+              // "config.reloaded". This confirms that the server has processed the file watcher reload,
+              // before we redirect the user to their newly created project dashboard.
+              const sse = Alpine.store("sse");
+              let redirected = false;
+              const doRedirect = () => {
+                if (redirected) return;
+                redirected = true;
+                window.location.href = "/projects/" + encodeURIComponent(data.name);
+              };
+              const unsub = sse.on("config.reloaded", () => {
+                unsub();
+                doRedirect();
+              });
+              // Fallback redirect after 3 seconds in case SSE is disconnected or fails to fire,
+              // ensuring the interface remains responsive.
+              setTimeout(() => {
+                unsub();
+                doRedirect();
+              }, 3000);
+            } else {
+              const body = await res.json().catch(() => ({}));
+              Alpine.store("toasts").add("Failed to add project: " + (body.error || "HTTP " + res.status), "error");
+            }
+          } catch (e) {
+            Alpine.store("toasts").add("Failed to add project: " + e.message, "error");
+          } finally {
+            this.isBusy = false;
+          }
+        }
+      };
+    };
+  </script>
+
   <script defer src="/static/vendor/htmx.min.js"></script>
   <script defer src="/static/js/app.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dreamer/internal/config"
 )
 
 const minimalSeedConfig = `# dreamer global config.
@@ -22,7 +24,9 @@ logging:
 `
 
 func TestAppendProjectToYAML_ReplacesEmptyList(t *testing.T) {
-	out, err := appendProjectToYAML([]byte(minimalSeedConfig), "alpha", "/abs/alpha", "24h")
+	// Test that config.AppendProjectToYAML (now centralized in internal/config) correctly parses the seed config
+	// and inserts the project sequence when the projects list starts out as empty.
+	out, err := config.AppendProjectToYAML([]byte(minimalSeedConfig), "alpha", "/abs/alpha", "24h")
 	if err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -41,7 +45,7 @@ func TestAppendProjectToYAML_ReplacesEmptyList(t *testing.T) {
 
 func TestAppendProjectToYAML_AppendsToExistingList(t *testing.T) {
 	seed := strings.Replace(minimalSeedConfig, "projects: []", "projects:\n  - name: first\n    path: /abs/first\n    since: 7d\n", 1)
-	out, err := appendProjectToYAML([]byte(seed), "second", "/abs/second", "30d")
+	out, err := config.AppendProjectToYAML([]byte(seed), "second", "/abs/second", "30d")
 	if err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -56,7 +60,7 @@ func TestAppendProjectToYAML_AppendsToExistingList(t *testing.T) {
 
 func TestAppendProjectToYAML_RejectsDuplicateName(t *testing.T) {
 	seed := strings.Replace(minimalSeedConfig, "projects: []", "projects:\n  - name: alpha\n    path: /abs/alpha\n    since: 24h\n", 1)
-	_, err := appendProjectToYAML([]byte(seed), "alpha", "/abs/different", "7d")
+	_, err := config.AppendProjectToYAML([]byte(seed), "alpha", "/abs/different", "7d")
 	if err == nil {
 		t.Fatalf("expected duplicate-name error")
 	}
@@ -67,7 +71,7 @@ func TestAppendProjectToYAML_RejectsDuplicateName(t *testing.T) {
 
 func TestAppendProjectToYAML_RejectsDuplicatePath(t *testing.T) {
 	seed := strings.Replace(minimalSeedConfig, "projects: []", "projects:\n  - name: alpha\n    path: /abs/x\n    since: 24h\n", 1)
-	_, err := appendProjectToYAML([]byte(seed), "beta", "/abs/x", "7d")
+	_, err := config.AppendProjectToYAML([]byte(seed), "beta", "/abs/x", "7d")
 	if err == nil {
 		t.Fatalf("expected duplicate-path error")
 	}
@@ -122,7 +126,7 @@ func TestAppendProjectToYAML_RejectsDuplicatePath_TildeExpanded(t *testing.T) {
 	seed := strings.Replace(minimalSeedConfig, "projects: []",
 		"projects:\n  - name: alpha\n    path: ~/myproj\n    since: 24h\n", 1)
 	// Adding with the resolved absolute path should detect the duplicate.
-	_, err := appendProjectToYAML([]byte(seed), "beta", absDir, "7d")
+	_, err := config.AppendProjectToYAML([]byte(seed), "beta", absDir, "7d")
 	if err == nil {
 		t.Fatalf("expected duplicate-path error for tilde-expanded path")
 	}

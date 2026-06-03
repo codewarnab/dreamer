@@ -60,7 +60,7 @@
 
   .settings-tab-btn:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-translucent-hover);
   }
 
   .settings-tab-btn:hover svg {
@@ -69,10 +69,10 @@
 
   .settings-tab-btn.active {
     color: var(--jelly-mint);
-    background: rgba(60, 255, 208, 0.08);
+    background: var(--bg-active-tab);
     border-left: 2px solid var(--jelly-mint);
     padding-left: calc(var(--space-4) - 2px);
-    box-shadow: inset 4px 0 12px rgba(60, 255, 208, 0.03);
+    box-shadow: inset 4px 0 12px var(--shadow-active-tab);
   }
 
   .settings-tab-btn.active svg {
@@ -104,7 +104,7 @@
   }
 
   .panel-header {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-subtle);
     padding-bottom: var(--space-3);
     margin-bottom: var(--space-4);
   }
@@ -157,43 +157,7 @@
     flex-direction: column;
   }
 
-  .input-styled {
-    width: 100%;
-    background: var(--surface-slate);
-    border: var(--hairline);
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 14px;
-    padding: var(--space-3) var(--space-4);
-    box-sizing: border-box;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
 
-  .input-styled:focus {
-    outline: none;
-    border-color: var(--jelly-mint);
-    box-shadow: 0 0 12px rgba(60, 255, 208, 0.15);
-    background: var(--canvas-black);
-  }
-
-  .input-styled.is-invalid {
-    border-color: var(--color-error);
-    box-shadow: 0 0 8px rgba(239, 71, 111, 0.2);
-  }
-
-  .input-textarea {
-    font-family: var(--font-mono);
-    min-height: 140px;
-    resize: vertical;
-    line-height: 1.5;
-  }
-
-  .select-styled {
-    appearance: none;
-    cursor: pointer;
-    padding-right: var(--space-7) !important;
-  }
 
   .select-chevron {
     position: absolute;
@@ -221,7 +185,7 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--jelly-mint);
-    background: rgba(60, 255, 208, 0.05);
+    background: var(--bg-mint-code);
     padding: 1px 5px;
     border-radius: var(--radius-sm);
   }
@@ -234,9 +198,9 @@
     font-size: 10px;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    background: rgba(60, 255, 208, 0.08);
+    background: var(--bg-mint-badge);
     color: var(--jelly-mint);
-    border: 1px solid rgba(60, 255, 208, 0.2);
+    border: 1px solid var(--border-mint-badge);
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-sm);
     margin-top: var(--space-2);
@@ -251,16 +215,29 @@
     font-size: 10px;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    background: rgba(255, 209, 102, 0.08);
+    background: var(--bg-warn-badge);
     color: var(--color-warn);
-    border: 1px solid rgba(255, 209, 102, 0.20);
+    border: 1px solid var(--border-warn-badge);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
   }
 
+  .settings-badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .settings-badge--warn {
+    background: var(--bg-warn-badge);
+    color: var(--color-warn);
+    border: 1px solid var(--border-warn-badge);
+  }
+
   .regex-helper-box {
-    background: rgba(255, 255, 255, 0.015);
-    border: 1px dashed rgba(255, 255, 255, 0.08);
+    background: var(--bg-translucent-subtle);
+    border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-md);
     padding: var(--space-3) var(--space-4);
     margin-top: var(--space-3);
@@ -290,7 +267,7 @@
 
   .btn-reset {
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-subtle);
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: 9px;
@@ -305,7 +282,7 @@
   .btn-reset:hover {
     border-color: var(--color-warn);
     color: var(--color-warn);
-    background: rgba(255, 209, 102, 0.05);
+    background: var(--bg-warn-badge);
   }
 
   .settings-footer {
@@ -315,7 +292,7 @@
     gap: var(--space-4);
     margin-top: var(--space-6);
     padding-top: var(--space-4);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-subtle);
   }
 
   .status-message {
@@ -346,8 +323,8 @@
   }
 
   .restart-alert-card {
-    background: rgba(255, 209, 102, 0.03);
-    border: 1px solid rgba(255, 209, 102, 0.15);
+    background: var(--bg-warn-card);
+    border: 1px solid var(--border-warn-card);
     border-radius: var(--radius-md);
     padding: var(--space-3) var(--space-4);
     margin-bottom: var(--space-4);
@@ -456,7 +433,7 @@
 
             <!-- Dynamic Provider Health & Status Card -->
             <template x-if="getSelectedProviderInfo()">
-              <div style="margin-top: var(--space-3); background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1);">
+              <div style="margin-top: var(--space-3); background: var(--bg-translucent-card); border: 1px solid var(--border-translucent-card); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1);">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                   <span style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">Provider Health Profile</span>
                   <span class="pill" :class="getSelectedProviderInfo().healthy ? 'pill--healthy' : 'pill--warn'" style="font-size: 9px; padding: 2px 8px;" x-text="getSelectedProviderInfo().healthy ? 'healthy' : 'unhealthy / stale'"></span>
@@ -664,7 +641,7 @@
             </p>
 
             <!-- INTERACTIVE REGEX SANDBOX PLAYGROUND -->
-            <div class="regex-helper-box" style="margin-top: var(--space-4); border-color: rgba(60, 255, 208, 0.2); background: rgba(60, 255, 208, 0.015);">
+            <div class="regex-helper-box" style="margin-top: var(--space-4); border-color: var(--border-mint-subtle); background: var(--bg-mint-subtle);">
               <h4 style="color: var(--jelly-mint); display: flex; align-items: center; gap: var(--space-2); margin-top: 0;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                 Interactive Redaction Simulator
@@ -679,7 +656,7 @@
                 </div>
                 <div>
                   <label class="form-label-title" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Real-Time Redaction Output</label>
-                  <div style="border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); min-height: 38px; word-break: break-all; transition: all 0.2s;" :style="redactTest() !== testString ? 'color: var(--color-warn); border-color: rgba(255, 209, 102, 0.4); background: rgba(255, 209, 102, 0.02);' : 'color: var(--text-secondary); background: var(--canvas-black);'" x-text="redactTest()"></div>
+                  <div style="border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); min-height: 38px; word-break: break-all; transition: all 0.2s;" :style="redactTest() !== testString ? 'color: var(--color-warn); border-color: var(--border-warn-subtle); background: var(--bg-warn-subtle);' : 'color: var(--text-secondary); background: var(--canvas-black);'" x-text="redactTest()"></div>
                 </div>
               </div>
             </div>

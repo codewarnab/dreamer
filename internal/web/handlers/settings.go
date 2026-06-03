@@ -120,6 +120,12 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Acquire the configuration file lock before reading the overlay file. This serializes the entire
+	// read-modify-write operation against concurrent modifications (such as project additions or deletions)
+	// ensuring no partial updates or interleaving writes corrupt the configuration overlay.
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+
 	existing := map[string]any{}
 	if data, err := os.ReadFile(overlayPath); err == nil {
 		var current map[string]any
@@ -134,12 +140,6 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 	// Strip redacted placeholders so a GET→PUT round-trip cannot write
 	// "***redacted***" into the overlay, silently corrupting real secrets.
 	stripRedactedPlaceholders(body)
-
-	// Serialize the overlay read-modify-write against ProjectDelete, which
-	// clears the projects: key from the same file under configFileMu. Without
-	// this lock a concurrent DELETE + PUT can interleave and lose either write.
-	configFileMu.Lock()
-	defer configFileMu.Unlock()
 
 	mergePartial(existing, body)
 

@@ -448,12 +448,15 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	})
 
 	mux.Handle("/api/dashboard", handlers.Dashboard(deps))
-	mux.Handle("/api/projects", handlers.ProjectsList(deps))
+	// Route projects endpoint to handlers.Projects which manages both GET (listing projects)
+	// and POST (creating/adding a new project folder) requests.
+	mux.Handle("/api/projects", handlers.Projects(deps))
 	mux.Handle("/api/providers", handlers.Providers(deps))
 	mux.Handle("/api/settings", handlers.Settings(deps))
 	mux.Handle("/api/logs/tail", handlers.LogsTail(deps))
 	mux.Handle("/api/events", handlers.Events(deps))
 	mux.Handle("/api/fs/exists", handlers.FSExists(deps))
+	mux.Handle("/api/fs/pick-directory", handlers.FSPickDirectory(deps))
 	mux.Handle("/api/daemon/restart", handlers.DaemonRestart(deps))
 
 	// /api/jobs[/...] — background jobs endpoints.

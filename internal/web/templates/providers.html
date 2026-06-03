@@ -6,7 +6,7 @@
   </header>
 
   <!-- Table Card: Displays only if providers exist -->
-  <div class="card" x-show="providers.length > 0" style="border-color: rgba(255,255,255,0.08); background: rgba(26,26,26,0.3); backdrop-filter: blur(10px);">
+  <div class="card" x-show="providers.length > 0" style="border-color: var(--border-subtle); background: var(--surface-1); backdrop-filter: blur(10px);">
     <table class="table">
       <thead><tr><th>id</th><th>model</th><th>status</th><th>runs</th><th>last success</th><th>tokens</th><th>failures</th></tr></thead>
       <tbody>
@@ -28,21 +28,7 @@
   </div>
 
   <!-- Modern Aesthetic Empty State Card -->
-  <div class="card" x-show="providers.length === 0" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); border-color: rgba(255,255,255,0.08); background: rgba(26,26,26,0.3); backdrop-filter: blur(10px);">
-    <div style="background: rgba(60, 255, 208, 0.08); border: 1px solid rgba(60, 255, 208, 0.2); color: var(--jelly-mint); width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: pulse-mint 2.5s infinite;">
-      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-        <rect x="9" y="9" width="6" height="6"></rect>
-        <line x1="9" y1="1" x2="9" y2="4"></line>
-        <line x1="15" y1="1" x2="15" y2="4"></line>
-        <line x1="9" y1="20" x2="9" y2="23"></line>
-        <line x1="15" y1="20" x2="15" y2="23"></line>
-        <line x1="20" y1="9" x2="23" y2="9"></line>
-        <line x1="20" y1="15" x2="23" y2="15"></line>
-        <line x1="1" y1="9" x2="4" y2="9"></line>
-        <line x1="1" y1="15" x2="4" y2="15"></line>
-      </svg>
-    </div>
+  <div class="card" x-show="providers.length === 0" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 600px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); border-color: var(--border-subtle); background: var(--surface-1); backdrop-filter: blur(10px);">
     
     <div style="max-width: 480px;">
       <h3 class="headline-md" style="letter-spacing: -0.2px; margin-bottom: var(--space-2);">No Provider Telemetry Found</h3>
@@ -52,7 +38,7 @@
     </div>
 
     <!-- Step-by-Step CLI Setup Guide -->
-    <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-lg); padding: var(--space-4); text-align: left; width: 100%; display: flex; flex-direction: column; gap: var(--space-3); box-shadow: 0 4px 16px rgba(0,0,0,0.4);">
+    <div style="background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-4); text-align: left; width: 100%; display: flex; flex-direction: column; gap: var(--space-3); box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
       <div style="color: var(--focus-cyan); font-family: var(--font-mono); font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Setup Guide:</div>
       
       <!-- Step 1 -->
@@ -60,9 +46,9 @@
         <div style="font-family: var(--font-body); font-size: 12px; color: var(--text-muted); font-weight: 500;">
           1. Run Setup TUI to configure your AI credentials & default models:
         </div>
-        <div style="background: rgba(0,0,0,0.4); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+        <div style="background: var(--canvas-black); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
           <code>dreamer setup</code>
-          <button @click="copyCommand('dreamer setup', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); height: 20px; line-height: 1;" title="Copy command">Copy</button>
+          <button @click="copyCommand('dreamer setup', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: var(--border-subtle); background: var(--bg-translucent-hover); height: 20px; line-height: 1;" title="Copy command">Copy</button>
         </div>
       </div>
 
@@ -71,9 +57,9 @@
         <div style="font-family: var(--font-body); font-size: 12px; color: var(--text-muted); font-weight: 500;">
           2. Register a codebase project for scanning:
         </div>
-        <div style="background: rgba(0,0,0,0.4); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+        <div style="background: var(--canvas-black); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
           <code>dreamer add &lt;absolute-project-path&gt;</code>
-          <button @click="copyCommand('dreamer add <project-path>', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); height: 20px; line-height: 1;" title="Copy command">Copy</button>
+          <button @click="copyCommand('dreamer add <project-path>', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: var(--border-subtle); background: var(--bg-translucent-hover); height: 20px; line-height: 1;" title="Copy command">Copy</button>
         </div>
       </div>
 
@@ -82,9 +68,9 @@
         <div style="font-family: var(--font-body); font-size: 12px; color: var(--text-muted); font-weight: 500;">
           3. Trigger the daemon or execute a one-shot analysis scan:
         </div>
-        <div style="background: rgba(0,0,0,0.4); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+        <div style="background: var(--canvas-black); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); color: var(--jelly-mint); font-family: var(--font-mono); font-size: 11px; overflow-x: auto; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
           <code>dreamer analyze --path &lt;project-path&gt;</code>
-          <button @click="copyCommand('dreamer analyze --path <project-path>', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); height: 20px; line-height: 1;" title="Copy command">Copy</button>
+          <button @click="copyCommand('dreamer analyze --path <project-path>', $event)" class="btn" style="padding: 2px 8px; font-size: 9px; border-color: var(--border-subtle); background: var(--bg-translucent-hover); height: 20px; line-height: 1;" title="Copy command">Copy</button>
         </div>
       </div>
     </div>

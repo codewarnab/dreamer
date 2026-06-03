@@ -61,6 +61,42 @@
   --color-error: #ef476f;
   --color-warn: #ffd166;
 
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-subtle-dashed: 1px dashed rgba(255, 255, 255, 0.08);
+  --border-subtle-solid: 1px solid rgba(255, 255, 255, 0.08);
+  --bg-translucent-hover: rgba(255, 255, 255, 0.03);
+  --bg-translucent-subtle: rgba(255, 255, 255, 0.015);
+  --bg-translucent-card: rgba(255, 255, 255, 0.02);
+  --border-translucent-card: rgba(255, 255, 255, 0.06);
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.05);
+
+  --bg-warn-badge: rgba(255, 209, 102, 0.08);
+  --border-warn-badge: rgba(255, 209, 102, 0.20);
+  --bg-warn-card: rgba(255, 209, 102, 0.03);
+  --border-warn-card: rgba(255, 209, 102, 0.15);
+  --bg-warn-subtle: rgba(255, 209, 102, 0.02);
+  --border-warn-subtle: rgba(255, 209, 102, 0.4);
+
+  --bg-active-tab: rgba(60, 255, 208, 0.08);
+  --shadow-active-tab: rgba(60, 255, 208, 0.03);
+
+  --bg-mint-subtle: rgba(60, 255, 208, 0.015);
+  --border-mint-subtle: rgba(60, 255, 208, 0.2);
+  --bg-mint-badge: rgba(60, 255, 208, 0.08);
+  --border-mint-badge: rgba(60, 255, 208, 0.2);
+  --bg-mint-code: rgba(60, 255, 208, 0.05);
+
+  --bg-error-subtle: rgba(239, 71, 111, 0.1);
+  --border-error-subtle: rgba(239, 71, 111, 0.25);
+  --bg-translucent-badge: rgba(255, 255, 255, 0.08);
+  --border-translucent-badge: rgba(255, 255, 255, 0.12);
+
+  --log-text-warn: #ffe6a3;
+  --log-text-error: #ffa4b7;
+  --log-highlight-text: #ffffff;
+  --log-highlight-bg: rgba(255, 209, 102, 0.3);
+  --log-highlight-shadow: rgba(255, 209, 102, 0.4);
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -101,6 +137,46 @@
   --text-secondary: #6b7280;
   --text-muted: #374151;
   --text-inverted: #f8f9fa;
+
+  --surface-1: #ffffff;
+  --surface-2: #f1f3f5;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-subtle-dashed: 1px dashed rgba(0, 0, 0, 0.08);
+  --border-subtle-solid: 1px solid rgba(0, 0, 0, 0.08);
+  --bg-translucent-hover: rgba(0, 0, 0, 0.03);
+  --bg-translucent-subtle: rgba(0, 0, 0, 0.015);
+  --bg-translucent-card: rgba(0, 0, 0, 0.02);
+  --border-translucent-card: rgba(0, 0, 0, 0.06);
+  --sidebar-hover-bg: rgba(0, 0, 0, 0.05);
+
+  --color-warn: #b45309;
+  --color-error: #d90429;
+  --bg-warn-badge: rgba(180, 83, 9, 0.08);
+  --border-warn-badge: rgba(180, 83, 9, 0.20);
+  --bg-warn-card: rgba(180, 83, 9, 0.03);
+  --border-warn-card: rgba(180, 83, 9, 0.15);
+  --bg-warn-subtle: rgba(180, 83, 9, 0.02);
+  --border-warn-subtle: rgba(180, 83, 9, 0.4);
+
+  --bg-active-tab: rgba(13, 155, 106, 0.08);
+  --shadow-active-tab: rgba(13, 155, 106, 0.03);
+
+  --bg-mint-subtle: rgba(13, 155, 106, 0.015);
+  --border-mint-subtle: rgba(13, 155, 106, 0.2);
+  --bg-mint-badge: rgba(13, 155, 106, 0.08);
+  --border-mint-badge: rgba(13, 155, 106, 0.2);
+  --bg-mint-code: rgba(13, 155, 106, 0.05);
+
+  --bg-error-subtle: rgba(217, 4, 41, 0.1);
+  --border-error-subtle: rgba(217, 4, 41, 0.25);
+  --bg-translucent-badge: rgba(0, 0, 0, 0.08);
+  --border-translucent-badge: rgba(0, 0, 0, 0.12);
+
+  --log-text-warn: #b45309;
+  --log-text-error: #dc2626;
+  --log-highlight-text: #000000;
+  --log-highlight-bg: rgba(180, 83, 9, 0.25);
+  --log-highlight-shadow: rgba(180, 83, 9, 0.3);
 }
 
 * { box-sizing: border-box; }
@@ -201,7 +277,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   text-transform: uppercase;
   text-decoration: none;
 }
-.sidebar nav a:hover { background: rgba(255,255,255,0.05); text-decoration: none; }
+.sidebar nav a:hover { background: var(--sidebar-hover-bg); text-decoration: none; }
 .sidebar nav a.active {
   background: var(--jelly-mint);
   color: var(--text-inverted);
@@ -679,3 +755,103 @@ label {
   from { opacity: 0; transform: translateY(12px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ── Form Inputs ── 
+   Promoted form inputs styling to the global stylesheet so all settings, 
+   project additions, and future forms can share a consistent appearance and focus transitions. */
+.input-styled {
+  width: 100%;
+  background: var(--surface-slate);
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: var(--space-3) var(--space-4);
+  box-sizing: border-box;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input-styled:focus {
+  outline: none;
+  border-color: var(--jelly-mint);
+  box-shadow: 0 0 12px rgba(60, 255, 208, 0.15);
+  background: var(--canvas-black);
+}
+
+.input-styled.is-invalid {
+  border-color: var(--color-error);
+  box-shadow: 0 0 8px rgba(239, 71, 111, 0.2);
+}
+
+.input-textarea {
+  font-family: var(--font-mono);
+  min-height: 140px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.select-styled {
+  appearance: none;
+  cursor: pointer;
+  padding-right: var(--space-7) !important;
+}
+
+/* Tooltip styles */
+.tooltip-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tooltip-trigger {
+  cursor: help;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.tooltip-trigger:hover {
+  color: var(--jelly-mint);
+}
+
+.tooltip-content {
+  visibility: hidden;
+  position: absolute;
+  bottom: 135%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-translucent-card);
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 1.4;
+  width: 220px;
+  white-space: normal;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.2s, visibility 0.2s;
+  pointer-events: none; /* Avoid blocking other pointer events when hidden */
+}
+
+.tooltip-content::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--surface-2) transparent transparent transparent;
+}
+
+.tooltip-container:hover .tooltip-content {
+  visibility: visible;
+  opacity: 1;
+}
+
