@@ -22,7 +22,7 @@ func GlobalOverlayPath() (string, error) {
 }
 
 // LoadConfigWithOverlay loads the base config.yaml then merges
-// ui-overrides.yaml on top per spec.v1.5 §3.3. A missing overlay is a
+// ui-overrides.yaml on top. A missing overlay is a
 // silent no-op (no error, OverlayApplied stays false). An overlay that
 // fails to parse is captured in Notices.OverlayParseError and the base
 // config is returned unmodified so the daemon keeps running on malformed
@@ -69,7 +69,7 @@ func LoadConfigWithOverlay(basePath, overlayPath string) (*App, error) {
 	return baseConfig, nil
 }
 
-// mergeOverlay applies overlay onto base per spec.v1.5 §3.3:
+// mergeOverlay applies overlay onto base:
 //   - Scalars: overlay value wins when present (non-zero).
 //   - Maps (providers, analyzer.rules): per-key, overlay value wins.
 //   - Lists (projects, redaction.patterns): overlay replaces entire list

@@ -1,4 +1,4 @@
-// Acceptance suite for spec.v1.5 §13 criteria that require cross-component
+// Acceptance suite for criteria that require cross-component
 // assertions not covered by unit tests in individual packages.
 //
 // Criteria 35–50 and 53–60 are covered by dedicated unit tests in their

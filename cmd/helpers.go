@@ -78,7 +78,7 @@ func resolveConfigPath(configPath string) (string, error) {
 
 // loadConfigAndLogger loads config with overlay and creates the file logger.
 // Shared by `daemon` and `web --serve` — both bootstrap the same config+logger
-// pair before standing up their respective runtimes. Emits the v1.2 `since`
+// pair before standing up their respective runtimes. Emits the `since`
 // default notices as a side effect so every entry point surfaces them.
 //
 // NOTE: Both daemon and serveWeb write to the same output root's dreamer.log file.
@@ -99,7 +99,7 @@ func loadConfigAndLogger(configPath, overlayPath string) (*config.App, *logging.
 }
 
 // logDefaultedSinceNotices emits one info line per project whose `since` was
-// filled with the v1.2 default. No-op when the list is empty.
+// filled with the default. No-op when the list is empty.
 func logDefaultedSinceNotices(logger *logging.Logger, cfg *config.App) {
 	if logger == nil || cfg == nil {
 		return

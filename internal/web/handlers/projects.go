@@ -30,7 +30,7 @@ import (
 var configFileMu sync.Mutex
 
 // ProjectRollup is the per-project summary surfaced by both the list and
-// detail endpoints. Fields align with the spec.v1.5 §7.2 project rollup.
+// detail endpoints.
 type ProjectRollup struct {
 	Name              string `json:"name"`
 	Path              string `json:"path"`

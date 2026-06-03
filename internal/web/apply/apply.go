@@ -15,12 +15,11 @@ import (
 )
 
 // MaxApplyTargetBytes is the 4 MiB cap on the pre-image stored in the
-// reversal record. Targets larger than this are rejected at apply time
-// per spec.v1.5 §6.5.
+// reversal record. Targets larger than this are rejected at apply time.
 const MaxApplyTargetBytes = 4 << 20
 
 // EligibleCategories lists the rule categories whose findings the UI is
-// allowed to apply automatically (spec.v1.5 §6.4). Uses the canonical
+// allowed to apply automatically. Uses the canonical
 // category constants from the categories package.
 var EligibleCategories = map[string]bool{
 	string(categories.Doc):      true,

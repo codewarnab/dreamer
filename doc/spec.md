@@ -1,8 +1,8 @@
 # dreamer v1 — System Specification
 
-Authoritative spec for the v1 system. Derived from `vision.md`, `discussion.md`, and the **chosen** answers in `requirements.md`. When this document conflicts with `discussion.md` or `questions.md`, this document wins.
+Authoritative spec for the v1 system. Derived from `vision.md` and `discussion.md`. When this document conflicts with `discussion.md`, this document wins.
 
-Status legend: **[locked]** = answer chosen in `requirements.md`; **[provisional]** = recommendation in `requirements.md` not yet marked `[chosen]`, but adopted here as the v1 default.
+Status legend: **[locked]** = finalized specification; **[provisional]** = recommendation adopted here as the v1 default.
 
 ---
 
@@ -36,10 +36,14 @@ dreamer analyze --path <abs project dir>
 dreamer daemon   [--config <path>]
 dreamer setup    [--advanced]
 dreamer add      [<path>]
+dreamer remove   <name>
 dreamer web      [--serve] [--open] [--port <n>]
 dreamer ls-chats --project-path <dir>
 dreamer start|stop|status
 dreamer startup  {install|status|uninstall} [--config <path>]
+dreamer version  [--verbose]
+dreamer update   [--check] [--force]
+dreamer jobs     [subcommand] [flags]
 ```
 
 Flag semantics:
@@ -53,10 +57,49 @@ Flag semantics:
 | `--permissive` | Disable strict lint-rule allow-list. Emit unrecognised rule ids tagged `[unverified]`.          |
 | `--output-dir` | Override the per-project output directory. Default: `<UserConfigDir>/dreamer/<project>/`.       |
 | `--config`     | Override the global config path.                                                                |
+| `--json`       | Machine-readable JSON output (available for `analyze`, `status`, etc.).                          |
+| `--no-color`   | Disable colored output (respects `NO_COLOR` env var).                                            |
+| `-q, --quiet`  | Suppress decorative output for machine/agent use.                                                |
+| `-p, --parallel`| Force parallel chunk execution (provider must support it).                                     |
+| `-j, --jobs`   | Cap parallel session count. `0` = len(chunks).                                                   |
+| `--chunk-size` | Override `analyzer.chunking.max_chunk_bytes`. `0` disables chunking.                             |
 
 Exit codes: `0` success, `1` fatal (config missing, auth failure, all providers unreachable), `2` partial (some projects analyzed, some skipped — daemon only).
 
 > **Note:** `config init` was replaced by `dreamer setup` in v1.5. The hidden `mcp-server` and `record-finding` commands are internal/debug tools not listed here.
+
+### 2.1 Subcommands
+
+#### `dreamer remove <name>`
+Removes the specified project from the `projects:` list inside the global `config.yaml` file. The operation uses the `yaml.v3` AST Node API to preserve user-written comments and structure. Project name matches are exact and case-sensitive.
+
+#### `dreamer version`
+Prints binary version information.
+Flags:
+- `-v, --verbose`: Enables verbose formatting to print build commit SHA, build timestamp, target Go version, and local OS/arch.
+
+#### `dreamer update`
+Queries GitHub Release metadata (`codexwarnab/dreamer`) for newer version tags. Automatically downloads and validates checksums before replacing the running binary.
+Flags:
+- `--check`: Disables binary downloads, only displaying a local vs remote version comparison.
+- `--force`: Triggers full update flow, overwriting the local binary even if it matches the remote version.
+
+#### `dreamer jobs`
+TUI scheduler dashboard. Launches a charmbracelet/bubbletea interactive Terminal User Interface (TUI) to create, configure, monitor, pause, and trigger background jobs.
+
+CLI subcommands:
+- `list`: Shows currently configured jobs. Supports `--json`, `-v/--verbose`, and `--since <duration>` filters.
+- `create [project-path]`: Creates a background job. Supports `-i/--interactive`, `--name`, `--prompt`, `--provider`, `--model`, `--schedule` (interval|daily|weekly|cron), `--every`, `--time-of-day`, `--day-of-week`, `--cron`, `--timezone`, `--file-access` (read_only|selected_writes|full_workspace), `--writable-paths`, and `--dry-run`.
+- `edit <job-id>`: Updates properties on a configured job. Only explicitly modified properties are updated.
+- `show <job-id>`: Prints details on a background job configuration, schedule next run times, and a table of the last 10 runs.
+- `pause <job-id>`: Pauses recurring runs of a job.
+- `resume <job-id>`: Resumes recurring runs of a paused job.
+- `delete <job-id>`: Removes the job definition and its run records. Supports `--yes` to skip prompts.
+- `run <job-id>`: Triggers execution on demand. Integrates with the OS system scheduler using the install-specific run token unless bypassed via `--force`. Supports `--timeout`, `--output-file`, and `--dry-run`.
+- `runs <job-id>`: Lists historical job executions, filtered by `--status` and truncated by `--limit`.
+- `logs <job-id>`: Tail/streams log outputs for a run. Supports targeting a specific run ID via `--run`, filtering lines via `--tail`, and streaming via `--follow`.
+- `reconcile`: Ensures background OS tasks/schedules are configured properly, repairing broken task configs or scheduling drift. Supports `--dry-run`, `--json`, and `--verbose`.
+- `health`: Validates job scheduler state, config hashes, execution hashes, and filesystem layout sanity. Supports `--json` and `--verbose`.
 
 ---
 
@@ -215,7 +258,7 @@ The same shape exists per category, with `guardrail.kind` constrained to the mat
 
 ### 4.1 Strategy: dual provider per platform
 
-Per `requirements.md` Q1 **[locked]**:
+Design constraint **[locked]**:
 
 | Platform    | Primary (fast)           | Fallback (legal/standards) |
 |-------------|--------------------------|----------------------------|
@@ -722,11 +765,7 @@ internal/
     templates/
     static/
 doc/
-  vision.md, spec.md, spec.v1.1.md, spec.v1.2.md, spec.v1.5.md, bugs.md, code-review.md
-```
-  questions.md
-  requirements.md
-  spec.md                      # this file
+  vision.md, spec.md, spec.v1.1.md, bugs.md, code-review.md, plan.csrf-hardening.md
 ```
 
 ---
@@ -771,7 +810,7 @@ doc/
 
 **Symptom.** `Copilot request failed; verify authentication and connectivity: waiting for session.idle: context deadline exceeded`.
 
-**Status.** Open (carried from `requirements.md`).
+**Status.** Open.
 
 **v1 mitigation.**
 
