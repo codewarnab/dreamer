@@ -12,9 +12,7 @@ The product is a **prevention engine**, not a code reviewer. Output answers:
 *"what rule / test / doc would have stopped the agent making mistake M
 against this repo last week?"*
 
-Specs: [v1](doc/spec.md) | [v1.1](doc/spec.v1.1.md) (Codex) |
-[v1.2](doc/spec.v1.2.md) (perf + hardening) |
-[v1.5](doc/spec.v1.5.md) (setup wizard + web UI)
+Spec: [System Specification](doc/spec.md)
 
 ---
 
