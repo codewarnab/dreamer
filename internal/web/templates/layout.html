@@ -107,14 +107,25 @@
       <form @submit.prevent="submitForm()">
         <div style="margin-bottom: var(--space-4);">
           <label class="label-mono" style="display: block; margin-bottom: var(--space-2); color: var(--text-secondary); font-size: 11px;">project path</label>
-          <input 
-            type="text" 
-            x-model="path" 
-            placeholder="e.g. C:\Users\User\code\my-app" 
-            required 
-            class="input-styled"
-            style="width: 100%; box-sizing: border-box;"
-          >
+          <div style="display: flex; gap: var(--space-2); align-items: center;">
+            <input 
+              type="text" 
+              x-model="path" 
+              placeholder="e.g. C:\Users\User\code\my-app" 
+              required 
+              class="input-styled"
+              style="flex-grow: 1; min-width: 0; box-sizing: border-box;"
+            >
+            <button 
+              type="button" 
+              class="btn btn--ghost" 
+              @click="pickDirectory()"
+              :disabled="isPicking || isBusy"
+              style="white-space: nowrap; font-size: 11px; padding: var(--space-2) var(--space-3);"
+            >
+              <span x-text="isPicking ? 'picking...' : 'browse...'"></span>
+            </button>
+          </div>
           <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block; line-height: 1.4;">
             The absolute path to the directory containing the code you want to scan.
           </span>
@@ -158,6 +169,7 @@
       return {
         isOpen: false,
         isBusy: false,
+        isPicking: false,
         name: "",
         path: "",
         since: "24h",
@@ -166,7 +178,41 @@
           this.path = "";
           this.since = "24h";
           this.isBusy = false;
+          this.isPicking = false;
           this.isOpen = true;
+        },
+        pickDirectory: async function() {
+          if (this.isPicking || this.isBusy) return;
+          this.isPicking = true;
+          const token = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
+          try {
+            const res = await fetch("/api/fs/pick-directory", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Dreamer-CSRF": token
+              }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.path) {
+                this.path = data.path;
+                // If project name is empty, default it to the folder's name
+                if (!this.name) {
+                  const parts = data.path.split(/[\\/]/);
+                  const folderName = parts[parts.length - 1] || parts[parts.length - 2] || "";
+                  this.name = folderName;
+                }
+              }
+            } else {
+              const body = await res.json().catch(() => ({}));
+              Alpine.store("toasts").add("Failed to pick directory: " + (body.error || "HTTP " + res.status), "error");
+            }
+          } catch (e) {
+            Alpine.store("toasts").add("Failed to pick directory: " + e.message, "error");
+          } finally {
+            this.isPicking = false;
+          }
         },
         submitForm: async function() {
           if (this.isBusy) return;

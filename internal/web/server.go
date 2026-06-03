@@ -456,6 +456,7 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	mux.Handle("/api/logs/tail", handlers.LogsTail(deps))
 	mux.Handle("/api/events", handlers.Events(deps))
 	mux.Handle("/api/fs/exists", handlers.FSExists(deps))
+	mux.Handle("/api/fs/pick-directory", handlers.FSPickDirectory(deps))
 	mux.Handle("/api/daemon/restart", handlers.DaemonRestart(deps))
 
 	// /api/jobs[/...] — background jobs endpoints.

@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
 	"dreamer/internal/config"
+	"dreamer/internal/logging"
 )
 
 func testDepsForFS(t *testing.T, allowedPaths ...string) Deps {
@@ -102,5 +105,80 @@ func TestFSExists_OutsideProjectRootRejected(t *testing.T) {
 	}
 	if body["error"] != "path outside configured project roots" {
 		t.Errorf("error = %v, want 'path outside configured project roots'", body["error"])
+	}
+}
+
+func TestFSPickDirectory_Success(t *testing.T) {
+	orig := pickDirectoryFunc
+	defer func() { pickDirectoryFunc = orig }()
+	pickDirectoryFunc = func(ctx context.Context) (string, error) {
+		return "/mocked/path/to/my-app", nil
+	}
+
+	cfg := &config.App{}
+	deps := Deps{
+		Config: func() *config.App { return cfg },
+		Logger: logging.Silent(),
+	}
+
+	h := FSPickDirectory(deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/fs/pick-directory", nil)
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["path"] != "/mocked/path/to/my-app" {
+		t.Errorf("path = %v, want /mocked/path/to/my-app", body["path"])
+	}
+}
+
+func TestFSPickDirectory_Error(t *testing.T) {
+	orig := pickDirectoryFunc
+	defer func() { pickDirectoryFunc = orig }()
+	pickDirectoryFunc = func(ctx context.Context) (string, error) {
+		return "", errors.New("user canceled")
+	}
+
+	cfg := &config.App{}
+	deps := Deps{
+		Config: func() *config.App { return cfg },
+		Logger: logging.Silent(),
+	}
+
+	h := FSPickDirectory(deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/fs/pick-directory", nil)
+	h(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["error"] != "user canceled" {
+		t.Errorf("error = %v, want 'user canceled'", body["error"])
+	}
+}
+
+func TestFSPickDirectory_MethodNotAllowed(t *testing.T) {
+	cfg := &config.App{}
+	deps := Deps{
+		Config: func() *config.App { return cfg },
+		Logger: logging.Silent(),
+	}
+
+	h := FSPickDirectory(deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/fs/pick-directory", nil)
+	h(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }
