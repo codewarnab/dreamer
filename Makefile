@@ -11,6 +11,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X dreamer/cmd.version=$(VERSION) -X dreamer/cmd.commit=$(COMMIT) -X dreamer/cmd.date=$(DATE)
+DEV_LDFLAGS := -X dreamer/cmd.version=$(VERSION) -X dreamer/cmd.commit=$(COMMIT) -X dreamer/cmd.date=$(DATE)
 
 # Release build: stripped binary (~18MB, no debug symbols)
 # -trimpath removes local filesystem paths from the binary so stack traces
@@ -33,7 +34,7 @@ build:
 # Development build: full debug symbols (for delve/dlv)
 # -trimpath included so dev builds don't leak local paths either.
 build-dev:
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN) .
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath -ldflags="$(DEV_LDFLAGS)" -o $(BIN) .
 
 # Cross-compile for Linux
 build-linux:
