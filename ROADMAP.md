@@ -57,8 +57,8 @@ gantt
 
 ### Step 1: The Vision & Design Guidelines
 Before looking at Go code, align your mental model with the project’s philosophical goals and strict cognitive complexity constraints:
-* Read the core vision in [vision.md](file:///c:/Users/User/code/dreamer/doc/vision.md).
-* Read the architectural specification in [spec.md](file:///c:/Users/User/code/dreamer/doc/spec.md).
+* Read the core vision in [vision.md](file:///c:/Users/User/code/dreamer/docs/vision.md).
+* Read the architectural specification in [spec.md](file:///c:/Users/User/code/dreamer/docs/spec.md).
 * Study the design system and cognitive load principles in [dreamer-design/SKILL.md](file:///c:/Users/User/code/dreamer/.agents/skills/dreamer-design/SKILL.md). This file details the codebase's strict conventions (e.g., keeping Cyclomatic Complexity under 7, limiting config fields and parameters to 7±2, and avoiding horizontal "utils" layers).
 
 ### Step 2: The Imperative Shell & Workflow (Orchestration)

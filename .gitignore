@@ -22,11 +22,20 @@ go.work.sum
 *.swo
 .DS_Store
 
-# Local tooling state
+# Local tooling state — ignore all dot-directories except .githooks and .github
 .claude/
 .superpowers/
 .gocache/
+.agent/
+.agents/
+.antigravitycli/
+.gemini/
+.openclaude/
+.vscode/
 
 # Env
 .env
 .env.*
+
+# Provider codebases — vendored external repos, never committed
+provider-codebase/

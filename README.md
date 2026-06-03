@@ -12,7 +12,7 @@ The product is a **prevention engine**, not a code reviewer. Output answers:
 *"what rule / test / doc would have stopped the agent making mistake M
 against this repo last week?"*
 
-Spec: [System Specification](doc/spec.md)
+Spec: [System Specification](docs/spec.md)
 
 ---
 
@@ -161,7 +161,7 @@ non-empty.
   (default 480KB per chunk). Chunks run sequentially by default; opt-in
   parallel execution via `--parallel` or config.
 
-See [doc/spec.md](doc/spec.md) for the canonical contract.
+See [docs/spec.md](docs/spec.md) for the canonical contract.
 
 ---
 

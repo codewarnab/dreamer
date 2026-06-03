@@ -1,7 +1,7 @@
 package config
 
 // ProviderID identifies a known provider implementation. Values match the
-// strings used in the configuration system (§3, §4.1 of doc/spec.md).
+// strings used in the configuration system (§3, §4.1 of docs/spec.md).
 // This is the canonical definition; analyzer re-exports it for backward
 // compatibility with provider packages.
 type ProviderID string
