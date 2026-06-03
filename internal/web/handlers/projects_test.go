@@ -260,3 +260,185 @@ func TestProjectDelete_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }
+
+func TestProjectsPost_Success(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	seed := "# dreamer config\nprojects:\n" +
+		"  - name: proj-a\n    path: /tmp/proj-a\n    since: 2026-01-01\n"
+	if err := os.WriteFile(configPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := Projects(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return configPath },
+	})
+
+	projectDir := t.TempDir() // a valid existing directory path
+	reqBody := `{"name": "proj-new", "path": "` + filepath.ToSlash(projectDir) + `", "since": "12h"}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(reqBody))
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["ok"] != true || resp["name"] != "proj-new" || resp["since"] != "12h" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+
+	// Verify config.yaml was updated
+	out, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if !strings.Contains(got, "name: proj-new") || !strings.Contains(got, "since: 12h") {
+		t.Fatalf("config not updated with new project:\n%s", got)
+	}
+}
+
+func TestProjectsPost_HomeExpanded(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	seed := "# dreamer config\nprojects: []\n"
+	if err := os.WriteFile(configPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := Projects(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return configPath },
+	})
+
+	// Set home directory to a temp location we control.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	projDir := filepath.Join(home, "proj-tilde")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// We pass ~/proj-tilde which should expand to projDir.
+	reqBody := `{"name": "proj-tilde", "path": "~/proj-tilde", "since": "24h"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(reqBody))
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Verify config.yaml was updated with the expanded absolute path
+	out, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	expectedPath := filepath.ToSlash(projDir)
+	if !strings.Contains(filepath.ToSlash(got), expectedPath) {
+		t.Fatalf("config path not expanded in file:\n%s\nExpected to contain: %s", got, expectedPath)
+	}
+}
+
+func TestProjectsPost_Validation(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	seed := "projects: []\n"
+	if err := os.WriteFile(configPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := Projects(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return configPath },
+	})
+
+	tests := []struct {
+		name string
+		body string
+		code int
+	}{
+		{"empty path", `{"name": "x", "path": ""}`, http.StatusBadRequest},
+		{"nonexistent path", `{"name": "x", "path": "/nonexistent/xyz/path"}`, http.StatusBadRequest},
+		{"path is a file", `{"name": "x", "path": "` + filepath.ToSlash(configPath) + `"}`, http.StatusBadRequest},
+		{"invalid project name backslash", `{"name": "a\\b", "path": "` + filepath.ToSlash(dir) + `"}`, http.StatusBadRequest},
+		{"invalid project name windows reserved", `{"name": "NUL", "path": "` + filepath.ToSlash(dir) + `"}`, http.StatusBadRequest},
+		{"invalid since window", `{"name": "x", "path": "` + filepath.ToSlash(dir) + `", "since": "invalid"}`, http.StatusBadRequest},
+		{"invalid json", `not-json`, http.StatusBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(tc.body))
+			h(rec, req)
+			if rec.Code != tc.code {
+				t.Errorf("status = %d, want %d; body=%s", rec.Code, tc.code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestProjectsPost_Duplicate(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	dupDir := t.TempDir()
+	seed := "projects:\n  - name: proj-a\n    path: " + filepath.ToSlash(dupDir) + "\n"
+	if err := os.WriteFile(configPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := Projects(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return configPath },
+	})
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"duplicate name", `{"name": "proj-a", "path": "` + filepath.ToSlash(dir) + `"}`},
+		{"duplicate path", `{"name": "proj-diff", "path": "` + filepath.ToSlash(dupDir) + `"}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(tc.body))
+			h(rec, req)
+			if rec.Code != http.StatusConflict {
+				t.Errorf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestProjectsPost_SizeLimit(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	h := Projects(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return "/dummy/config.yaml" },
+	})
+	// Body size > 4 KiB
+	largeBody := `{"name": "x", "path": "` + strings.Repeat("a", 5000) + `"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(largeBody))
+	h(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}

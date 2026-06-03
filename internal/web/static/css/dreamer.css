@@ -679,3 +679,42 @@ label {
   from { opacity: 0; transform: translateY(12px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ── Form Inputs ── */
+.input-styled {
+  width: 100%;
+  background: var(--surface-slate);
+  border: var(--hairline);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: var(--space-3) var(--space-4);
+  box-sizing: border-box;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input-styled:focus {
+  outline: none;
+  border-color: var(--jelly-mint);
+  box-shadow: 0 0 12px rgba(60, 255, 208, 0.15);
+  background: var(--canvas-black);
+}
+
+.input-styled.is-invalid {
+  border-color: var(--color-error);
+  box-shadow: 0 0 8px rgba(239, 71, 111, 0.2);
+}
+
+.input-textarea {
+  font-family: var(--font-mono);
+  min-height: 140px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.select-styled {
+  appearance: none;
+  cursor: pointer;
+  padding-right: var(--space-7) !important;
+}

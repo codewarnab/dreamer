@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +15,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
+	"dreamer/internal/logging"
 	"dreamer/internal/state"
 )
 
@@ -43,24 +48,151 @@ type projectsListResponse struct {
 	Projects []ProjectRollup `json:"projects"`
 }
 
-// ProjectsList returns an http.HandlerFunc for GET /api/projects.
+type projectAddRequest struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Since string `json:"since"`
+}
+
+// ProjectsList wraps Projects to maintain test compatibility.
 func ProjectsList(deps Deps) http.HandlerFunc {
+	return Projects(deps)
+}
+
+// Projects handles both GET /api/projects (list projects) and POST /api/projects (add a project).
+func Projects(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
+			projectsGet(deps, w, r)
+		case http.MethodPost:
+			projectsPost(deps, w, r)
+		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
 		}
-		cfg := deps.Config()
-		if cfg == nil {
-			http.Error(w, "config unavailable", http.StatusInternalServerError)
-			return
-		}
-		out := projectsListResponse{Projects: make([]ProjectRollup, 0, len(cfg.Projects))}
-		for _, p := range cfg.Projects {
-			out.Projects = append(out.Projects, projectRollup(cfg, p, deps.StateCache))
-		}
-		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+func projectsGet(deps Deps, w http.ResponseWriter, r *http.Request) {
+	cfg := deps.Config()
+	if cfg == nil {
+		http.Error(w, "config unavailable", http.StatusInternalServerError)
+		return
+	}
+	out := projectsListResponse{Projects: make([]ProjectRollup, 0, len(cfg.Projects))}
+	for _, p := range cfg.Projects {
+		out.Projects = append(out.Projects, projectRollup(cfg, p, deps.StateCache))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func projectsPost(deps Deps, w http.ResponseWriter, r *http.Request) {
+	if deps.ConfigPath == nil || deps.ConfigPath() == "" {
+		writeJSONError(w, http.StatusServiceUnavailable, "config path not configured; addition unavailable")
+		return
+	}
+	configPath := deps.ConfigPath()
+
+	// Enforce 4 KiB size limit on mutating request body
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
+	var req projectAddRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	req.Path = strings.TrimSpace(req.Path)
+	if req.Path == "" {
+		writeJSONError(w, http.StatusBadRequest, "project path is required")
+		return
+	}
+
+	// Resolve absolute path, expand user home (~), evaluate symlinks, and check null bytes.
+	expandedPath, err := fsutil.ExpandUserHome(req.Path)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid project path: "+err.Error())
+		return
+	}
+	absPath, err := fsutil.NormalizeRootPath(expandedPath)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid project path: "+err.Error())
+		return
+	}
+
+	// Verify the path exists and is a directory.
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("path %q does not exist", absPath))
+			return
+		}
+		if deps.Logger != nil {
+			deps.Logger.Error("stat project path failed", logging.Any("path", absPath), logging.Any("error", err.Error()))
+		}
+		writeJSONError(w, http.StatusInternalServerError, "stat path: "+err.Error())
+		return
+	}
+	if !info.IsDir() {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("path %q is not a directory", absPath))
+		return
+	}
+
+	// Default name to folder name if blank.
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		req.Name = filepath.Base(absPath)
+	}
+
+	// Validate project name.
+	if err := config.ValidateProjectName(req.Name); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid project name: "+err.Error())
+		return
+	}
+
+	// Validate lookback duration format.
+	req.Since = strings.TrimSpace(req.Since)
+	if req.Since == "" {
+		req.Since = config.DefaultSince
+	} else if !config.IsLifetimeSince(req.Since) {
+		if _, ok := parseSinceWindow(req.Since); !ok {
+			writeJSONError(w, http.StatusBadRequest, "invalid lookback window format")
+			return
+		}
+	}
+
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Error("read config failed", logging.Any("error", err.Error()))
+		}
+		writeJSONError(w, http.StatusInternalServerError, "read config: "+err.Error())
+		return
+	}
+
+	updated, err := config.AppendProjectToYAML(configBytes, req.Name, absPath, req.Since)
+	if err != nil {
+		writeJSONError(w, http.StatusConflict, err.Error())
+		return
+	}
+
+	if err := fsutil.WriteFileAtomic(configPath, updated, fsutil.SecretPerms); err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Error("atomic write config failed", logging.Any("error", err.Error()))
+		}
+		writeJSONError(w, http.StatusInternalServerError, "write config: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    true,
+		"name":  req.Name,
+		"path":  absPath,
+		"since": req.Since,
+	})
 }
 
 // ProjectDetail returns an http.HandlerFunc for GET /api/projects/{name}.
@@ -173,7 +305,7 @@ func ProjectDelete(deps Deps) http.HandlerFunc {
 			// RemoveProjectFromYAML returns "project ... not found" when the
 			// name is absent from the base config (e.g. it only existed via an
 			// overlay). Surface that as a 404; everything else is a 500.
-			if strings.Contains(err.Error(), "not found") {
+			if errors.Is(err, config.ErrProjectNotFound) {
 				http.NotFound(w, r)
 				return
 			}

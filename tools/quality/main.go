@@ -17,10 +17,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
-	"go/token"
 
 	"dreamer/internal/astcheck"
 	"dreamer/internal/webcheck"
@@ -78,13 +78,13 @@ func run() error {
 // to stay under the funlen linter limit.
 func parseFlags() (*astcheck.Config, bool, string, string, string, error) {
 	var (
-		diffFrom    string
-		baseline    string
-		writeBase   bool
-		minSev      string
-		enableList  string
-		disableList string
-		jsonOut     bool
+		diffFrom     string
+		baseline     string
+		writeBase    bool
+		minSev       string
+		enableList   string
+		disableList  string
+		jsonOut      bool
 		templatesDir string
 		cssDir       string
 		jsDir        string

@@ -448,7 +448,7 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	})
 
 	mux.Handle("/api/dashboard", handlers.Dashboard(deps))
-	mux.Handle("/api/projects", handlers.ProjectsList(deps))
+	mux.Handle("/api/projects", handlers.Projects(deps))
 	mux.Handle("/api/providers", handlers.Providers(deps))
 	mux.Handle("/api/settings", handlers.Settings(deps))
 	mux.Handle("/api/logs/tail", handlers.LogsTail(deps))

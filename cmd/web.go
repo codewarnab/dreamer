@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -159,10 +162,17 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string
 	ctx, stop := signal.NotifyContext(commandContext(cmd), daemonSignals()...)
 	defer stop()
 
+	var live atomic.Pointer[config.App]
+	live.Store(cfg)
+
+	events := pipeline.NewEventBus()
+	startConfigWatcher(ctx, logger, events, &live, resolved, overlayPath)
+
 	srv, err := web.NewServer(web.Options{
 		Config:      cfg,
+		ConfigPtr:   &live,
 		Logger:      logger,
-		Events:      pipeline.NewEventBus(),
+		Events:      events,
 		ShutdownCtx: ctx,
 		StateCache:  state.NewStateCache(),
 		Standalone:  true,
@@ -173,7 +183,7 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string
 		return fmt.Errorf("construct web server: %w", err)
 	}
 	if err := srv.Start(); err != nil {
-		if strings.Contains(err.Error(), "address already in use") || strings.Contains(err.Error(), "already in use") {
+		if isAddrInUse(err) {
 			return fmt.Errorf("start web server failed: port %d is already in use.\n"+
 				"Hint: Another standalone server or daemon may be active on this port.\n"+
 				"Use 'dreamer web' (no --serve) to discover and open the active server, or run with '--port 0' to bind to an ephemeral port.\nOriginal error: %w", cfg.Web.Port, err)
@@ -248,4 +258,15 @@ func openBrowser(url string) error {
 	default:
 		return exec.Command("xdg-open", url).Start()
 	}
+}
+
+func isAddrInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == 10048 {
+		return true
+	}
+	return false
 }
