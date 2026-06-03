@@ -41,9 +41,12 @@ go run ./tools/quality --baseline .quality-baseline.json  # quality checks
 
 Deep architectural details, coding conventions, and testing quality policies have been modularized under the `docs/` directory to prevent file bloating and stale context. Refer to these files for complete guidance:
 
-1. **[docs/ARCHITECTURE.md](file:///c:/Users/User/code/dreamer/docs/ARCHITECTURE.md)**: Details the single-binary Go CLI pipeline execution workflow, complete listing of registered Cobra CLI commands, major internal packages (`pipeline`, `chat`, `analyzer`, `sandbox`, `backgroundjobs`, `web`, `jobqueue`, `mcpserver`, `migrate`), database persistence layouts, finding lifecycles, and configuration overlays.
+1. **[docs/ARCHITECTURE.md](file:///c:/Users/User/code/dreamer/docs/ARCHITECTURE.md)**: Details the single-binary Go CLI pipeline execution workflow, complete listing of registered Cobra CLI commands, major internal packages (`pipeline`, `chat`, `analyzer`, `sandbox`, `backgroundjobs`, `web`, `jobqueue`, `migrate`), database persistence layouts, finding lifecycles, and configuration overlays.
 2. **[docs/TESTING.md](file:///c:/Users/User/code/dreamer/docs/TESTING.md)**: Explains the testing commands and documents the **10 critical "Test quality rules"** to avoid theatrical tests (including assertions, config propagation, clearing environment variables, resource cleanup, and race conditions).
 3. **[docs/CONVENTIONS.md](file:///c:/Users/User/code/dreamer/docs/CONVENTIONS.md)**: Defines general Go coding conventions, error-wrapping standards, git commit disciplines (integrating `HOW_TO_COMMIT.md`), and strict naming check conventions (idiomatic abbreviations, boolean prefixes, constructor mappings, receiver consistency).
+4. **[docs/DESIGN.md](file:///c:/Users/User/code/dreamer/docs/DESIGN.md)**: Details the visual theme (The Verge-inspired), color palette roles, typography rules, component stylings, responsive behaviors, and LLM prompt guidelines. **AI agents must read this file before making any changes to the web dashboard or UI components.**
+5. **[docs/CLI.md](file:///c:/Users/User/code/dreamer/docs/CLI.md)**: Comprehensive CLI reference detailing all command options, subcommands, Bubble Tea interactive wizards, and background job scheduling controls.
+6. **[docs/API.md](file:///c:/Users/User/code/dreamer/docs/API.md)**: Complete API directory listing web routes, SPA paths, REST endpoints, and the codebase apply/undo safety engine strategies.
 
 ---
 
