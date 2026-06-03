@@ -680,7 +680,9 @@ label {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ── Form Inputs ── */
+/* ── Form Inputs ── 
+   Promoted form inputs styling to the global stylesheet so all settings, 
+   project additions, and future forms can share a consistent appearance and focus transitions. */
 .input-styled {
   width: 100%;
   background: var(--surface-slate);

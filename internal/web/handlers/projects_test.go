@@ -261,6 +261,9 @@ func TestProjectDelete_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+// The following TestProjectsPost_* suite tests the creation and addition of new projects via POST /api/projects,
+// verifying payload validation, tilde/home folder path expansion, duplicate checks, and body size limits.
+
 func TestProjectsPost_Success(t *testing.T) {
 	cfg := buildProjectsCfg(t)
 	dir := t.TempDir()

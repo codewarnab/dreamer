@@ -448,6 +448,8 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	})
 
 	mux.Handle("/api/dashboard", handlers.Dashboard(deps))
+	// Route projects endpoint to handlers.Projects which manages both GET (listing projects)
+	// and POST (creating/adding a new project folder) requests.
 	mux.Handle("/api/projects", handlers.Projects(deps))
 	mux.Handle("/api/providers", handlers.Providers(deps))
 	mux.Handle("/api/settings", handlers.Settings(deps))

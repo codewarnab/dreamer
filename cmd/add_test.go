@@ -24,6 +24,8 @@ logging:
 `
 
 func TestAppendProjectToYAML_ReplacesEmptyList(t *testing.T) {
+	// Test that config.AppendProjectToYAML (now centralized in internal/config) correctly parses the seed config
+	// and inserts the project sequence when the projects list starts out as empty.
 	out, err := config.AppendProjectToYAML([]byte(minimalSeedConfig), "alpha", "/abs/alpha", "24h")
 	if err != nil {
 		t.Fatalf("append: %v", err)
