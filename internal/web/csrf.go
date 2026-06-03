@@ -105,5 +105,13 @@ func isLoopbackHost(hostname string) bool {
 	case "127.0.0.1", "localhost", "::1":
 		return true
 	}
+	// Accept any IP in the loopback range (e.g. 127.0.0.2) so this check
+	// stays in lockstep with config.validateWebHost, which permits the whole
+	// 127.0.0.0/8 block. Without this, an operator who binds web.host to a
+	// non-default loopback IP passes config validation but every request's
+	// Host header is rejected here with 403, silently breaking the UI.
+	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
+		return true
+	}
 	return false
 }

@@ -14,11 +14,15 @@ import (
 	"dreamer/internal/state"
 )
 
-// configWriteMu serializes config.yaml writes from web handlers so two
-// concurrent DELETE requests (e.g. from multiple browser tabs) can't race on
-// the read-modify-write cycle. Cross-process safety against the CLI relies on
-// atomic temp+rename writes, matching `dreamer add` / `dreamer remove`.
-var configWriteMu sync.Mutex
+// configFileMu serializes web-handler writes to BOTH config.yaml and
+// ui-overrides.yaml so concurrent requests can't race on the read-modify-write
+// cycle. ProjectDelete (config.yaml + overlay) and settingsPut (overlay) share
+// it: without that, a DELETE clearing the overlay projects: key and a
+// concurrent settings PUT can interleave read→write and lose the removal,
+// resurrecting a just-deleted project on the next reload. Cross-process safety
+// against the CLI relies on atomic temp+rename writes, matching
+// `dreamer add` / `dreamer remove`.
+var configFileMu sync.Mutex
 
 // ProjectRollup is the per-project summary surfaced by both the list and
 // detail endpoints. Fields align with the spec.v1.5 §7.2 project rollup.
@@ -144,12 +148,20 @@ func ProjectDelete(deps Deps) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
+		// Reject names the URL check misses: backslash separators and Windows
+		// reserved device names (CON, NUL, …) that could cause surprising
+		// filesystem behavior when used to locate the project's output dir.
+		if err := config.ValidateProjectName(tail); err != nil {
+			http.NotFound(w, r)
+			return
+		}
 
-		// Serialize the read-modify-write of config.yaml against other web
-		// writers. fsutil.WriteFileAtomic (temp+rename) guards against the
-		// CLI writing concurrently from another process.
-		configWriteMu.Lock()
-		defer configWriteMu.Unlock()
+		// Serialize the read-modify-write of config.yaml AND the overlay
+		// against other web writers (settingsPut also takes configFileMu).
+		// fsutil.WriteFileAtomic (temp+rename) guards against the CLI writing
+		// concurrently from another process.
+		configFileMu.Lock()
+		defer configFileMu.Unlock()
 
 		configBytes, err := os.ReadFile(configPath)
 		if err != nil {
@@ -168,7 +180,9 @@ func ProjectDelete(deps Deps) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, "remove project: "+err.Error())
 			return
 		}
-		if err := fsutil.WriteFileAtomic(configPath, updated, fsutil.FilePerms); err != nil {
+		// SecretPerms (0600): config.yaml may carry provider passwords, so it
+		// must not be world-readable on multi-user systems.
+		if err := fsutil.WriteFileAtomic(configPath, updated, fsutil.SecretPerms); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "write config: "+err.Error())
 			return
 		}
@@ -211,7 +225,7 @@ func clearOverlayProjects(overlayPath string) error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(overlayPath, out, fsutil.FilePerms)
+	return fsutil.WriteFileAtomic(overlayPath, out, fsutil.SecretPerms)
 }
 
 func projectRollup(cfg *config.App, p config.ProjectConfig, sc *state.StateCache) ProjectRollup {

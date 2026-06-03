@@ -135,6 +135,12 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 	// "***redacted***" into the overlay, silently corrupting real secrets.
 	stripRedactedPlaceholders(body)
 
+	// Serialize the overlay read-modify-write against ProjectDelete, which
+	// clears the projects: key from the same file under configFileMu. Without
+	// this lock a concurrent DELETE + PUT can interleave and lose either write.
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+
 	mergePartial(existing, body)
 
 	out, err := yaml.Marshal(existing)
@@ -142,7 +148,7 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := fsutil.WriteFileAtomic(overlayPath, out, fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(overlayPath, out, fsutil.SecretPerms); err != nil {
 		http.Error(w, fmt.Sprintf("write overlay: %v", err), http.StatusInternalServerError)
 		return
 	}
