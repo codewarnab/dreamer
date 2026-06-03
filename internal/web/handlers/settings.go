@@ -120,6 +120,9 @@ func settingsPut(deps Deps, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Acquire the configuration file lock before reading the overlay file. This serializes the entire
+	// read-modify-write operation against concurrent modifications (such as project additions or deletions)
+	// ensuring no partial updates or interleaving writes corrupt the configuration overlay.
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 

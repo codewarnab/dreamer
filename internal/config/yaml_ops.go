@@ -11,6 +11,8 @@ import (
 )
 
 // ErrProjectNotFound indicates that the specified project was not found in the config.
+// By wrapping this standard sentinel error, handlers can check errors.Is(err, ErrProjectNotFound)
+// to return a clear HTTP 404 (Not Found) instead of a generic HTTP 500 (Internal Server Error).
 var ErrProjectNotFound = errors.New("project not found")
 
 // FindMappingChild searches a yaml.MappingNode for a key matching the
@@ -98,6 +100,8 @@ func RemoveProjectFromYAML(configBytes []byte, name string) ([]byte, error) {
 // AppendProjectToYAML rewrites the projects: list to include the new
 // entry while preserving every comment and unrelated key. Returns the
 // rendered bytes.
+// It directly manipulates the yaml.Node AST. This ensures that layout,
+// whitespace, and comments are fully preserved, which standard struct unmarshaling/marshaling would lose.
 func AppendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(configBytes, &root); err != nil {
@@ -149,6 +153,8 @@ func AppendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, 
 func findDuplicateProject(seq *yaml.Node, name, path string) string {
 	// Normalize the input path so ~/foo, /abs/x, and C:\abs\x all
 	// compare consistently regardless of how they were typed.
+	// This uses fsutil.CanonicalPath which handles path casing (on Windows),
+	// slashes/backslashes normalization, and directory structures.
 	resolvedPath := fsutil.CanonicalPath(path)
 	for _, item := range seq.Content {
 		if item.Kind != yaml.MappingNode {

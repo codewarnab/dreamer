@@ -162,17 +162,22 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string
 	ctx, stop := signal.NotifyContext(commandContext(cmd), daemonSignals()...)
 	defer stop()
 
+	// Use an atomic pointer to hold the active app configuration. This allows the config
+	// watcher thread to update the active configuration in a thread-safe manner without
+	// restarting the HTTP server, ensuring seamless live updates when project lists change.
 	var live atomic.Pointer[config.App]
 	live.Store(cfg)
 
+	// Create a single shared event bus so config reload notifications can be captured
+	// and dispatched to the browser via SSE (Server-Sent Events) channels.
 	events := pipeline.NewEventBus()
 	startConfigWatcher(ctx, logger, events, &live, resolved, overlayPath)
 
 	srv, err := web.NewServer(web.Options{
 		Config:      cfg,
-		ConfigPtr:   &live,
+		ConfigPtr:   &live, // Wire the atomic pointer to handle hot-reloads of configuration
 		Logger:      logger,
-		Events:      events,
+		Events:      events, // Connect the shared event bus for SSE events
 		ShutdownCtx: ctx,
 		StateCache:  state.NewStateCache(),
 		Standalone:  true,
@@ -260,11 +265,15 @@ func openBrowser(url string) error {
 	}
 }
 
+// isAddrInUse checks whether the start failure was due to port bind conflicts.
+// It handles Unix/Linux EADDRINUSE standard error and Windows socket error code 10048 (WSAEADDRINUSE)
+// to ensure cross-platform correctness when checking if the server port is already bound.
 func isAddrInUse(err error) bool {
 	if errors.Is(err, syscall.EADDRINUSE) {
 		return true
 	}
 	var errno syscall.Errno
+	// Windows WSAEADDRINUSE is represented by Errno 10048
 	if errors.As(err, &errno) && errno == 10048 {
 		return true
 	}

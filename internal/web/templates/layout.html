@@ -153,6 +153,7 @@
   </div>
 
   <script>
+    // addProjectModal controls the state and submission of the "Add Project" modal dialog.
     window.addProjectModal = function() {
       return {
         isOpen: false,
@@ -170,6 +171,8 @@
         submitForm: async function() {
           if (this.isBusy) return;
           this.isBusy = true;
+          // Retrieve the CSRF token from the layout's meta tag. This token is required to authenticate
+          // non-GET request methods (POST/DELETE) and prevent cross-site request forgery.
           const token = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
           try {
             const res = await fetch("/api/projects", {
@@ -189,7 +192,9 @@
               this.isOpen = false;
               Alpine.store("toasts").add("Project " + data.name + " added successfully!", "success");
               
-              // Wait for SSE config.reloaded to confirm server has reloaded configuration, then redirect
+              // To provide a smooth user experience, we wait for the Server-Sent Events (SSE) bus to signal
+              // "config.reloaded". This confirms that the server has processed the file watcher reload,
+              // before we redirect the user to their newly created project dashboard.
               const sse = Alpine.store("sse");
               let redirected = false;
               const doRedirect = () => {
@@ -201,7 +206,8 @@
                 unsub();
                 doRedirect();
               });
-              // Fallback redirect after 3 seconds in case SSE is disconnected
+              // Fallback redirect after 3 seconds in case SSE is disconnected or fails to fire,
+              // ensuring the interface remains responsive.
               setTimeout(() => {
                 unsub();
                 doRedirect();

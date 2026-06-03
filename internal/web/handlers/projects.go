@@ -93,7 +93,8 @@ func projectsPost(deps Deps, w http.ResponseWriter, r *http.Request) {
 	}
 	configPath := deps.ConfigPath()
 
-	// Enforce 4 KiB size limit on mutating request body
+	// Enforce 4 KiB size limit on mutating request body. This is a crucial security measure
+	// to prevent denial-of-service (DoS) or memory exhaustion attacks from excessively large payloads.
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 
 	var req projectAddRequest
@@ -109,6 +110,8 @@ func projectsPost(deps Deps, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve absolute path, expand user home (~), evaluate symlinks, and check null bytes.
+	// This standardizes paths so that relative/tilde symbols are resolved uniformly across
+	// different systems (e.g. converting ~/project to C:\Users\User\project or /home/user/project).
 	expandedPath, err := fsutil.ExpandUserHome(req.Path)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid project path: "+err.Error())
@@ -161,6 +164,8 @@ func projectsPost(deps Deps, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Acquire the configuration file lock. This ensures thread-safety, protecting against
+	// write collision (data races) if multiple HTTP requests attempt to add or delete projects concurrently.
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
@@ -179,6 +184,8 @@ func projectsPost(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Perform an atomic write (using a temp file and a rename/move operation).
+	// This prevents partial/corrupted writes if the server crashes or loses power during the write.
 	if err := fsutil.WriteFileAtomic(configPath, updated, fsutil.SecretPerms); err != nil {
 		if deps.Logger != nil {
 			deps.Logger.Error("atomic write config failed", logging.Any("error", err.Error()))
@@ -302,9 +309,8 @@ func ProjectDelete(deps Deps) http.HandlerFunc {
 		}
 		updated, err := config.RemoveProjectFromYAML(configBytes, tail)
 		if err != nil {
-			// RemoveProjectFromYAML returns "project ... not found" when the
-			// name is absent from the base config (e.g. it only existed via an
-			// overlay). Surface that as a 404; everything else is a 500.
+			// RemoveProjectFromYAML returns a wrapped ErrProjectNotFound sentinel error.
+			// Inspect using errors.Is to surface this specifically as a 404 (Not Found) to the client.
 			if errors.Is(err, config.ErrProjectNotFound) {
 				http.NotFound(w, r)
 				return

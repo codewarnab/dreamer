@@ -51,6 +51,8 @@ func newAddCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("read config %q: %w", cfgPath, err)
 			}
+			// Append the project details to the config YAML. We call the centralized config.AppendProjectToYAML
+			// function which is shared with the Web server handlers to ensure unified validation and duplicate checks.
 			updated, err := config.AppendProjectToYAML(configBytes, name, absPath, since)
 			if err != nil {
 				return err
