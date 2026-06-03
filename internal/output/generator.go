@@ -15,6 +15,13 @@ import (
 )
 
 const (
+	// todosFileName is the name of the file where findings are appended.
+	//
+	// NOTE: This file is a developer-facing / code-facing artifact that lives in the
+	// repository/output directory. It is meant for version control (git), local
+	// inspection in IDEs, or command-line pipelines. It is NOT intended to be referenced
+	// in user-facing UI elements (e.g. web modals, tooltips) because web users view,
+	// manage, and resolve their findings directly via the web dashboard.
 	todosFileName = "todos.md"
 
 	versionMarker = "<!-- dreamer:version:1 -->"

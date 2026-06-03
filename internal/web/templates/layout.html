@@ -1,3 +1,8 @@
+<!-- 
+  GLOBAL FRONTEND DEVELOPER NOTE:
+  Do not add SVG icons to empty states, menus, or layout components unless 
+  explicitly required and adding clear visual/UX value to the interface.
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -100,8 +105,8 @@
   >
     <div class="modal-dialog" @click.stop style="max-width: 500px;">
       <h3 style="margin-bottom: var(--space-3);">add project</h3>
-      <p style="margin-bottom: var(--space-4); font-size: 13px; color: var(--text-secondary);">
-        Configure a new codebase project for automated quality, security, and architectural scans.
+      <p style="margin-bottom: var(--space-4); font-size: 13px; color: var(--text-secondary); line-height: 1.4;">
+        Register a codebase project to scan for local AI assistant chat transcripts (Copilot, Claude Code, Gemini CLI, etc.), extract recurring mistakes, and synthesize preventative guardrails.
       </p>
       
       <form @submit.prevent="submitForm()">
@@ -143,7 +148,21 @@
         </div>
 
         <div style="margin-bottom: var(--space-4);">
-          <label class="label-mono" style="display: block; margin-bottom: var(--space-2); color: var(--text-secondary); font-size: 11px;">lookback window (since)</label>
+          <div style="display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2);">
+            <label class="label-mono" style="margin-bottom: 0; color: var(--text-secondary); font-size: 11px;">lookback window (since)</label>
+            <div class="tooltip-container">
+              <span class="tooltip-trigger" style="opacity: 0.8;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 16v-4"/>
+                  <path d="M12 8h.01"/>
+                </svg>
+              </span>
+              <div class="tooltip-content">
+                Only processes assistant chats that have been updated within this timeframe (e.g. 24h, 1w). Select "lifetime" to scan all history.
+              </div>
+            </div>
+          </div>
           <select x-model="since" class="input-styled select-styled" style="width: 100%; box-sizing: border-box;">
             <option value="24h">24 hours (default)</option>
             <option value="1h">1 hour</option>

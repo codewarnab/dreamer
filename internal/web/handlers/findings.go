@@ -20,6 +20,11 @@ import (
 // Rich guardrail/apply payloads live in the rule pack output but are
 // not currently re-serialized into todos.md; they remain available via
 // the detail endpoint's query-string handoff used by the SPA.
+//
+// NOTE: todos.md acts as a code-facing developer artifact (checked into git, readable
+// in terminals and IDEs). The web UI reads/parses this file under the hood, but
+// we do not expose the file path or name "todos.md" to the user, as they consume
+// and manage these items via this browser interface.
 type FindingView struct {
 	Hash        string  `json:"hash"`
 	Category    string  `json:"category"`

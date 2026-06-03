@@ -20,13 +20,13 @@
       <h1 class="headline-lg" style="letter-spacing: -0.5px; margin-top: 2px;">logs</h1>
     </div>
     <!-- Helpful information showing the physical location of the active log file on disk -->
-    <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); background: rgba(255,255,255,0.02); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.04);">
+    <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); background: var(--bg-translucent-card); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
       <span style="color: var(--focus-cyan);">Log File:</span> <code style="color: var(--text-muted);">dreamer.log</code>
     </div>
   </header>
 
   <!-- Controls Panel Card -->
-  <div class="card" style="margin-bottom: var(--space-4); padding: var(--space-3); border-color: rgba(255,255,255,0.08); background: rgba(26,26,26,0.3); backdrop-filter: blur(10px);">
+  <div class="card" style="margin-bottom: var(--space-4); padding: var(--space-3); border-color: var(--border-subtle); background: var(--surface-1); backdrop-filter: blur(10px);">
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
       
       <!-- Severity Filter Pills -->
@@ -42,7 +42,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 10px; color: var(--text-secondary); pointer-events: none;">
           <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input type="search" x-model="searchQuery" placeholder="Instant browser search..." class="input" style="padding-left: 32px; width: 100%; font-family: var(--font-body); font-size: 13px; background: rgba(0,0,0,0.25); border-color: rgba(255,255,255,0.06);" />
+        <input type="search" x-model="searchQuery" placeholder="Instant browser search..." class="input" style="padding-left: 32px; width: 100%; font-family: var(--font-body); font-size: 13px;" />
       </div>
 
       <!-- Toggles and Selectors -->
@@ -50,7 +50,7 @@
         <!-- Limit Selector (keeps DOM node count small and performant) -->
         <div style="display: flex; align-items: center; gap: var(--space-2);">
           <label style="margin-bottom: 0; font-size: 11px;">Limit:</label>
-          <select x-model.number="lineLimit" class="input" style="padding: 2px 24px 2px 8px; font-family: var(--font-mono); font-size: 11px; background: rgba(0,0,0,0.2);">
+          <select x-model.number="lineLimit" class="input" style="padding: 2px 24px 2px 8px; font-family: var(--font-mono); font-size: 11px;">
             <option value="100">100 lines</option>
             <option value="250">250 lines</option>
             <option value="500">500 lines</option>
@@ -69,7 +69,7 @@
         <!-- Functional Control Buttons -->
         <div style="display: flex; gap: var(--space-2); margin-left: var(--space-2);">
           <!-- Copy to Clipboard with Feedback State -->
-          <button class="btn btn--ghost" @click="copyToClipboard()" :disabled="!raw.trim()" style="display: flex; align-items: center; gap: 6px; padding: var(--space-1) var(--space-3); font-size: 11px; border-color: rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);" title="Copy filtered logs to clipboard">
+          <button class="btn btn--ghost" @click="copyToClipboard()" :disabled="!raw.trim()" style="display: flex; align-items: center; gap: 6px; padding: var(--space-1) var(--space-3); font-size: 11px; border-color: var(--border-subtle); background: var(--bg-translucent-hover);" title="Copy filtered logs to clipboard">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
               <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
@@ -92,30 +92,24 @@
   </div>
 
   <!-- Main Console Viewer Box -->
-  <div class="card" style="padding: 0; overflow: hidden; border-color: rgba(255,255,255,0.08); background: #0c0c0c; box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);">
+  <div class="card" style="padding: 0; overflow: hidden; border-color: var(--border-subtle); background: var(--canvas-black); box-shadow: inset 0 2px 8px rgba(0,0,0,0.15);">
     
     <!-- Connection Offline Troubleshooting Card -->
     <!-- Renders dynamically when SSE is reconnecting and no log file can be retrieved -->
     <div x-show="!$store.sse.connected && !raw.trim()" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 580px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); animation: logs-fade-in 0.3s ease-out;">
-      <div style="background: rgba(239, 71, 111, 0.1); border: 1px solid rgba(239, 71, 111, 0.25); color: var(--color-error); width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: var(--space-2); animation: pulse-glow 2s infinite;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-          <line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
-        </svg>
-      </div>
       <h3 class="headline-md" style="letter-spacing: -0.2px; margin-bottom: 2px;">Daemon Connection Lost</h3>
       <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: var(--space-2);">
         The web dashboard is unable to communicate with the Dreamer background daemon. It seems the process is either stopped or initializing.
       </p>
       <!-- Interactive troubleshooting command helper -->
-      <div style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-md); padding: var(--space-3); text-align: left; width: 100%; font-family: var(--font-mono); font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+      <div style="background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3); text-align: left; width: 100%; font-family: var(--font-mono); font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
         <div style="color: var(--focus-cyan); margin-bottom: 4px; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;">Troubleshooting Action:</div>
         <div style="color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
           <span>Run the daemon in your development terminal:</span>
         </div>
-        <div style="margin-top: 6px; background: rgba(0,0,0,0.5); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.03); color: var(--jelly-mint); overflow-x: auto; white-space: nowrap; display: flex; align-items: center; justify-content: space-between;">
+        <div style="margin-top: 6px; background: var(--canvas-black); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); color: var(--jelly-mint); overflow-x: auto; white-space: nowrap; display: flex; align-items: center; justify-content: space-between;">
           <code>go run . daemon</code>
-          <button @click="navigator.clipboard.writeText('go run . daemon')" class="btn" style="padding: 2px 6px; font-size: 9px; border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.02);" title="Copy command">Copy</button>
+          <button @click="navigator.clipboard.writeText('go run . daemon')" class="btn" style="padding: 2px 6px; font-size: 9px; border-color: var(--border-subtle); background: var(--bg-translucent-hover);" title="Copy command">Copy</button>
         </div>
       </div>
       <button class="btn btn--run" @click="load()" style="margin-top: var(--space-2); min-width: 140px;">Retry Connection</button>
@@ -123,13 +117,6 @@
 
     <!-- Empty State for Empty Log Files or Missing Matches -->
     <div x-show="raw.trim() && filteredLines().length === 0" style="padding: var(--space-7) var(--space-5); text-align: center; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); animation: logs-fade-in 0.25s ease-out;">
-      <div style="color: var(--text-secondary); opacity: 0.3; margin-bottom: var(--space-2);">
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
-          <line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line>
-          <line x1="2" y1="12" x2="22" y2="12"></line>
-        </svg>
-      </div>
       <h4 style="margin: 0; font-family: var(--font-body); font-weight: 600; font-size: 16px; color: var(--text-muted);">No matching log entries</h4>
       <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.4; margin: 0;">
         We couldn't find any log lines matching severity level <code style="color: var(--focus-cyan);" x-text="level"></code>
@@ -195,12 +182,12 @@
 
   /* Inactive state for buttons, maintaining high design fidelity */
   .pill--inactive {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--bg-translucent-hover);
+    border: 1px solid var(--border-subtle);
     color: var(--text-secondary);
   }
   .pill--inactive:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-translucent-badge);
     color: var(--text-primary);
     cursor: pointer;
   }
@@ -221,23 +208,24 @@
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.4;
-    border-bottom: 1px solid rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border-subtle);
     transition: background-color 0.15s ease, border-left-color 0.15s ease;
     border-left: 3px solid transparent;
   }
   .log-row:hover {
-    background-color: rgba(255, 255, 255, 0.02);
+    background-color: var(--bg-translucent-hover);
   }
 
   /* Severity row borders for quick visual structure scanning */
-  .log-row--info { border-left-color: rgba(60, 255, 208, 0.15); }
-  .log-row--warn { border-left-color: var(--color-warn); background: rgba(255, 209, 102, 0.01); }
-  .log-row--error { border-left-color: var(--color-error); background: rgba(239, 71, 111, 0.01); }
+  .log-row--info { border-left-color: var(--border-mint-badge); }
+  .log-row--warn { border-left-color: var(--color-warn); background: var(--bg-warn-subtle); }
+  .log-row--error { border-left-color: var(--color-error); background: var(--bg-error-subtle); }
   .log-row--debug { border-left-color: rgba(184, 77, 255, 0.15); }
 
   /* Structured Columns */
   .log-col-time {
-    color: #555555;
+    color: var(--text-secondary);
+    opacity: 0.6;
     font-size: 11px;
     user-select: none;
     flex-shrink: 0;
@@ -246,7 +234,7 @@
   }
 
   .log-col-msg {
-    color: #e0e0e0;
+    color: var(--text-primary);
     flex: 1;
     min-width: 0;
     word-break: break-all;
@@ -254,9 +242,9 @@
   }
   
   /* Colorized messages for quick highlighting of alerts */
-  .log-row--warn .log-col-msg { color: #ffe6a3; }
-  .log-row--error .log-col-msg { color: #ffa4b7; }
-  .log-row--debug .log-col-msg { color: #888888; }
+  .log-row--warn .log-col-msg { color: var(--log-text-warn); }
+  .log-row--error .log-col-msg { color: var(--log-text-error); }
+  .log-row--debug .log-col-msg { color: var(--text-secondary); opacity: 0.8; }
   
   /* Fallback monospaced styling for unstructured raw stack trace blocks */
   .log-col-msg--unstructured {
@@ -281,8 +269,8 @@
   .log-attr-tag {
     display: inline-flex;
     align-items: center;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--bg-translucent-hover);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
     padding: 0 5px;
     font-size: 10.5px;
@@ -294,15 +282,16 @@
     user-select: none;
   }
   .log-attr-tag:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--bg-translucent-badge);
+    border-color: var(--border-translucent-badge);
   }
   .log-attr-key {
     color: var(--focus-cyan);
     font-weight: 500;
   }
   .log-attr-divider {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--text-secondary);
+    opacity: 0.4;
     margin: 0 1px;
   }
   .log-attr-val {
@@ -326,18 +315,18 @@
   }
   .log-level-badge--info {
     color: var(--jelly-mint);
-    background: rgba(60, 255, 208, 0.1);
-    border: 1px solid rgba(60, 255, 208, 0.2);
+    background: var(--bg-mint-badge);
+    border: 1px solid var(--border-mint-badge);
   }
   .log-level-badge--warn {
     color: var(--color-warn);
-    background: rgba(255, 209, 102, 0.1);
-    border: 1px solid rgba(255, 209, 102, 0.2);
+    background: var(--bg-warn-badge);
+    border: 1px solid var(--border-warn-badge);
   }
   .log-level-badge--error {
     color: var(--color-error);
-    background: rgba(239, 71, 111, 0.1);
-    border: 1px solid rgba(239, 71, 111, 0.2);
+    background: var(--bg-error-subtle);
+    border: 1px solid var(--border-error-subtle);
   }
   .log-level-badge--debug {
     color: #b84dff;
@@ -347,11 +336,11 @@
 
   /* Search matching highlight */
   .log-search-highlight {
-    background-color: rgba(255, 209, 102, 0.3);
-    color: #ffffff;
+    background-color: var(--log-highlight-bg);
+    color: var(--log-highlight-text);
     border-radius: 2px;
     padding: 0 1px;
-    box-shadow: 0 0 4px rgba(255, 209, 102, 0.4);
+    box-shadow: 0 0 4px var(--log-highlight-shadow);
   }
 
   /* custom scrollbar */
@@ -360,14 +349,14 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.05);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--bg-translucent-badge);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.24);
+    background: var(--border-translucent-badge);
   }
 </style>
 
