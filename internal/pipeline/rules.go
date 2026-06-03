@@ -86,4 +86,3 @@ func buildRedactor(cfg *config.App, project *config.ProjectFileConfig) (*analyze
 	}
 	return analyzer.NewRedactor(patterns)
 }
-

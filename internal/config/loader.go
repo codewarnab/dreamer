@@ -115,11 +115,11 @@ type RedactionConfig struct {
 
 // SandboxConfig configures OS-level sandbox hardening.
 type SandboxConfig struct {
-	ProjectWrite  *bool                `yaml:"project_write,omitempty" json:"project_write,omitempty"`
-	Network       string               `yaml:"network,omitempty" json:"network,omitempty"`
-	Seccomp       string               `yaml:"seccomp,omitempty" json:"seccomp,omitempty"`
-	Resources     SandboxResources     `yaml:"resources,omitempty" json:"resources,omitempty"`
-	SIDExpiryDays int                  `yaml:"sid_expiry_days,omitempty" json:"sid_expiry_days,omitempty"`
+	ProjectWrite  *bool            `yaml:"project_write,omitempty" json:"project_write,omitempty"`
+	Network       string           `yaml:"network,omitempty" json:"network,omitempty"`
+	Seccomp       string           `yaml:"seccomp,omitempty" json:"seccomp,omitempty"`
+	Resources     SandboxResources `yaml:"resources,omitempty" json:"resources,omitempty"`
+	SIDExpiryDays int              `yaml:"sid_expiry_days,omitempty" json:"sid_expiry_days,omitempty"`
 }
 
 // SandboxResources configures OS resource caps for sandboxed processes.
@@ -155,7 +155,7 @@ type AnalyzerConfig struct {
 	// transcripts are included in analysis. When nil or false (default),
 	// sources with a non-empty ParentID are skipped. Pointer so the
 	// overlay merge can distinguish "unset" from "explicitly false".
-	IncludeSubagentTranscripts *bool                  `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
+	IncludeSubagentTranscripts *bool                 `yaml:"include_subagent_transcripts,omitempty" json:"include_subagent_transcripts,omitempty"`
 	Rules                      map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
 	Execution                  ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
 	Chunking                   ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`

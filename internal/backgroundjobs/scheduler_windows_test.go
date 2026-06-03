@@ -17,7 +17,7 @@ func TestStripControlChars(t *testing.T) {
 		want string
 	}{
 		{"clean", "hello world", "hello world"},
-		{"newline", "hello\nworld", "hello\nworld"},   // \n is valid XML whitespace
+		{"newline", "hello\nworld", "hello\nworld"},  // \n is valid XML whitespace
 		{"crlf", "hello\r\nworld", "hello\r\nworld"}, // \r is valid XML whitespace
 		{"null", "hello\x00world", "helloworld"},
 		{"tab", "hello\tworld", "hello\tworld"}, // tab is valid XML
@@ -46,7 +46,7 @@ func TestXMLFieldEscaping(t *testing.T) {
 		{"ampersand", "a&b", "a&amp;b"},
 		{"less", "a<b", "a&lt;b"},
 		{"greater", "a>b", "a&gt;b"},
-		{"quote", `a"b`, "a&#34;b"},            // Go xml.EscapeText uses numeric entities
+		{"quote", `a"b`, "a&#34;b"}, // Go xml.EscapeText uses numeric entities
 		{"apostrophe", "a'b", "a&#39;b"},
 		{"mixed", `<a&b>"c`, "&lt;a&amp;b&gt;&#34;c"},
 		{"empty", "", ""},

@@ -40,6 +40,9 @@ const (
 // errJobNotFound is returned by store mutations when the job ID does not exist.
 var errJobNotFound = errors.New("job not found")
 
+// errJobLimitReached is returned when the maximum number of jobs is exceeded.
+var errJobLimitReached = fmt.Errorf("job limit reached (%d)", maxJobsPerInstall)
+
 // JobDeps holds the background job dependencies injected into handlers.
 // All fields are nil-safe: when nil, jobs endpoints return 503.
 type JobDeps struct {
@@ -87,12 +90,14 @@ type EventSink struct {
 
 // createPayload is the parsed request body for job create/preview.
 type createPayload struct {
-	Name        string                      `json:"name"`
-	Prompt      string                      `json:"prompt"`
-	ProjectName string                      `json:"project_name"`
-	ProviderID  string                      `json:"provider_id"`
-	Model       string                      `json:"model"`
-	Schedule    backgroundjobs.ScheduleSpec `json:"schedule"`
+	Name          string                      `json:"name"`
+	Prompt        string                      `json:"prompt"`
+	ProjectName   string                      `json:"project_name"`
+	ProviderID    string                      `json:"provider_id"`
+	Model         string                      `json:"model"`
+	Schedule      backgroundjobs.ScheduleSpec `json:"schedule"`
+	FileAccess    string                      `json:"file_access"`
+	WritablePaths []string                    `json:"writable_paths"`
 }
 
 // editPayload is the parsed request body for PATCH /api/jobs/{id}.
@@ -430,6 +435,38 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			name = string(runes[:64])
 		}
 
+		// Parse and validate permissions.
+		fileAccess := backgroundjobs.FileAccessReadOnly
+		if payload.FileAccess != "" {
+			switch payload.FileAccess {
+			case "read_only":
+				fileAccess = backgroundjobs.FileAccessReadOnly
+			case "selected_writes":
+				fileAccess = backgroundjobs.FileAccessSelectedWrites
+			case "full_workspace":
+				fileAccess = backgroundjobs.FileAccessFullWorkspace
+			default:
+				writeJSONError(w, http.StatusBadRequest, "file_access must be one of: read_only, selected_writes, full_workspace")
+				return
+			}
+		}
+
+		var writablePaths []string
+		if len(payload.WritablePaths) > 0 {
+			if fileAccess != backgroundjobs.FileAccessSelectedWrites {
+				writeJSONError(w, http.StatusBadRequest, "writable_paths requires file_access=selected_writes")
+				return
+			}
+			if err := backgroundjobs.ValidateWritablePaths(projectPath, payload.WritablePaths); err != nil {
+				writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("writable_paths validation: %v", err))
+				return
+			}
+			writablePaths = payload.WritablePaths
+		} else if fileAccess == backgroundjobs.FileAccessSelectedWrites {
+			writeJSONError(w, http.StatusBadRequest, "writable_paths required when file_access=selected_writes")
+			return
+		}
+
 		jobID, err := backgroundjobs.GenerateJobID()
 		if err != nil {
 			deps.Logger.Error("jobs create generate id", logging.ErrAttr(err)...)
@@ -457,14 +494,15 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			UpdatedAt:   now,
 			NextRunAt:   &nextRun,
 			Permissions: backgroundjobs.PermissionProfile{
-				FileAccess:              backgroundjobs.FileAccessReadOnly,
+				FileAccess:              fileAccess,
+				WritablePaths:           writablePaths,
 				ProviderNetworkRequired: true,
 			},
 		}
 
 		if err := deps.Jobs.Store.Update(r.Context(), func(s *backgroundjobs.State) error {
 			if len(s.Jobs) >= maxJobsPerInstall {
-				return fmt.Errorf("job limit reached (%d)", maxJobsPerInstall)
+				return errJobLimitReached
 			}
 			if s.Jobs == nil {
 				s.Jobs = make(map[string]*backgroundjobs.Job)
@@ -472,7 +510,7 @@ func JobCreate(deps Deps) http.HandlerFunc {
 			s.Jobs[jobID] = job
 			return nil
 		}); err != nil {
-			if strings.Contains(err.Error(), "job limit reached") {
+			if errors.Is(err, errJobLimitReached) {
 				writeJSONError(w, http.StatusBadRequest, err.Error())
 				return
 			}
@@ -634,11 +672,43 @@ func JobPreview(deps Deps) http.HandlerFunc {
 		}
 
 		cfg := deps.Config()
-		_, warnings, err := validateCreatePayload(cfg, payload, func(id string) *backgroundjobs.ProviderMeta {
+		projectPath, warnings, err := validateCreatePayload(cfg, payload, func(id string) *backgroundjobs.ProviderMeta {
 			return resolveProviderMeta(deps.Jobs, id)
 		})
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// Parse and validate permissions.
+		fileAccess := backgroundjobs.FileAccessReadOnly
+		if payload.FileAccess != "" {
+			switch payload.FileAccess {
+			case "read_only":
+				fileAccess = backgroundjobs.FileAccessReadOnly
+			case "selected_writes":
+				fileAccess = backgroundjobs.FileAccessSelectedWrites
+			case "full_workspace":
+				fileAccess = backgroundjobs.FileAccessFullWorkspace
+			default:
+				writeJSONError(w, http.StatusBadRequest, "file_access must be one of: read_only, selected_writes, full_workspace")
+				return
+			}
+		}
+
+		var writablePaths []string
+		if len(payload.WritablePaths) > 0 {
+			if fileAccess != backgroundjobs.FileAccessSelectedWrites {
+				writeJSONError(w, http.StatusBadRequest, "writable_paths requires file_access=selected_writes")
+				return
+			}
+			if err := backgroundjobs.ValidateWritablePaths(projectPath, payload.WritablePaths); err != nil {
+				writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("writable_paths validation: %v", err))
+				return
+			}
+			writablePaths = payload.WritablePaths
+		} else if fileAccess == backgroundjobs.FileAccessSelectedWrites {
+			writeJSONError(w, http.StatusBadRequest, "writable_paths required when file_access=selected_writes")
 			return
 		}
 
@@ -674,7 +744,8 @@ func JobPreview(deps Deps) http.HandlerFunc {
 			"next_3_runs":      nextRuns,
 			"provider":         providerInfo,
 			"permissions": map[string]any{
-				"file_access":      "read_only",
+				"file_access":      fileAccess,
+				"writable_paths":   writablePaths,
 				"network_required": meta.RequiresNetwork,
 			},
 		})

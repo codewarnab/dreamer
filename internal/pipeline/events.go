@@ -9,22 +9,23 @@ import (
 
 // EventType enumerates SSE event names.
 const (
-	EventRunStart       = "run.start"
-	EventRunDone        = "run.done"
-	EventRunError       = "run.error"
-	EventFindingApplied = "finding.applied"
-	EventFindingUndone  = "finding.undone"
+	EventRunStart         = "run.start"
+	EventRunDone          = "run.done"
+	EventRunError         = "run.error"
+	EventFindingApplied   = "finding.applied"
+	EventFindingUndone    = "finding.undone"
 	EventFindingDismissed = "finding.dismissed"
 	EventFindingResolved  = "finding.resolved"
-	EventConfigReload   = "config.reloaded"
-	EventChatDeleted    = "chat.deleted"
-	EventJobCreated     = "job.created"
-	EventJobDeleted     = "job.deleted"
-	EventJobRunStart    = "job.run.start"
-	EventJobRunDone     = "job.run.done"
-	EventJobPaused      = "job.paused"
-	EventJobResumed     = "job.resumed"
-	EventJobUpdated     = "job.updated"
+	EventConfigReload     = "config.reloaded"
+	EventChatDeleted      = "chat.deleted"
+	EventJobCreated       = "job.created"
+	EventJobDeleted       = "job.deleted"
+	EventJobRunStart      = "job.run.start"
+	EventJobRunDone       = "job.run.done"
+	EventJobPaused        = "job.paused"
+	EventJobResumed       = "job.resumed"
+	EventJobUpdated       = "job.updated"
+	EventProjectRemoved   = "project.removed"
 )
 
 // Event is one SSE-shaped notification. Payload is a JSON-serializable map.

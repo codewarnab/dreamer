@@ -1443,10 +1443,10 @@ func TestProvidersReturnsRegisteredProviders(t *testing.T) {
 
 func TestCodebuffProjectMatches(t *testing.T) {
 	tests := []struct {
-		name       string
-		dirName    string
+		name        string
+		dirName     string
 		projectBase string
-		want       bool
+		want        bool
 	}{
 		{"exact match", "myproject", "myproject", true},
 		{"case insensitive", "MyProject", "myproject", true},

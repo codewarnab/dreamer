@@ -75,7 +75,6 @@ func extractClaudeParentID(path string) string {
 	return ""
 }
 
-
 func (claudeProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
 	messages, err := readers.ReadClaudeJSONLWithToolFolding(source.Path)
 	if err != nil {

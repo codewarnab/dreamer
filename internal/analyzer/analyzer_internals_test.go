@@ -431,8 +431,8 @@ func TestEffectivePhase1PreambleDefault(t *testing.T) {
 
 func TestEffectivePhase1PreambleCustom(t *testing.T) {
 	p := RulePack{
-		Category:        RuleCategoryTest,
-		Phase1Preamble:  "custom preamble",
+		Category:       RuleCategoryTest,
+		Phase1Preamble: "custom preamble",
 	}
 	got := p.EffectivePhase1Preamble()
 	if got != "custom preamble" {
@@ -476,8 +476,8 @@ func TestEffectivePhase1ResponseSchemaDefault(t *testing.T) {
 
 func TestEffectivePhase1ResponseSchemaCustom(t *testing.T) {
 	p := RulePack{
-		Category:              RuleCategoryTest,
-		Phase1ResponseSchema:  "custom schema",
+		Category:             RuleCategoryTest,
+		Phase1ResponseSchema: "custom schema",
 	}
 	got := p.EffectivePhase1ResponseSchema()
 	if got != "custom schema" {
@@ -633,7 +633,7 @@ func TestFormatTemplateNoPlaceholders(t *testing.T) {
 
 func TestFormatTemplateReplacement(t *testing.T) {
 	got := FormatTemplate("Hello {{name}}, welcome to {{place}}!", map[string]string{
-		"name": "World",
+		"name":  "World",
 		"place": "Earth",
 	})
 	if got != "Hello World, welcome to Earth!" {

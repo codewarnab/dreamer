@@ -80,6 +80,11 @@ func resolveConfigPath(configPath string) (string, error) {
 // Shared by `daemon` and `web --serve` — both bootstrap the same config+logger
 // pair before standing up their respective runtimes. Emits the v1.2 `since`
 // default notices as a side effect so every entry point surfaces them.
+//
+// NOTE: Both daemon and serveWeb write to the same output root's dreamer.log file.
+// While concurrent writes from separate processes could occasionally race during log
+// rotation, this is accepted in v1.5 as standalone mode is transient and typically
+// run ad-hoc for manual inspection.
 func loadConfigAndLogger(configPath, overlayPath string) (*config.App, *logging.Logger, error) {
 	cfg, err := config.LoadConfigWithOverlay(configPath, overlayPath)
 	if err != nil {

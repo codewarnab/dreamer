@@ -1,38 +1,792 @@
 {{define "content"}}
+<style>
+  /* Premium Settings CSS Layout & Animations */
+  .settings-container {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: var(--space-5);
+    align-items: start;
+    margin-top: var(--space-4);
+  }
+  
+  @media (max-width: 768px) {
+    .settings-container {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    background: var(--surface-1);
+    border: var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  }
+
+  @media (max-width: 768px) {
+    .settings-nav {
+      flex-direction: row;
+      overflow-x: auto;
+      white-space: nowrap;
+      padding: var(--space-2);
+    }
+  }
+
+  .settings-tab-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .settings-tab-btn svg {
+    opacity: 0.6;
+    transition: opacity 0.2s;
+  }
+
+  .settings-tab-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .settings-tab-btn:hover svg {
+    opacity: 1;
+  }
+
+  .settings-tab-btn.active {
+    color: var(--jelly-mint);
+    background: rgba(60, 255, 208, 0.08);
+    border-left: 2px solid var(--jelly-mint);
+    padding-left: calc(var(--space-4) - 2px);
+    box-shadow: inset 4px 0 12px rgba(60, 255, 208, 0.03);
+  }
+
+  .settings-tab-btn.active svg {
+    opacity: 1;
+    color: var(--jelly-mint);
+    filter: drop-shadow(0 0 4px rgba(60, 255, 208, 0.4));
+  }
+
+  @media (max-width: 768px) {
+    .settings-tab-btn.active {
+      border-left: none;
+      border-bottom: 2px solid var(--jelly-mint);
+      padding-left: var(--space-4);
+      padding-bottom: calc(var(--space-3) - 2px);
+    }
+  }
+
+  .settings-panel {
+    background: var(--surface-1);
+    border: var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.25);
+    min-height: 440px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    animation: settings-fade-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .panel-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .panel-header h2 {
+    font-family: var(--font-body);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-transform: capitalize;
+  }
+
+  .panel-header p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: var(--space-1) 0 0 0;
+  }
+
+  .form-group {
+    margin-bottom: var(--space-4);
+  }
+
+  .form-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2);
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .form-label-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-primary);
+  }
+
+  .form-label-key {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+  }
+
+  .input-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .input-styled {
+    width: 100%;
+    background: var(--surface-slate);
+    border: var(--hairline);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    padding: var(--space-3) var(--space-4);
+    box-sizing: border-box;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .input-styled:focus {
+    outline: none;
+    border-color: var(--jelly-mint);
+    box-shadow: 0 0 12px rgba(60, 255, 208, 0.15);
+    background: var(--canvas-black);
+  }
+
+  .input-styled.is-invalid {
+    border-color: var(--color-error);
+    box-shadow: 0 0 8px rgba(239, 71, 111, 0.2);
+  }
+
+  .input-textarea {
+    font-family: var(--font-mono);
+    min-height: 140px;
+    resize: vertical;
+    line-height: 1.5;
+  }
+
+  .select-styled {
+    appearance: none;
+    cursor: pointer;
+    padding-right: var(--space-7) !important;
+  }
+
+  .select-chevron {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    pointer-events: none;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+  }
+
+  .input-wrapper:hover .select-chevron {
+    opacity: 1;
+  }
+
+  .input-help {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: var(--space-2);
+    line-height: 1.5;
+  }
+
+  .input-help code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--jelly-mint);
+    background: rgba(60, 255, 208, 0.05);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+  }
+
+  .duration-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: rgba(60, 255, 208, 0.08);
+    color: var(--jelly-mint);
+    border: 1px solid rgba(60, 255, 208, 0.2);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-2);
+    align-self: flex-start;
+  }
+
+  .badge-restart {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: rgba(255, 209, 102, 0.08);
+    color: var(--color-warn);
+    border: 1px solid rgba(255, 209, 102, 0.20);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .regex-helper-box {
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin-top: var(--space-3);
+  }
+
+  .regex-helper-box h4 {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .regex-helper-box ul {
+    margin: 0;
+    padding-left: var(--space-4);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  .regex-helper-box code {
+    font-family: var(--font-mono);
+    color: var(--jelly-mint);
+  }
+
+  .btn-reset {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-reset:hover {
+    border-color: var(--color-warn);
+    color: var(--color-warn);
+    background: rgba(255, 209, 102, 0.05);
+  }
+
+  .settings-footer {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-6);
+    padding-top: var(--space-4);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .status-message {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    animation: settings-slide-up 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .status-message.success {
+    color: var(--jelly-mint);
+  }
+
+  .status-message.error {
+    color: var(--color-error);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .restart-alert-card {
+    background: rgba(255, 209, 102, 0.03);
+    border: 1px solid rgba(255, 209, 102, 0.15);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+  }
+
+  .restart-alert-card svg {
+    color: var(--color-warn);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .restart-alert-card p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  @keyframes settings-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes settings-slide-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
 <section x-data="settingsPage()" x-init="load()">
-  <header style="margin-bottom: var(--space-5);">
+  <header style="margin-bottom: var(--space-4);">
     <span class="kicker">configuration</span>
     <h1 class="headline-lg">settings</h1>
-    <p class="body" style="color: var(--text-secondary); max-width: 60ch;">
-      Writes land in <code>ui-overrides.yaml</code>; <code>config.yaml</code> stays untouched.
-      Fields under <em>web</em> require a daemon restart to take effect.
+    <p class="body" style="color: var(--text-secondary); max-width: 60ch; margin-top: var(--space-1);">
+      Writes land in <code>ui-overrides.yaml</code>; the primary <code>config.yaml</code> remains untouched.
     </p>
   </header>
 
-  <template x-for="sec in sections" :key="sec.id">
-    <div class="card" style="margin-bottom: var(--space-4);">
-      <div class="kicker" x-text="sec.label"></div>
-      <template x-for="f in sec.fields" :key="f.key">
-        <div style="margin: var(--space-3) 0;">
-          <label class="label-mono" x-text="f.key" :for="sec.id + '-' + f.key"></label>
-          <template x-if="f.type === 'textarea'">
-            <textarea class="input" :id="sec.id + '-' + f.key" rows="4" x-model="values[sec.id][f.key]" style="display:block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);"></textarea>
-          </template>
-          <template x-if="f.type !== 'textarea'">
-            <input class="input" :id="sec.id + '-' + f.key" :type="f.type || 'text'" x-model="values[sec.id][f.key]" style="display: block; margin-top: var(--space-2);"/>
-          </template>
+  <div x-show="loadError" class="banner banner--error" role="alert" x-text="loadError" style="margin-bottom: var(--space-4); border-radius: var(--radius-md);"></div>
+
+  <div class="settings-container">
+    <!-- Left Navigation Tabs -->
+    <nav class="settings-nav" aria-label="Settings Categories">
+      <button class="settings-tab-btn" :class="activeSection === 'general' ? 'active' : ''" @click="activeSection = 'general'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        general
+      </button>
+      <button class="settings-tab-btn" :class="activeSection === 'daemon' ? 'active' : ''" @click="activeSection = 'daemon'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        daemon
+      </button>
+      <button class="settings-tab-btn" :class="activeSection === 'analyzer' ? 'active' : ''" @click="activeSection = 'analyzer'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        analyzer
+      </button>
+      <button class="settings-tab-btn" :class="activeSection === 'logging' ? 'active' : ''" @click="activeSection = 'logging'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        logging
+      </button>
+      <button class="settings-tab-btn" :class="activeSection === 'redaction' ? 'active' : ''" @click="activeSection = 'redaction'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        redaction
+      </button>
+      <button class="settings-tab-btn" :class="activeSection === 'web' ? 'active' : ''" @click="activeSection = 'web'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+        web
+        <span class="settings-badge settings-badge--warn" style="font-size: 8px; padding: 1px 4px; margin-left: auto;">restart</span>
+      </button>
+    </nav>
+
+    <!-- Right Settings Panels -->
+    <div class="settings-panels-wrapper">
+      
+      <!-- GENERAL PANEL -->
+      <div class="settings-panel" x-show="activeSection === 'general'">
+        <div>
+          <div class="panel-header">
+            <h2>general settings</h2>
+            <p>Global baseline preferences for project execution.</p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">default provider</span>
+              <span class="form-label-key">default_provider</span>
+              <button class="btn-reset" @click="resetField('general', 'default_provider', 'openclaude-cli')">Use Baseline Default</button>
+            </div>
+            <div class="input-wrapper">
+              <select class="input-styled select-styled" id="general-default_provider" x-model="values.general.default_provider">
+                <option value="">-- select provider --</option>
+                <template x-for="p in providerOptions" :key="p">
+                  <option :value="p" x-text="p"></option>
+                </template>
+              </select>
+              <!-- Arrow Icon -->
+              <div class="select-chevron">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
+            <p class="input-help">
+              The fall-back provider used to run AI scans when a project doesn't define its own. Loaded providers are detected automatically from active backend models.
+            </p>
+
+            <!-- Dynamic Provider Health & Status Card -->
+            <template x-if="getSelectedProviderInfo()">
+              <div style="margin-top: var(--space-3); background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">Provider Health Profile</span>
+                  <span class="pill" :class="getSelectedProviderInfo().healthy ? 'pill--healthy' : 'pill--warn'" style="font-size: 9px; padding: 2px 8px;" x-text="getSelectedProviderInfo().healthy ? 'healthy' : 'unhealthy / stale'"></span>
+                </div>
+                <div style="font-size: 13px; color: var(--text-primary); margin-top: var(--space-1);">
+                  Active Model: <code style="color: var(--jelly-mint);" x-text="getSelectedProviderInfo().model || '—'"></code>
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary); display: flex; gap: var(--space-3); margin-top: var(--space-1);">
+                  <span>Runs Executed: <strong style="color: var(--text-primary);" x-text="getSelectedProviderInfo().runs || 0"></strong></span>
+                  <span>Tokens Consumed: <strong style="color: var(--text-primary);" x-text="getSelectedProviderInfo().total_tokens || 0"></strong></span>
+                  <span>Failures: <strong :style="getSelectedProviderInfo().failures > 0 ? 'color: var(--color-error);' : 'color: var(--text-primary);'" x-text="getSelectedProviderInfo().failures || 0"></strong></span>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
-      </template>
-      <button class="btn btn--primary" @click="save(sec.id)">save</button>
-      <span x-show="saved[sec.id] === true" style="margin-left: var(--space-3); color: var(--jelly-mint);">saved</span>
-      <span x-show="saved[sec.id] === 'error'" style="margin-left: var(--space-3); color: #ef476f;">save failed</span>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('general')">save changes</button>
+          <div x-show="saved['general'] === true" class="status-message success">
+            <span class="status-dot"></span> saved successfully
+          </div>
+          <div x-show="saved['general'] === 'error'" class="status-message error">
+            <span class="status-dot"></span> failed to save settings
+          </div>
+        </div>
+      </div>
+
+      <!-- DAEMON PANEL -->
+      <div class="settings-panel" x-show="activeSection === 'daemon'">
+        <div>
+          <div class="panel-header">
+            <h2>daemon configurations</h2>
+            <p>Manage background execution cycle timing and persistent folder layouts.</p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">execution frequency</span>
+              <span class="form-label-key">frequency_seconds</span>
+              <button class="btn-reset" @click="resetField('daemon', 'frequency_seconds', 3600)">Default (1h)</button>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" :class="validateFields('daemon') ? 'is-invalid' : ''" id="daemon-frequency_seconds" type="number" x-model="values.daemon.frequency_seconds" placeholder="3600"/>
+            </div>
+            <div class="input-help">
+              Interval in seconds between subsequent daemon search cycles.
+            </div>
+            <div class="duration-badge" x-show="values.daemon.frequency_seconds && Number(values.daemon.frequency_seconds) > 0">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              frequency: <span x-text="formatSeconds(values.daemon.frequency_seconds)"></span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">output root directory</span>
+              <span class="form-label-key">output_root</span>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" id="daemon-output_root" type="text" x-model="values.daemon.output_root" placeholder="C:\Users\User\.gemini\antigravity"/>
+            </div>
+            <p class="input-help">
+              Absolute path where the daemon persists historical findings, state, and reports. Supports <code>~</code> expansion.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('daemon')" :disabled="validateFields('daemon')">save changes</button>
+          <div x-show="saved['daemon'] === true" class="status-message success">
+            <span class="status-dot"></span> saved successfully
+          </div>
+          <div x-show="saved['daemon'] === 'error'" class="status-message error">
+            <span class="status-dot"></span> failed to save settings
+          </div>
+        </div>
+      </div>
+
+      <!-- ANALYZER PANEL -->
+      <div class="settings-panel" x-show="activeSection === 'analyzer'">
+        <div>
+          <div class="panel-header">
+            <h2>analyzer engine settings</h2>
+            <p>Control timeouts and execution parameters of the main analysis parser.</p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">rule timeout limit</span>
+              <span class="form-label-key">rule_timeout_seconds</span>
+              <button class="btn-reset" @click="resetField('analyzer', 'rule_timeout_seconds', 180)">Default (3m)</button>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" :class="validateFields('analyzer') ? 'is-invalid' : ''" id="analyzer-rule_timeout_seconds" type="number" x-model="values.analyzer.rule_timeout_seconds" placeholder="180"/>
+            </div>
+            <div class="input-help">
+              Per-rule timeout limit during phase-1 processing. Phase-2 runs automatically extend this ceiling by 3x.
+            </div>
+            <div class="duration-badge" x-show="values.analyzer.rule_timeout_seconds && Number(values.analyzer.rule_timeout_seconds) > 0">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              max timeout: <span x-text="formatSeconds(values.analyzer.rule_timeout_seconds)"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('analyzer')" :disabled="validateFields('analyzer')">save changes</button>
+          <div x-show="saved['analyzer'] === true" class="status-message success">
+            <span class="status-dot"></span> saved successfully
+          </div>
+          <div x-show="saved['analyzer'] === 'error'" class="status-message error">
+            <span class="status-dot"></span> failed to save settings
+          </div>
+        </div>
+      </div>
+
+      <!-- LOGGING PANEL -->
+      <div class="settings-panel" x-show="activeSection === 'logging'">
+        <div>
+          <div class="panel-header">
+            <h2>system logs configuration</h2>
+            <p>Tweak verbose level, output location, and file size limits of the structured logger.</p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">log level severity</span>
+              <span class="form-label-key">level</span>
+              <button class="btn-reset" @click="resetField('logging', 'level', 'info')">Default (info)</button>
+            </div>
+            <div class="input-wrapper">
+              <select class="input-styled select-styled" id="logging-level" x-model="values.logging.level">
+                <option value="debug">debug (highly verbose)</option>
+                <option value="info">info (standard operations)</option>
+                <option value="warn">warn (potential issues)</option>
+                <option value="error">error (critical failures)</option>
+              </select>
+              <div class="select-chevron">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
+            <p class="input-help">
+              Filters logs matching or above this severity. Use <code>debug</code> for tracing, or <code>info</code>/<code>warn</code> for production builds.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">log file location</span>
+              <span class="form-label-key">file</span>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" id="logging-file" type="text" x-model="values.logging.file" placeholder="dreamer.log"/>
+            </div>
+            <p class="input-help">
+              Path to log file. If left blank, logs are dumped directly to standard error output (stderr).
+            </p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">maximum file size (MB)</span>
+              <span class="form-label-key">max_size_mb</span>
+              <button class="btn-reset" @click="resetField('logging', 'max_size_mb', 10)">Default (10MB)</button>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" :class="validateFields('logging') ? 'is-invalid' : ''" id="logging-max_size_mb" type="number" x-model="values.logging.max_size_mb" placeholder="10"/>
+            </div>
+            <p class="input-help">
+              Size threshold in Megabytes before rotating logs to prevent disk clutter.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('logging')" :disabled="validateFields('logging')">save changes</button>
+          <div x-show="saved['logging'] === true" class="status-message success">
+            <span class="status-dot"></span> saved successfully
+          </div>
+          <div x-show="saved['logging'] === 'error'" class="status-message error">
+            <span class="status-dot"></span> failed to save settings
+          </div>
+        </div>
+      </div>
+
+      <!-- REDACTION PANEL -->
+      <div class="settings-panel" x-show="activeSection === 'redaction'">
+        <div>
+          <div class="panel-header">
+            <h2>security & secret redaction</h2>
+            <p>Manage pattern regular expressions to filter out private keys, credentials, and API secrets.</p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">redaction regex patterns</span>
+              <span class="form-label-key">patterns</span>
+            </div>
+            <div class="input-wrapper">
+              <textarea class="input-styled input-textarea" id="redaction-patterns" rows="5" x-model="values.redaction.patterns" placeholder="(?i)bearer\s+[a-zA-Z0-9_\-\.=]+"></textarea>
+            </div>
+            <p class="input-help">
+              Add one regular expression pattern per line. Any captured or matching sequences in logs, input chunks, or subagent transcripts will be replaced with <code>[REDACTED]</code>.
+            </p>
+
+            <!-- INTERACTIVE REGEX SANDBOX PLAYGROUND -->
+            <div class="regex-helper-box" style="margin-top: var(--space-4); border-color: rgba(60, 255, 208, 0.2); background: rgba(60, 255, 208, 0.015);">
+              <h4 style="color: var(--jelly-mint); display: flex; align-items: center; gap: var(--space-2); margin-top: 0;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                Interactive Redaction Simulator
+              </h4>
+              <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: var(--space-3); line-height: 1.4;">
+                Write regex patterns above and type a test log message below to simulate standard redactions in real-time:
+              </p>
+              <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-3);">
+                <div>
+                  <label class="form-label-title" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Simulate Log / Transcript Message</label>
+                  <input class="input-styled" type="text" x-model="testString" style="padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); background: var(--surface-2);"/>
+                </div>
+                <div>
+                  <label class="form-label-title" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Real-Time Redaction Output</label>
+                  <div style="border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); min-height: 38px; word-break: break-all; transition: all 0.2s;" :style="redactTest() !== testString ? 'color: var(--color-warn); border-color: rgba(255, 209, 102, 0.4); background: rgba(255, 209, 102, 0.02);' : 'color: var(--text-secondary); background: var(--canvas-black);'" x-text="redactTest()"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="regex-helper-box">
+              <h4>🛡️ Recommended Pattern Formats</h4>
+              <ul>
+                <li>API Keys: <code>(?i)(api[-_]?key|token)\s*[:=]\s*[a-zA-Z0-9_\-]+</code></li>
+                <li>Private Keys: <code>-----BEGIN\s+PRIVATE\s+KEY-----[\s\S]+?-----END\s+PRIVATE\s+KEY-----</code></li>
+                <li>Generic secrets: <code>(?i)(password|passwd|secret)\s*[:=]\s*[^\s'"]+</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('redaction')">save changes</button>
+          <div x-show="saved['redaction'] === true" class="status-message success">
+            <span class="status-dot"></span> saved successfully
+          </div>
+          <div x-show="saved['redaction'] === 'error'" class="status-message error">
+            <span class="status-dot"></span> failed to save settings
+          </div>
+        </div>
+      </div>
+
+      <!-- WEB PANEL -->
+      <div class="settings-panel" x-show="activeSection === 'web'">
+        <div>
+          <div class="panel-header">
+            <h2>web server settings</h2>
+            <p>Modify embedded dashboard HTTP parameters.</p>
+          </div>
+
+          <!-- Warning alert box -->
+          <div class="restart-alert-card">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            <p>
+              <strong>Restart required:</strong> Changes made under the Web section require restarting the daemon service to take effect.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">host binding address</span>
+              <span class="form-label-key">host</span>
+              <button class="btn-reset" @click="resetField('web', 'host', '127.0.0.1')">Default (Localhost)</button>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" id="web-host" type="text" x-model="values.web.host" placeholder="127.0.0.1"/>
+            </div>
+            <p class="input-help">
+              Local IP address the HTTP server listens on. Only loopback connections (e.g. <code>127.0.0.1</code>, <code>localhost</code>, <code>::1</code>) are supported in v1.5.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">web binding port</span>
+              <span class="form-label-key">port</span>
+              <button class="btn-reset" @click="resetField('web', 'port', 7777)">Default (7777)</button>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" :class="validateFields('web') ? 'is-invalid' : ''" id="web-port" type="number" x-model="values.web.port" placeholder="7777"/>
+            </div>
+            <p class="input-help">
+              Listening port (e.g., <code>7777</code>). Ensure the port is open and not occupied by other active apps.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <div class="form-label-row">
+              <span class="form-label-title">log tail buffer (KB)</span>
+              <span class="form-label-key">log_tail_kb</span>
+              <button class="btn-reset" @click="resetField('web', 'log_tail_kb', 256)">Default (256KB)</button>
+            </div>
+            <div class="input-wrapper">
+              <input class="input-styled" :class="validateFields('web') ? 'is-invalid' : ''" id="web-log_tail_kb" type="number" x-model="values.web.log_tail_kb" placeholder="256"/>
+            </div>
+            <p class="input-help">
+              Maximum buffer size in kilobytes when tailing logs for display on the logs dashboard.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('web')" :disabled="validateFields('web')">save changes</button>
+          <div x-show="saved['web'] === true" class="status-message success">
+            <span class="status-dot"></span> saved successfully
+          </div>
+          <div x-show="saved['web'] === 'error'" class="status-message error">
+            <span class="status-dot"></span> failed to save settings
+          </div>
+        </div>
+      </div>
+
     </div>
-  </template>
+  </div>
 </section>
 
 <script>
 window.settingsPage = function () {
   return {
+    activeSection: 'general',
+    providerOptions: [],
+    providersList: [],
+    testString: "my password is 'supersecret123' and api_key = sk-12a3b4c",
     sections: [
       { id: "general", label: "general", fields: [
         { key: "default_provider" },
@@ -55,22 +809,118 @@ window.settingsPage = function () {
     ],
     values: { general: {}, daemon: {}, analyzer: {}, logging: {}, redaction: {}, web: {} },
     saved: {},
+    loadError: "",
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || "";
     },
-    load: async function () {
-      const r = await fetch("/api/settings");
-      if (!r.ok) return;
-      const data = await r.json();
-      // general.default_provider is a scalar at the top level.
-      this.values.general.default_provider = data.default_provider || "";
-      // daemon / analyzer / logging / web nest as sub-objects.
-      for (const k of ["daemon", "analyzer", "logging", "web"]) {
-        if (data[k]) Object.assign(this.values[k], data[k]);
+    formatSeconds: function (sec) {
+      if (sec === "" || sec === undefined || sec === null) return "not configured";
+      const val = Number(sec);
+      if (isNaN(val) || val <= 0) return "not configured";
+      if (val < 60) return val + " seconds";
+      if (val < 3600) {
+        const m = Math.floor(val / 60);
+        const s = val % 60;
+        return m + " minute" + (m > 1 ? "s" : "") + (s > 0 ? " " + s + "s" : "");
       }
-      // redaction.patterns is a string array — render as newline-joined text.
-      const pats = (data.redaction && data.redaction.patterns) || [];
-      this.values.redaction.patterns = pats.join("\n");
+      const h = Math.floor(val / 3600);
+      const rem = val % 3600;
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      return h + " hour" + (h > 1 ? "s" : "") + (m > 0 ? " " + m + "m" : "") + (s > 0 ? " " + s + "s" : "");
+    },
+    getSelectedProviderInfo: function () {
+      const selected = this.values.general.default_provider;
+      if (!selected) return null;
+      return this.providersList.find(p => p.id === selected) || null;
+    },
+    resetField: function (secId, key, defVal) {
+      this.values[secId][key] = defVal;
+      if (window.Alpine) {
+        Alpine.store("toasts").add("reset " + key + " to default value", "info");
+      }
+    },
+    validateFields: function (secId) {
+      if (secId === "web") {
+        const p = Number(this.values.web.port);
+        if (this.values.web.port !== "" && (isNaN(p) || p < 1 || p > 65535)) {
+          return "Port must be between 1 and 65535";
+        }
+        const tail = Number(this.values.web.log_tail_kb);
+        if (this.values.web.log_tail_kb !== "" && (isNaN(tail) || tail < 1)) {
+          return "Log tail buffer must be a positive number";
+        }
+      }
+      if (secId === "daemon") {
+        const freq = Number(this.values.daemon.frequency_seconds);
+        if (this.values.daemon.frequency_seconds !== "" && (isNaN(freq) || freq < 1)) {
+          return "Execution frequency must be a positive number of seconds";
+        }
+      }
+      if (secId === "analyzer") {
+        const timeout = Number(this.values.analyzer.rule_timeout_seconds);
+        if (this.values.analyzer.rule_timeout_seconds !== "" && (isNaN(timeout) || timeout < 1)) {
+          return "Rule timeout must be a positive number of seconds";
+        }
+      }
+      if (secId === "logging") {
+        const maxSz = Number(this.values.logging.max_size_mb);
+        if (this.values.logging.max_size_mb !== "" && (isNaN(maxSz) || maxSz < 1)) {
+          return "Log maximum file size must be a positive number of MB";
+        }
+      }
+      return null;
+    },
+    redactTest: function () {
+      let s = this.testString;
+      if (!s) return "";
+      const pats = (this.values.redaction.patterns || "").split("\n").map(p => p.trim()).filter(Boolean);
+      for (const p of pats) {
+        try {
+          let flags = "g";
+          let cleanPat = p;
+          if (cleanPat.startsWith("(?i)")) {
+            flags += "i";
+            cleanPat = cleanPat.substring(4);
+          }
+          const re = new RegExp(cleanPat, flags);
+          s = s.replace(re, "[REDACTED]");
+        } catch (e) {
+          // Ignore invalid regex patterns during typing
+        }
+      }
+      return s;
+    },
+    load: async function () {
+      this.loadError = "";
+      try {
+        const r = await fetch("/api/settings");
+        if (!r.ok) { this.loadError = "failed to load settings (HTTP " + r.status + ")"; return; }
+        const data = await r.json();
+        // general.default_provider is a scalar at the top level.
+        this.values.general.default_provider = data.default_provider || "";
+        // daemon / analyzer / logging / web nest as sub-objects.
+        for (const k of ["daemon", "analyzer", "logging", "web"]) {
+          if (data[k]) Object.assign(this.values[k], data[k]);
+        }
+        // redaction.patterns is a string array — render as newline-joined text.
+        const pats = (data.redaction && data.redaction.patterns) || [];
+        this.values.redaction.patterns = pats.join("\n");
+        
+        // Dynamically load provider options from data.providers
+        if (data.providers) {
+          this.providerOptions = Object.keys(data.providers).sort();
+        }
+
+        // Fetch dynamic provider list with health profiles and statistics
+        const provReq = await fetch("/api/providers");
+        if (provReq.ok) {
+          const provData = await provReq.json();
+          this.providersList = provData.providers || provData || [];
+        }
+      } catch (e) {
+        this.loadError = "failed to fetch configuration: " + e.message;
+      }
     },
     sectionBody: function (secId) {
       const v = this.values[secId] || {};
@@ -101,6 +951,16 @@ window.settingsPage = function () {
       return { [secId]: out };
     },
     save: async function (secId) {
+      const errMsg = this.validateFields(secId);
+      if (errMsg) {
+        if (window.Alpine) {
+          Alpine.store("toasts").add(errMsg, "error");
+        }
+        this.saved[secId] = "error";
+        setTimeout(() => { this.saved[secId] = false; }, 4000);
+        return;
+      }
+
       const body = this.sectionBody(secId);
       try {
         const r = await fetch("/api/settings", {
@@ -109,10 +969,13 @@ window.settingsPage = function () {
           body: JSON.stringify(body),
         });
         this.saved[secId] = r.ok ? true : "error";
+        if (r.ok && window.Alpine) {
+          Alpine.store("toasts").add("successfully updated settings section", "success");
+        }
       } catch (_) {
         this.saved[secId] = "error";
       }
-      setTimeout(() => { this.saved[secId] = false; }, 3000);
+      setTimeout(() => { this.saved[secId] = false; }, 4000);
     },
   };
 };

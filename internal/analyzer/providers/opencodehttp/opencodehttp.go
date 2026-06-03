@@ -94,11 +94,11 @@ type provider struct {
 	model    string
 	password string
 
-	mu        sync.Mutex
-	started   bool
-	closed    bool
-	autoStart bool          // true if we spawned the server ourselves
-	cmd       *exec.Cmd     // non-nil when auto-started
+	mu            sync.Mutex
+	started       bool
+	closed        bool
+	autoStart     bool      // true if we spawned the server ourselves
+	cmd           *exec.Cmd // non-nil when auto-started
 	stderrDrainer io.Closer // non-nil: signals background drainer to exit
 }
 
@@ -165,7 +165,7 @@ func (p *provider) Start(ctx context.Context) error {
 	}()
 	p.stderrDrainer = closerFunc(func() error {
 		_ = stderr.Close() // unblocks the drainer's Read
-		<-drainerDone       // wait for drainer goroutine to exit
+		<-drainerDone      // wait for drainer goroutine to exit
 		return nil
 	})
 	p.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)

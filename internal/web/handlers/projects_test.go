@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +125,138 @@ func TestProjectDetail_RejectSubpath(t *testing.T) {
 	h(rec, httptest.NewRequest(http.MethodGet, "/api/projects/proj-a/findings", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 (sub-path is E.16's job)", rec.Code)
+	}
+}
+
+func TestProjectDelete_RemovesFromConfig(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	// Seed a config.yaml with a leading comment to prove comment preservation.
+	seed := "# dreamer config\nprojects:\n" +
+		"  - name: proj-a\n    path: /tmp/proj-a\n    since: 2026-01-01\n" +
+		"  - name: proj-b\n    path: /tmp/proj-b\n" +
+		"daemon:\n  frequency_seconds: 3600\n"
+	if err := os.WriteFile(configPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := ProjectDelete(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return configPath },
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj-a", nil)
+	h(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["removed"] != "proj-a" {
+		t.Fatalf("removed = %v, want proj-a", resp["removed"])
+	}
+
+	out, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if strings.Contains(got, "proj-a") {
+		t.Errorf("config still contains proj-a after delete:\n%s", got)
+	}
+	if !strings.Contains(got, "proj-b") {
+		t.Errorf("config lost proj-b after delete:\n%s", got)
+	}
+	if !strings.Contains(got, "# dreamer config") {
+		t.Errorf("comment not preserved after delete:\n%s", got)
+	}
+}
+
+func TestProjectDelete_ClearsOverlayProjects(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	overlayPath := filepath.Join(dir, "ui-overrides.yaml")
+	seed := "projects:\n  - name: proj-a\n    path: /tmp/proj-a\n  - name: proj-b\n    path: /tmp/proj-b\n"
+	if err := os.WriteFile(configPath, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Overlay carries a stale projects list plus an unrelated key we must keep.
+	overlay := "default_provider: claude\nprojects:\n  - name: proj-a\n    path: /tmp/proj-a\n"
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := ProjectDelete(Deps{
+		Config:      func() *config.App { return cfg },
+		ConfigPath:  func() string { return configPath },
+		OverlayPath: func() string { return overlayPath },
+	})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodDelete, "/api/projects/proj-a", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	ov, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(ov)
+	if strings.Contains(got, "projects") {
+		t.Errorf("overlay still has projects key after delete:\n%s", got)
+	}
+	if !strings.Contains(got, "default_provider") {
+		t.Errorf("overlay lost unrelated key after delete:\n%s", got)
+	}
+}
+
+func TestProjectDelete_NoConfigPath(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	// No ConfigPath wired (standalone read-only mode) → 503.
+	h := ProjectDelete(Deps{Config: func() *config.App { return cfg }})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodDelete, "/api/projects/proj-a", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestProjectDelete_UnknownProject(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	h := ProjectDelete(Deps{
+		Config:     func() *config.App { return cfg },
+		ConfigPath: func() string { return filepath.Join(t.TempDir(), "config.yaml") },
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/nonexistent", nil)
+	h(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestProjectDelete_RejectSubpath(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	h := ProjectDelete(Deps{Config: func() *config.App { return cfg }})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/proj-a/findings", nil)
+	h(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestProjectDelete_MethodNotAllowed(t *testing.T) {
+	cfg := buildProjectsCfg(t)
+	h := ProjectDelete(Deps{Config: func() *config.App { return cfg }})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/proj-a", nil)
+	h(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }

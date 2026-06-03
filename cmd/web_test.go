@@ -85,6 +85,15 @@ func readPortFile(t *testing.T, dir string) string {
 // TestServeWeb_StandaloneReadOnly verifies `dreamer web --serve` stands up a
 // real server with no daemon: health is reachable, but producer endpoints that
 // require unwired hooks (run) degrade to 503 rather than panicking.
+//
+// NOTE: Standalone mode (dreamer web --serve) is historically documented as "read-only" because
+// it does not configure producer hooks (EnqueueRun, RestartHook, Activity, Jobs, OverlayPath).
+// However, it is NOT fully read-only: endpoints that mutate finding lifecycle state
+// (Apply, Undo, Dismiss, Resolve, Undismiss, Unresolve) and chat history (chats deletion and
+// bulk-deletion) remain active and write to disk using deps.Config() and deps.StateCache.
+// Similarly, project deletion is supported because ConfigPath is wired. This is intentional:
+// standalone mode is not going to stay read-only in future versions, and these mutating
+// features are kept active by design.
 func TestServeWeb_StandaloneReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
@@ -103,25 +112,35 @@ func TestServeWeb_StandaloneReadOnly(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cmd.SetContext(ctx)
 
+	portVal := freeTCPPort(t)
+
 	errCh := make(chan error, 1)
 	go func() {
-		// portOverride 0 → ephemeral port written to <output_root>/web.port.
-		errCh <- serveWeb(cmd, 0, false)
+		errCh <- serveWeb(cmd, portVal, false, "")
 	}()
 
-	port := readPortFile(t, dir)
-	base := "http://127.0.0.1:" + port
+	base := fmt.Sprintf("http://127.0.0.1:%d", portVal)
 
-	// Health is served even with no daemon behind it.
-	if err := probeHealth(base+"/api/health", 2*time.Second); err != nil {
+	// Health is served even with no daemon behind it. Poll until reachable.
+	deadline := time.Now().Add(3 * time.Second)
+	var healthy bool
+	for time.Now().Before(deadline) {
+		if err := probeHealth(base+"/api/health", 250*time.Millisecond); err == nil {
+			healthy = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !healthy {
 		cancel()
-		t.Fatalf("health probe failed: %v", err)
+		t.Fatalf("health probe failed: server did not become reachable on port %d", portVal)
 	}
 
+	client := http.Client{Timeout: 2 * time.Second}
+
 	// The read-only dashboard endpoint must serve without any producer hooks
-	// wired (this is the whole point of --serve). 503-on-write for the
-	// producer endpoints is covered by the handler-level tests.
-	resp, err := http.Get(base + "/api/dashboard")
+	// wired (this is the whole point of --serve).
+	resp, err := client.Get(base + "/api/dashboard")
 	if err != nil {
 		cancel()
 		t.Fatalf("GET dashboard: %v", err)
@@ -130,6 +149,18 @@ func TestServeWeb_StandaloneReadOnly(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		cancel()
 		t.Fatalf("dashboard status = %d, want 200", resp.StatusCode)
+	}
+
+	// Verify that a producer endpoint like GET /api/jobs degrades to 503.
+	respJobs, err := client.Get(base + "/api/jobs")
+	if err != nil {
+		cancel()
+		t.Fatalf("GET jobs: %v", err)
+	}
+	_ = respJobs.Body.Close()
+	if respJobs.StatusCode != http.StatusServiceUnavailable {
+		cancel()
+		t.Fatalf("jobs status = %d, want 503", respJobs.StatusCode)
 	}
 
 	// Canceling the context triggers graceful shutdown; serveWeb returns nil.
@@ -148,9 +179,26 @@ func TestServeWeb_StandaloneReadOnly(t *testing.T) {
 // the configured port.
 func TestServeWeb_PortOverride(t *testing.T) {
 	dir := t.TempDir()
+
+	// Get two distinct free ports by holding them open concurrently.
+	l1, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen 1: %v", err)
+	}
+	cfgPort := l1.Addr().(*net.TCPAddr).Port
+
+	l2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		l1.Close()
+		t.Fatalf("listen 2: %v", err)
+	}
+	overridePort := l2.Addr().(*net.TCPAddr).Port
+
+	l1.Close()
+	l2.Close()
+
 	cfgPath := filepath.Join(dir, "config.yaml")
-	cfgYAML := "daemon:\n  output_root: " + dir +
-		"\n  frequency_seconds: 60\nweb:\n  enabled: false\n  port: 7777\nprojects: []\n"
+	cfgYAML := fmt.Sprintf("daemon:\n  output_root: %s\n  frequency_seconds: 60\nweb:\n  enabled: false\n  port: %d\nprojects: []\n", dir, cfgPort)
 	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -159,29 +207,37 @@ func TestServeWeb_PortOverride(t *testing.T) {
 	configPath = cfgPath
 	t.Cleanup(func() { configPath = prev })
 
-	port := freeTCPPort(t)
-
 	cmd := &cobra.Command{Use: "web"}
 	ctx, cancel := context.WithCancel(t.Context())
 	cmd.SetContext(ctx)
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- serveWeb(cmd, port, false) }()
+	go func() { errCh <- serveWeb(cmd, overridePort, false, "") }()
 
-	base := fmt.Sprintf("http://127.0.0.1:%d", port)
+	// Assert the server is reachable on the override port.
+	baseOverride := fmt.Sprintf("http://127.0.0.1:%d", overridePort)
 	deadline := time.Now().Add(3 * time.Second)
-	var healthy bool
+	var healthyOverride bool
 	for time.Now().Before(deadline) {
-		if err := probeHealth(base+"/api/health", 250*time.Millisecond); err == nil {
-			healthy = true
+		if err := probeHealth(baseOverride+"/api/health", 250*time.Millisecond); err == nil {
+			healthyOverride = true
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	cancel()
-	if !healthy {
-		t.Fatalf("server did not become reachable on overridden port %d", port)
+	if !healthyOverride {
+		cancel()
+		t.Fatalf("server did not become reachable on overridden port %d", overridePort)
 	}
+
+	// Assert the server is NOT reachable on the configured port.
+	baseCfg := fmt.Sprintf("http://127.0.0.1:%d", cfgPort)
+	if err := probeHealth(baseCfg+"/api/health", 100*time.Millisecond); err == nil {
+		cancel()
+		t.Fatalf("server was reachable on the configured port %d, but override port %d should have been used instead", cfgPort, overridePort)
+	}
+
+	cancel()
 	select {
 	case <-errCh:
 	case <-time.After(webShutdownTimeout + 2*time.Second):
@@ -193,9 +249,11 @@ func TestServeWeb_PortOverride(t *testing.T) {
 // There is an inherent TOCTOU window, but it is acceptable for a local test.
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	addr := srv.Listener.Addr().(*net.TCPAddr)
-	port := addr.Port
-	srv.Close()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("freeTCPPort: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
 	return port
 }

@@ -43,7 +43,7 @@
     <div x-show="chats.length === 0" style="color: var(--text-secondary);">no chat sources discovered.</div>
   </div>
 
-  <div class="modal-backdrop" x-show="pending" x-cloak>
+  <div class="modal-backdrop" x-show="pending" x-cloak role="dialog" aria-modal="true" aria-label="Delete chat confirmation" @keydown.escape.window="cancelDelete()">
     <div class="card modal-card" @click.stop>
       <h2 class="headline-md modal-card__title" x-text="pending && pending.bulk ? 'Delete ' + pending.items.length + ' chats?' : 'Delete chat from local storage?'"></h2>
       <template x-if="pending && !pending.bulk">
@@ -66,7 +66,7 @@
       </p>
       <label class="modal-card__check" x-show="pending && !pending.bulk">
         <input type="checkbox" x-model="dontAskAgain">
-        <span>Don't ask again this session</span>
+        <span>Don't ask again until browser tab is closed</span>
       </label>
       <div class="modal-card__actions">
         <button class="pill" @click="cancelDelete()">Cancel</button>
@@ -78,14 +78,15 @@
 
 <script>
 /*
- * localStorage keys used by the dreamer SPA. Keep this list authoritative;
+ * sessionStorage keys used by the dreamer SPA. Keep this list authoritative;
  * add new keys here when introducing them so future maintainers do not have
  * to grep the codebase to find what state we persist client-side.
  *
  *   dreamer.chats.skipDeleteConfirm.<projectName>
- *     "1" when the user has ticked "Don't ask again this session" in the
- *     chats-tab single-row delete confirm dialog. Only suppresses the
- *     single-row prompt; bulk delete always confirms.
+ *     "1" when the user has ticked "Don't ask again until browser tab is
+ *     closed" in the chats-tab single-row delete confirm dialog. Cleared
+ *     when the tab closes (sessionStorage). Only suppresses the single-row
+ *     prompt; bulk delete always confirms.
  */
 window.projectChatsPage = function () {
   return {
@@ -102,7 +103,7 @@ window.projectChatsPage = function () {
       const el = document.querySelector("[data-project]");
       this.name = el ? el.dataset.project : "";
       if (!this.name) return;
-      this.skipConfirm = localStorage.getItem("dreamer.chats.skipDeleteConfirm." + this.name) === "1";
+      this.skipConfirm = sessionStorage.getItem("dreamer.chats.skipDeleteConfirm." + this.name) === "1";
       const response = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/chats");
       if (!response.ok) { this.error = "failed to load chats (" + response.status + ")"; return; }
       const data = await response.json();
@@ -143,7 +144,7 @@ window.projectChatsPage = function () {
       const pending = this.pending;
       if (this.dontAskAgain) {
         this.skipConfirm = true;
-        localStorage.setItem("dreamer.chats.skipDeleteConfirm." + this.name, "1");
+        sessionStorage.setItem("dreamer.chats.skipDeleteConfirm." + this.name, "1");
       }
       this.pending = null;
       if (!pending) return;

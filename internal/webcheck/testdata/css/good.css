@@ -1,0 +1,19 @@
+:root {
+  --canvas-black: #131313;
+  --jelly-mint: #3cffd0;
+  --color-error: #ef476f;
+  --color-warn: #ffd166;
+}
+
+body {
+  background: var(--canvas-black);
+  color: var(--jelly-mint);
+}
+
+.error {
+  color: var(--color-error);
+}
+
+.warn {
+  color: var(--color-warn);
+}

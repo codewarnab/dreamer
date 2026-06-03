@@ -4,10 +4,10 @@ import "testing"
 
 func TestDecodeVSCodePath(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    string
-		wantOk  bool
+		name   string
+		input  string
+		want   string
+		wantOk bool
 	}{
 		{"plain unix", "file:///home/user/project", "/home/user/project", true},
 		{"windows drive", "file:///C:/Users/test/project", "C:/Users/test/project", true},

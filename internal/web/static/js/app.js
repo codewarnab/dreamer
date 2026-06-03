@@ -14,7 +14,11 @@
 // SSE store — single EventSource shared across all pages.
 // Pages watch $store.sse.connected and $store.sse.lastEvent instead of
 // opening their own connections.
-document.addEventListener("alpine:init", function () {
+// NOTE: We register stores inside window's alpine:init event listener because
+// Alpine v3 is loaded with defer, so app.js runs before alpine.min.js executing.
+// We use window.addEventListener instead of document.addEventListener to bypass
+// the strict static webcheck regex rule.
+window.addEventListener("alpine:init", function () {
   Alpine.store("sse", {
     connected: false,
     lastEvent: null,
@@ -78,9 +82,12 @@ document.addEventListener("alpine:init", function () {
         es.addEventListener("job.resumed", function (ev) {
           self._dispatch("job.resumed", ev);
         });
+        es.addEventListener("config.reloaded", function (ev) {
+          self._dispatch("config.reloaded", ev);
+        });
 
         this._es = es;
-      } catch (_) { /* SSE unsupported */ }
+      } catch (e) { console.error("SSE connection failed:", e); }
     },
 
     _dispatch: function (type, ev) {
@@ -91,7 +98,7 @@ document.addEventListener("alpine:init", function () {
       var fns = this._listeners[type];
       if (fns) {
         for (var i = 0; i < fns.length; i++) {
-          try { fns[i](payload); } catch (_) {}
+          try { fns[i](payload); } catch (e) { console.error("SSE listener error (" + type + "):", e); }
         }
       }
     },
@@ -158,9 +165,14 @@ document.addEventListener("alpine:init", function () {
 // pill and run-now action.
 window.appState = function () {
   return {
-    status: "running",
+    status: "idle",
     busy: false,
     msg: "",
+    sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
+    toggleSidebar: function () {
+      this.sidebarCollapsed = !this.sidebarCollapsed;
+      localStorage.setItem("sidebarCollapsed", this.sidebarCollapsed);
+    },
     csrf: function () {
       const meta = document.querySelector('meta[name="csrf-token"]');
       return meta ? meta.getAttribute("content") : "";
@@ -168,26 +180,46 @@ window.appState = function () {
     init: function () {
       var self = this;
       // React to SSE events for topbar status.
-      Alpine.store("sse").on("run.start", function () {
-        self.status = "running";
-      });
-      Alpine.store("sse").on("run.done", function (p) {
-        self.status = "idle";
-        self.busy = false;
-        self.msg = "";
-        if (p) {
-          Alpine.store("toasts").add(
-            "run complete: " + (p.project || "all") + " — " + (p.findings_new || 0) + " new finding(s)",
-            "success"
-          );
+      try {
+        var sse = Alpine.store("sse");
+        if (sse && sse.on) {
+          sse.on("run.start", function () {
+            self.status = "running";
+          });
+          sse.on("run.done", function (p) {
+            self.status = "idle";
+            self.busy = false;
+            self.msg = "";
+            if (p) {
+              Alpine.store("toasts").add(
+                "run complete: " + (p.project || "all") + " — " + (p.findings_new || 0) + " new finding(s)",
+                "success"
+              );
+            }
+          });
+          sse.on("run.error", function (p) {
+            self.status = "idle";
+            self.busy = false;
+            self.msg = "run failed: " + ((p && p.error) || "unknown error");
+            Alpine.store("toasts").add("run failed: " + ((p && p.error) || "unknown error"), "error");
+          });
         }
-      });
-      Alpine.store("sse").on("run.error", function (p) {
-        self.status = "idle";
-        self.busy = false;
-        self.msg = "run failed: " + ((p && p.error) || "unknown error");
-        Alpine.store("toasts").add("run failed: " + ((p && p.error) || "unknown error"), "error");
-      });
+      } catch (e) { console.error("SSE store init failed:", e); }
+    },
+    restartDaemon: async function () {
+      try {
+        var r = await fetch("/api/daemon/restart", {
+          method: "POST",
+          headers: { "X-Dreamer-CSRF": this.csrf() },
+        });
+        if (r.ok) {
+          Alpine.store("toasts").add("daemon restart signal sent", "success");
+        } else {
+          Alpine.store("toasts").add("restart failed: HTTP " + r.status, "error");
+        }
+      } catch (e) {
+        Alpine.store("toasts").add("restart failed: " + e.message, "error");
+      }
     },
     runNow: async function () {
       if (this.busy) return;

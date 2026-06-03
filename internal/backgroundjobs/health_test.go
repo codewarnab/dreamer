@@ -17,10 +17,10 @@ func TestCheckHealth_AllHealthy(t *testing.T) {
 	// Add an enabled job with a healthy schedule.
 	specHash, _ := HashScheduleSpec(ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"})
 	job := &Job{
-		ID:        "healthy-job",
-		Name:      "test",
-		Enabled:   true,
-		Schedule:  ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
+		ID:       "healthy-job",
+		Name:     "test",
+		Enabled:  true,
+		Schedule: ScheduleSpec{Kind: ScheduleInterval, Timezone: "UTC"},
 		OSSchedule: OSScheduleState{
 			ScheduleID: "mock-healthy-job",
 			InstallID:  "test-install-id",

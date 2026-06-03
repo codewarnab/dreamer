@@ -18,9 +18,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"go/token"
 
 	"dreamer/internal/astcheck"
+	"dreamer/internal/webcheck"
 )
 
 func main() {
@@ -31,7 +34,7 @@ func main() {
 }
 
 func run() error {
-	cfg, jsonOut, err := parseFlags()
+	cfg, jsonOut, templatesDir, cssDir, jsDir, err := parseFlags()
 	if err != nil {
 		return err
 	}
@@ -44,6 +47,19 @@ func run() error {
 	for _, e := range result.Errors {
 		fmt.Fprintf(os.Stderr, "quality: %s\n", e)
 	}
+
+	// Run webcheck on HTML templates, CSS files, and JS files.
+	webFindings, err := webcheck.Check(webcheck.Config{
+		TemplatesDir: templatesDir,
+		CSSDir:       cssDir,
+		JSDir:        jsDir,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "quality: webcheck: %v\n", err)
+	} else {
+		result.Findings = append(result.Findings, convertWebFindings(webFindings, cfg.MinSeverity)...)
+	}
+
 	if cfg.WriteBaseline {
 		if err := astcheck.WriteBaseline(cfg.BaselinePath, result.Findings); err != nil {
 			return err
@@ -60,7 +76,7 @@ func run() error {
 
 // parseFlags processes CLI flags and returns a Config. Extracted from main
 // to stay under the funlen linter limit.
-func parseFlags() (*astcheck.Config, bool, error) {
+func parseFlags() (*astcheck.Config, bool, string, string, string, error) {
 	var (
 		diffFrom    string
 		baseline    string
@@ -69,6 +85,9 @@ func parseFlags() (*astcheck.Config, bool, error) {
 		enableList  string
 		disableList string
 		jsonOut     bool
+		templatesDir string
+		cssDir       string
+		jsDir        string
 	)
 
 	flag.StringVar(&diffFrom, "diff-from", "", "report only findings in files changed vs this rev")
@@ -78,11 +97,15 @@ func parseFlags() (*astcheck.Config, bool, error) {
 	flag.StringVar(&enableList, "enable", "", "comma-separated list of analyzers to enable")
 	flag.StringVar(&disableList, "disable", "", "comma-separated list of analyzers to disable")
 	flag.BoolVar(&jsonOut, "json", false, "output findings as JSON")
+	flag.StringVar(&templatesDir, "templates-dir", "internal/web/templates", "directory containing HTML templates for webcheck")
+	flag.StringVar(&cssDir, "css-dir", "internal/web/static/css", "directory containing CSS files for webcheck")
+	flag.StringVar(&jsDir, "js-dir", "internal/web/static/js", "directory containing JavaScript files for webcheck")
 	flag.Parse()
 
 	severity, ok := astcheck.ParseSeverity(minSev)
 	if !ok {
-		return nil, false, fmt.Errorf("invalid --min-severity: %q (use error, warn, or info)", minSev)
+		return nil, false, "", "", "", fmt.Errorf("invalid --min-severity: %q (use error, warn, or info)", minSev)
+
 	}
 
 	var enabled, disabled []string
@@ -98,6 +121,23 @@ func parseFlags() (*astcheck.Config, bool, error) {
 		patterns = []string{"./..."}
 	}
 
+	// Resolve webcheck directories relative to current directory.
+	if templatesDir != "" {
+		if abs, err := filepath.Abs(templatesDir); err == nil {
+			templatesDir = abs
+		}
+	}
+	if cssDir != "" {
+		if abs, err := filepath.Abs(cssDir); err == nil {
+			cssDir = abs
+		}
+	}
+	if jsDir != "" {
+		if abs, err := filepath.Abs(jsDir); err == nil {
+			jsDir = abs
+		}
+	}
+
 	return &astcheck.Config{
 		Patterns:      patterns,
 		MinSeverity:   severity,
@@ -106,7 +146,33 @@ func parseFlags() (*astcheck.Config, bool, error) {
 		DiffFrom:      diffFrom,
 		BaselinePath:  baseline,
 		WriteBaseline: writeBase,
-	}, jsonOut, nil
+	}, jsonOut, templatesDir, cssDir, jsDir, nil
+}
+
+// convertWebFindings converts webcheck findings to astcheck findings for
+// unified reporting. Filters by minimum severity.
+func convertWebFindings(webFindings []webcheck.Finding, minSev astcheck.Severity) []astcheck.Finding {
+	var out []astcheck.Finding
+	for _, wf := range webFindings {
+		sev, ok := astcheck.ParseSeverity(string(wf.Severity))
+		if !ok {
+			sev = astcheck.SevWarn
+		}
+		if sev > minSev {
+			continue
+		}
+		out = append(out, astcheck.Finding{
+			Pos: token.Position{
+				Filename: wf.File,
+				Line:     wf.Line,
+				Column:   wf.Col,
+			},
+			Check:    wf.Check,
+			Severity: sev,
+			Message:  wf.Message,
+		})
+	}
+	return out
 }
 
 // warnUnknownAnalyzers prints a warning for any --enable/--disable names

@@ -310,6 +310,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 		ShutdownCtx: ctx,
 		ConfigPtr:   live,
 		OverlayPath: overlayPath,
+		ConfigPath:  configPath,
 		EnqueueRun:  enqueueRun,
 		RestartHook: restartHook,
 		Activity:    activity,

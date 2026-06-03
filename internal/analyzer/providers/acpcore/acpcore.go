@@ -98,11 +98,11 @@ func New(options Options) (analyzer.Provider, error) {
 }
 
 type provider struct {
-	id               string
-	command          []string
-	env              map[string]string
-	defaultModel     string
-	modelFallbacks   []string
+	id                  string
+	command             []string
+	env                 map[string]string
+	defaultModel        string
+	modelFallbacks      []string
 	sandboxMode         string
 	sandboxProjectWrite bool
 	sandboxWritableDirs []string
@@ -324,4 +324,3 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 }
 
 func (s *session) Close() error { return nil }
-

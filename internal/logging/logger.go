@@ -32,7 +32,7 @@ const (
 type Logger struct {
 	mu        sync.Mutex
 	file      *os.File
-	handler *slog.Logger
+	handler   *slog.Logger
 	level     slog.Level
 	path      string
 	maxSizeMB int

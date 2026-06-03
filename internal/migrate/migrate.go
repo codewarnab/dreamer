@@ -36,9 +36,9 @@ type Registry struct {
 
 // Result captures the outcome of a migration run.
 type Result struct {
-	Name          string
-	FromVersion   int
-	ToVersion     int
+	Name         string
+	FromVersion  int
+	ToVersion    int
 	StepsApplied int
 }
 

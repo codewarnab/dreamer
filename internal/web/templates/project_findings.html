@@ -37,7 +37,7 @@
     <div x-show="findings.length === 0" style="color: var(--text-secondary);">no findings yet.</div>
   </div>
 
-  <div x-show="active" x-cloak class="modal" @click.self="active=null" style="position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index: 100;">
+  <div x-show="active" x-cloak class="modal" role="dialog" aria-modal="true" aria-label="Finding details" @click.self="active=null" @keydown.escape.window="active=null" style="position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index: 100;">
     <div class="card" style="max-width: 720px; width: 90%;">
       <div class="kicker">finding</div>
       <h2 class="headline-lg" x-text="active?.category"></h2>
@@ -95,7 +95,7 @@ window.projectFindingsPage = function () {
       if (!this.active || !this.active.diff_preview) return "";
       var lines = this.active.diff_preview.split("\n");
       var esc = function (s) {
-        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
       };
       return lines.map(function (line) {
         if (line.charAt(0) === "+") return '<span class="line-add">' + esc(line) + "</span>";
@@ -117,6 +117,7 @@ window.projectFindingsPage = function () {
       const url = "/api/projects/" + encodeURIComponent(this.name) + "/findings/" + encodeURIComponent(this.active.hash) + "/" + verb;
       const res = await fetch(url, { method: "POST", headers: { "X-Dreamer-CSRF": tok } });
       if (!res.ok) {
+        // TODO(audit): Show user-visible error feedback instead of just console.warn (MEDIUM #26)
         console.warn("finding action failed", verb, res.status);
       }
       this.active = null;

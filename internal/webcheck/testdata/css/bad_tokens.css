@@ -1,0 +1,20 @@
+:root {
+  --canvas-black: #131313;
+  --jelly-mint: #3cffd0;
+}
+
+body {
+  background: var(--canvas-black);
+  color: #ffffff;
+}
+
+.error {
+  color: #ef476f;
+}
+
+.warn {
+  color: #ffd166;
+}
+
+/* Commented colors should not be flagged */
+/* .old { color: #abcdef; } */

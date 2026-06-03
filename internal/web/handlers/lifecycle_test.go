@@ -467,3 +467,104 @@ func TestUnresolve_DropsEntry(t *testing.T) {
 		t.Errorf("unresolve did not drop entry")
 	}
 }
+
+func TestParseProjectHashTransition(t *testing.T) {
+	tests := []struct {
+		name      string
+		urlPath   string
+		wantName  string
+		wantHash  string
+		wantTrans string
+	}{
+		{
+			name:      "valid apply",
+			urlPath:   "/api/projects/my-proj/findings/abc123/apply",
+			wantName:  "my-proj",
+			wantHash:  "abc123",
+			wantTrans: "apply",
+		},
+		{
+			name:      "valid undo",
+			urlPath:   "/api/projects/proj-a/findings/ffff0000/undo",
+			wantName:  "proj-a",
+			wantHash:  "ffff0000",
+			wantTrans: "undo",
+		},
+		{
+			name:      "valid dismiss",
+			urlPath:   "/api/projects/test/findings/aaa111/dismiss",
+			wantName:  "test",
+			wantHash:  "aaa111",
+			wantTrans: "dismiss",
+		},
+		{
+			name:      "valid resolve",
+			urlPath:   "/api/projects/x/findings/bbb222/resolve",
+			wantName:  "x",
+			wantHash:  "bbb222",
+			wantTrans: "resolve",
+		},
+		{
+			name:      "valid undismiss",
+			urlPath:   "/api/projects/p/findings/ccc333/undismiss",
+			wantName:  "p",
+			wantHash:  "ccc333",
+			wantTrans: "undismiss",
+		},
+		{
+			name:      "valid unresolve",
+			urlPath:   "/api/projects/p/findings/ddd444/unresolve",
+			wantName:  "p",
+			wantHash:  "ddd444",
+			wantTrans: "unresolve",
+		},
+		{
+			name:    "too few segments",
+			urlPath: "/api/projects/proj-a/findings/abc",
+		},
+		{
+			name:    "too many segments",
+			urlPath: "/api/projects/proj-a/findings/abc/apply/extra",
+		},
+		{
+			name:    "wrong prefix",
+			urlPath: "/other/projects/proj-a/findings/abc/apply",
+		},
+		{
+			name:    "missing findings keyword",
+			urlPath: "/api/projects/proj-a/items/abc/apply",
+		},
+		{
+			name:    "empty path",
+			urlPath: "",
+		},
+		{
+			name:      "trailing slash",
+			urlPath:   "/api/projects/proj-a/findings/abc/apply/",
+			wantName:  "proj-a",
+			wantHash:  "abc",
+			wantTrans: "apply",
+		},
+		{
+			name:      "leading slash preserved",
+			urlPath:   "api/projects/proj-a/findings/abc/apply",
+			wantName:  "proj-a",
+			wantHash:  "abc",
+			wantTrans: "apply",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name, hash, trans := parseProjectHashTransition(tt.urlPath)
+			if name != tt.wantName {
+				t.Errorf("name=%q want %q", name, tt.wantName)
+			}
+			if hash != tt.wantHash {
+				t.Errorf("hash=%q want %q", hash, tt.wantHash)
+			}
+			if trans != tt.wantTrans {
+				t.Errorf("transition=%q want %q", trans, tt.wantTrans)
+			}
+		})
+	}
+}

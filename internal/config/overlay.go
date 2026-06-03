@@ -230,4 +230,3 @@ func mergeRuleConfig(base, overlay *RuleConfig) {
 		base.Phase2RecordingInstructions = overlay.Phase2RecordingInstructions
 	}
 }
-

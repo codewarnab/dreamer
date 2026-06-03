@@ -21,10 +21,10 @@ func init() {
 			env[k] = v
 		}
 		return acpcore.New(acpcore.Options{
-			ID:               ID,
-			Command:          command,
-			Env:              env,
-			DefaultModel:     providerConfig.DefaultModel,
+			ID:                  ID,
+			Command:             command,
+			Env:                 env,
+			DefaultModel:        providerConfig.DefaultModel,
 			Sandbox:             providerConfig.Sandbox,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxWritableDirs: providerConfig.SandboxWritableDirs,
