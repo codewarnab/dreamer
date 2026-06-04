@@ -112,6 +112,18 @@ func MergeTodos(projectName, existingContent string, findings []analyzer.Finding
 	return mergeContent(existingContent, projectTitle(projectName, opts.ProjectTitle), sections), mergeResult
 }
 
+// TodosPath returns the canonical path to todos.md for the given project.
+//
+// It is the single authoritative resolver for this path: the pipeline (for
+// dry-run path reporting), the web findings handlers, and GenerateTodos all
+// call this function rather than each computing filepath.Join themselves.
+//
+// outputRoot may be empty; in that case the user config root is used as the
+// base, matching the behaviour of GenerateTodos.
+func TodosPath(outputRoot, projectName string) (string, error) {
+	return todosPathForProject(projectName, outputRoot)
+}
+
 func todosPathForProject(projectName string, outputRoot string) (string, error) {
 	if err := config.ValidateProjectName(projectName); err != nil {
 		return "", err
