@@ -171,25 +171,15 @@ func TestBuildPhase2RecordingInstructions(t *testing.T) {
 	}
 }
 
-// TestValidCategoriesInSync verifies that mcpserver.ValidCategories matches
-// the canonical AllRuleCategories list. This catches drift when adding new categories.
+// TestValidCategoriesInSync verifies that mcpserver.ValidCategories contains
+// all built-in categories from AllRuleCategories. ValidCategories may contain
+// additional entries (user-defined packs registered at runtime), so we only
+// check the one-way subset: built-ins ⊆ ValidCategories.
 func TestValidCategoriesInSync(t *testing.T) {
 	canonical := AllRuleCategories()
 	for _, cat := range canonical {
 		if !mcpserver.ValidCategories[string(cat)] {
 			t.Errorf("category %q in AllRuleCategories but missing from mcpserver.ValidCategories", cat)
-		}
-	}
-	for cat := range mcpserver.ValidCategories {
-		found := false
-		for _, c := range canonical {
-			if string(c) == cat {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("category %q in mcpserver.ValidCategories but missing from AllRuleCategories", cat)
 		}
 	}
 }
