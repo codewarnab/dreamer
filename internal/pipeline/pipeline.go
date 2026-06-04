@@ -316,7 +316,7 @@ type transcriptResult struct {
 func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.Source, logger *logging.Logger) (transcriptResult, bool, error) {
 	var transcript transcriptResult
 
-	rulePacks := mergeRulePacks(discovery.appConfig, discovery.projectFile)
+	rulePacks := mergeRulePacks(discovery.appConfig, discovery.projectFile, discovery.projectPath)
 	if !anyEnabled(rulePacks) {
 		return transcript, false, fmt.Errorf("all rule packs disabled; nothing to analyze")
 	}
@@ -634,6 +634,17 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	return analysisResult{result: pipelineResult, provider: provider, mode: mode}, nil
 }
 
+// findingsWriter persists a completed run's findings and reports what was
+// written. It is the single seam between the pipeline and its output backend,
+// so the destination (todos.md today) stays a swappable, reversible decision
+// (SKILL §7) instead of a call hardwired into the run sequence.
+type findingsWriter func(projectName string, findings []analyzer.Finding, opts output.GenerateOptions) (output.GenerateResult, error)
+
+// persistFindings is the active output backend. It is a package var rather than
+// a direct call so the backend can be redirected in one place — by tests, or by
+// a future alternative sink — without touching runOutputAndPersist.
+var persistFindings findingsWriter = output.GenerateTodos
+
 // runOutputAndPersist generates todos, updates state, saves, updates the
 // discovery cache, and records history.
 func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analysisResult, transcript transcriptResult, runContext *runCtx, cacheKeys map[string]string, repoHeadSHA string, runStart time.Time, runID string, logger *logging.Logger) (Result, error) {
@@ -661,7 +672,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 	}
 	pipelineResult.MistakesFound = len(analysis.result.Mistakes) > 0
 
-	generateResult, err := output.GenerateTodos(discovery.projectName, analysis.result.Findings, output.GenerateOptions{
+	generateResult, err := persistFindings(discovery.projectName, analysis.result.Findings, output.GenerateOptions{
 		OutputRoot:   discovery.outputRoot,
 		ProjectTitle: discovery.projectName,
 		Warnings:     warnings,
