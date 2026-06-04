@@ -19,14 +19,18 @@ import (
 const MaxApplyTargetBytes = 4 << 20
 
 // EligibleCategories lists the rule categories whose findings the UI is
-// allowed to apply automatically. Uses the canonical
-// category constants from the categories package.
-var EligibleCategories = map[string]bool{
-	string(categories.Doc):      true,
-	string(categories.LintRule): true,
-	string(categories.CICheck):  true,
-	string(categories.Config):   true,
-}
+// allowed to apply automatically. Derived at init time from
+// categories.AllApplyEligible() — the authoritative source of truth lives in
+// the categories package, not here. Do not add entries manually; update
+// categories.applyEligible instead so all consumers stay in sync.
+var EligibleCategories = func() map[string]bool {
+	eligible := categories.AllApplyEligible()
+	m := make(map[string]bool, len(eligible))
+	for _, c := range eligible {
+		m[string(c)] = true
+	}
+	return m
+}()
 
 var (
 	ErrContainment     = errors.New("apply target outside project root")
