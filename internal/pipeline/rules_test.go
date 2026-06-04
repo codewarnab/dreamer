@@ -48,7 +48,7 @@ func TestAnyEnabled(t *testing.T) {
 
 func TestMergeRulePacksNilProject(t *testing.T) {
 	cfg := &config.App{}
-	packs := mergeRulePacks(cfg, nil)
+	packs := mergeRulePacks(cfg, nil, "")
 	if len(packs) == 0 {
 		t.Fatal("expected packs from embedded defaults")
 	}
@@ -62,7 +62,7 @@ func TestMergeRulePacksGlobalToggle(t *testing.T) {
 			},
 		},
 	}
-	packs := mergeRulePacks(cfg, nil)
+	packs := mergeRulePacks(cfg, nil, "")
 	for _, p := range packs {
 		if p.Category == categories.LintRule && p.Enabled {
 			t.Fatal("lint-rule should be disabled by global override")
@@ -77,7 +77,7 @@ func TestMergeRulePacksProjectToggle(t *testing.T) {
 			"test": {Enabled: boolPtr(false)},
 		},
 	}
-	packs := mergeRulePacks(cfg, project)
+	packs := mergeRulePacks(cfg, project, "")
 	for _, p := range packs {
 		if p.Category == categories.Test && p.Enabled {
 			t.Fatal("test should be disabled by project override")
@@ -92,7 +92,7 @@ func TestMergeRulePacksTimeoutOverride(t *testing.T) {
 			RuleTimeoutSeconds: customTimeout,
 		},
 	}
-	packs := mergeRulePacks(cfg, nil)
+	packs := mergeRulePacks(cfg, nil, "")
 	for _, p := range packs {
 		if p.TimeoutSeconds != customTimeout {
 			t.Fatalf("pack %q: TimeoutSeconds = %d, want %d", p.Category, p.TimeoutSeconds, customTimeout)

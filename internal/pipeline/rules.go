@@ -5,6 +5,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/config"
+	"dreamer/internal/mcpserver"
 )
 
 func anyEnabled(packs []analyzer.RulePack) bool {
@@ -16,11 +17,30 @@ func anyEnabled(packs []analyzer.RulePack) bool {
 	return false
 }
 
-func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig) []analyzer.RulePack {
+func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectPath string) []analyzer.RulePack {
 	packs, err := analyzer.LoadDefaultRulePacks()
 	if err != nil {
 		return nil
 	}
+
+	// Load user-defined packs from <projectPath>/.dreamer/rules/ and append
+	// any that introduce a new (non-built-in) category.
+	if projectPath != "" {
+		rulesDir := config.ProjectRulesDir(projectPath)
+		extraPacks, err := analyzer.LoadProjectRulePacks(rulesDir)
+		if err != nil {
+			// Non-fatal directory read errors (missing dir) are already
+			// swallowed inside LoadProjectRulePacks; reaching here means
+			// a YAML file is malformed — surface it as a pack-load failure.
+			return nil
+		}
+		for _, p := range extraPacks {
+			// Register the new category so MCP finding recording accepts it.
+			mcpserver.RegisterCategory(string(p.Category))
+		}
+		packs = append(packs, extraPacks...)
+	}
+
 	applyRuleToggles(packs, cfg.Analyzer.Rules)
 	if project != nil {
 		applyRuleToggles(packs, project.Rules)
