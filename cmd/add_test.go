@@ -105,12 +105,13 @@ func TestAddCommand_FailsWhenConfigMissing(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
 	dir := t.TempDir()
-	_, _, err := executeRootCommand("add", dir)
+	_, stderr, err := executeRootCommand("add", dir)
 	if err == nil {
 		t.Fatalf("expected error when config.yaml missing")
 	}
-	if !strings.Contains(err.Error(), "setup") {
-		t.Fatalf("error %q should suggest running setup", err)
+	// Styled output goes to stderr; err.Error() carries the plain sentinel.
+	if !strings.Contains(stderr, "setup") && !strings.Contains(err.Error(), "setup") {
+		t.Fatalf("error %q / stderr %q should suggest running setup", err, stderr)
 	}
 }
 

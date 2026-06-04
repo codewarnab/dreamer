@@ -53,7 +53,7 @@ func newJobsRunsCommand() *cobra.Command {
 				return fmt.Errorf("load jobs: %w", err)
 			}
 			if state.Jobs[jobID] == nil {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			runs, err := runStore.List(jobID)
@@ -64,7 +64,7 @@ func newJobsRunsCommand() *cobra.Command {
 			// Apply --status filter.
 			if status != "" {
 				if !isValidRunStatus(status) {
-					return fmt.Errorf("invalid --status %q; valid values: completed, failed, timed_out, cancelled, skipped, running, idle, never_run", status)
+					return invalidFlagValueError(cmd, "status", status, sortedKeys(validRunStatuses))
 				}
 				statusLower := strings.ToLower(status)
 				var filtered []backgroundjobs.Run

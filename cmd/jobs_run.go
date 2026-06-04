@@ -78,7 +78,7 @@ func newJobsRunCommand() *cobra.Command {
 			}
 			job := state.Jobs[jobID]
 			if job == nil {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			effectiveTimeout := timeout

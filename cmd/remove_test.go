@@ -74,11 +74,12 @@ func TestRemoveCommand_NoArgs(t *testing.T) {
 func TestRemoveCommand_ConfigMissing(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
-	_, _, err := executeRootCommand("remove", "myrepo")
+	_, stderr, err := executeRootCommand("remove", "myrepo")
 	if err == nil {
 		t.Fatalf("expected error when config.yaml missing")
 	}
-	if !strings.Contains(err.Error(), "setup") {
-		t.Fatalf("error %q should suggest running setup", err)
+	// Styled output goes to stderr; err.Error() carries the plain sentinel.
+	if !strings.Contains(stderr, "setup") && !strings.Contains(err.Error(), "setup") {
+		t.Fatalf("error %q / stderr %q should suggest running setup", err, stderr)
 	}
 }

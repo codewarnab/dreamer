@@ -55,7 +55,7 @@ func newJobsLogsCommand() *cobra.Command {
 				return fmt.Errorf("load jobs: %w", err)
 			}
 			if state.Jobs[jobID] == nil {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			// Find the target run.

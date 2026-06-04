@@ -42,7 +42,8 @@ func newAnalyzeCommand() *cobra.Command {
 					"dreamer analyze --path /path/to/project")
 			}
 			if cmd.Flags().Changed("since") && strings.TrimSpace(since) == "" {
-				return fmt.Errorf("--since must not be empty")
+				return invalidFlagValueError(cmd, "since", "",
+					[]string{"30m", "1h", "1d", "1w", "1mo", "lifetime"})
 			}
 
 			resolvedConfigPath, err := resolveConfigPath(configPath)
@@ -71,8 +72,8 @@ func newAnalyzeCommand() *cobra.Command {
 			// --force bypasses the conflict guard so an operator can re-run
 			// even while a daemon-scheduled job is in flight.
 			if !force {
-				if conflict := checkJobConflict(appConfig, projectPath); conflict != "" {
-					return fmt.Errorf("%s", conflict)
+				if err := checkJobConflict(cmd, appConfig, projectPath); err != nil {
+					return err
 				}
 			}
 
@@ -185,13 +186,13 @@ func printAnalyzeJSON(cmd *cobra.Command, result pipeline.Result) error {
 }
 
 // checkJobConflict loads the job queue and checks whether a running or
-// pending job exists for the given project path. Returns an empty string
-// if no conflict; otherwise a human-readable error message.
-func checkJobConflict(appConfig *config.App, projectPath string) string {
+// pending job exists for the given project path. Returns nil if no conflict;
+// otherwise returns a styled conflictError.
+func checkJobConflict(cmd *cobra.Command, appConfig *config.App, projectPath string) error {
 	storePath := filepath.Join(appConfig.Daemon.OutputRoot, "jobs.json")
 	queue := jobqueue.New(jobqueue.Options{StorePath: storePath})
 	if err := queue.Recover(); err != nil {
-		return "" // best-effort; don't block analyze on a corrupt queue
+		return nil // best-effort; don't block analyze on a corrupt queue
 	}
 
 	// Derive the project name the same way config.LoadConfig does: expand
@@ -200,11 +201,11 @@ func checkJobConflict(appConfig *config.App, projectPath string) string {
 	// project paths and silently bypass the guard.
 	expanded, err := config.ExpandUserHome(projectPath)
 	if err != nil {
-		return ""
+		return nil
 	}
 	absPath, err := filepath.Abs(expanded)
 	if err != nil {
-		return ""
+		return nil
 	}
 	absPath = filepath.Clean(absPath)
 
@@ -217,10 +218,10 @@ func checkJobConflict(appConfig *config.App, projectPath string) string {
 			status := queue.Status()
 			for _, j := range status.Jobs {
 				if j.Project == p.Name && !j.Status.IsTerminal() {
-					return fmt.Sprintf("analysis already in progress for %q (job %s, status: %s); pass --force to bypass this check", p.Name, j.ID, j.Status)
+					return conflictError(cmd, p.Name, j.ID, string(j.Status))
 				}
 			}
 		}
 	}
-	return ""
+	return nil
 }
