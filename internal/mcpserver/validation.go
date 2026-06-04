@@ -33,6 +33,9 @@ import (
 // ValidCategories is the set of valid rule categories (lowercase canonical
 // IDs). Inputs are lowercased+trimmed before lookup so "Test" and " test "
 // both match "test". Derived from the canonical category constants.
+//
+// User-defined packs loaded at runtime register their categories here via
+// RegisterCategory so ValidateFinding accepts them without a binary rebuild.
 var ValidCategories = func() map[string]bool {
 	m := make(map[string]bool, len(categories.All()))
 	for _, c := range categories.All() {
@@ -41,16 +44,26 @@ var ValidCategories = func() map[string]bool {
 	return m
 }()
 
+// RegisterCategory adds a category to ValidCategories so that findings
+// recorded by user-defined rule packs pass ValidateFinding. It is safe to
+// call before any concurrent use of ValidateFinding (e.g. at startup in
+// mergeRulePacks). Calling it after the MCP server has started is a data
+// race and must be avoided.
+func RegisterCategory(category string) {
+	ValidCategories[strings.ToLower(strings.TrimSpace(category))] = true
+}
+
 // sortedValidCategories returns the valid category names in sorted order
-// for use in error messages. Computed once from ValidCategories.
-var sortedValidCategories = func() string {
+// for use in error messages. Recomputed each call so it reflects any
+// categories registered after init.
+func sortedValidCategoriesStr() string {
 	keys := make([]string, 0, len(ValidCategories))
 	for k := range ValidCategories {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, ", ")
-}()
+}
 
 // Field length caps. Findings that exceed these limits bloat todos.md and
 // usually indicate the model dumped an entire transcript into one field.
@@ -161,7 +174,7 @@ func ValidateFinding(f *FindingInput) error {
 		return newValidationError("category is required")
 	}
 	if !ValidCategories[f.Category] {
-		return newValidationError("invalid category %q (valid: %s)", f.Category, sortedValidCategories)
+		return newValidationError("invalid category %q (valid: %s)", f.Category, sortedValidCategoriesStr())
 	}
 	if f.Mistake == "" {
 		return newValidationError("mistake is required")
