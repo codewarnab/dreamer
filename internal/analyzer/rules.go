@@ -3,6 +3,7 @@ package analyzer
 import (
 	"embed"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -140,6 +141,55 @@ func LoadDefaultRulePacks() ([]RulePack, error) {
 		pack, err := loadEmbeddedRulePack(category)
 		if err != nil {
 			return nil, err
+		}
+		applyDefaults(&pack, defaults)
+		packs = append(packs, pack)
+	}
+	return packs, nil
+}
+
+// LoadProjectRulePacks reads user-defined rule pack YAML files from dir
+// (typically <project>/.dreamer/rules/). Files whose category matches a
+// built-in category name are skipped — use config overrides for those.
+// All other valid YAML files are parsed, have prompt defaults applied, and
+// are returned as additional packs. A missing or empty directory returns
+// nil, nil. Individual file parse errors are returned immediately.
+func LoadProjectRulePacks(dir string) ([]RulePack, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read project rules dir %q: %w", dir, err)
+	}
+
+	defaults, err := loadDefaultsYAML()
+	if err != nil {
+		return nil, err
+	}
+
+	builtins := make(map[string]bool, len(AllRuleCategories()))
+	for _, c := range AllRuleCategories() {
+		builtins[string(c)] = true
+	}
+
+	var packs []RulePack
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		fullPath := path.Join(dir, e.Name())
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("read project rule pack %q: %w", fullPath, err)
+		}
+		pack, err := parseRulePack(data, e.Name())
+		if err != nil {
+			return nil, fmt.Errorf("parse project rule pack %q: %w", fullPath, err)
+		}
+		if builtins[string(pack.Category)] {
+			// Built-in category: silently skip — use config rules overrides instead.
+			continue
 		}
 		applyDefaults(&pack, defaults)
 		packs = append(packs, pack)
