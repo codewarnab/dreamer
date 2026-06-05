@@ -49,3 +49,30 @@ func TestEmbed_DreamerCSSHasVergeTokens(t *testing.T) {
 		t.Fatal("dreamer.css: missing --canvas-black token")
 	}
 }
+
+// TestParsePageTemplate_AllPages verifies that every page registered in
+// initTemplates parses without error from the embedded FS. A syntax error in
+// any layout, partial, or page template will fail this test.
+func TestParsePageTemplate_AllPages(t *testing.T) {
+	pages := []string{
+		"dashboard",
+		"jobs",
+		"job_detail",
+		"settings",
+		"logs",
+		"providers",
+		"projects/overview",
+		"projects/findings",
+		"projects/chats",
+		"projects/history",
+	}
+	for _, page := range pages {
+		page := page
+		t.Run(page, func(t *testing.T) {
+			_, err := parsePageTemplate(assets, page)
+			if err != nil {
+				t.Errorf("parsePageTemplate(%q) failed: %v", page, err)
+			}
+		})
+	}
+}

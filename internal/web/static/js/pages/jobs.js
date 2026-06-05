@@ -141,18 +141,34 @@ window.jobsPage = function () {
       finally { this.loading = false; }
     },
     pauseJob: async function (id) {
-      await fetch('/api/jobs/' + id + '/pause', {
-        method: 'POST',
-        headers: { 'X-Dreamer-CSRF': this.csrf() },
-      });
-      await this.load();
+      try {
+        const r = await fetch('/api/jobs/' + id + '/pause', {
+          method: 'POST',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          this.error = 'Failed to pause job: HTTP ' + r.status;
+          return;
+        }
+        await this.load();
+      } catch (e) {
+        this.error = 'Network error pausing job.';
+      }
     },
     resumeJob: async function (id) {
-      await fetch('/api/jobs/' + id + '/resume', {
-        method: 'POST',
-        headers: { 'X-Dreamer-CSRF': this.csrf() },
-      });
-      await this.load();
+      try {
+        const r = await fetch('/api/jobs/' + id + '/resume', {
+          method: 'POST',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          this.error = 'Failed to resume job: HTTP ' + r.status;
+          return;
+        }
+        await this.load();
+      } catch (e) {
+        this.error = 'Network error resuming job.';
+      }
     },
     deleteJob: async function (id) {
       if (!confirm('Delete this job?')) return;
@@ -172,15 +188,22 @@ window.jobsPage = function () {
       await this.load();
     },
     runNow: async function (id) {
-      var r = await fetch('/api/jobs/' + id + '/run', {
-        method: 'POST',
-        headers: { 'X-Dreamer-CSRF': this.csrf() },
-      });
-      if (!r.ok) {
-        var data = await r.json();
-        alert(data.error || 'run failed');
+      try {
+        const r = await fetch('/api/jobs/' + id + '/run', {
+          method: 'POST',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          var errText = await r.text();
+          var errMsg = 'run failed';
+          try { errMsg = JSON.parse(errText).error || errMsg; } catch (_) {}
+          this.error = errMsg;
+          return;
+        }
+        await this.load();
+      } catch (e) {
+        this.error = 'Network error during run.';
       }
-      await this.load();
     },
     statusPill: function (job) {
       if (!job.enabled) return { label: 'paused', class: '' };

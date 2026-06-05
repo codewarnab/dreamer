@@ -136,7 +136,7 @@ func (s *Server) initTemplates() {
 	} {
 		tmpl, err := parsePageTemplate(assets, page)
 		if err != nil {
-			panic("web: parse templates/" + page + ": " + err.Error())
+			panic("web: parsePageTemplate(" + page + "): " + err.Error())
 		}
 		s.templates[page] = tmpl
 	}
@@ -262,19 +262,18 @@ func parsePageTemplate(fsys fs.FS, page string) (*template.Template, error) {
 }
 
 // partialDirsForPage resolves directories containing partial templates for a page.
+// For flat pages like "jobs" or "settings" it returns the shared dir plus the
+// page-named partial dir. For nested pages like "projects/overview" it also
+// adds the prefix dir ("templates/partials/projects") so project-level partials
+// are automatically included.
 func partialDirsForPage(page string) []string {
 	dirs := []string{"templates/partials/shared"}
-	// Add specific page directory
+	// Add per-page partial directory (flat pages: templates/partials/jobs,
+	// nested pages: templates/partials/projects/overview — guarded by dirExists).
 	dirs = append(dirs, "templates/partials/"+page)
 
-	// Handle page groups/prefixes
-	if strings.HasPrefix(page, "job") {
-		dirs = append(dirs, "templates/partials/jobs")
-	}
-	if strings.HasPrefix(page, "project") {
-		dirs = append(dirs, "templates/partials/projects", "templates/partials/project")
-	}
-	// If page is nested like "projects/overview", also check the prefix
+	// For nested pages like "projects/overview", also include the prefix dir
+	// ("templates/partials/projects") so shared project-level partials are picked up.
 	if idx := strings.Index(page, "/"); idx != -1 {
 		prefix := page[:idx]
 		dirs = append(dirs, "templates/partials/"+prefix)
@@ -442,7 +441,7 @@ func (s *Server) layoutData(extra any) layoutData {
 }
 
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, pageTemplate string, extra any) {
-	// Normalize: "dashboard.html" → "dashboard", "project_overview.html" → "project_overview".
+	// Normalize: "dashboard.html" → "dashboard", "projects/overview.html" → "projects/overview".
 	dir := strings.TrimSuffix(pageTemplate, ".html")
 	tmpl, err := s.templateFor(dir)
 	if err != nil {

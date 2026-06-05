@@ -89,18 +89,34 @@ window.jobDetailPage = function (jobID) {
       this._sseUnsub = [];
     },
     pauseJob: async function () {
-      await fetch('/api/jobs/' + this.jobID + '/pause', {
-        method: 'POST',
-        headers: { 'X-Dreamer-CSRF': this.csrf() },
-      });
-      await this.load();
+      try {
+        const r = await fetch('/api/jobs/' + this.jobID + '/pause', {
+          method: 'POST',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          this.error = 'Failed to pause job: HTTP ' + r.status;
+          return;
+        }
+        await this.load();
+      } catch (e) {
+        this.error = 'Network error pausing job.';
+      }
     },
     resumeJob: async function () {
-      await fetch('/api/jobs/' + this.jobID + '/resume', {
-        method: 'POST',
-        headers: { 'X-Dreamer-CSRF': this.csrf() },
-      });
-      await this.load();
+      try {
+        const r = await fetch('/api/jobs/' + this.jobID + '/resume', {
+          method: 'POST',
+          headers: { 'X-Dreamer-CSRF': this.csrf() },
+        });
+        if (!r.ok) {
+          this.error = 'Failed to resume job: HTTP ' + r.status;
+          return;
+        }
+        await this.load();
+      } catch (e) {
+        this.error = 'Network error resuming job.';
+      }
     },
     deleteJob: async function () {
       if (!confirm('Delete this job permanently?')) return;
@@ -239,13 +255,15 @@ window.jobDetailPage = function (jobID) {
           headers: { 'Content-Type': 'application/json', 'X-Dreamer-CSRF': this.csrf() },
           body: JSON.stringify(body),
         });
-        
-        var data = await r.json();
+
         if (!r.ok) {
-          this.editError = data.error || 'Failed to save changes.';
+          var errText = await r.text();
+          var errMsg = 'Failed to save changes.';
+          try { errMsg = JSON.parse(errText).error || errMsg; } catch (_) {}
+          this.editError = errMsg;
           return;
         }
-        
+
         this.showEditModal = false;
         Alpine.store('toasts').add('Job changes saved successfully', 'success');
         await this.load();
