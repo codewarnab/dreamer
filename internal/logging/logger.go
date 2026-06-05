@@ -166,11 +166,8 @@ func (l *Logger) write(level slog.Level, message string, attrs ...Attr) {
 	if l.rotateIfNeededLocked() {
 		l.rebuildHandlerLocked()
 	}
-	args := make([]any, 0, len(attrs))
-	for _, attr := range attrs {
-		args = append(args, attr)
-	}
-	l.handler.Log(context.Background(), level, message, args...)
+	// LogAttrs avoids []any allocation by accepting ...Attr directly
+	l.handler.LogAttrs(context.Background(), level, message, attrs...)
 }
 
 // rotateIfNeededLocked checks whether the log file exceeds the configured size

@@ -86,7 +86,8 @@ func RemoveProjectFromYAML(configBytes []byte, name string) ([]byte, error) {
 	projectsVal.Content = append(projectsVal.Content[:idx], projectsVal.Content[idx+1:]...)
 
 	var buf strings.Builder
-	enc := yaml.NewEncoder(&strBuilderWriter{b: &buf})
+	// strings.Builder implements io.Writer natively - no wrapper needed
+	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(&root); err != nil {
 		return nil, fmt.Errorf("encode config yaml: %w", err)
@@ -139,7 +140,8 @@ func AppendProjectToYAML(configBytes []byte, name, path, since string) ([]byte, 
 	}
 
 	var buf strings.Builder
-	enc := yaml.NewEncoder(&strBuilderWriter{b: &buf})
+	// strings.Builder implements io.Writer natively - no wrapper needed
+	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(&root); err != nil {
 		return nil, fmt.Errorf("encode config yaml: %w", err)
@@ -188,9 +190,3 @@ func projectMappingNode(name, path, since string) *yaml.Node {
 	}
 }
 
-// strBuilderWriter adapts strings.Builder to io.Writer for yaml.NewEncoder.
-type strBuilderWriter struct{ b *strings.Builder }
-
-func (w *strBuilderWriter) Write(p []byte) (int, error) {
-	return w.b.Write(p)
-}

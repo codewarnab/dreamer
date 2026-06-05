@@ -119,7 +119,8 @@ func (m *jobsInteractiveModel) reloadJobs() error {
 	if err != nil {
 		return err
 	}
-	m.jobs = m.jobs[:0]
+	// Preallocate jobs slice to map size for efficient append
+	m.jobs = make([]*backgroundjobs.Job, 0, len(state.Jobs))
 	for _, j := range state.Jobs {
 		m.jobs = append(m.jobs, j)
 	}
@@ -296,7 +297,8 @@ func applyJobEdit(store *backgroundjobs.Store, sched backgroundjobs.Scheduler, c
 		j.Model = input.model
 		j.Permissions.FileAccess = backgroundjobs.FileAccessMode(input.fileAccess)
 		if input.writablePaths != "" {
-			var paths []string
+			// Preallocate paths slice to input length - splits produce at most len+1 elements
+			paths := make([]string, 0, len(input.writablePaths))
 			for _, p := range strings.Split(input.writablePaths, ",") {
 				if trimmed := strings.TrimSpace(p); trimmed != "" {
 					paths = append(paths, trimmed)

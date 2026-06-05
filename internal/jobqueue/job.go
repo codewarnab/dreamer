@@ -19,17 +19,15 @@ const (
 	StatusCancelled Status = "cancelled" // daemon shutdown, context cancelled
 )
 
-// terminalStatuses lists all statuses that represent a finished job.
-var terminalStatuses = map[Status]bool{
-	StatusCompleted: true,
-	StatusFailed:    true,
-	StatusTimedOut:  true,
-	StatusCancelled: true,
-}
-
 // IsTerminal reports whether this status represents a finished job.
 func (s Status) IsTerminal() bool {
-	return terminalStatuses[s]
+	// Use switch to avoid global map allocation overhead
+	switch s {
+	case StatusCompleted, StatusFailed, StatusTimedOut, StatusCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 // Job represents one analysis run for a single project.

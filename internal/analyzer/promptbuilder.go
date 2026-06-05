@@ -293,7 +293,12 @@ func parsePhase2Response(raw string, packs []RulePack) (map[RuleCategory][]Findi
 // orderedByCategory flattens a category map in canonical RuleCategory order.
 // Empty categories produce no output; absent categories are silently skipped.
 func orderedByCategory[T any](in map[RuleCategory][]T, order []RuleCategory) []T {
-	out := []T{}
+	// Preallocate capacity to avoid dynamic reallocation during append
+	total := 0
+	for _, c := range order {
+		total += len(in[c])
+	}
+	out := make([]T, 0, total)
 	for _, c := range order {
 		out = append(out, in[c]...)
 	}

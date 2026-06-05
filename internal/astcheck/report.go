@@ -53,7 +53,8 @@ func WriteText(w io.Writer, findings []Finding) error {
 
 	// Group by file.
 	grouped := make(map[string][]Finding)
-	fileOrder := make([]string, 0)
+	// Preallocate fileOrder capacity to findings count to avoid dynamic reallocation
+	fileOrder := make([]string, 0, len(findings))
 	for _, f := range findings {
 		fn := f.Pos.Filename
 		if _, ok := grouped[fn]; !ok {

@@ -97,7 +97,8 @@ func SubtractBaseline(findings []Finding, baseline map[string]bool) []Finding {
 	if len(baseline) == 0 {
 		return findings
 	}
-	var out []Finding
+	// Preallocate capacity to findings count to avoid dynamic reallocation
+	out := make([]Finding, 0, len(findings))
 	for _, f := range findings {
 		if !baseline[f.Key()] {
 			out = append(out, f)

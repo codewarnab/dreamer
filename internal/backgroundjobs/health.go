@@ -61,10 +61,11 @@ func (h *HealthChecker) CheckHealth(ctx context.Context) (SystemHealth, error) {
 		return SystemHealth{}, fmt.Errorf("load state: %w", err)
 	}
 
+	// Preallocate JobHealth slice to avoid dynamic reallocation during append
 	health := SystemHealth{
 		TotalJobs: len(state.Jobs),
 		Issues:    []HealthIssue{},
-		JobHealth: []JobHealth{},
+		JobHealth: make([]JobHealth, 0, len(state.Jobs)),
 	}
 
 	// System-level check: sandbox availability.
@@ -192,7 +193,8 @@ func (h *HealthChecker) checkOrphans(ctx context.Context, state *State) ([]Healt
 		return nil, err
 	}
 
-	var issues []HealthIssue
+	// Preallocate issues slice to avoid dynamic reallocation during append
+	issues := make([]HealthIssue, 0, len(ownIDs))
 	for _, osID := range ownIDs {
 		if _, exists := state.Jobs[osID]; !exists {
 			issues = append(issues, HealthIssue{

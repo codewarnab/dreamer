@@ -138,7 +138,8 @@ func printLogFile(cmd *cobra.Command, path string, tail int) error {
 	}
 
 	// Tail: read all lines, keep last N.
-	var lines []string
+	// Preallocate slice to tail size - will grow if file has more lines
+	lines := make([]string, 0, tail)
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())

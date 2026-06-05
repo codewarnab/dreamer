@@ -15,14 +15,18 @@ const (
 	RefactorBoundary Category = "refactor-boundary"
 )
 
+// allCategories is a package-level slice to avoid allocating a new slice on every All() call.
+// This is a cold-path optimization since category lists are rarely accessed during runtime.
+var allCategories = []Category{
+	LintRule,
+	Test,
+	CICheck,
+	Doc,
+	Config,
+	RefactorBoundary,
+}
+
 // All returns the canonical list of v1 categories.
 func All() []Category {
-	return []Category{
-		LintRule,
-		Test,
-		CICheck,
-		Doc,
-		Config,
-		RefactorBoundary,
-	}
+	return allCategories
 }
