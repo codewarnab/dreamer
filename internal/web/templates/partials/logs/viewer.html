@@ -1,0 +1,33 @@
+{{define "logs_viewer"}}
+<!-- Live Structured Log Console -->
+<div x-show="raw.trim() && filteredLines().length > 0" x-ref="container" style="max-height: 62vh; overflow-y: auto; overflow-x: hidden; padding: var(--space-2) 0;">
+  <div class="log-console">
+    <template x-for="(line, index) in filteredLines()" :key="index">
+      <!-- Individual log row with micro-hover state and colored left-border indicating severity -->
+      <div class="log-row" :class="'log-row--' + line.level">
+        
+        <!-- Timestamp column -->
+        <span class="log-col-time" x-text="line.time ? formatTime(line.time) : ''" :title="line.time"></span>
+        
+        <!-- Colorized Level Badge -->
+        <div style="flex-shrink: 0; width: 52px; text-align: center;">
+          <span class="log-level-badge" :class="'log-level-badge--' + line.level" x-text="line.level"></span>
+        </div>
+        
+        <!-- Log Message text with instant query search highlights -->
+        <span class="log-col-msg" :class="!line.isStructured && 'log-col-msg--unstructured'" x-html="highlightAndEscape(line.msg)"></span>
+        
+        <!-- Dynamic Slog Attributes (rendered as small key-value badges) -->
+        <div class="log-col-attrs" x-show="line.isStructured && line.attrs.length > 0">
+          <template x-for="attr in line.attrs">
+            <span class="log-attr-tag" :title="attr.key + '=' + attr.value">
+              <span class="log-attr-key" x-text="attr.key"></span><span class="log-attr-divider">:</span><span class="log-attr-val" x-text="attr.value"></span>
+            </span>
+          </template>
+        </div>
+        
+      </div>
+    </template>
+  </div>
+</div>
+{{end}}

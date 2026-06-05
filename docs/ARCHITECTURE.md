@@ -2,7 +2,7 @@
 
 This document describes the design principles, CLI commands, and component architecture of the `dreamer` system. It is kept up-to-date with the codebase.
 
-> For a full end-to-end trace of how data moves through every subsystem — from chat discovery through LLM analysis to `todos.md` output and the web UI — see **[docs/DATAFLOW.md](file:///c:/Users/User/code/dreamer/docs/DATAFLOW.md)**.
+> For a full end-to-end trace of how data moves through every subsystem — from chat discovery through LLM analysis to `todos.md` output and the web UI — see **[docs/DATAFLOW.md](DATAFLOW.md)**.
 
 ---
 
@@ -11,7 +11,7 @@ This document describes the design principles, CLI commands, and component archi
 `dreamer` is a single-binary Go command-line tool (CLI) designed to periodically scan local AI coding assistant chat logs, run them through an LLM provider with rule-based prompts, and append actionable findings to per-project `todos.md` files.
 
 ### Design Principles (Dreamer Design Skill)
-Consistent with the [.claude/skills/dreamer-design/SKILL.md](file:///c:/Users/User/code/dreamer/.claude/skills/dreamer-design/SKILL.md):
+Consistent with the [.claude/skills/dreamer-design/SKILL.md](../.claude/skills/dreamer-design/SKILL.md):
 - **Functional Core, Imperative Shell:** We push side effects (I/O, process execution, file writes) to system edges (like `internal/pipeline/` and package command runners). Core business logic is implemented as pure, side-effect-free functions (e.g., chat message decoding, mistake extraction, and markdown diff merging).
 - **Deep Modules / Vertical Slices:** Complexity is encapsulated within focused modules. The API boundary of each slice is kept extremely simple, hiding internal mechanisms like SQL database queries, Bubble Tea TUIs, or platform-specific sandbox APIs.
 - **7±2 Cognitive Load Limits:** We limit top-level structure to prevent working memory overload. This applies to package dependencies, CLI flags, and function parameter counts (using options structs for complex configurations).

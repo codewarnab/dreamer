@@ -1,0 +1,23 @@
+{{define "shared_nav"}}
+<aside class="sidebar" :class="sidebarCollapsed ? 'collapsed' : ''" aria-label="Primary navigation">
+  <div style="width: 208px;">
+    <div class="brand">
+      <a href="/" class="display-hero" style="font-size: 36px; line-height: 1; text-decoration: none; color: inherit;">DREAMER</a>
+    </div>
+    <nav class="kicker" aria-label="Projects" style="margin-top: var(--space-5);">
+      <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">projects</div>
+      {{range .Projects}}
+      <a href="/projects/{{.Name}}" data-nav="projects/{{.Name}}">{{.Name}}</a>
+      {{end}}
+      <a href="#" @click.prevent="$dispatch('open-modal', 'add-project')" data-nav="add">+ add project</a>
+    </nav>
+    <nav class="kicker" aria-label="System" style="margin-top: var(--space-5);">
+      <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">system</div>
+      <a href="/jobs" data-nav="jobs">jobs</a>
+      <a href="/settings" data-nav="settings">settings</a>
+      <a href="/logs" data-nav="logs">logs</a>
+      <a href="/providers" data-nav="providers">providers</a>
+    </nav>
+  </div>
+</aside>
+{{end}}

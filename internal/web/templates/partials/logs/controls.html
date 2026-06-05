@@ -1,0 +1,67 @@
+{{define "logs_controls"}}
+<!-- Controls Panel Card -->
+<div class="card" style="margin-bottom: var(--space-4); padding: var(--space-3); border-color: var(--border-subtle); background: var(--surface-1);">
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
+    
+    <!-- Severity Filter Pills -->
+    <div style="display: flex; gap: var(--space-2);">
+      <button class="pill" :class="level === 'all' ? 'pill--healthy' : 'pill--inactive'" @click="level='all'" title="Show all log lines">all</button>
+      <button class="pill" :class="level === 'info' ? 'pill--info' : 'pill--inactive'" @click="level='info'" title="Filter by info level">info</button>
+      <button class="pill" :class="level === 'warn' ? 'pill--warn' : 'pill--inactive'" @click="level='warn'" title="Filter by warnings">warn</button>
+      <button class="pill" :class="level === 'error' ? 'pill--error' : 'pill--inactive'" @click="level='error'" title="Filter by errors">error</button>
+    </div>
+
+    <!-- Search input -->
+    <div style="position: relative; display: flex; align-items: center; flex: 1; min-width: 200px; max-width: 320px;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 10px; color: var(--text-secondary); pointer-events: none;">
+        <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="search" x-model="searchQuery" placeholder="Search logs" class="input" style="padding-left: 32px; width: 100%; font-family: var(--font-body); font-size: 13px;" />
+    </div>
+
+    <!-- Toggles and Selectors -->
+    <div style="display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;">
+      <!-- Limit Selector (keeps DOM node count small and performant) -->
+      <div style="display: flex; align-items: center; gap: var(--space-2);">
+        <label style="margin-bottom: 0; font-size: 11px;">Limit:</label>
+        <select x-model.number="lineLimit" class="input" style="padding: 2px 24px 2px 8px; font-family: var(--font-mono); font-size: 11px;">
+          <option value="100">100 lines</option>
+          <option value="250">250 lines</option>
+          <option value="500">500 lines</option>
+          <option value="1000">1000 lines</option>
+        </select>
+      </div>
+
+      <!-- Scrolling Toggles -->
+      <label style="margin-bottom: 0; display: flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-size: 11px;">
+        <input type="checkbox" x-model="autoScroll" style="accent-color: var(--jelly-mint); cursor: pointer;" /> Auto-scroll
+      </label>
+      <label style="margin-bottom: 0; display: flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-size: 11px;" title="Periodically refresh logs from the server">
+        <input type="checkbox" x-model="autoRefresh" style="accent-color: var(--jelly-mint); cursor: pointer;" /> Auto-refresh
+      </label>
+
+      <!-- Functional Control Buttons -->
+      <div style="display: flex; gap: var(--space-2); margin-left: var(--space-2);">
+        <!-- Copy to Clipboard with Feedback State -->
+        <button class="btn btn--ghost" @click="copyToClipboard()" :disabled="!raw.trim()" style="display: flex; align-items: center; gap: 6px; padding: var(--space-1) var(--space-3); font-size: 11px; border-color: var(--border-subtle); background: var(--bg-translucent-hover);" title="Copy filtered logs to clipboard">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+          </svg>
+          <span x-text="copied ? 'Copied!' : 'Copy'"></span>
+        </button>
+
+        <!-- Refresh Button -->
+        <button class="btn btn--primary" @click="load()" :disabled="loading" style="display: flex; align-items: center; gap: 6px; padding: var(--space-1) var(--space-3); font-size: 11px; font-weight: 600; min-width: 80px; justify-content: center;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          <span x-text="loading ? 'Refreshing...' : 'Refresh'"></span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+{{end}}

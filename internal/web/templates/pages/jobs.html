@@ -1,0 +1,45 @@
+{{define "content"}}
+<section x-data="jobsPage()" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">background jobs</span>
+    <h1 class="headline-lg">jobs</h1>
+    <p class="body" style="color: var(--text-secondary); max-width: 60ch;">
+      Schedule recurring prompts that run automatically via your configured providers.
+    </p>
+  </header>
+
+  <!-- System health card -->
+  {{template "jobs_health_card" .}}
+
+  <!-- Create job card -->
+  <div class="card" style="margin-bottom: var(--space-4);">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div class="kicker">create job</div>
+      <button class="btn btn--ghost" @click="showCreate = !showCreate" x-text="showCreate ? 'collapse' : 'expand'"></button>
+    </div>
+    <div x-show="showCreate" style="margin-top: var(--space-4);">
+      {{template "jobs_create_form" .}}
+      {{template "jobs_preview" .}}
+    </div>
+  </div>
+
+  <!-- Job list table -->
+  <div class="card">
+    <div class="kicker">jobs</div>
+    {{template "jobs_table" .}}
+  </div>
+
+  <!-- Audit log -->
+  <div class="card" style="margin-top: var(--space-4);">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div class="kicker">audit log</div>
+      <button class="btn btn--ghost" @click="showAudit = !showAudit; if (showAudit && auditEvents.length === 0) loadAudit()" x-text="showAudit ? 'collapse' : 'expand'"></button>
+    </div>
+    {{template "jobs_audit_log" .}}
+  </div>
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script defer src="/static/js/pages/jobs.js"></script>
+{{end}}

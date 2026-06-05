@@ -8,15 +8,15 @@ import (
 
 func TestEmbed_FindsTemplatesAndStatic(t *testing.T) {
 	checks := []string{
-		"templates/layout.html",
-		"templates/dashboard.html",
-		"templates/project_overview.html",
-		"templates/project_findings.html",
-		"templates/project_chats.html",
-		"templates/project_history.html",
-		"templates/settings.html",
-		"templates/logs.html",
-		"templates/providers.html",
+		"templates/layouts/layout.html",
+		"templates/pages/dashboard.html",
+		"templates/pages/projects/overview.html",
+		"templates/pages/projects/findings.html",
+		"templates/pages/projects/chats.html",
+		"templates/pages/projects/history.html",
+		"templates/pages/settings.html",
+		"templates/pages/logs.html",
+		"templates/pages/providers.html",
 		"static/favicon.svg",
 		"static/js/app.js",
 		"static/js/dashboard.js",
@@ -47,5 +47,32 @@ func TestEmbed_DreamerCSSHasVergeTokens(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte("--canvas-black")) {
 		t.Fatal("dreamer.css: missing --canvas-black token")
+	}
+}
+
+// TestParsePageTemplate_AllPages verifies that every page registered in
+// initTemplates parses without error from the embedded FS. A syntax error in
+// any layout, partial, or page template will fail this test.
+func TestParsePageTemplate_AllPages(t *testing.T) {
+	pages := []string{
+		"dashboard",
+		"jobs",
+		"job_detail",
+		"settings",
+		"logs",
+		"providers",
+		"projects/overview",
+		"projects/findings",
+		"projects/chats",
+		"projects/history",
+	}
+	for _, page := range pages {
+		page := page
+		t.Run(page, func(t *testing.T) {
+			_, err := parsePageTemplate(assets, page)
+			if err != nil {
+				t.Errorf("parsePageTemplate(%q) failed: %v", page, err)
+			}
+		})
 	}
 }

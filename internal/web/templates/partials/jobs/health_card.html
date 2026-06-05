@@ -1,0 +1,19 @@
+{{define "jobs_health_card"}}
+<div class="card" style="margin-bottom: var(--space-4);">
+  <div class="kicker">system health</div>
+  <div style="display: flex; gap: var(--space-5); flex-wrap: wrap; margin-top: var(--space-3);">
+    <div>
+      <span class="label-mono">scheduling:</span>
+      <span class="pill" :class="health?.scheduling_available ? 'pill--healthy' : 'pill--warn'" x-text="health?.scheduling_available ? 'available' : 'unavailable'"></span>
+    </div>
+    <div>
+      <span class="label-mono">total jobs:</span>
+      <span x-text="health?.total_jobs ?? 0"></span>
+    </div>
+    <div>
+      <span class="label-mono">enabled:</span>
+      <span x-text="health?.enabled_jobs ?? 0"></span>
+    </div>
+  </div>
+</div>
+{{end}}

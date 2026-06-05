@@ -1,0 +1,19 @@
+{{define "shared_head"}}
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{.CSRFToken}}">
+  <title>dreamer</title>
+  <script>
+    (function() {
+      var t = localStorage.getItem("dreamer-theme");
+      if (t === "light" || t === "dark") {
+        document.documentElement.setAttribute("data-theme", t);
+      }
+    })();
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/css/dreamer.css">
+  {{block "styles" .}}{{end}}
+</head>
+{{end}}

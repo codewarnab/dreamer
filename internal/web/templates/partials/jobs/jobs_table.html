@@ -1,0 +1,52 @@
+{{define "jobs_table"}}
+<!-- Table shown when jobs exist -->
+<div x-show="jobs.length > 0" style="margin-top: var(--space-3); overflow-x: auto;">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>name</th>
+        <th>provider</th>
+        <th>schedule</th>
+        <th>next run</th>
+        <th>status</th>
+        <th>runs</th>
+        <th>actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <template x-for="job in jobs" :key="job.id">
+        <tr>
+          <td><a :href="'/jobs/' + job.id" x-text="job.name" style="color: var(--text-primary); font-weight: 600;"></a></td>
+          <td x-text="job.provider_id" style="font-family: var(--font-mono); font-size: 13px;"></td>
+          <td x-text="job.schedule_summary || '—'"></td>
+          <td x-text="job.next_run_at ? new Date(job.next_run_at).toLocaleString() : '—'"></td>
+          <td>
+            <span class="pill" :class="statusPill(job).class" x-text="statusPill(job).label"></span>
+          </td>
+          <td x-text="job.run_count" style="font-family: var(--font-mono);"></td>
+          <td>
+            <div style="display: flex; gap: var(--space-2);">
+              <button class="btn btn--ghost" @click="runNow(job.id)" title="Run now" style="padding: var(--space-1) var(--space-3);">&#9654;</button>
+              <button class="btn btn--ghost" @click="job.enabled ? pauseJob(job.id) : resumeJob(job.id)" style="padding: var(--space-1) var(--space-3);" x-text="job.enabled ? 'pause' : 'resume'"></button>
+              <button class="btn btn--ghost" @click="deleteJob(job.id)" title="Delete" style="color: var(--color-error); padding: var(--space-1) var(--space-2);">&times;</button>
+            </div>
+          </td>
+        </tr>
+      </template>
+    </tbody>
+  </table>
+</div>
+
+<!-- Empty state panel -->
+<div x-show="jobs.length === 0" style="display: grid; place-items: center; min-height: 220px; padding: var(--space-6) var(--space-4);">
+  <div style="display: flex; flex-direction: column; align-items: center; gap: var(--space-3); width: min(100%, 520px); text-align: center;">
+    <h3 class="headline-md" style="font-size: 20px; line-height: 1.2;">No background jobs configured</h3>
+    <p class="body" style="color: var(--text-secondary); max-width: 45ch; font-size: 14px; line-height: 1.55; margin: 0;">
+      Automate periodic natural-language analyses, mistake scans, and code quality audits across your projects.
+    </p>
+    <button class="btn btn--primary" style="margin-top: var(--space-1);" @click="showCreate = true; document.getElementById('job-prompt')?.focus();">
+      + configure your first job
+    </button>
+  </div>
+</div>
+{{end}}

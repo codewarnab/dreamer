@@ -1,0 +1,176 @@
+  /* Inactive state for filter buttons. */
+  .pill--inactive {
+    background: var(--bg-translucent-hover);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+  }
+  .pill--inactive:hover {
+    background: var(--bg-translucent-badge);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  /* Log Console Container Grid */
+  .log-console {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  /* Compact grid row styling for logs */
+  .log-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: 3px var(--space-4);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    border-bottom: 1px solid var(--border-subtle);
+    border-left: 3px solid transparent;
+  }
+  .log-row:hover {
+    background-color: var(--bg-translucent-hover);
+  }
+
+  /* Severity row borders for quick visual structure scanning */
+  .log-row--info { border-left-color: var(--border-mint-badge); }
+  .log-row--warn { border-left-color: var(--color-warn); background: var(--bg-warn-subtle); }
+  .log-row--error { border-left-color: var(--color-error); background: var(--bg-error-subtle); }
+  .log-row--debug { border-left-color: rgba(184, 77, 255, 0.15); }
+
+  /* Structured Columns */
+  .log-col-time {
+    color: var(--text-secondary);
+    opacity: 0.6;
+    font-size: 11px;
+    user-select: none;
+    flex-shrink: 0;
+    width: 56px;
+    margin-top: 1px;
+  }
+
+  .log-col-msg {
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+  
+  /* Colorized messages for quick highlighting of alerts */
+  .log-row--warn .log-col-msg { color: var(--log-text-warn); }
+  .log-row--error .log-col-msg { color: var(--log-text-error); }
+  .log-row--debug .log-col-msg { color: var(--text-secondary); opacity: 0.8; }
+  
+  /* Fallback monospaced styling for unstructured raw stack trace blocks */
+  .log-col-msg--unstructured {
+    color: var(--text-secondary);
+    white-space: pre;
+    font-size: 11.5px;
+    font-family: var(--font-mono);
+  }
+
+  /* Attributes wrap-tags */
+  .log-col-attrs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    max-width: 40%;
+    justify-content: flex-end;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .log-attr-tag {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-translucent-hover);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 1.3;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .log-attr-tag:hover {
+    background: var(--bg-translucent-badge);
+    border-color: var(--border-translucent-badge);
+  }
+  .log-attr-key {
+    color: var(--focus-cyan);
+    font-weight: 500;
+  }
+  .log-attr-divider {
+    color: var(--text-secondary);
+    opacity: 0.4;
+    margin: 0 1px;
+  }
+  .log-attr-val {
+    color: var(--text-secondary);
+  }
+
+  /* Level Capsule Badges */
+  .log-level-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-radius: 3px;
+    padding: 0px 4px;
+    line-height: 1.3;
+    width: 44px;
+    text-align: center;
+    user-select: none;
+    margin-top: 1px;
+  }
+  .log-level-badge--info {
+    color: var(--jelly-mint);
+    background: var(--bg-mint-badge);
+    border: 1px solid var(--border-mint-badge);
+  }
+  .log-level-badge--warn {
+    color: var(--color-warn);
+    background: var(--bg-warn-badge);
+    border: 1px solid var(--border-warn-badge);
+  }
+  .log-level-badge--error {
+    color: var(--color-error);
+    background: var(--bg-error-subtle);
+    border: 1px solid var(--border-error-subtle);
+  }
+  .log-level-badge--debug {
+    color: #b84dff;
+    background: rgba(184, 77, 255, 0.1);
+    border: 1px solid rgba(184, 77, 255, 0.2);
+  }
+
+  /* Search matching highlight */
+  .log-search-highlight {
+    background-color: var(--log-highlight-bg);
+    color: var(--log-highlight-text);
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+
+  /* custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--bg-translucent-badge);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--border-translucent-badge);
+  }

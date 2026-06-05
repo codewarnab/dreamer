@@ -1,0 +1,33 @@
+{{define "content"}}
+<section x-data="jobDetailPage('{{.Extra.JobID}}')" x-init="load()">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">background job</span>
+    <h1 class="headline-lg" x-text="job?.name || 'loading...'"></h1>
+    <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
+      <button class="btn btn--primary" @click="runNow()" :disabled="running" x-text="running ? 'running...' : 'run now'"></button>
+      <button class="btn btn--ghost" x-show="job?.enabled" @click="pauseJob()">pause</button>
+      <button class="btn btn--ghost" x-show="!job?.enabled" @click="resumeJob()">resume</button>
+      <button class="btn btn--ghost" x-show="job" @click="openEditModal()">edit</button>
+      <button class="btn btn--ghost" @click="deleteJob()" style="color: var(--color-error);">delete</button>
+    </div>
+  </header>
+
+  <!-- Details & Health cards -->
+  {{template "jobs_detail_card" .}}
+
+  <!-- Security and Permissions Card -->
+  {{template "jobs_permissions_card" .}}
+
+  <!-- Run history table -->
+  {{template "jobs_run_history" .}}
+
+  <div x-show="error" style="color: var(--color-error); margin-top: var(--space-3);" x-text="error"></div>
+
+  <!-- Edit Modal Overlay -->
+  {{template "jobs_edit_modal" .}}
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script defer src="/static/js/pages/job_detail.js"></script>
+{{end}}

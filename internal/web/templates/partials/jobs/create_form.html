@@ -1,0 +1,86 @@
+{{define "jobs_create_form"}}
+<div style="display: flex; flex-direction: column; gap: var(--space-3);">
+  <div>
+    <label class="label-mono" for="job-prompt">prompt</label>
+    <textarea class="input" id="job-prompt" rows="4" x-model="form.prompt" placeholder="What should the job do?" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);"></textarea>
+  </div>
+  <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 200px;">
+      <label class="label-mono" for="job-project">project</label>
+      <select class="input" id="job-project" x-model="form.project_name" style="display: block; margin-top: var(--space-2); width: 100%;">
+        <option value="">(default)</option>
+        <template x-for="p in projects" :key="p">
+          <option :value="p" x-text="p"></option>
+        </template>
+      </select>
+    </div>
+    <div style="flex: 1; min-width: 200px;">
+      <label class="label-mono" for="job-provider">provider</label>
+      <select class="input" id="job-provider" x-model="form.provider_id" style="display: block; margin-top: var(--space-2); width: 100%;">
+        <template x-for="p in providers" :key="p.id">
+          <option :value="p.id" x-text="p.display_name"></option>
+        </template>
+      </select>
+    </div>
+  </div>
+  <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 200px;">
+      <label class="label-mono" for="job-model">model (optional)</label>
+      <input class="input" id="job-model" type="text" x-model="form.model" placeholder="e.g. gpt-4o, claude-3-5-sonnet" style="display: block; margin-top: var(--space-2); width: 100%;">
+    </div>
+    <div style="flex: 1; min-width: 200px;">
+      <label class="label-mono" for="job-file-access">file access</label>
+      <select class="input" id="job-file-access" x-model="form.file_access" style="display: block; margin-top: var(--space-2); width: 100%;">
+        <option value="read_only">read_only</option>
+        <option value="selected_writes">selected_writes</option>
+        <option value="full_workspace">full_workspace</option>
+      </select>
+    </div>
+  </div>
+  <div x-show="form.file_access === 'selected_writes'">
+    <label class="label-mono" for="job-writable-paths">writable paths (comma-separated)</label>
+    <input class="input" id="job-writable-paths" type="text" x-model="form.writable_paths" placeholder="e.g. src/output, logs/summary.json" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+  </div>
+  <div>
+    <label class="label-mono">schedule</label>
+    <div style="display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap;">
+      <button class="btn" :class="form.schedule_kind === 'hourly' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'hourly'">hourly</button>
+      <button class="btn" :class="form.schedule_kind === 'daily' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'daily'">daily</button>
+      <button class="btn" :class="form.schedule_kind === 'weekly' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'weekly'">weekly</button>
+      <button class="btn" :class="form.schedule_kind === 'cron' ? 'btn--primary' : 'btn--ghost'" @click="form.schedule_kind = 'cron'">cron</button>
+    </div>
+  </div>
+  <div x-show="form.schedule_kind === 'daily' || form.schedule_kind === 'weekly'" style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+    <div x-show="form.schedule_kind === 'weekly'">
+      <label class="label-mono" for="job-day">day of week</label>
+      <select class="input" id="job-day" x-model="form.day_of_week" style="display: block; margin-top: var(--space-2);">
+        <option value="monday">monday</option>
+        <option value="tuesday">tuesday</option>
+        <option value="wednesday">wednesday</option>
+        <option value="thursday">thursday</option>
+        <option value="friday">friday</option>
+        <option value="saturday">saturday</option>
+        <option value="sunday">sunday</option>
+      </select>
+    </div>
+    <div>
+      <label class="label-mono" for="job-time">time of day</label>
+      <input class="input" id="job-time" type="time" x-model="form.time_of_day" style="display: block; margin-top: var(--space-2);">
+    </div>
+  </div>
+  <div x-show="form.schedule_kind === 'cron'">
+    <label class="label-mono" for="job-cron">cron expression</label>
+    <input class="input" id="job-cron" type="text" x-model="form.cron" placeholder="*/30 * * * *" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+    <small style="color: var(--color-warn); display: block; margin-top: var(--space-1); font-size: 11px;">⚠️ Cron schedules are not supported on Windows locally (use hourly, daily, or weekly instead).</small>
+  </div>
+  <div>
+    <label class="label-mono" for="job-name">name (optional)</label>
+    <input class="input" id="job-name" type="text" x-model="form.name" placeholder="auto-generated from prompt" style="display: block; margin-top: var(--space-2); width: 100%;">
+  </div>
+  <div style="display: flex; gap: var(--space-3); align-items: center;">
+    <button class="btn btn--ghost" @click="previewJob()" :disabled="loading">preview</button>
+    <button class="btn btn--primary" @click="createJob()" :disabled="loading" x-text="loading ? 'creating...' : 'create'"></button>
+    <span x-show="error" x-text="error" style="color: var(--color-error);"></span>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "settings_nav"}}
+<nav class="settings-nav" role="tablist" aria-label="Settings categories" @keydown.arrow-down.prevent="cycleSection(1)" @keydown.arrow-up.prevent="cycleSection(-1)">
+  <template x-for="section in navSections" :key="section.id">
+    <button class="settings-tab-btn" role="tab" :aria-selected="String(activeSection === section.id)" :class="activeSection === section.id ? 'active' : ''" @click="selectSection(section.id)">
+      <span x-text="section.label"></span>
+      <span class="settings-tab-side">
+        <span class="settings-tab-meta" x-show="section.meta" x-text="section.meta"></span>
+        <span class="settings-tab-dot" x-show="isDirty(section.id)" title="unsaved changes"></span>
+      </span>
+    </button>
+  </template>
+</nav>
+{{end}}
