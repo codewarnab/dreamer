@@ -1,61 +1,43 @@
 {{define "content"}}
 <style>
-  /* Premium Settings CSS Layout & Animations */
-  .settings-container {
+  .settings-shell {
     display: grid;
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 220px minmax(0, 1fr);
     gap: var(--space-5);
     align-items: start;
-    margin-top: var(--space-4);
-  }
-  
-  @media (max-width: 768px) {
-    .settings-container {
-      grid-template-columns: 1fr;
-    }
+    margin-top: var(--space-5);
   }
 
   .settings-nav {
+    position: sticky;
+    top: var(--space-5);
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--space-1);
     background: var(--surface-1);
     border: var(--hairline);
     border-radius: var(--radius-lg);
     padding: var(--space-3);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-  }
-
-  @media (max-width: 768px) {
-    .settings-nav {
-      flex-direction: row;
-      overflow-x: auto;
-      white-space: nowrap;
-      padding: var(--space-2);
-    }
   }
 
   .settings-tab-btn {
+    width: 100%;
+    min-height: 44px;
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid transparent;
     border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
     font-family: var(--font-mono);
     font-size: 11px;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    background: transparent;
-    border: none;
-    cursor: pointer;
+    letter-spacing: 1.1px;
     text-align: left;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .settings-tab-btn svg {
-    opacity: 0.6;
-    transition: opacity 0.2s;
+    text-transform: uppercase;
   }
 
   .settings-tab-btn:hover {
@@ -63,31 +45,38 @@
     background: var(--bg-translucent-hover);
   }
 
-  .settings-tab-btn:hover svg {
-    opacity: 1;
-  }
-
   .settings-tab-btn.active {
-    color: var(--jelly-mint);
-    background: var(--bg-active-tab);
-    border-left: 2px solid var(--jelly-mint);
-    padding-left: calc(var(--space-4) - 2px);
-    box-shadow: inset 4px 0 12px var(--shadow-active-tab);
+    color: var(--text-inverted);
+    background: var(--jelly-mint);
+    border-color: var(--jelly-mint);
   }
 
-  .settings-tab-btn.active svg {
-    opacity: 1;
-    color: var(--jelly-mint);
-    filter: drop-shadow(0 0 4px rgba(60, 255, 208, 0.4));
+  .settings-tab-btn.active .settings-tab-meta {
+    color: var(--text-inverted);
+    opacity: 0.75;
   }
 
-  @media (max-width: 768px) {
-    .settings-tab-btn.active {
-      border-left: none;
-      border-bottom: 2px solid var(--jelly-mint);
-      padding-left: var(--space-4);
-      padding-bottom: calc(var(--space-3) - 2px);
-    }
+  .settings-tab-meta {
+    color: var(--text-secondary);
+    font-size: 9px;
+  }
+
+  .settings-tab-side {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .settings-tab-dot {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-warn);
+  }
+
+  .settings-tab-btn.active .settings-tab-dot {
+    background: var(--text-inverted);
   }
 
   .settings-panel {
@@ -95,188 +84,267 @@
     border: var(--hairline);
     border-radius: var(--radius-lg);
     padding: var(--space-5);
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.25);
-    min-height: 440px;
+  }
+
+  .settings-panel-header {
     display: flex;
-    flex-direction: column;
     justify-content: space-between;
-    animation: settings-fade-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .panel-header {
+    gap: var(--space-4);
     border-bottom: 1px solid var(--border-subtle);
-    padding-bottom: var(--space-3);
+    padding-bottom: var(--space-4);
     margin-bottom: var(--space-4);
   }
 
-  .panel-header h2 {
-    font-family: var(--font-body);
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text-primary);
-    text-transform: capitalize;
+  .settings-panel-title {
+    font-size: 22px;
+    line-height: 1.1;
   }
 
-  .panel-header p {
-    font-size: 13px;
+  .settings-panel-copy {
+    max-width: 62ch;
     color: var(--text-secondary);
-    margin: var(--space-1) 0 0 0;
+    font-size: 13px;
+    line-height: 1.55;
+    margin-top: var(--space-1);
   }
 
-  .form-group {
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  .settings-grid--wide {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-translucent-card);
+    padding: var(--space-4);
+  }
+
+  .settings-card--accent {
+    border-color: var(--border-mint-subtle);
+    background: var(--bg-mint-subtle);
+  }
+
+  .settings-card-title {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    align-items: center;
+    margin-bottom: var(--space-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1.1px;
+    text-transform: uppercase;
+  }
+
+  .setting-field {
     margin-bottom: var(--space-4);
   }
 
-  .form-label-row {
+  .setting-field:last-child {
+    margin-bottom: 0;
+  }
+
+  .setting-label-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: var(--space-2);
-    flex-wrap: wrap;
     gap: var(--space-2);
+    margin-bottom: var(--space-2);
   }
 
-  .form-label-title {
+  .setting-label {
+    color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 1px;
     text-transform: uppercase;
-    color: var(--text-primary);
   }
 
-  .form-label-key {
+  .setting-key {
+    color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: 10px;
+    opacity: 0.72;
+  }
+
+  .setting-help {
     color: var(--text-secondary);
-    opacity: 0.7;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: var(--space-2) 0 0;
   }
 
-  .input-wrapper {
+  .setting-help code,
+  .settings-note code {
+    color: var(--jelly-mint);
+    background: var(--bg-mint-code);
+    border-radius: var(--radius-sm);
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .select-wrap {
     position: relative;
-    display: flex;
-    flex-direction: column;
   }
 
-
-
-  .select-chevron {
+  .select-wrap::after {
+    content: "";
     position: absolute;
     right: 16px;
     top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-secondary);
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--text-secondary);
+    border-bottom: 2px solid var(--text-secondary);
+    transform: translateY(-65%) rotate(45deg);
     pointer-events: none;
-    opacity: 0.6;
-    transition: opacity 0.2s;
   }
 
-  .input-wrapper:hover .select-chevron {
-    opacity: 1;
+  .setting-check {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    min-height: 44px;
+    padding: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--canvas-black);
+    cursor: pointer;
   }
 
-  .input-help {
-    font-size: 13px;
+  .setting-check input {
+    margin-top: 3px;
+  }
+
+  .setting-check strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+
+  .setting-check span {
+    display: block;
     color: var(--text-secondary);
-    margin-top: var(--space-2);
-    line-height: 1.5;
-  }
-
-  .input-help code {
-    font-family: var(--font-mono);
     font-size: 12px;
-    color: var(--jelly-mint);
-    background: var(--bg-mint-code);
-    padding: 1px 5px;
-    border-radius: var(--radius-sm);
+    line-height: 1.45;
+    margin-top: 2px;
   }
 
-  .duration-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .provider-choice {
+    min-height: 76px;
+    padding: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--canvas-black);
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .provider-choice:hover {
+    border-color: var(--jelly-mint);
+  }
+
+  .provider-choice.active {
+    border-color: var(--jelly-mint);
+    background: var(--bg-mint-subtle);
+  }
+
+  .provider-choice-name {
+    display: block;
     font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.5px;
+    font-size: 11px;
+    letter-spacing: 1px;
     text-transform: uppercase;
-    background: var(--bg-mint-badge);
-    color: var(--jelly-mint);
-    border: 1px solid var(--border-mint-badge);
-    padding: var(--space-1) var(--space-2);
-    border-radius: var(--radius-sm);
+  }
+
+  .provider-choice-meta {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
     margin-top: var(--space-2);
-    align-self: flex-start;
+    color: var(--text-secondary);
+    font-size: 12px;
   }
 
-  .badge-restart {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    background: var(--bg-warn-badge);
-    color: var(--color-warn);
-    border: 1px solid var(--border-warn-badge);
-    padding: 2px 6px;
-    border-radius: var(--radius-sm);
+  .settings-metric-row {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .settings-metric-row strong {
+    color: var(--text-primary);
+  }
+
+  .settings-note {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    border: 1px solid var(--border-warn-card);
+    border-radius: var(--radius-md);
+    background: var(--bg-warn-card);
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+
+  .settings-note strong {
+    color: var(--text-primary);
   }
 
   .settings-badge {
-    display: inline-block;
-    font-family: var(--font-mono);
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
     border-radius: var(--radius-sm);
+    padding: 1px 7px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.7px;
     text-transform: uppercase;
-    font-weight: 700;
   }
+
   .settings-badge--warn {
     background: var(--bg-warn-badge);
-    color: var(--color-warn);
     border: 1px solid var(--border-warn-badge);
+    color: var(--color-warn);
   }
 
-  .regex-helper-box {
-    background: var(--bg-translucent-subtle);
-    border: 1px dashed var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: var(--space-3) var(--space-4);
-    margin-top: var(--space-3);
-  }
-
-  .regex-helper-box h4 {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-primary);
-    margin-bottom: var(--space-2);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-
-  .regex-helper-box ul {
-    margin: 0;
-    padding-left: var(--space-4);
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.6;
-  }
-
-  .regex-helper-box code {
-    font-family: var(--font-mono);
+  .settings-badge--mint {
+    background: var(--bg-mint-badge);
+    border: 1px solid var(--border-mint-badge);
     color: var(--jelly-mint);
   }
 
   .btn-reset {
     background: transparent;
     border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
+    cursor: pointer;
     font-family: var(--font-mono);
     font-size: 9px;
     letter-spacing: 0.5px;
-    text-transform: uppercase;
     padding: 2px 6px;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: all 0.2s;
+    text-transform: uppercase;
   }
 
   .btn-reset:hover {
@@ -286,13 +354,59 @@
   }
 
   .settings-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
     display: flex;
-    justify-content: flex-start;
     align-items: center;
-    gap: var(--space-4);
-    margin-top: var(--space-6);
-    padding-top: var(--space-4);
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    background: var(--surface-1);
     border-top: 1px solid var(--border-subtle);
+    margin-top: var(--space-5);
+    padding: var(--space-4) 0;
+  }
+
+  .settings-footer-hint {
+    color: var(--color-warn);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+  }
+
+  .settings-footer-hint--error {
+    color: var(--color-error);
+  }
+
+  .input-reveal {
+    position: relative;
+  }
+
+  .input-reveal .input-styled {
+    padding-right: 64px;
+  }
+
+  .btn-reveal {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    text-transform: uppercase;
+  }
+
+  .btn-reveal:hover {
+    border-color: var(--jelly-mint);
+    color: var(--text-primary);
   }
 
   .status-message {
@@ -303,7 +417,6 @@
     font-size: 12px;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    animation: settings-slide-up 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .status-message.success {
@@ -319,440 +432,628 @@
     height: 6px;
     border-radius: 50%;
     background: currentColor;
-    box-shadow: 0 0 8px currentColor;
   }
 
-  .restart-alert-card {
-    background: var(--bg-warn-card);
-    border: 1px solid var(--border-warn-card);
-    border-radius: var(--radius-md);
-    padding: var(--space-3) var(--space-4);
-    margin-bottom: var(--space-4);
-    display: flex;
-    align-items: flex-start;
+  .rule-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: var(--space-3);
   }
 
-  .restart-alert-card svg {
-    color: var(--color-warn);
-    flex-shrink: 0;
-    margin-top: 2px;
+  .rule-card {
+    display: grid;
+    gap: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--canvas-black);
+    padding: var(--space-3);
   }
 
-  .restart-alert-card p {
+  .regex-helper-box {
+    background: var(--bg-translucent-subtle);
+    border: 1px dashed var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin-top: var(--space-3);
+  }
+
+  .regex-helper-box h4 {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    margin-bottom: var(--space-2);
+    text-transform: uppercase;
+  }
+
+  .regex-helper-box ul {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.6;
     margin: 0;
-    font-size: 13px;
-    color: var(--text-muted);
-    line-height: 1.5;
+    padding-left: var(--space-4);
   }
 
-  @keyframes settings-fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
+  .regex-helper-box code {
+    color: var(--jelly-mint);
+    font-family: var(--font-mono);
   }
 
-  @keyframes settings-slide-up {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+  @media (max-width: 980px) {
+    .settings-shell {
+      grid-template-columns: 1fr;
+    }
+
+    .settings-nav {
+      position: static;
+      flex-direction: row;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .settings-tab-btn {
+      width: auto;
+      flex: 0 0 auto;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .settings-panel {
+      padding: var(--space-4);
+    }
+
+    .settings-panel-header {
+      flex-direction: column;
+    }
   }
 </style>
 
-<section x-data="settingsPage()" x-init="load()">
-  <header style="margin-bottom: var(--space-4);">
-    <span class="kicker">configuration</span>
+<section x-data="settingsPage()" x-init="load()" @keydown.ctrl.s.window.prevent="save(activeSection)">
+  <header>
+    <span class="kicker">preferences</span>
     <h1 class="headline-lg">settings</h1>
-    <p class="body" style="color: var(--text-secondary); max-width: 60ch; margin-top: var(--space-1);">
-      Writes land in <code>ui-overrides.yaml</code>; the primary <code>config.yaml</code> remains untouched.
+    <p class="body" style="color: var(--text-secondary); max-width: 68ch; margin-top: var(--space-1);">
+      Your changes are saved as personal dashboard preferences, so your original setup stays easy to recover.
     </p>
   </header>
 
-  <div x-show="loadError" class="banner banner--error" role="alert" x-text="loadError" style="margin-bottom: var(--space-4); border-radius: var(--radius-md);"></div>
+  <div x-show="loadError" class="banner banner--error" role="alert" x-text="loadError" style="margin-top: var(--space-4); border-radius: var(--radius-md);"></div>
 
-  <div class="settings-container">
-    <!-- Left Navigation Tabs -->
-    <nav class="settings-nav" aria-label="Settings Categories">
-      <button class="settings-tab-btn" :class="activeSection === 'general' ? 'active' : ''" @click="activeSection = 'general'">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        general
-      </button>
-      <button class="settings-tab-btn" :class="activeSection === 'daemon' ? 'active' : ''" @click="activeSection = 'daemon'">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-        daemon
-      </button>
-      <button class="settings-tab-btn" :class="activeSection === 'analyzer' ? 'active' : ''" @click="activeSection = 'analyzer'">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        analyzer
-      </button>
-      <button class="settings-tab-btn" :class="activeSection === 'logging' ? 'active' : ''" @click="activeSection = 'logging'">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-        logging
-      </button>
-      <button class="settings-tab-btn" :class="activeSection === 'redaction' ? 'active' : ''" @click="activeSection = 'redaction'">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-        redaction
-      </button>
-      <button class="settings-tab-btn" :class="activeSection === 'web' ? 'active' : ''" @click="activeSection = 'web'">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-        web
-        <span class="settings-badge settings-badge--warn" style="font-size: 8px; padding: 1px 4px; margin-left: auto;">restart</span>
-      </button>
+  <div class="settings-shell">
+    <nav class="settings-nav" role="tablist" aria-label="Settings categories" @keydown.arrow-down.prevent="cycleSection(1)" @keydown.arrow-up.prevent="cycleSection(-1)">
+      <template x-for="section in navSections" :key="section.id">
+        <button class="settings-tab-btn" role="tab" :aria-selected="String(activeSection === section.id)" :class="activeSection === section.id ? 'active' : ''" @click="selectSection(section.id)">
+          <span x-text="section.label"></span>
+          <span class="settings-tab-side">
+            <span class="settings-tab-meta" x-show="section.meta" x-text="section.meta"></span>
+            <span class="settings-tab-dot" x-show="isDirty(section.id)" title="unsaved changes"></span>
+          </span>
+        </button>
+      </template>
     </nav>
 
-    <!-- Right Settings Panels -->
-    <div class="settings-panels-wrapper">
-      
-      <!-- GENERAL PANEL -->
-      <div class="settings-panel" x-show="activeSection === 'general'">
-        <div>
-          <div class="panel-header">
-            <h2>general settings</h2>
-            <p>Global baseline preferences for project execution.</p>
+    <div>
+      <div class="settings-panel" x-show="activeSection === 'assistant'">
+        <div class="settings-panel-header">
+          <div>
+            <h2 class="settings-panel-title">Assistant</h2>
+            <p class="settings-panel-copy">Choose the agent Dreamer uses by default, then tune the model and provider safety settings that matter during analysis runs.</p>
+          </div>
+          <span class="settings-badge settings-badge--mint">default route</span>
+        </div>
+
+        <div class="settings-grid settings-grid--wide">
+          <div class="settings-card settings-card--accent">
+            <div class="settings-card-title">
+              <span>default assistant</span>
+              <button class="btn-reset" @click="resetField('assistant', 'default_provider', 'openclaude-cli')">baseline</button>
+            </div>
+            <div class="provider-grid">
+              <template x-for="providerID in providerOptions" :key="providerID">
+                <button type="button" class="provider-choice" :class="values.assistant.default_provider === providerID ? 'active' : ''" @click="selectProvider(providerID)">
+                  <span class="provider-choice-name" x-text="providerID"></span>
+                  <span class="provider-choice-meta">
+                    <span x-text="providerHealth(providerID).healthy ? 'healthy' : providerHealth(providerID).runs ? 'has history' : 'not run yet'"></span>
+                    <span x-show="providerHealth(providerID).failures">failures: <strong x-text="providerHealth(providerID).failures"></strong></span>
+                  </span>
+                </button>
+              </template>
+            </div>
+            <p class="setting-help">Used when a project does not choose its own assistant.</p>
           </div>
 
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">default provider</span>
-              <span class="form-label-key">default_provider</span>
-              <button class="btn-reset" @click="resetField('general', 'default_provider', 'openclaude-cli')">Use Baseline Default</button>
-            </div>
-            <div class="input-wrapper">
-              <select class="input-styled select-styled" id="general-default_provider" x-model="values.general.default_provider">
-                <option value="">-- select provider --</option>
-                <template x-for="p in providerOptions" :key="p">
-                  <option :value="p" x-text="p"></option>
-                </template>
-              </select>
-              <!-- Arrow Icon -->
-              <div class="select-chevron">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <div class="settings-grid" x-show="selectedProviderID()">
+            <div class="settings-card">
+              <div class="settings-card-title">
+                <span>model and limits</span>
+                <span class="settings-badge settings-badge--mint" x-text="selectedProviderID()"></span>
+              </div>
+              <div class="setting-field">
+                <div class="setting-label-row">
+                  <span class="setting-label">model</span>
+                  <span class="setting-key">providers.*.model</span>
+                </div>
+                <input class="input-styled" type="text" list="provider-model-options" x-model="values.providers[selectedProviderID()].model" placeholder="auto"/>
+                <datalist id="provider-model-options">
+                  <template x-for="model in modelOptions(selectedProviderID())" :key="model">
+                    <option :value="model"></option>
+                  </template>
+                </datalist>
+                <p class="setting-help">Pick a known model or enter a provider-specific model name.</p>
+              </div>
+              <div class="setting-field">
+                <div class="setting-label-row">
+                  <span class="setting-label">max input tokens</span>
+                  <span class="setting-key">max_input_tokens</span>
+                </div>
+                <input class="input-styled" type="number" x-model="values.providers[selectedProviderID()].max_input_tokens" placeholder="provider default"/>
+                <p class="setting-help">Optional cap for very large transcripts.</p>
               </div>
             </div>
-            <p class="input-help">
-              The fall-back provider used to run AI scans when a project doesn't define its own. Loaded providers are detected automatically from active backend models.
-            </p>
 
-            <!-- Dynamic Provider Health & Status Card -->
-            <template x-if="getSelectedProviderInfo()">
-              <div style="margin-top: var(--space-3); background: var(--bg-translucent-card); border: 1px solid var(--border-translucent-card); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; color: var(--text-secondary);">Provider Health Profile</span>
-                  <span class="pill" :class="getSelectedProviderInfo().healthy ? 'pill--healthy' : 'pill--warn'" style="font-size: 9px; padding: 2px 8px;" x-text="getSelectedProviderInfo().healthy ? 'healthy' : 'unhealthy / stale'"></span>
-                </div>
-                <div style="font-size: 13px; color: var(--text-primary); margin-top: var(--space-1);">
-                  Active Model: <code style="color: var(--jelly-mint);" x-text="getSelectedProviderInfo().model || '—'"></code>
-                </div>
-                <div style="font-size: 12px; color: var(--text-secondary); display: flex; gap: var(--space-3); margin-top: var(--space-1);">
-                  <span>Runs Executed: <strong style="color: var(--text-primary);" x-text="getSelectedProviderInfo().runs || 0"></strong></span>
-                  <span>Tokens Consumed: <strong style="color: var(--text-primary);" x-text="getSelectedProviderInfo().total_tokens || 0"></strong></span>
-                  <span>Failures: <strong :style="getSelectedProviderInfo().failures > 0 ? 'color: var(--color-error);' : 'color: var(--text-primary);'" x-text="getSelectedProviderInfo().failures || 0"></strong></span>
-                </div>
+            <div class="settings-card">
+              <div class="settings-card-title">
+                <span>provider access</span>
               </div>
-            </template>
-          </div>
-        </div>
-
-        <div class="settings-footer">
-          <button class="btn btn--primary" @click="save('general')">save changes</button>
-          <div x-show="saved['general'] === true" class="status-message success">
-            <span class="status-dot"></span> saved successfully
-          </div>
-          <div x-show="saved['general'] === 'error'" class="status-message error">
-            <span class="status-dot"></span> failed to save settings
-          </div>
-        </div>
-      </div>
-
-      <!-- DAEMON PANEL -->
-      <div class="settings-panel" x-show="activeSection === 'daemon'">
-        <div>
-          <div class="panel-header">
-            <h2>daemon configurations</h2>
-            <p>Manage background execution cycle timing and persistent folder layouts.</p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">execution frequency</span>
-              <span class="form-label-key">frequency_seconds</span>
-              <button class="btn-reset" @click="resetField('daemon', 'frequency_seconds', 3600)">Default (1h)</button>
-            </div>
-            <div class="input-wrapper">
-              <input class="input-styled" :class="validateFields('daemon') ? 'is-invalid' : ''" id="daemon-frequency_seconds" type="number" x-model="values.daemon.frequency_seconds" placeholder="3600"/>
-            </div>
-            <div class="input-help">
-              Interval in seconds between subsequent daemon search cycles.
-            </div>
-            <div class="duration-badge" x-show="values.daemon.frequency_seconds && Number(values.daemon.frequency_seconds) > 0">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-              frequency: <span x-text="formatSeconds(values.daemon.frequency_seconds)"></span>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">output root directory</span>
-              <span class="form-label-key">output_root</span>
-            </div>
-            <div class="input-wrapper">
-              <input class="input-styled" id="daemon-output_root" type="text" x-model="values.daemon.output_root" placeholder="C:\Users\User\.gemini\antigravity"/>
-            </div>
-            <p class="input-help">
-              Absolute path where the daemon persists historical findings, state, and reports. Supports <code>~</code> expansion.
-            </p>
-          </div>
-        </div>
-
-        <div class="settings-footer">
-          <button class="btn btn--primary" @click="save('daemon')" :disabled="validateFields('daemon')">save changes</button>
-          <div x-show="saved['daemon'] === true" class="status-message success">
-            <span class="status-dot"></span> saved successfully
-          </div>
-          <div x-show="saved['daemon'] === 'error'" class="status-message error">
-            <span class="status-dot"></span> failed to save settings
-          </div>
-        </div>
-      </div>
-
-      <!-- ANALYZER PANEL -->
-      <div class="settings-panel" x-show="activeSection === 'analyzer'">
-        <div>
-          <div class="panel-header">
-            <h2>analyzer engine settings</h2>
-            <p>Control timeouts and execution parameters of the main analysis parser.</p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">rule timeout limit</span>
-              <span class="form-label-key">rule_timeout_seconds</span>
-              <button class="btn-reset" @click="resetField('analyzer', 'rule_timeout_seconds', 180)">Default (3m)</button>
-            </div>
-            <div class="input-wrapper">
-              <input class="input-styled" :class="validateFields('analyzer') ? 'is-invalid' : ''" id="analyzer-rule_timeout_seconds" type="number" x-model="values.analyzer.rule_timeout_seconds" placeholder="180"/>
-            </div>
-            <div class="input-help">
-              Per-rule timeout limit during phase-1 processing. Phase-2 runs automatically extend this ceiling by 3x.
-            </div>
-            <div class="duration-badge" x-show="values.analyzer.rule_timeout_seconds && Number(values.analyzer.rule_timeout_seconds) > 0">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-              max timeout: <span x-text="formatSeconds(values.analyzer.rule_timeout_seconds)"></span>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-footer">
-          <button class="btn btn--primary" @click="save('analyzer')" :disabled="validateFields('analyzer')">save changes</button>
-          <div x-show="saved['analyzer'] === true" class="status-message success">
-            <span class="status-dot"></span> saved successfully
-          </div>
-          <div x-show="saved['analyzer'] === 'error'" class="status-message error">
-            <span class="status-dot"></span> failed to save settings
-          </div>
-        </div>
-      </div>
-
-      <!-- LOGGING PANEL -->
-      <div class="settings-panel" x-show="activeSection === 'logging'">
-        <div>
-          <div class="panel-header">
-            <h2>system logs configuration</h2>
-            <p>Tweak verbose level, output location, and file size limits of the structured logger.</p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">log level severity</span>
-              <span class="form-label-key">level</span>
-              <button class="btn-reset" @click="resetField('logging', 'level', 'info')">Default (info)</button>
-            </div>
-            <div class="input-wrapper">
-              <select class="input-styled select-styled" id="logging-level" x-model="values.logging.level">
-                <option value="debug">debug (highly verbose)</option>
-                <option value="info">info (standard operations)</option>
-                <option value="warn">warn (potential issues)</option>
-                <option value="error">error (critical failures)</option>
-              </select>
-              <div class="select-chevron">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <div class="setting-field">
+                <div class="setting-label-row">
+                  <span class="setting-label">API key variable</span>
+                  <span class="setting-key">api_key_env</span>
+                </div>
+                <input class="input-styled" type="text" x-model="values.providers[selectedProviderID()].api_key_env" placeholder="OPENAI_API_KEY"/>
+                <p class="setting-help">Name of the environment variable that already holds the key.</p>
               </div>
+              <div class="setting-field">
+                <div class="setting-label-row">
+                  <span class="setting-label">direct key</span>
+                  <span class="setting-key">password</span>
+                </div>
+                <div class="input-reveal">
+                  <input class="input-styled" :type="revealSecret ? 'text' : 'password'" x-model="values.providers[selectedProviderID()].password" placeholder="leave blank to keep current secret"/>
+                  <button type="button" class="btn-reveal" @click="revealSecret = !revealSecret" x-text="revealSecret ? 'hide' : 'show'" :aria-pressed="String(revealSecret)"></button>
+                </div>
+                <p class="setting-help">Use only when an environment variable is not practical. Saved values are redacted when reloaded.</p>
+              </div>
+              <label class="setting-check">
+                <input type="checkbox" x-model="values.providers[selectedProviderID()].use_logged_in_user"/>
+                <span>
+                  <strong>Use my logged-in account</strong>
+                  <span>Prefer local provider login/keychain when the provider supports it.</span>
+                </span>
+              </label>
+              <label class="setting-check" style="margin-top: var(--space-3);">
+                <input type="checkbox" x-model="values.providers[selectedProviderID()].auto_start"/>
+                <span>
+                  <strong>Start provider when needed</strong>
+                  <span>Let Dreamer start the provider process on the first run.</span>
+                </span>
+              </label>
             </div>
-            <p class="input-help">
-              Filters logs matching or above this severity. Use <code>debug</code> for tracing, or <code>info</code>/<code>warn</code> for production builds.
-            </p>
-          </div>
 
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">log file location</span>
-              <span class="form-label-key">file</span>
+            <div class="settings-card">
+              <div class="settings-card-title">
+                <span>provider safety</span>
+                <span class="setting-key">sandbox</span>
+              </div>
+              <div class="select-wrap">
+                <select class="input-styled select-styled" x-model="values.providers[selectedProviderID()].sandbox">
+                  <option value="">provider default</option>
+                  <option value="auto">auto</option>
+                  <option value="true">sandbox on</option>
+                  <option value="false">sandbox off</option>
+                </select>
+              </div>
+              <p class="setting-help">Controls provider-level sandbox posture without editing command-line launch details.</p>
             </div>
-            <div class="input-wrapper">
-              <input class="input-styled" id="logging-file" type="text" x-model="values.logging.file" placeholder="dreamer.log"/>
-            </div>
-            <p class="input-help">
-              Path to log file. If left blank, logs are dumped directly to standard error output (stderr).
-            </p>
-          </div>
 
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">maximum file size (MB)</span>
-              <span class="form-label-key">max_size_mb</span>
-              <button class="btn-reset" @click="resetField('logging', 'max_size_mb', 10)">Default (10MB)</button>
-            </div>
-            <div class="input-wrapper">
-              <input class="input-styled" :class="validateFields('logging') ? 'is-invalid' : ''" id="logging-max_size_mb" type="number" x-model="values.logging.max_size_mb" placeholder="10"/>
-            </div>
-            <p class="input-help">
-              Size threshold in Megabytes before rotating logs to prevent disk clutter.
-            </p>
-          </div>
-        </div>
-
-        <div class="settings-footer">
-          <button class="btn btn--primary" @click="save('logging')" :disabled="validateFields('logging')">save changes</button>
-          <div x-show="saved['logging'] === true" class="status-message success">
-            <span class="status-dot"></span> saved successfully
-          </div>
-          <div x-show="saved['logging'] === 'error'" class="status-message error">
-            <span class="status-dot"></span> failed to save settings
-          </div>
-        </div>
-      </div>
-
-      <!-- REDACTION PANEL -->
-      <div class="settings-panel" x-show="activeSection === 'redaction'">
-        <div>
-          <div class="panel-header">
-            <h2>security & secret redaction</h2>
-            <p>Manage pattern regular expressions to filter out private keys, credentials, and API secrets.</p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">redaction regex patterns</span>
-              <span class="form-label-key">patterns</span>
-            </div>
-            <div class="input-wrapper">
-              <textarea class="input-styled input-textarea" id="redaction-patterns" rows="5" x-model="values.redaction.patterns" placeholder="(?i)bearer\s+[a-zA-Z0-9_\-\.=]+"></textarea>
-            </div>
-            <p class="input-help">
-              Add one regular expression pattern per line. Any captured or matching sequences in logs, input chunks, or subagent transcripts will be replaced with <code>[REDACTED]</code>.
-            </p>
-
-            <!-- INTERACTIVE REGEX SANDBOX PLAYGROUND -->
-            <div class="regex-helper-box" style="margin-top: var(--space-4); border-color: var(--border-mint-subtle); background: var(--bg-mint-subtle);">
-              <h4 style="color: var(--jelly-mint); display: flex; align-items: center; gap: var(--space-2); margin-top: 0;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                Interactive Redaction Simulator
-              </h4>
-              <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: var(--space-3); line-height: 1.4;">
-                Write regex patterns above and type a test log message below to simulate standard redactions in real-time:
-              </p>
-              <div style="display: grid; grid-template-columns: 1fr; gap: var(--space-3);">
+            <div class="settings-card">
+              <div class="settings-card-title">
+                <span>recent health</span>
+              </div>
+              <template x-if="getSelectedProviderInfo()">
                 <div>
-                  <label class="form-label-title" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Simulate Log / Transcript Message</label>
-                  <input class="input-styled" type="text" x-model="testString" style="padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); background: var(--surface-2);"/>
+                  <div class="settings-metric-row">
+                    <span>Runs: <strong x-text="getSelectedProviderInfo().runs || 0"></strong></span>
+                    <span>Tokens: <strong x-text="getSelectedProviderInfo().total_tokens || 0"></strong></span>
+                    <span>Failures: <strong :style="getSelectedProviderInfo().failures > 0 ? 'color: var(--color-error);' : ''" x-text="getSelectedProviderInfo().failures || 0"></strong></span>
+                    <span>Timeouts: <strong x-text="getSelectedProviderInfo().timeouts || 0"></strong></span>
+                  </div>
+                  <p class="setting-help" x-show="getSelectedProviderInfo().model">Last known model: <code x-text="getSelectedProviderInfo().model"></code></p>
+                  <p class="setting-help" x-show="getSelectedProviderInfo().last_error">Last error: <code x-text="getSelectedProviderInfo().last_error"></code></p>
                 </div>
-                <div>
-                  <label class="form-label-title" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Real-Time Redaction Output</label>
-                  <div style="border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); min-height: 38px; word-break: break-all; transition: all 0.2s;" :style="redactTest() !== testString ? 'color: var(--color-warn); border-color: var(--border-warn-subtle); background: var(--bg-warn-subtle);' : 'color: var(--text-secondary); background: var(--canvas-black);'" x-text="redactTest()"></div>
-                </div>
+              </template>
+              <p class="setting-help" x-show="!getSelectedProviderInfo()">No run history yet for this assistant.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('assistant')" :disabled="validateFields('assistant')">save assistant</button>
+          <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('assistant')" x-text="validateFields('assistant')"></span>
+          <span class="settings-footer-hint" x-show="!validateFields('assistant') && isDirty('assistant')">unsaved changes</span>
+          <div x-show="saved.assistant === true" class="status-message success"><span class="status-dot"></span> saved</div>
+          <div x-show="saved.assistant === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+        </div>
+      </div>
+
+      <div class="settings-panel" x-show="activeSection === 'scanning'">
+        <div class="settings-panel-header">
+          <div>
+            <h2 class="settings-panel-title">Scanning</h2>
+            <p class="settings-panel-copy">Control how often Dreamer scans, how much work it runs at once, and how long analysis jobs are allowed to continue.</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="settings-card-title"><span>schedule</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">scan every</span>
+                <span class="setting-key">frequency_seconds</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.daemon.frequency_seconds" placeholder="3600"/>
+              <p class="setting-help">Current interval: <code x-text="formatSeconds(values.daemon.frequency_seconds)"></code>.</p>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">analysis timeout</span>
+                <span class="setting-key">max_analysis_duration</span>
+              </div>
+              <input class="input-styled" type="text" x-model="values.daemon.max_analysis_duration" placeholder="8h"/>
+              <p class="setting-help">Maximum wall-clock time for a project analysis job.</p>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">history retention</span>
+                <span class="setting-key">job_history_retention</span>
+              </div>
+              <input class="input-styled" type="text" x-model="values.daemon.job_history_retention" placeholder="720h"/>
+              <p class="setting-help">How long completed job records stay visible.</p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title"><span>workload</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">projects at once</span>
+                <span class="setting-key">max_concurrent_jobs</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.daemon.max_concurrent_jobs" placeholder="1"/>
+              <p class="setting-help">Raise this only when your machine and providers can handle parallel project scans.</p>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">rule timeout</span>
+                <span class="setting-key">rule_timeout_seconds</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.analyzer.rule_timeout_seconds" placeholder="180"/>
+              <p class="setting-help">Per-rule timeout. Verification runs may use a larger internal ceiling.</p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title"><span>analysis mode</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">execution mode</span>
+                <span class="setting-key">execution.mode</span>
+              </div>
+              <div class="select-wrap">
+                <select class="input-styled select-styled" x-model="values.analyzer.execution.mode">
+                  <option value="sequential">steady and predictable</option>
+                  <option value="parallel">faster, more provider load</option>
+                </select>
               </div>
             </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">parallel sessions</span>
+                <span class="setting-key">max_concurrency</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.analyzer.execution.max_concurrency" placeholder="0"/>
+              <p class="setting-help">Use 0 to let Dreamer match the number of chunks.</p>
+            </div>
+            <label class="setting-check">
+              <input type="checkbox" x-model="values.analyzer.include_subagent_transcripts"/>
+              <span>
+                <strong>Include child-agent transcripts</strong>
+                <span>More complete analysis, with a larger context and token footprint.</span>
+              </span>
+            </label>
+          </div>
 
-            <div class="regex-helper-box">
-              <h4>🛡️ Recommended Pattern Formats</h4>
-              <ul>
-                <li>API Keys: <code>(?i)(api[-_]?key|token)\s*[:=]\s*[a-zA-Z0-9_\-]+</code></li>
-                <li>Private Keys: <code>-----BEGIN\s+PRIVATE\s+KEY-----[\s\S]+?-----END\s+PRIVATE\s+KEY-----</code></li>
-                <li>Generic secrets: <code>(?i)(password|passwd|secret)\s*[:=]\s*[^\s'"]+</code></li>
-              </ul>
+          <div class="settings-card">
+            <div class="settings-card-title"><span>transcript packing</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">chunk size</span>
+                <span class="setting-key">max_chunk_bytes</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.analyzer.chunking.max_chunk_bytes" placeholder="480000"/>
+              <p class="setting-help">Maximum transcript bytes sent to one provider session. Use 0 to disable chunking.</p>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">provider headroom</span>
+                <span class="setting-key">provider_boundary_headroom</span>
+              </div>
+              <input class="input-styled" type="number" step="0.01" min="0" max="0.99" x-model="values.analyzer.chunking.provider_boundary_headroom" placeholder="0.20"/>
+              <p class="setting-help">Reserve space before packing work from another provider.</p>
             </div>
           </div>
         </div>
 
         <div class="settings-footer">
-          <button class="btn btn--primary" @click="save('redaction')">save changes</button>
-          <div x-show="saved['redaction'] === true" class="status-message success">
-            <span class="status-dot"></span> saved successfully
-          </div>
-          <div x-show="saved['redaction'] === 'error'" class="status-message error">
-            <span class="status-dot"></span> failed to save settings
-          </div>
+          <button class="btn btn--primary" @click="save('scanning')" :disabled="validateFields('scanning')">save scanning</button>
+          <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('scanning')" x-text="validateFields('scanning')"></span>
+          <span class="settings-footer-hint" x-show="!validateFields('scanning') && isDirty('scanning')">unsaved changes</span>
+          <div x-show="saved.scanning === true" class="status-message success"><span class="status-dot"></span> saved</div>
+          <div x-show="saved.scanning === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
         </div>
       </div>
 
-      <!-- WEB PANEL -->
-      <div class="settings-panel" x-show="activeSection === 'web'">
-        <div>
-          <div class="panel-header">
-            <h2>web server settings</h2>
-            <p>Modify embedded dashboard HTTP parameters.</p>
+      <div class="settings-panel" x-show="activeSection === 'rules'">
+        <div class="settings-panel-header">
+          <div>
+            <h2 class="settings-panel-title">Findings & Rules</h2>
+            <p class="settings-panel-copy">Choose which kinds of findings Dreamer should look for, and how strongly each category should be treated.</p>
+          </div>
+        </div>
+
+        <div class="rule-grid">
+          <template x-for="rule in ruleCatalog" :key="rule.id">
+            <div class="rule-card">
+              <label class="setting-check">
+                <input type="checkbox" x-model="values.rules[rule.id].enabled"/>
+                <span>
+                  <strong x-text="rule.label"></strong>
+                  <span x-text="rule.description"></span>
+                </span>
+              </label>
+              <div class="select-wrap">
+                <select class="input-styled select-styled" x-model="values.rules[rule.id].severity">
+                  <option value="">default severity</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="critical">critical</option>
+                </select>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('rules')">save rules</button>
+          <span class="settings-footer-hint" x-show="isDirty('rules')">unsaved changes</span>
+          <div x-show="saved.rules === true" class="status-message success"><span class="status-dot"></span> saved</div>
+          <div x-show="saved.rules === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+        </div>
+      </div>
+
+      <div class="settings-panel" x-show="activeSection === 'safety'">
+        <div class="settings-panel-header">
+          <div>
+            <h2 class="settings-panel-title">Privacy & Safety</h2>
+            <p class="settings-panel-copy">Control redaction and the operating-system sandbox posture used around provider sessions.</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="settings-card-title"><span>redaction</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">custom secret patterns</span>
+                <span class="setting-key">redaction.patterns</span>
+              </div>
+              <textarea class="input-styled input-textarea" rows="6" x-model="values.redaction.patterns" placeholder="(?i)bearer\s+[a-zA-Z0-9_\-\.=]+"></textarea>
+              <p class="setting-help">Add one regular expression per line. Matches are replaced before logs and transcripts are analyzed.</p>
+            </div>
+            <div class="regex-helper-box" style="border-color: var(--border-mint-subtle); background: var(--bg-mint-subtle);">
+              <h4>redaction preview</h4>
+              <input class="input-styled" type="text" x-model="testString" style="font-family: var(--font-mono); background: var(--surface-2);"/>
+              <div style="margin-top: var(--space-3); border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); min-height: 38px; word-break: break-all;" :style="redactTest() !== testString ? 'color: var(--color-warn); border-color: var(--border-warn-subtle); background: var(--bg-warn-subtle);' : 'color: var(--text-secondary); background: var(--canvas-black);'" x-text="redactTest()"></div>
+            </div>
           </div>
 
-          <!-- Warning alert box -->
-          <div class="restart-alert-card">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            <p>
-              <strong>Restart required:</strong> Changes made under the Web section require restarting the daemon service to take effect.
-            </p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">host binding address</span>
-              <span class="form-label-key">host</span>
-              <button class="btn-reset" @click="resetField('web', 'host', '127.0.0.1')">Default (Localhost)</button>
+          <div class="settings-card">
+            <div class="settings-card-title"><span>sandbox posture</span></div>
+            <label class="setting-check">
+              <input type="checkbox" x-model="values.sandbox.project_write"/>
+              <span>
+                <strong>Allow provider writes in project</strong>
+                <span>Only enable when you want provider sessions to edit files during analysis.</span>
+              </span>
+            </label>
+            <div class="setting-field" style="margin-top: var(--space-4);">
+              <div class="setting-label-row">
+                <span class="setting-label">network access</span>
+                <span class="setting-key">sandbox.network</span>
+              </div>
+              <div class="select-wrap">
+                <select class="input-styled select-styled" x-model="values.sandbox.network">
+                  <option value="">default</option>
+                  <option value="none">block network</option>
+                  <option value="loopback">local only</option>
+                  <option value="full">full network</option>
+                </select>
+              </div>
             </div>
-            <div class="input-wrapper">
-              <input class="input-styled" id="web-host" type="text" x-model="values.web.host" placeholder="127.0.0.1"/>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">system call policy</span>
+                <span class="setting-key">sandbox.seccomp</span>
+              </div>
+              <div class="select-wrap">
+                <select class="input-styled select-styled" x-model="values.sandbox.seccomp">
+                  <option value="">default</option>
+                  <option value="strict">strict</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
             </div>
-            <p class="input-help">
-              Local IP address the HTTP server listens on. Only loopback connections (e.g. <code>127.0.0.1</code>, <code>localhost</code>, <code>::1</code>) are supported in v1.5.
-            </p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">web binding port</span>
-              <span class="form-label-key">port</span>
-              <button class="btn-reset" @click="resetField('web', 'port', 7777)">Default (7777)</button>
+            <div class="settings-grid">
+              <div class="setting-field">
+                <div class="setting-label-row"><span class="setting-label">memory MB</span></div>
+                <input class="input-styled" type="number" x-model="values.sandbox.resources.memory_mb" placeholder="default"/>
+              </div>
+              <div class="setting-field">
+                <div class="setting-label-row"><span class="setting-label">processes</span></div>
+                <input class="input-styled" type="number" x-model="values.sandbox.resources.processes" placeholder="default"/>
+              </div>
+              <div class="setting-field">
+                <div class="setting-label-row"><span class="setting-label">file handles</span></div>
+                <input class="input-styled" type="number" x-model="values.sandbox.resources.fds" placeholder="default"/>
+              </div>
+              <div class="setting-field">
+                <div class="setting-label-row"><span class="setting-label">SID cleanup days</span></div>
+                <input class="input-styled" type="number" x-model="values.sandbox.sid_expiry_days" placeholder="7"/>
+              </div>
             </div>
-            <div class="input-wrapper">
-              <input class="input-styled" :class="validateFields('web') ? 'is-invalid' : ''" id="web-port" type="number" x-model="values.web.port" placeholder="7777"/>
-            </div>
-            <p class="input-help">
-              Listening port (e.g., <code>7777</code>). Ensure the port is open and not occupied by other active apps.
-            </p>
-          </div>
-
-          <div class="form-group">
-            <div class="form-label-row">
-              <span class="form-label-title">log tail buffer (KB)</span>
-              <span class="form-label-key">log_tail_kb</span>
-              <button class="btn-reset" @click="resetField('web', 'log_tail_kb', 256)">Default (256KB)</button>
-            </div>
-            <div class="input-wrapper">
-              <input class="input-styled" :class="validateFields('web') ? 'is-invalid' : ''" id="web-log_tail_kb" type="number" x-model="values.web.log_tail_kb" placeholder="256"/>
-            </div>
-            <p class="input-help">
-              Maximum buffer size in kilobytes when tailing logs for display on the logs dashboard.
-            </p>
           </div>
         </div>
 
         <div class="settings-footer">
-          <button class="btn btn--primary" @click="save('web')" :disabled="validateFields('web')">save changes</button>
-          <div x-show="saved['web'] === true" class="status-message success">
-            <span class="status-dot"></span> saved successfully
-          </div>
-          <div x-show="saved['web'] === 'error'" class="status-message error">
-            <span class="status-dot"></span> failed to save settings
-          </div>
+          <button class="btn btn--primary" @click="save('safety')" :disabled="validateFields('safety')">save safety</button>
+          <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('safety')" x-text="validateFields('safety')"></span>
+          <span class="settings-footer-hint" x-show="!validateFields('safety') && isDirty('safety')">unsaved changes</span>
+          <div x-show="saved.safety === true" class="status-message success"><span class="status-dot"></span> saved</div>
+          <div x-show="saved.safety === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
         </div>
       </div>
 
+      <div class="settings-panel" x-show="activeSection === 'storage'">
+        <div class="settings-panel-header">
+          <div>
+            <h2 class="settings-panel-title">Storage & Logs</h2>
+            <p class="settings-panel-copy">Choose where Dreamer stores results and how much logging detail it keeps.</p>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="settings-card-title"><span>storage</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">results folder</span>
+                <span class="setting-key">output_root</span>
+              </div>
+              <input class="input-styled" type="text" x-model="values.daemon.output_root" placeholder="~/.config/dreamer"/>
+              <p class="setting-help">Folder for findings, state, logs, and reports. Supports <code>~</code>.</p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title"><span>logs</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">detail level</span>
+                <span class="setting-key">logging.level</span>
+              </div>
+              <div class="select-wrap">
+                <select class="input-styled select-styled" x-model="values.logging.level">
+                  <option value="debug">debug</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">log file</span>
+                <span class="setting-key">logging.file</span>
+              </div>
+              <input class="input-styled" type="text" x-model="values.logging.file" placeholder="dreamer.log"/>
+              <p class="setting-help">Leave blank to write logs to the default location.</p>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">rotate after MB</span>
+                <span class="setting-key">max_size_mb</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.logging.max_size_mb" placeholder="10"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('storage')" :disabled="validateFields('storage')">save storage</button>
+          <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('storage')" x-text="validateFields('storage')"></span>
+          <span class="settings-footer-hint" x-show="!validateFields('storage') && isDirty('storage')">unsaved changes</span>
+          <div x-show="saved.storage === true" class="status-message success"><span class="status-dot"></span> saved</div>
+          <div x-show="saved.storage === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+        </div>
+      </div>
+
+      <div class="settings-panel" x-show="activeSection === 'dashboard'">
+        <div class="settings-panel-header">
+          <div>
+            <h2 class="settings-panel-title">Dashboard</h2>
+            <p class="settings-panel-copy">Control the local web dashboard. These settings are applied after restarting the daemon.</p>
+          </div>
+          <span class="settings-badge settings-badge--warn">restart needed</span>
+        </div>
+
+        <div class="settings-note">
+          <span class="settings-badge settings-badge--warn">restart</span>
+          <span><strong>Dashboard changes take effect after a daemon restart.</strong> Saving here updates preferences now; the running server keeps its current address until restart.</span>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="settings-card-title"><span>availability</span></div>
+            <label class="setting-check">
+              <input type="checkbox" x-model="values.web.enabled"/>
+              <span>
+                <strong>Enable dashboard</strong>
+                <span>Start the local web UI with the daemon.</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title"><span>local address</span></div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">host</span>
+                <span class="setting-key">web.host</span>
+              </div>
+              <input class="input-styled" type="text" x-model="values.web.host" placeholder="127.0.0.1"/>
+              <p class="setting-help">Only loopback addresses are supported.</p>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">port</span>
+                <span class="setting-key">web.port</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.web.port" placeholder="7777"/>
+            </div>
+            <div class="setting-field">
+              <div class="setting-label-row">
+                <span class="setting-label">log preview size KB</span>
+                <span class="setting-key">log_tail_kb</span>
+              </div>
+              <input class="input-styled" type="number" x-model="values.web.log_tail_kb" placeholder="256"/>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button class="btn btn--primary" @click="save('dashboard')" :disabled="validateFields('dashboard')">save dashboard</button>
+          <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('dashboard')" x-text="validateFields('dashboard')"></span>
+          <span class="settings-footer-hint" x-show="!validateFields('dashboard') && isDirty('dashboard')">unsaved changes</span>
+          <div x-show="saved.dashboard === true" class="status-message success"><span class="status-dot"></span> saved</div>
+          <div x-show="saved.dashboard === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -760,35 +1061,120 @@
 <script>
 window.settingsPage = function () {
   return {
-    activeSection: 'general',
+    activeSection: "assistant",
+    navSections: [
+      { id: "assistant", label: "assistant", meta: "" },
+      { id: "scanning", label: "scanning", meta: "" },
+      { id: "rules", label: "rules", meta: "" },
+      { id: "safety", label: "safety", meta: "" },
+      { id: "storage", label: "storage", meta: "" },
+      { id: "dashboard", label: "dashboard", meta: "restart" },
+    ],
+    ruleCatalog: [
+      { id: "lint-rule", label: "Lint rules", description: "Policy and style issues reported by linters." },
+      { id: "test", label: "Tests", description: "Weak, missing, or theatrical test coverage." },
+      { id: "ci-check", label: "CI checks", description: "Build and pipeline risks." },
+      { id: "doc", label: "Documentation", description: "Missing or stale developer docs." },
+      { id: "config", label: "Configuration", description: "Unsafe or confusing project configuration." },
+      { id: "refactor-boundary", label: "Refactor boundaries", description: "Design seams and maintainability risks." },
+    ],
+    providerModelMap: {
+      "copilot-sdk": ["auto"],
+      "copilot-acp": ["auto"],
+      "claude-cli": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-7"],
+      "claude-acp": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"],
+      "gemini-cli": ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+      "gemini-acp": ["gemini-3-flash-preview", "gemini-2.5-flash"],
+      "kiro-acp": ["claude-sonnet-4-5-20250929"],
+      "codex-cli": ["gpt-5.4-mini", "gpt-5.3-codex"],
+      "codex-acp": ["gpt-5.4-mini"],
+      "openclaude-cli": ["mimo-v2.5-pro"],
+      "opencode-acp": ["deepseek-v4-flash"],
+      "opencode-server": ["deepseek-v4-flash"],
+      "codebuff-sdk": ["claude-opus-4-7"],
+    },
     providerOptions: [],
     providersList: [],
     testString: "my password is 'supersecret123' and api_key = sk-12a3b4c",
-    sections: [
-      { id: "general", label: "general", fields: [
-        { key: "default_provider" },
-      ]},
-      { id: "daemon", label: "daemon", fields: [
-        { key: "frequency_seconds", type: "number" }, { key: "output_root" },
-      ]},
-      { id: "analyzer", label: "analyzer", fields: [
-        { key: "rule_timeout_seconds", type: "number" },
-      ]},
-      { id: "logging", label: "logging", fields: [
-        { key: "level" }, { key: "file" }, { key: "max_size_mb", type: "number" },
-      ]},
-      { id: "redaction", label: "redaction", fields: [
-        { key: "patterns", type: "textarea" },
-      ]},
-      { id: "web", label: "web (restart required)", fields: [
-        { key: "host" }, { key: "port", type: "number" }, { key: "log_tail_kb", type: "number" },
-      ]},
-    ],
-    values: { general: {}, daemon: {}, analyzer: {}, logging: {}, redaction: {}, web: {} },
+    values: {
+      assistant: { default_provider: "" },
+      daemon: {},
+      analyzer: { execution: {}, chunking: {}, include_subagent_transcripts: false },
+      logging: {},
+      redaction: { patterns: "" },
+      web: {},
+      sandbox: { resources: {} },
+      providers: {},
+      rules: {},
+    },
     saved: {},
+    baseline: {},
+    revealSecret: false,
     loadError: "",
     csrf: function () {
       return document.querySelector('meta[name="csrf-token"]')?.content || "";
+    },
+    sectionIDs: function () {
+      return this.navSections.map(s => s.id);
+    },
+    selectSection: function (id) {
+      this.activeSection = id;
+      history.replaceState(null, "", "#" + id);
+    },
+    cycleSection: function (dir) {
+      const ids = this.sectionIDs();
+      const next = ids[(ids.indexOf(this.activeSection) + dir + ids.length) % ids.length];
+      this.selectSection(next);
+    },
+    snapshotSection: function (secID) {
+      this.baseline[secID] = JSON.stringify(this.sectionBody(secID));
+    },
+    snapshotAll: function () {
+      this.sectionIDs().forEach(id => this.snapshotSection(id));
+    },
+    isDirty: function (secID) {
+      if (this.baseline[secID] === undefined) return false;
+      return JSON.stringify(this.sectionBody(secID)) !== this.baseline[secID];
+    },
+    anyDirty: function () {
+      return this.sectionIDs().some(id => this.isDirty(id));
+    },
+    selectProvider: function (providerID) {
+      this.values.assistant.default_provider = providerID;
+      this.ensureProvider(providerID);
+    },
+    selectedProviderID: function () {
+      return this.values.assistant.default_provider || "";
+    },
+    ensureProvider: function (providerID) {
+      if (!providerID) return;
+      if (!this.values.providers[providerID]) {
+        this.values.providers[providerID] = {};
+      }
+      const block = this.values.providers[providerID];
+      if (block.use_logged_in_user === undefined) block.use_logged_in_user = false;
+      if (block.auto_start === undefined) block.auto_start = false;
+      if (block.sandbox === undefined || block.sandbox === null) block.sandbox = "";
+      if (block.model === undefined) block.model = "";
+      if (block.api_key_env === undefined) block.api_key_env = "";
+      if (block.password === undefined) block.password = "";
+      if (block.max_input_tokens === undefined) block.max_input_tokens = "";
+    },
+    providerHealth: function (providerID) {
+      return this.providersList.find(p => p.id === providerID) || { id: providerID, runs: 0, failures: 0, total_tokens: 0, timeouts: 0, healthy: false };
+    },
+    getSelectedProviderInfo: function () {
+      const selected = this.selectedProviderID();
+      if (!selected) return null;
+      return this.providersList.find(p => p.id === selected) || null;
+    },
+    modelOptions: function (providerID) {
+      return this.providerModelMap[providerID] || [];
+    },
+    resetField: function (secID, key, defVal) {
+      this.values[secID][key] = defVal;
+      if (secID === "assistant" && key === "default_provider") this.ensureProvider(defVal);
+      if (window.Alpine) Alpine.store("toasts").add("reset " + key + " to default value", "info");
     },
     formatSeconds: function (sec) {
       if (sec === "" || sec === undefined || sec === null) return "not configured";
@@ -803,54 +1189,46 @@ window.settingsPage = function () {
       const h = Math.floor(val / 3600);
       const rem = val % 3600;
       const m = Math.floor(rem / 60);
-      const s = rem % 60;
-      return h + " hour" + (h > 1 ? "s" : "") + (m > 0 ? " " + m + "m" : "") + (s > 0 ? " " + s + "s" : "");
+      return h + " hour" + (h > 1 ? "s" : "") + (m > 0 ? " " + m + "m" : "");
     },
-    getSelectedProviderInfo: function () {
-      const selected = this.values.general.default_provider;
-      if (!selected) return null;
-      return this.providersList.find(p => p.id === selected) || null;
+    positiveNumberError: function (value, label) {
+      if (value === "" || value === undefined || value === null) return "";
+      const n = Number(value);
+      if (isNaN(n) || n < 1) return label + " must be a positive number";
+      return "";
     },
-    resetField: function (secId, key, defVal) {
-      this.values[secId][key] = defVal;
-      if (window.Alpine) {
-        Alpine.store("toasts").add("reset " + key + " to default value", "info");
+    validateFields: function (secID) {
+      if (secID === "assistant") {
+        const selected = this.selectedProviderID();
+        if (!selected) return "Choose a default assistant";
+        const tokens = this.values.providers[selected]?.max_input_tokens;
+        return this.positiveNumberError(tokens, "Max input tokens");
       }
-    },
-    validateFields: function (secId) {
-      if (secId === "web") {
+      if (secID === "scanning") {
+        return this.positiveNumberError(this.values.daemon.frequency_seconds, "Scan frequency") ||
+          this.positiveNumberError(this.values.daemon.max_concurrent_jobs, "Projects at once") ||
+          this.positiveNumberError(this.values.analyzer.rule_timeout_seconds, "Rule timeout") ||
+          this.positiveNumberError(this.values.analyzer.execution.max_concurrency, "Parallel sessions");
+      }
+      if (secID === "storage") {
+        return this.positiveNumberError(this.values.logging.max_size_mb, "Log rotation size");
+      }
+      if (secID === "safety") {
+        const resources = this.values.sandbox.resources || {};
+        return this.positiveNumberError(resources.memory_mb, "Memory limit") ||
+          this.positiveNumberError(resources.processes, "Process limit") ||
+          this.positiveNumberError(resources.fds, "File handle limit") ||
+          this.positiveNumberError(this.values.sandbox.sid_expiry_days, "SID cleanup days");
+      }
+      if (secID === "dashboard") {
         const p = Number(this.values.web.port);
-        if (this.values.web.port !== "" && (isNaN(p) || p < 1 || p > 65535)) {
-          return "Port must be between 1 and 65535";
-        }
-        const tail = Number(this.values.web.log_tail_kb);
-        if (this.values.web.log_tail_kb !== "" && (isNaN(tail) || tail < 1)) {
-          return "Log tail buffer must be a positive number";
-        }
+        if (this.values.web.port !== "" && (isNaN(p) || p < 1 || p > 65535)) return "Port must be between 1 and 65535";
+        return this.positiveNumberError(this.values.web.log_tail_kb, "Log preview size");
       }
-      if (secId === "daemon") {
-        const freq = Number(this.values.daemon.frequency_seconds);
-        if (this.values.daemon.frequency_seconds !== "" && (isNaN(freq) || freq < 1)) {
-          return "Execution frequency must be a positive number of seconds";
-        }
-      }
-      if (secId === "analyzer") {
-        const timeout = Number(this.values.analyzer.rule_timeout_seconds);
-        if (this.values.analyzer.rule_timeout_seconds !== "" && (isNaN(timeout) || timeout < 1)) {
-          return "Rule timeout must be a positive number of seconds";
-        }
-      }
-      if (secId === "logging") {
-        const maxSz = Number(this.values.logging.max_size_mb);
-        if (this.values.logging.max_size_mb !== "" && (isNaN(maxSz) || maxSz < 1)) {
-          return "Log maximum file size must be a positive number of MB";
-        }
-      }
-      return null;
+      return "";
     },
     redactTest: function () {
-      let s = this.testString;
-      if (!s) return "";
+      let s = this.testString || "";
       const pats = (this.values.redaction.patterns || "").split("\n").map(p => p.trim()).filter(Boolean);
       for (const p of pats) {
         try {
@@ -860,99 +1238,194 @@ window.settingsPage = function () {
             flags += "i";
             cleanPat = cleanPat.substring(4);
           }
-          const re = new RegExp(cleanPat, flags);
-          s = s.replace(re, "[REDACTED]");
-        } catch (e) {
-          // Ignore invalid regex patterns during typing
-        }
+          s = s.replace(new RegExp(cleanPat, flags), "[REDACTED]");
+        } catch (_) {}
       }
       return s;
     },
     load: async function () {
       this.loadError = "";
+      const hash = location.hash.replace("#", "");
+      if (this.navSections.some(s => s.id === hash)) {
+        this.activeSection = hash;
+      }
+      window.addEventListener("beforeunload", (e) => {
+        if (this.anyDirty()) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      });
       try {
         const r = await fetch("/api/settings");
-        if (!r.ok) { this.loadError = "failed to load settings (HTTP " + r.status + ")"; return; }
+        if (!r.ok) {
+          this.loadError = "failed to load settings (HTTP " + r.status + ")";
+          return;
+        }
         const data = await r.json();
-        // general.default_provider is a scalar at the top level.
-        this.values.general.default_provider = data.default_provider || "";
-        // daemon / analyzer / logging / web nest as sub-objects.
-        for (const k of ["daemon", "analyzer", "logging", "web"]) {
+        this.values.assistant.default_provider = data.default_provider || "";
+        for (const k of ["daemon", "logging", "web"]) {
           if (data[k]) Object.assign(this.values[k], data[k]);
         }
-        // redaction.patterns is a string array — render as newline-joined text.
-        const pats = (data.redaction && data.redaction.patterns) || [];
-        this.values.redaction.patterns = pats.join("\n");
-        
-        // Dynamically load provider options from data.providers
+        if (data.analyzer) {
+          Object.assign(this.values.analyzer, data.analyzer);
+          this.values.analyzer.execution = Object.assign({}, data.analyzer.execution || {});
+          this.values.analyzer.chunking = Object.assign({}, data.analyzer.chunking || {});
+          this.values.analyzer.include_subagent_transcripts = !!data.analyzer.include_subagent_transcripts;
+        }
+        this.values.redaction.patterns = ((data.redaction && data.redaction.patterns) || []).join("\n");
+        this.values.providers = data.providers || {};
+        this.values.sandbox = Object.assign({ resources: {} }, data.sandbox || {});
+        this.values.sandbox.resources = Object.assign({}, (data.sandbox && data.sandbox.resources) || {});
+        this.values.sandbox.project_write = !!this.values.sandbox.project_write;
+
+        this.ruleCatalog.forEach(rule => {
+          const existing = (data.analyzer && data.analyzer.rules && data.analyzer.rules[rule.id]) || {};
+          this.values.rules[rule.id] = {
+            enabled: existing.enabled !== undefined ? !!existing.enabled : true,
+            severity: existing.severity || "",
+          };
+        });
+
         if (data.providers) {
           this.providerOptions = Object.keys(data.providers).sort();
         }
+        if (!this.providerOptions.length) {
+          this.providerOptions = Object.keys(this.providerModelMap).sort();
+        }
+        if (!this.values.assistant.default_provider && this.providerOptions.length) {
+          this.values.assistant.default_provider = this.providerOptions[0];
+        }
+        this.providerOptions.forEach(id => this.ensureProvider(id));
+        this.ensureProvider(this.values.assistant.default_provider);
 
-        // Fetch dynamic provider list with health profiles and statistics
         const provReq = await fetch("/api/providers");
         if (provReq.ok) {
           const provData = await provReq.json();
           this.providersList = provData.providers || provData || [];
         }
+        this.snapshotAll();
       } catch (e) {
         this.loadError = "failed to fetch configuration: " + e.message;
       }
     },
-    sectionBody: function (secId) {
-      const v = this.values[secId] || {};
-      // Build the partial body the PUT handler expects: scalars at the
-      // top-level for `general`, nested for everything else.
-      if (secId === "general") {
-        return { default_provider: v.default_provider || null };
-      }
-      if (secId === "redaction") {
-        const patterns = (v.patterns || "").split("\n").map(s => s.trim()).filter(Boolean);
-        return { redaction: { patterns } };
-      }
-      // Coerce numbers — section field definitions tell us which.
-      const sec = this.sections.find(s => s.id === secId);
-      const out = {};
-      for (const f of sec.fields) {
-        let val = v[f.key];
-        if (f.type === "number") {
-          if (val === "" || val === undefined || val === null) {
-            val = null;
-          } else {
-            const n = Number(val);
-            val = isNaN(n) ? null : n;
-          }
-        }
-        out[f.key] = val;
-      }
-      return { [secId]: out };
+    numberOrNull: function (value) {
+      if (value === "" || value === undefined || value === null) return null;
+      const n = Number(value);
+      return isNaN(n) ? null : n;
     },
-    save: async function (secId) {
-      const errMsg = this.validateFields(secId);
+    blankToNull: function (value) {
+      if (value === "" || value === undefined || value === null) return null;
+      return value;
+    },
+    providerBody: function () {
+      const providerID = this.selectedProviderID();
+      this.ensureProvider(providerID);
+      const provider = this.values.providers[providerID] || {};
+      const block = {
+        model: this.blankToNull(provider.model),
+        api_key_env: this.blankToNull(provider.api_key_env),
+        password: this.blankToNull(provider.password),
+        max_input_tokens: this.numberOrNull(provider.max_input_tokens),
+        sandbox: this.blankToNull(provider.sandbox),
+      };
+      if (provider.use_logged_in_user !== undefined) block.use_logged_in_user = !!provider.use_logged_in_user;
+      if (provider.auto_start !== undefined) block.auto_start = !!provider.auto_start;
+      return { default_provider: providerID || null, providers: { [providerID]: block } };
+    },
+    sectionBody: function (secID) {
+      if (secID === "assistant") return this.providerBody();
+      if (secID === "scanning") {
+        return {
+          daemon: {
+            frequency_seconds: this.numberOrNull(this.values.daemon.frequency_seconds),
+            max_concurrent_jobs: this.numberOrNull(this.values.daemon.max_concurrent_jobs),
+            max_analysis_duration: this.blankToNull(this.values.daemon.max_analysis_duration),
+            job_history_retention: this.blankToNull(this.values.daemon.job_history_retention),
+          },
+          analyzer: {
+            rule_timeout_seconds: this.numberOrNull(this.values.analyzer.rule_timeout_seconds),
+            include_subagent_transcripts: !!this.values.analyzer.include_subagent_transcripts,
+            execution: {
+              mode: this.blankToNull(this.values.analyzer.execution.mode),
+              max_concurrency: this.numberOrNull(this.values.analyzer.execution.max_concurrency),
+            },
+            chunking: {
+              max_chunk_bytes: this.numberOrNull(this.values.analyzer.chunking.max_chunk_bytes),
+              provider_boundary_headroom: this.values.analyzer.chunking.provider_boundary_headroom === "" || this.values.analyzer.chunking.provider_boundary_headroom === undefined ? null : Number(this.values.analyzer.chunking.provider_boundary_headroom),
+            },
+          },
+        };
+      }
+      if (secID === "rules") {
+        const rules = {};
+        this.ruleCatalog.forEach(rule => {
+          rules[rule.id] = {
+            enabled: !!this.values.rules[rule.id].enabled,
+            severity: this.blankToNull(this.values.rules[rule.id].severity),
+          };
+        });
+        return { analyzer: { rules } };
+      }
+      if (secID === "safety") {
+        const patterns = (this.values.redaction.patterns || "").split("\n").map(s => s.trim()).filter(Boolean);
+        return {
+          redaction: { patterns },
+          sandbox: {
+            project_write: !!this.values.sandbox.project_write,
+            network: this.blankToNull(this.values.sandbox.network),
+            seccomp: this.blankToNull(this.values.sandbox.seccomp),
+            sid_expiry_days: this.numberOrNull(this.values.sandbox.sid_expiry_days),
+            resources: {
+              memory_mb: this.numberOrNull(this.values.sandbox.resources.memory_mb),
+              processes: this.numberOrNull(this.values.sandbox.resources.processes),
+              fds: this.numberOrNull(this.values.sandbox.resources.fds),
+            },
+          },
+        };
+      }
+      if (secID === "storage") {
+        return {
+          daemon: { output_root: this.blankToNull(this.values.daemon.output_root) },
+          logging: {
+            level: this.blankToNull(this.values.logging.level),
+            file: this.blankToNull(this.values.logging.file),
+            max_size_mb: this.numberOrNull(this.values.logging.max_size_mb),
+          },
+        };
+      }
+      if (secID === "dashboard") {
+        return {
+          web: {
+            enabled: !!this.values.web.enabled,
+            host: this.blankToNull(this.values.web.host),
+            port: this.numberOrNull(this.values.web.port),
+            log_tail_kb: this.numberOrNull(this.values.web.log_tail_kb),
+          },
+        };
+      }
+      return {};
+    },
+    save: async function (secID) {
+      const errMsg = this.validateFields(secID);
       if (errMsg) {
-        if (window.Alpine) {
-          Alpine.store("toasts").add(errMsg, "error");
-        }
-        this.saved[secId] = "error";
-        setTimeout(() => { this.saved[secId] = false; }, 4000);
+        if (window.Alpine) Alpine.store("toasts").add(errMsg, "error");
+        this.saved[secID] = "error";
+        setTimeout(() => { this.saved[secID] = false; }, 4000);
         return;
       }
-
-      const body = this.sectionBody(secId);
       try {
         const r = await fetch("/api/settings", {
           method: "PUT",
           headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": this.csrf() },
-          body: JSON.stringify(body),
+          body: JSON.stringify(this.sectionBody(secID)),
         });
-        this.saved[secId] = r.ok ? true : "error";
-        if (r.ok && window.Alpine) {
-          Alpine.store("toasts").add("successfully updated settings section", "success");
-        }
+        this.saved[secID] = r.ok ? true : "error";
+        if (r.ok) this.snapshotSection(secID);
+        if (window.Alpine) Alpine.store("toasts").add(r.ok ? "settings saved" : "failed to save settings", r.ok ? "success" : "error");
       } catch (_) {
-        this.saved[secId] = "error";
+        this.saved[secID] = "error";
       }
-      setTimeout(() => { this.saved[secId] = false; }, 4000);
+      setTimeout(() => { this.saved[secID] = false; }, 4000);
     },
   };
 };
