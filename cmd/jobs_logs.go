@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -141,23 +142,21 @@ func printLogFile(cmd *cobra.Command, path string, tail int) error {
 
 	lines := make([]string, tail)
 	nextLine := 0
-	linesRead := 0
+	lineCount := 0
 	scanner := newJobLogScanner(f)
 	for scanner.Scan() {
 		lines[nextLine] = scanner.Text()
 		nextLine = (nextLine + 1) % tail
-		linesRead++
+		lineCount++
 	}
 	if err := scanner.Err(); err != nil {
 		return err
 	}
 
-	linesToPrint := linesRead
+	start := 0
+	linesToPrint := lineCount
 	if linesToPrint > tail {
 		linesToPrint = tail
-	}
-	start := 0
-	if linesRead > tail {
 		start = nextLine
 	}
 	for i := 0; i < linesToPrint; i++ {
@@ -166,8 +165,8 @@ func printLogFile(cmd *cobra.Command, path string, tail int) error {
 	return nil
 }
 
-func newJobLogScanner(f *os.File) *bufio.Scanner {
-	scanner := bufio.NewScanner(f)
+func newJobLogScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), jobLogScannerBufferSize)
 	return scanner
 }

@@ -132,9 +132,9 @@ func newJobsRunCommand() *cobra.Command {
 				}
 			}
 
-			// Scheduler-triggered Windows runs should not leave a transient
-			// console window open. Manual --force runs keep stderr attached so
-			// root-level command errors stay visible to the user.
+			// Scheduler-triggered runs should not leave a transient Windows
+			// console window open. Manual --force runs keep the console attached
+			// so later execution errors can still reach stderr.
 			if !force {
 				suppressConsoleWindow()
 			}
