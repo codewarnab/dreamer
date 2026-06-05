@@ -43,7 +43,7 @@ func newUpdateCommand() *cobra.Command {
 			current := Version()
 			latest, err := fetchLatestRelease()
 			if err != nil {
-				return err
+				return updateNetworkError(cmd, err)
 			}
 
 			latestTag := strings.TrimPrefix(latest.TagName, "v")
@@ -65,7 +65,7 @@ func newUpdateCommand() *cobra.Command {
 			wantAsset := platformAssetName()
 			asset := findAsset(latest.Assets, wantAsset)
 			if asset == nil {
-				return fmt.Errorf("no release asset found for %s", wantAsset)
+				return updateAssetNotFoundError(cmd, wantAsset)
 			}
 
 			checksumURL := strings.Replace(asset.BrowserDownloadURL, wantAsset, "checksums.txt", 1)
@@ -276,7 +276,7 @@ func verifySHA256(path, expected string) error {
 	actual := hex.EncodeToString(h.Sum(nil))
 
 	if actual != expected {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s — binary may be corrupted or tampered with", expected, actual)
+		return checksumMismatchError(expected, actual)
 	}
 	return nil
 }

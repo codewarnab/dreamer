@@ -3,13 +3,14 @@ package handlers
 import (
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"dreamer/internal/analyzer/transport"
+	"dreamer/internal/categories"
 	"dreamer/internal/config"
+	"dreamer/internal/output"
 	"dreamer/internal/state"
 	"dreamer/internal/web/apply"
 )
@@ -26,16 +27,15 @@ import (
 // we do not expose the file path or name "todos.md" to the user, as they consume
 // and manage these items via this browser interface.
 type FindingView struct {
-	Hash        string  `json:"hash"`
-	Category    string  `json:"category"`
-	Summary     string  `json:"summary"`
-	Confidence  float64 `json:"confidence,omitempty"`
-	Status      string  `json:"status"`
-	AppliedAt   string  `json:"applied_at,omitempty"`
-	DismissedAt string  `json:"dismissed_at,omitempty"`
-	ResolvedAt  string  `json:"resolved_at,omitempty"`
-	Recurred    bool    `json:"recurred"`
-	LastSeenUTC string  `json:"last_seen_utc,omitempty"`
+	Hash        string `json:"hash"`
+	Category    string `json:"category"`
+	Summary     string `json:"summary"`
+	Status      string `json:"status"`
+	AppliedAt   string `json:"applied_at,omitempty"`
+	DismissedAt string `json:"dismissed_at,omitempty"`
+	ResolvedAt  string `json:"resolved_at,omitempty"`
+	Recurred    bool   `json:"recurred"`
+	LastSeenUTC string `json:"last_seen_utc,omitempty"`
 }
 
 var (
@@ -45,9 +45,14 @@ var (
 	bulletStartRe   = regexp.MustCompile(`^- \[[ x]\] (?:\[unverified\] )?(.*)$`)
 )
 
-// todosEntry is one finding occurrence in todos.md: which run section it
-// appeared in, what category heading preceded it, and the bullet text.
-type todosEntry struct {
+// FindingsEntry is one finding occurrence parsed from the todos.md source
+// (or any alternative backend). It carries the hash, category heading, bullet
+// summary text, and the RFC3339 timestamp of the run section it appeared in.
+//
+// The type is exported so it can appear in the Deps.FindingsLoader signature,
+// allowing callers (tests, future DB backends) to inject an alternative source
+// without touching the handler logic.
+type FindingsEntry struct {
 	Hash         string
 	Category     string
 	Summary      string
@@ -66,7 +71,7 @@ type todosEntry struct {
 //	- [ ] <summary line> [ — guardrail: ... ]
 //	    (optional indented snippet / evidence lines)
 //	    <!-- dreamer:finding:<hex> -->
-func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry, err error) {
+func parseTodosLatestRun(path string) (latest map[string]bool, all []FindingsEntry, err error) {
 	latest = map[string]bool{}
 	f, err := os.Open(path)
 	if err != nil {
@@ -114,7 +119,7 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 		}
 		if m := findingMarkerRe.FindStringSubmatch(line); m != nil {
 			hash := strings.ToLower(m[1])
-			entry := todosEntry{
+			entry := FindingsEntry{
 				Hash:         hash,
 				Category:     currentCategory,
 				Summary:      pendingSummary,
@@ -134,6 +139,26 @@ func parseTodosLatestRun(path string) (latest map[string]bool, all []todosEntry,
 		}
 	}
 	return latest, all, nil
+}
+
+// defaultLoadFindings is the file-backed FindingsLoader: it resolves the
+// todos.md path for the given project and parses it with parseTodosLatestRun.
+func defaultLoadFindings(outputRoot, projectName string) (map[string]bool, []FindingsEntry, error) {
+	todosPath, err := output.TodosPath(outputRoot, projectName)
+	if err != nil {
+		return nil, nil, err
+	}
+	return parseTodosLatestRun(todosPath)
+}
+
+// loadFindingsFor dispatches to deps.FindingsLoader when set, falling back to
+// the default file-backed implementation. This is the single call-site that
+// the two findings handlers use — no filepath.Join appears in handler logic.
+func loadFindingsFor(deps Deps, outputRoot, projectName string) (map[string]bool, []FindingsEntry, error) {
+	if deps.FindingsLoader != nil {
+		return deps.FindingsLoader(outputRoot, projectName)
+	}
+	return defaultLoadFindings(outputRoot, projectName)
 }
 
 func findProject(cfg *config.App, name string) (config.ProjectConfig, bool) {
@@ -177,8 +202,9 @@ func parseProjectNameFromFindings(urlPath string) string {
 //
 // Dismissed findings are hidden by default; they appear only when the
 // caller explicitly asks for status=dismissed.
-// buildFindingView reconciles a todosEntry against the loaded state and constructs a FindingView.
-func buildFindingView(entry todosEntry, st *state.State, latestRunHashes map[string]bool) FindingView {
+
+// buildFindingView reconciles a FindingsEntry against the loaded state and constructs a FindingView.
+func buildFindingView(entry FindingsEntry, st *state.State, latestRunHashes map[string]bool) FindingView {
 	status := "open"
 	var findingState state.FindingState
 	var hasLifecycleState bool
@@ -246,8 +272,7 @@ func ProjectFindings(deps Deps) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		todosPath := filepath.Join(cfg.Daemon.OutputRoot, name, "todos.md")
-		latestRunHashes, allEntries, err := parseTodosLatestRun(todosPath)
+		latestRunHashes, allEntries, err := loadFindingsFor(deps, cfg.Daemon.OutputRoot, name)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -362,15 +387,14 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		todosPath := filepath.Join(cfg.Daemon.OutputRoot, name, "todos.md")
-		latestRunHashes, allEntries, err := parseTodosLatestRun(todosPath)
+		latestRunHashes, allEntries, err := loadFindingsFor(deps, cfg.Daemon.OutputRoot, name)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		hashLower := strings.ToLower(hash)
 		// Take the most recent occurrence (file is oldest-first).
-		var matchedEntry *todosEntry
+		var matchedEntry *FindingsEntry
 		for i := range allEntries {
 			if allEntries[i].Hash == hashLower {
 				e := allEntries[i]
@@ -389,6 +413,10 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 		var diff string
 		q := r.URL.Query()
 		if q.Get("target_file") != "" && q.Get("snippet") != "" {
+			if st == nil {
+				http.Error(w, "state unavailable", http.StatusInternalServerError)
+				return
+			}
 			findingState := st.Findings[matchedEntry.Hash]
 			if findingState.ApplySpec == nil || findingState.ApplySpec.TargetFile != q.Get("target_file") {
 				http.Error(w, "preview target does not match finding's apply spec", http.StatusBadRequest)
@@ -415,7 +443,7 @@ func FindingDetail(deps Deps) http.HandlerFunc {
 			DiffPreview   string `json:"diff_preview,omitempty"`
 		}{
 			FindingView:   view,
-			ApplyEligible: apply.EligibleCategories[strings.ToLower(matchedEntry.Category)],
+			ApplyEligible: categories.ApplyEligible(categories.Category(matchedEntry.Category)),
 			DiffPreview:   diff,
 		}
 		writeJSON(w, http.StatusOK, out)

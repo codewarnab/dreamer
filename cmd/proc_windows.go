@@ -54,3 +54,27 @@ func killDaemon(pid int) error {
 	}
 	return nil
 }
+
+// FindPIDByPort finds the PID of the process listening on the given TCP port.
+func FindPIDByPort(port int) (int, error) {
+	out, err := exec.Command("cmd", "/c", fmt.Sprintf("netstat -ano | findstr LISTENING | findstr :%d", port)).Output()
+	if err != nil {
+		return 0, err
+	}
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 5 {
+			// Check if local address ends with :port
+			localAddr := fields[1]
+			if strings.HasSuffix(localAddr, fmt.Sprintf(":%d", port)) {
+				pidStr := fields[len(fields)-1]
+				var pid int
+				if _, err := fmt.Sscan(pidStr, &pid); err == nil && pid > 0 {
+					return pid, nil
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("no process found listening on port %d", port)
+}

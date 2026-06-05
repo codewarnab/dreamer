@@ -12,6 +12,38 @@
 // --yolo, etc.) only when ShouldUseNative returns true. When the native
 // sandbox is unavailable or disabled, providers must keep their policy-only
 // read-only flags for access control.
+//
+// # Strategy selection
+//
+// Platform backends are selected at compile time via Go build tags, not at
+// runtime. Each platform file (linux.go, darwin.go, windows.go, none.go)
+// carries a //go:build constraint and provides the four private symbols the
+// public API delegates to: Available, prepare, postStart, postStartWithHandle.
+// Exactly one backend is compiled into the binary per target OS.
+//
+// The runtime knobs (Mode, Network, Seccomp, ResourceLimits, WritableDirs)
+// are fully configurable without recompilation. What cannot be changed at
+// runtime is which containment mechanism is used — e.g. swapping bubblewrap
+// for a cgroups+Landlock backend on Linux requires editing source and
+// rebuilding.
+//
+// TODO(future): Make the Linux backend selectable at compile time via a
+// secondary build tag so operators can choose between bubblewrap and an
+// alternative containment strategy without replacing linux.go wholesale.
+// Sketch:
+//
+//	//go:build linux && !sandbox_cgroups  →  linux_bwrap_backend.go  (current)
+//	//go:build linux && sandbox_cgroups   →  linux_cgroups_backend.go (future)
+//
+// Each alternative backend must satisfy the same four-function contract:
+//
+//	func Available() bool
+//	func prepare(cmd *exec.Cmd, cfg Config) (cleanup func(), err error)
+//	func postStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error)
+//	func postStartWithHandle(cmd *exec.Cmd, cfg Config) (uintptr, func(), error)
+//
+// The public API in this file (Prepare, PostStart, PostStartWithHandle,
+// ShouldUseNative) requires no changes when a new backend is added.
 package sandbox
 
 import (

@@ -8,6 +8,30 @@
 //
 //	linux.go        — Available(), prepare(), postStart()
 //	linux_bwrap.go  — bwrapPath(), userNamespacesEnabled(), isWSL1(), buildBwrapArgs()
+//
+// This file is the bubblewrap backend. It is compiled when the build tag is
+// "linux" (and the future "sandbox_cgroups" tag is absent). See the package
+// doc in sandbox.go for how to add an alternative Linux backend via a
+// secondary build tag without touching this file.
+//
+// TODO(future): Alternative Linux containment strategies to evaluate:
+//
+//   - cgroups v2 + pivot_root: kernel-native, no external bwrap binary
+//     required, supports memory/cpu/pids controllers natively.
+//     Trade-off: requires CAP_SYS_ADMIN or a setuid helper; more complex
+//     to set up than bwrap's unprivileged user namespaces.
+//
+//   - Landlock LSM (kernel ≥5.13): filesystem access-control rules applied
+//     directly to the calling process via a simple syscall interface.
+//     Trade-off: no network isolation, no resource caps — must be combined
+//     with seccomp and cgroups for full containment. Very low overhead.
+//
+//   - seccomp-only (no namespace): minimal overhead, blocks dangerous
+//     syscalls but does NOT enforce filesystem write isolation.
+//     Suitable only as a defence-in-depth layer, not a replacement.
+//
+// All alternatives must expose the same four-function contract; see
+// sandbox.go for the required signatures.
 package sandbox
 
 import (

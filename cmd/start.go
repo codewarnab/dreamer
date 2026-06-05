@@ -61,7 +61,7 @@ func newStartCommand() *cobra.Command {
 
 			// Prepare log file for child stdout/stderr.
 			if mkErr := os.MkdirAll(outputRoot, fsutil.DirPerms); mkErr != nil {
-				return fmt.Errorf("create output dir %q: %w", outputRoot, mkErr)
+				return outputDirError(cmd, outputRoot, mkErr)
 			}
 			logFile, openErr := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, fsutil.FilePerms)
 			if openErr != nil {

@@ -164,13 +164,14 @@ func TestPrefillFromConfig_NilReturnsDefaults(t *testing.T) {
 }
 
 func TestNewSetupCommand_NonInteractiveErrors(t *testing.T) {
-	cmd := newSetupCommand()
-	cmd.SetArgs([]string{"--non-interactive"})
-	err := cmd.Execute()
+	home := t.TempDir()
+	setTestHome(t, home)
+	_, stderr, err := executeRootCommand("setup", "--non-interactive")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	if !strings.Contains(err.Error(), "non-interactive") {
-		t.Fatalf("wrong error: %v", err)
+	// Styled output goes to stderr; the sentinel carries the plain flag message.
+	if !strings.Contains(stderr, "provider") && !strings.Contains(err.Error(), "provider") {
+		t.Fatalf("wrong error: %v / stderr: %s", err, stderr)
 	}
 }

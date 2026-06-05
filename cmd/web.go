@@ -189,9 +189,7 @@ func serveWeb(cmd *cobra.Command, portOverride int, openFlag bool, devDir string
 	}
 	if err := srv.Start(); err != nil {
 		if isAddrInUse(err) {
-			return fmt.Errorf("start web server failed: port %d is already in use.\n"+
-				"Hint: Another standalone server or daemon may be active on this port.\n"+
-				"Use 'dreamer web' (no --serve) to discover and open the active server, or run with '--port 0' to bind to an ephemeral port.\nOriginal error: %w", cfg.Web.Port, err)
+			return portInUseError(cmd, cfg.Web.Port, err)
 		}
 		return fmt.Errorf("start web server: %w", err)
 	}

@@ -78,7 +78,7 @@ func newJobsRunCommand() *cobra.Command {
 			}
 			job := state.Jobs[jobID]
 			if job == nil {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			effectiveTimeout := timeout
@@ -132,10 +132,12 @@ func newJobsRunCommand() *cobra.Command {
 				}
 			}
 
-			// Close console window now that interactive output (--dry-run,
-			// --force, errors) is done. From here on, output goes to the
-			// log file and run store, not stdout.
-			suppressConsoleWindow()
+			// Scheduler-triggered runs should not leave a transient Windows
+			// console window open. Manual --force runs keep the console attached
+			// so later execution errors can still reach stderr.
+			if !force {
+				suppressConsoleWindow()
+			}
 
 			// Build scheduler for self-repair (best-effort).
 			var selfRepair *backgroundjobs.SelfRepairConfig

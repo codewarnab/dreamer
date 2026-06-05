@@ -302,7 +302,7 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 		return fmt.Errorf("provider %q is not registered", input.providerID)
 	}
 	if !meta.BackgroundSafe {
-		return fmt.Errorf("provider %q is not safe for background execution (requires interactive terminal)", input.providerID)
+		return providerNotBackgroundSafeError(cmd, input.providerID)
 	}
 
 	// Validate schedule.
@@ -486,7 +486,9 @@ func newJobsCreateCommand() *cobra.Command {
 
 			// Non-interactive path.
 			if len(args) == 0 {
-				return fmt.Errorf("project path is required (or use --interactive for the wizard)")
+				return missingArgError(cmd, "project-path",
+					"The project directory to analyze.",
+					"dreamer jobs create /path/to/project")
 			}
 
 			projectPath, err := resolveProjectPath(args[0])
@@ -498,7 +500,9 @@ func newJobsCreateCommand() *cobra.Command {
 			}
 
 			if prompt == "" {
-				return fmt.Errorf("--prompt is required (or use --interactive for the wizard)")
+				return missingFlagError(cmd, "prompt",
+					"The prompt to execute on each scheduled run.",
+					"dreamer jobs create /path/to/project --prompt 'your prompt here'")
 			}
 			if name == "" {
 				name = filepath.Base(projectPath)
@@ -652,7 +656,7 @@ func newJobsShowCommand() *cobra.Command {
 
 			job := state.Jobs[jobID]
 			if job == nil {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			if err := printJobDetail(cmd, job); err != nil {
@@ -956,7 +960,7 @@ func newJobsEditCommand() *cobra.Command {
 			}
 			job, ok := state.Jobs[jobID]
 			if !ok {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			scheduleChanged := false
@@ -983,7 +987,7 @@ func newJobsEditCommand() *cobra.Command {
 					return fmt.Errorf("provider %q not found", providerID)
 				}
 				if !meta.BackgroundSafe {
-					return fmt.Errorf("provider %q is not safe for background execution", providerID)
+					return providerNotBackgroundSafeError(cmd, providerID)
 				}
 				job.ProviderID = providerID
 			}

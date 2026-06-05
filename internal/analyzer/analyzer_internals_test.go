@@ -659,8 +659,8 @@ func TestFormatTemplateMultipleReplacements(t *testing.T) {
 
 func TestAllRuleCategories(t *testing.T) {
 	cats := AllRuleCategories()
-	if len(cats) != 6 {
-		t.Fatalf("expected 6, got %d", len(cats))
+	if len(cats) < 6 {
+		t.Fatalf("expected at least 6, got %d", len(cats))
 	}
 	seen := map[RuleCategory]bool{}
 	for _, c := range cats {

@@ -86,12 +86,13 @@ func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
 }
 
 func TestAnalyzeRequiresProjectFlag(t *testing.T) {
-	_, _, err := executeRootCommand("analyze")
+	_, stderr, err := executeRootCommand("analyze")
 	if err == nil {
 		t.Fatalf("analyze expected required path flag error")
 	}
-	if !strings.Contains(err.Error(), "Missing required flag") || !strings.Contains(err.Error(), "--path") {
-		t.Fatalf("error = %q, want required path flag error", err)
+	// Styled output goes to stderr; err.Error() carries the plain sentinel.
+	if !strings.Contains(stderr, "Missing required flag") || !strings.Contains(stderr, "--path") {
+		t.Fatalf("stderr = %q, want required path flag error", stderr)
 	}
 }
 
@@ -309,9 +310,10 @@ func TestCheckJobConflict_NoConflict(t *testing.T) {
 	}
 
 	// No jobs.json on disk => no conflict.
-	got := checkJobConflict(cfg, projectDir)
-	if got != "" {
-		t.Fatalf("checkJobConflict returned %q, want empty (no conflict)", got)
+	cmd := &cobra.Command{}
+	got := checkJobConflict(cmd, cfg, projectDir)
+	if got != nil {
+		t.Fatalf("checkJobConflict returned %v, want nil (no conflict)", got)
 	}
 }
 
@@ -352,12 +354,13 @@ func TestCheckJobConflict_ConflictingJobFound(t *testing.T) {
 		},
 	}
 
-	got := checkJobConflict(cfg, projectDir)
-	if got == "" {
-		t.Fatal("checkJobConflict returned empty, want conflict message")
+	cmd := &cobra.Command{Use: "analyze"}
+	got := checkJobConflict(cmd, cfg, projectDir)
+	if got == nil {
+		t.Fatal("checkJobConflict returned nil, want conflict error")
 	}
-	if !strings.Contains(got, "already in progress") {
-		t.Fatalf("checkJobConflict = %q, want message containing 'already in progress'", got)
+	if !strings.Contains(got.Error(), "in progress") {
+		t.Fatalf("checkJobConflict = %q, want message containing 'in progress'", got.Error())
 	}
 }
 
@@ -398,9 +401,10 @@ func TestCheckJobConflict_CompletedJobNoConflict(t *testing.T) {
 		},
 	}
 
-	got := checkJobConflict(cfg, projectDir)
-	if got != "" {
-		t.Fatalf("checkJobConflict returned %q for completed job, want empty", got)
+	cmd := &cobra.Command{}
+	got := checkJobConflict(cmd, cfg, projectDir)
+	if got != nil {
+		t.Fatalf("checkJobConflict returned %v for completed job, want nil", got)
 	}
 }
 

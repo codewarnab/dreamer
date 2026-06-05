@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/chat"
 	"dreamer/internal/logging"
+	"dreamer/internal/output"
 	"dreamer/internal/state"
 )
 
@@ -223,7 +223,11 @@ func todosOutputPath(outputRoot string, projectName string) string {
 	if root == "" {
 		return ""
 	}
-	return filepath.Join(root, projectName, "todos.md")
+	p, err := output.TodosPath(root, projectName)
+	if err != nil {
+		return ""
+	}
+	return p
 }
 
 // phase1CacheKey builds a deterministic hash of the transcript identity and
