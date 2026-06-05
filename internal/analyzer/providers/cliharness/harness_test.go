@@ -380,10 +380,9 @@ func TestSessionClose_NoError(t *testing.T) {
 }
 
 func TestLookPath_Exists(t *testing.T) {
-	// "echo" exists on all platforms.
-	err := LookPath([]string{"echo"})
+	err := LookPath([]string{"go"})
 	if err != nil {
-		t.Errorf("LookPath(echo): %v", err)
+		t.Errorf("LookPath(go): %v", err)
 	}
 }
 

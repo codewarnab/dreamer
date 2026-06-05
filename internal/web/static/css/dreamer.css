@@ -463,6 +463,14 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   line-height: 1.1;
   text-transform: uppercase;
 }
+.stat-card .stat-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: -2px;
+  word-break: break-all;
+}
+
 
 /* Activity strip */
 .activity-strip {
@@ -608,7 +616,7 @@ label {
 }
 .chats-error {
   margin-bottom: var(--space-3);
-  color: var(--text-danger, #c33);
+  color: var(--color-error);
 }
 
 /* Toast notifications */
@@ -854,4 +862,3 @@ label {
   visibility: visible;
   opacity: 1;
 }
-

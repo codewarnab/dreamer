@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/logging"
 )
+
+const jobLogScannerBufferSize = 1024 * 1024 // tolerate verbose provider output lines
 
 // newJobsLogsCommand returns "dreamer jobs logs <job-id> [--run <run-id>] [--tail N]".
 // Shows the full provider output for a run, falling back to Error + OutputSummary.
@@ -55,7 +58,7 @@ func newJobsLogsCommand() *cobra.Command {
 				return fmt.Errorf("load jobs: %w", err)
 			}
 			if state.Jobs[jobID] == nil {
-				return fmt.Errorf("job %q not found", jobID)
+				return jobNotFoundError(cmd, jobID)
 			}
 
 			// Find the target run.
@@ -130,29 +133,42 @@ func printLogFile(cmd *cobra.Command, path string, tail int) error {
 	defer f.Close()
 
 	if tail <= 0 {
-		scanner := bufio.NewScanner(f)
+		scanner := newJobLogScanner(f)
 		for scanner.Scan() {
 			cmd.Println(scanner.Text())
 		}
 		return scanner.Err()
 	}
 
-	// Tail: read all lines, keep last N.
-	var lines []string
-	scanner := bufio.NewScanner(f)
+	lines := make([]string, tail)
+	nextLine := 0
+	lineCount := 0
+	scanner := newJobLogScanner(f)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		lines[nextLine] = scanner.Text()
+		nextLine = (nextLine + 1) % tail
+		lineCount++
 	}
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	if tail < len(lines) {
-		lines = lines[len(lines)-tail:]
+
+	start := 0
+	linesToPrint := lineCount
+	if linesToPrint > tail {
+		linesToPrint = tail
+		start = nextLine
 	}
-	for _, line := range lines {
-		cmd.Println(line)
+	for i := 0; i < linesToPrint; i++ {
+		cmd.Println(lines[(start+i)%tail])
 	}
 	return nil
+}
+
+func newJobLogScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), jobLogScannerBufferSize)
+	return scanner
 }
 
 // printRunFallback shows Error + OutputSummary from the Run record

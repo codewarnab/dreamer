@@ -854,8 +854,7 @@ func newSetupCommand() *cobra.Command {
 				return fmt.Errorf("resolve config path: %w", err)
 			}
 			if _, statErr := os.Stat(cfgPath); statErr == nil && !force {
-				fmt.Fprintf(cmd.OutOrStderr(), "config already exists at %s\n", cfgPath)
-				return fmt.Errorf("config exists at %s; pass --force to overwrite", cfgPath)
+				return configExistsError(cmd, cfgPath)
 			}
 
 			// Pre-fill from prior config when re-running with --force.
@@ -880,7 +879,7 @@ func newSetupCommand() *cobra.Command {
 			}
 
 			out := buildConfigYAML(finalModel.answers)
-			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
+			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.SecretPerms); err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)
@@ -907,10 +906,14 @@ func newSetupCommand() *cobra.Command {
 // dreamer without an interactive terminal.
 func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model string, frequency int, outputRoot string) error {
 	if provider == "" {
-		return fmt.Errorf("--provider is required with --non-interactive")
+		return missingFlagError(cmd, "provider",
+			"The LLM provider to use (e.g. claude, copilot, codex).",
+			"dreamer setup --non-interactive --provider claude --output-root /path/to/output")
 	}
 	if outputRoot == "" {
-		return fmt.Errorf("--output-root is required with --non-interactive")
+		return missingFlagError(cmd, "output-root",
+			"The directory where dreamer saves results, logs, and state.",
+			"dreamer setup --non-interactive --provider claude --output-root /path/to/output")
 	}
 
 	cfgPath, err := config.GlobalConfigPath()
@@ -918,7 +921,7 @@ func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model stri
 		return fmt.Errorf("resolve config path: %w", err)
 	}
 	if _, statErr := os.Stat(cfgPath); statErr == nil && !force {
-		return fmt.Errorf("config exists at %s; pass --force to overwrite", cfgPath)
+		return configExistsError(cmd, cfgPath)
 	}
 
 	// Use provider default model when not specified.
@@ -933,7 +936,7 @@ func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model stri
 		outputRoot: outputRoot,
 	}
 	out := buildConfigYAML(answers)
-	if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.SecretPerms); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)

@@ -22,7 +22,13 @@
     </div>
     <div class="stat-card">
       <div class="stat-label">last run</div>
-      <div class="stat-value" x-text="lastRunText()" style="font-size: 18px; line-height: 1.2;"></div>
+      <div class="stat-value" x-text="lastRunText()"></div>
+      <div class="stat-meta" x-show="detail.last_run_utc">
+        <span x-text="new Date(detail.last_run_utc).toLocaleString()"></span>
+        <template x-if="detail.next_run_utc">
+          <span> &middot; <span x-text="nextRunText()"></span></span>
+        </template>
+      </div>
     </div>
     <div class="stat-card">
       <div class="stat-label">guardrails applied</div>

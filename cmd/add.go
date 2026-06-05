@@ -43,7 +43,7 @@ func newAddCommand() *cobra.Command {
 				return err
 			}
 			if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-				return fmt.Errorf("config file %q does not exist; run 'dreamer setup' first", cfgPath)
+				return configNotFoundError(cmd, cfgPath)
 			} else if err != nil {
 				return fmt.Errorf("stat config %q: %w", cfgPath, err)
 			}

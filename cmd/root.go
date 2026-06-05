@@ -169,8 +169,9 @@ func newRootCommand() *cobra.Command {
 }
 
 // Execute runs the root command. When Cobra reports an unknown command, it
-// prints a styled "did you mean?" suggestion. All other errors are printed
-// to stderr as "Error: <msg>".
+// prints a styled "did you mean?" suggestion. Structured errs.Error values
+// are rendered with per-kind styled blocks. All other errors fall back to
+// plain "Error: <msg>" output.
 func Execute() error {
 	err := rootCmd.Execute()
 	if err == nil {
@@ -181,6 +182,10 @@ func Execute() error {
 		return err // styled output already printed.
 	}
 	if suggestFromError(err) {
+		return err
+	}
+	if styled := formatStructuredError(err); styled != "" {
+		fmt.Fprint(rootCmd.ErrOrStderr(), styled)
 		return err
 	}
 	fmt.Fprintf(rootCmd.ErrOrStderr(), "Error: %v\n", err)

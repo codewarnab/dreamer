@@ -23,14 +23,16 @@ func newRemoveCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := strings.TrimSpace(args[0])
 			if name == "" {
-				return fmt.Errorf("project name is required")
+				return missingArgError(cmd, "project-name",
+					"The name of the project to remove.",
+					"dreamer remove <project-name>")
 			}
 			cfgPath, err := resolveConfigPath(configPath)
 			if err != nil {
 				return err
 			}
 			if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-				return fmt.Errorf("config file %q does not exist; run 'dreamer setup' first", cfgPath)
+				return configNotFoundError(cmd, cfgPath)
 			} else if err != nil {
 				return fmt.Errorf("stat config %q: %w", cfgPath, err)
 			}

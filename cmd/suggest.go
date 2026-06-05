@@ -157,11 +157,19 @@ func suggestFromError(err error) bool {
 	return false
 }
 
-// alreadyPrintedError wraps an error whose styled output was already written
-// to stderr. Execute() recognizes this sentinel and skips the "Error:" prefix.
+// alreadyPrintedError wraps an error whose styled output has already been
+// written directly to stderr. Execute() recognizes this sentinel and skips
+// the generic "Error: " prefix, preventing double-printing.
+//
+// All public error helpers in errors.go return this type after printing to
+// cmd.ErrOrStderr(). The one exception is errors returned from store.Update
+// callbacks (e.g. setJobEnabled), which cannot print before returning and
+// fall through to Execute()'s plain fallback.
 type alreadyPrintedError struct{ err error }
 
 func (e *alreadyPrintedError) Error() string { return e.err.Error() }
+
+func (e *alreadyPrintedError) Unwrap() error { return e.err }
 
 // styledFlagError is set via root.SetFlagErrorFunc to intercept unknown flag
 // errors and suggest the closest match.

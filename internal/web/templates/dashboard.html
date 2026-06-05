@@ -32,7 +32,13 @@
     </div>
     <div class="stat-card">
       <div class="stat-label">last run</div>
-      <div class="stat-value" x-text="stats.last_run_utc ? new Date(stats.last_run_utc).toLocaleString() : 'never'"></div>
+      <div class="stat-value" x-text="stats.last_run_utc ? timeAgo(stats.last_run_utc) : 'never'"></div>
+      <div class="stat-meta" x-show="stats.last_run_utc">
+        <span x-text="new Date(stats.last_run_utc).toLocaleString()"></span>
+        <template x-if="stats.next_run_utc">
+          <span> &middot; <span x-text="nextRunText()"></span></span>
+        </template>
+      </div>
     </div>
     <div class="stat-card">
       <div class="stat-label">tokens / week</div>
@@ -270,6 +276,17 @@ window.dashboardPage = function () {
       var hrs = Math.floor(mins / 60);
       if (hrs < 24) return hrs + "h ago";
       return Math.floor(hrs / 24) + "d ago";
+    },
+    nextRunText: function () {
+      if (!this.stats.next_run_utc) return "";
+      var d = new Date(this.stats.next_run_utc);
+      if (isNaN(d.getTime())) return "";
+      var diffMs = d.getTime() - Date.now();
+      if (diffMs <= 0) return "due now";
+      var mins = Math.ceil(diffMs / 60000);
+      if (mins < 60) return "next run in " + mins + "m";
+      var hrs = Math.ceil(mins / 60);
+      return "next run in " + hrs + "h";
     },
     _bindSSE: function () {
       var self = this;
