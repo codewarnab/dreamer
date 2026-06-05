@@ -18,6 +18,8 @@ func TestEmbed_FindsTemplatesAndStatic(t *testing.T) {
 		"templates/logs.html",
 		"templates/providers.html",
 		"static/favicon.svg",
+		"static/js/app.js",
+		"static/js/dashboard.js",
 		"static/vendor/htmx.min.js",
 		"static/vendor/alpine.min.js",
 		"static/fonts/Anton/Anton-Regular.woff2",
