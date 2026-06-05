@@ -1,12 +1,76 @@
 // dreamer SPA bootstrap — HTMX CSRF wiring + Alpine stores + root state.
 
-(function () {
-  const meta = document.querySelector('meta[name="csrf-token"]');
-  const token = meta ? meta.getAttribute("content") : "";
+window.dreamerAPI = {
+  csrf: function () {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") : "";
+  },
 
+  requestJSON: async function (url, options) {
+    var init = options || {};
+    var headers = init.headers || {};
+    var method = (init.method || "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD") {
+      headers["X-Dreamer-CSRF"] = this.csrf();
+    }
+    if (init.body && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
+    init.headers = headers;
+
+    var resp = await fetch(url, init);
+    var body = {};
+    try { body = await resp.json(); } catch (_) {}
+    if (!resp.ok) {
+      var err = new Error((body && body.error) || ("HTTP " + resp.status));
+      err.response = resp;
+      err.body = body;
+      throw err;
+    }
+    return body;
+  },
+
+  getJSON: function (url) {
+    return this.requestJSON(url);
+  },
+
+  postJSON: function (url, body) {
+    return this.requestJSON(url, {
+      method: "POST",
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  },
+
+  deleteJSON: function (url) {
+    return this.requestJSON(url, { method: "DELETE" });
+  },
+};
+
+window.dreamerUI = {
+  timeAgo: function (iso) {
+    if (!iso) return "never";
+    var date = new Date(iso);
+    if (isNaN(date.getTime())) return "never";
+    var mins = Math.floor((Date.now() - date.getTime()) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + "m ago";
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + "h ago";
+    return Math.floor(hrs / 24) + "d ago";
+  },
+
+  formatLocalTime: function (iso) {
+    if (!iso) return "";
+    var date = new Date(iso);
+    if (isNaN(date.getTime())) return "";
+    return date.toLocaleString();
+  },
+};
+
+(function () {
   document.body.addEventListener("htmx:configRequest", function (evt) {
     if (evt.detail && evt.detail.headers) {
-      evt.detail.headers["X-Dreamer-CSRF"] = token;
+      evt.detail.headers["X-Dreamer-CSRF"] = window.dreamerAPI.csrf();
     }
   });
 })();
@@ -178,8 +242,7 @@ window.appState = function () {
       localStorage.setItem(sidebarStorageKey, this.sidebarCollapsed);
     },
     csrf: function () {
-      const meta = document.querySelector('meta[name="csrf-token"]');
-      return meta ? meta.getAttribute("content") : "";
+      return window.dreamerAPI.csrf();
     },
     init: function () {
       var self = this;

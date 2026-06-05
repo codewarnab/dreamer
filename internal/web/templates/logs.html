@@ -1,19 +1,5 @@
 {{define "content"}}
-<!-- 
-  VERGE PREMIUM SYSTEM LOGS VIEWER
-  ================================
-  Architectural Philosophy & Scalability Design:
-  1. HIGHLY SCALABLE DISK & NETWORK FLOW: Offloads severity filtering to the Go backend via the 
-     `level` query parameter. Instead of downloading full 256KB logs and parsing them in the client,
-     the payload size is reduced dramatically.
-  2. SECURE CLIENT-SIDE PARSING: Implements a high-performance slog tokenization parser in vanilla JS.
-     Escapes all log message text before inject-marking search results to completely block XSS attacks.
-  3. MONOSPACED HIGH-DENSITY VIEW: Visual columns and status capsules make scanning massive logs easy.
-  4. RESILIENT OFFLINE EXPERIENCE: Gracefully handles SSE reconnection failures or stopped daemons
-     by rendering a beautiful, interactive troubleshooting card instead of an empty box.
--->
-
-<section x-data="logsPage()" x-init="initPage()" style="animation: logs-fade-in 0.25s ease-out;">
+<section x-data="logsPage()" x-init="initPage()">
   <header style="margin-bottom: var(--space-4); display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2);">
     <div>
       <span class="kicker">system diagnostics</span>
@@ -26,7 +12,7 @@
   </header>
 
   <!-- Controls Panel Card -->
-  <div class="card" style="margin-bottom: var(--space-4); padding: var(--space-3); border-color: var(--border-subtle); background: var(--surface-1); backdrop-filter: blur(10px);">
+  <div class="card" style="margin-bottom: var(--space-4); padding: var(--space-3); border-color: var(--border-subtle); background: var(--surface-1);">
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3);">
       
       <!-- Severity Filter Pills -->
@@ -37,12 +23,12 @@
         <button class="pill" :class="level === 'error' ? 'pill--error' : 'pill--inactive'" @click="level='error'" title="Filter by errors">error</button>
       </div>
 
-      <!-- Real-time instant search input with a magnifying glass decoration -->
+      <!-- Search input -->
       <div style="position: relative; display: flex; align-items: center; flex: 1; min-width: 200px; max-width: 320px;">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position: absolute; left: 10px; color: var(--text-secondary); pointer-events: none;">
           <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input type="search" x-model="searchQuery" placeholder="Instant browser search..." class="input" style="padding-left: 32px; width: 100%; font-family: var(--font-body); font-size: 13px;" />
+        <input type="search" x-model="searchQuery" placeholder="Search logs" class="input" style="padding-left: 32px; width: 100%; font-family: var(--font-body); font-size: 13px;" />
       </div>
 
       <!-- Toggles and Selectors -->
@@ -60,10 +46,10 @@
 
         <!-- Scrolling Toggles -->
         <label style="margin-bottom: 0; display: flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-size: 11px;">
-          <input type="checkbox" x-model="autoScroll" style="accent-color: var(--jelly-mint); cursor: pointer;" /> Auto-Scroll
+          <input type="checkbox" x-model="autoScroll" style="accent-color: var(--jelly-mint); cursor: pointer;" /> Auto-scroll
         </label>
         <label style="margin-bottom: 0; display: flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-size: 11px;" title="Periodically refresh logs from the server">
-          <input type="checkbox" x-model="autoRefresh" style="accent-color: var(--jelly-mint); cursor: pointer;" /> Auto-Refresh
+          <input type="checkbox" x-model="autoRefresh" style="accent-color: var(--jelly-mint); cursor: pointer;" /> Auto-refresh
         </label>
 
         <!-- Functional Control Buttons -->
@@ -79,7 +65,7 @@
 
           <!-- Refresh Button -->
           <button class="btn btn--primary" @click="load()" :disabled="loading" style="display: flex; align-items: center; gap: 6px; padding: var(--space-1) var(--space-3); font-size: 11px; font-weight: 600; min-width: 80px; justify-content: center;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="loading && 'animate-spin'">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path>
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
             </svg>
@@ -92,18 +78,15 @@
   </div>
 
   <!-- Main Console Viewer Box -->
-  <div class="card" style="padding: 0; overflow: hidden; border-color: var(--border-subtle); background: var(--canvas-black); box-shadow: inset 0 2px 8px rgba(0,0,0,0.15);">
+  <div class="card" style="padding: 0; overflow: hidden; border-color: var(--border-subtle); background: var(--canvas-black);">
     
-    <!-- Connection Offline Troubleshooting Card -->
-    <!-- Renders dynamically when SSE is reconnecting and no log file can be retrieved -->
-    <div x-show="!$store.sse.connected && !raw.trim()" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 580px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); animation: logs-fade-in 0.3s ease-out;">
-      <h3 class="headline-md" style="letter-spacing: -0.2px; margin-bottom: 2px;">Daemon Connection Lost</h3>
+    <div x-show="!$store.sse.connected && !raw.trim()" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 580px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);">
+      <h3 class="headline-md" style="margin-bottom: 2px;">Daemon connection lost</h3>
       <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: var(--space-2);">
-        The web dashboard is unable to communicate with the Dreamer background daemon. It seems the process is either stopped or initializing.
+        The dashboard cannot reach the Dreamer daemon. It may be stopped or still starting.
       </p>
-      <!-- Interactive troubleshooting command helper -->
-      <div style="background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3); text-align: left; width: 100%; font-family: var(--font-mono); font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-        <div style="color: var(--focus-cyan); margin-bottom: 4px; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;">Troubleshooting Action:</div>
+      <div style="background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3); text-align: left; width: 100%; font-family: var(--font-mono); font-size: 12px;">
+        <div style="color: var(--focus-cyan); margin-bottom: 4px; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;">try this</div>
         <div style="color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
           <span>Run the daemon in your development terminal:</span>
         </div>
@@ -116,7 +99,7 @@
     </div>
 
     <!-- Empty State for Empty Log Files or Missing Matches -->
-    <div x-show="raw.trim() && filteredLines().length === 0" style="padding: var(--space-7) var(--space-5); text-align: center; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); animation: logs-fade-in 0.25s ease-out;">
+    <div x-show="raw.trim() && filteredLines().length === 0" style="padding: var(--space-7) var(--space-5); text-align: center; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2);">
       <h4 style="margin: 0; font-family: var(--font-body); font-weight: 600; font-size: 16px; color: var(--text-muted);">No matching log entries</h4>
       <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.4; margin: 0;">
         We couldn't find any log lines matching severity level <code style="color: var(--focus-cyan);" x-text="level"></code>
@@ -131,7 +114,7 @@
           <!-- Individual log row with micro-hover state and colored left-border indicating severity -->
           <div class="log-row" :class="'log-row--' + line.level">
             
-            <!-- Sleek Timestamp Column -->
+            <!-- Timestamp column -->
             <span class="log-col-time" x-text="line.time ? formatTime(line.time) : ''" :title="line.time"></span>
             
             <!-- Colorized Level Badge -->
@@ -159,28 +142,8 @@
   </div>
 </section>
 
-<!-- Custom Styles for Premium Logging Aesthetics -->
 <style>
-  @keyframes logs-fade-in {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @keyframes pulse-glow {
-    0% { box-shadow: 0 0 0 0 rgba(239, 71, 111, 0.4); }
-    70% { box-shadow: 0 0 0 8px rgba(239, 71, 111, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(239, 71, 111, 0); }
-  }
-
-  .animate-spin {
-    animation: logs-spin 1.2s linear infinite;
-  }
-  @keyframes logs-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  /* Inactive state for buttons, maintaining high design fidelity */
+  /* Inactive state for filter buttons. */
   .pill--inactive {
     background: var(--bg-translucent-hover);
     border: 1px solid var(--border-subtle);
@@ -209,7 +172,6 @@
     font-size: 12px;
     line-height: 1.4;
     border-bottom: 1px solid var(--border-subtle);
-    transition: background-color 0.15s ease, border-left-color 0.15s ease;
     border-left: 3px solid transparent;
   }
   .log-row:hover {
@@ -340,7 +302,6 @@
     color: var(--log-highlight-text);
     border-radius: 2px;
     padding: 0 1px;
-    box-shadow: 0 0 4px var(--log-highlight-shadow);
   }
 
   /* custom scrollbar */
