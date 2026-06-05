@@ -253,6 +253,12 @@ func ProjectRulesPath(projectPath string, category string) string {
 	return filepath.Join(projectPath, projectConfigDir, "rules", category+".yaml")
 }
 
+// ProjectRulesDir returns `<projectPath>/.dreamer/rules/` — the directory
+// scanned for user-defined rule pack YAML files at analysis time.
+func ProjectRulesDir(projectPath string) string {
+	return filepath.Join(projectPath, projectConfigDir, "rules")
+}
+
 // LoadConfig loads + validates the global config. Returns an App with
 // defaults applied. A missing file is treated as "no config" only when path
 // is empty; otherwise an explicit path that does not exist errors out.

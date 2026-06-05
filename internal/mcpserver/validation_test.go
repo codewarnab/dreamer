@@ -71,7 +71,7 @@ func TestValidateFinding_EmptyGuardrailKind(t *testing.T) {
 }
 
 func TestValidateFinding_AllCategories(t *testing.T) {
-	for cat := range ValidCategories {
+	for _, cat := range RegisteredCategories() {
 		f := &FindingInput{
 			Category:   cat,
 			Mistake:    "test mistake",

@@ -1,10 +1,12 @@
 package pipeline
 
 import (
+	"fmt"
 	"strings"
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/config"
+	"dreamer/internal/mcpserver"
 )
 
 func anyEnabled(packs []analyzer.RulePack) bool {
@@ -16,11 +18,27 @@ func anyEnabled(packs []analyzer.RulePack) bool {
 	return false
 }
 
-func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig) []analyzer.RulePack {
+func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectPath string) ([]analyzer.RulePack, error) {
 	packs, err := analyzer.LoadDefaultRulePacks()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("load default rule packs: %w", err)
 	}
+
+	// Load user-defined packs from <projectPath>/.dreamer/rules/ and append
+	// any that introduce a new (non-built-in) category.
+	if projectPath != "" {
+		rulesDir := config.ProjectRulesDir(projectPath)
+		extraPacks, err := analyzer.LoadProjectRulePacks(rulesDir)
+		if err != nil {
+			return nil, fmt.Errorf("load project rule packs: %w", err)
+		}
+		for _, p := range extraPacks {
+			// Register the new category so MCP finding recording accepts it.
+			mcpserver.RegisterCategory(string(p.Category))
+		}
+		packs = append(packs, extraPacks...)
+	}
+
 	applyRuleToggles(packs, cfg.Analyzer.Rules)
 	if project != nil {
 		applyRuleToggles(packs, project.Rules)
@@ -30,7 +48,7 @@ func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig) []analyz
 			packs[i].TimeoutSeconds = cfg.Analyzer.RuleTimeoutSeconds
 		}
 	}
-	return packs
+	return packs, nil
 }
 
 func applyRuleToggles(packs []analyzer.RulePack, overrides map[string]config.RuleConfig) {

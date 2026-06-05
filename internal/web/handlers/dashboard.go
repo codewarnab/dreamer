@@ -40,6 +40,11 @@ type Deps struct {
 	// StateCache is a read-through cache for state.json and history.json.
 	// Nil disables caching (handlers fall back to direct state.Load).
 	StateCache *state.StateCache
+	// FindingsLoader loads the parsed todos entries for a given project.
+	// When nil, handlers fall back to reading todos.md from
+	// cfg.Daemon.OutputRoot directly. Inject an alternative to source
+	// findings from a database or another backend without touching handlers.
+	FindingsLoader func(outputRoot, projectName string) (latestHashes map[string]bool, entries []FindingsEntry, err error)
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs JobDeps
