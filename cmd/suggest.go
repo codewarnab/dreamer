@@ -169,6 +169,8 @@ type alreadyPrintedError struct{ err error }
 
 func (e *alreadyPrintedError) Error() string { return e.err.Error() }
 
+func (e *alreadyPrintedError) Unwrap() error { return e.err }
+
 // styledFlagError is set via root.SetFlagErrorFunc to intercept unknown flag
 // errors and suggest the closest match.
 func styledFlagError(cmd *cobra.Command, err error) error {

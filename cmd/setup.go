@@ -879,7 +879,7 @@ func newSetupCommand() *cobra.Command {
 			}
 
 			out := buildConfigYAML(finalModel.answers)
-			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
+			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.SecretPerms); err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)
@@ -936,7 +936,7 @@ func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model stri
 		outputRoot: outputRoot,
 	}
 	out := buildConfigYAML(answers)
-	if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.SecretPerms); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "config written to %s\n", cfgPath)

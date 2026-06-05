@@ -51,6 +51,9 @@ func newStopCommand() *cobra.Command {
 								daemonStopped = true
 							}
 						}
+					} else {
+						_ = os.Remove(lockPath)
+						cmd.Println("cleaned up stale daemon lockfile")
 					}
 				} else {
 					// Stale lockfile — clean it up.
