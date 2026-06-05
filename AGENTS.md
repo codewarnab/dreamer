@@ -47,6 +47,7 @@ Deep architectural details, coding conventions, and testing quality policies hav
 4. **[docs/DESIGN.md](file:///c:/Users/User/code/dreamer/docs/DESIGN.md)**: Details the visual theme (The Verge-inspired), color palette roles, typography rules, component stylings, responsive behaviors, and LLM prompt guidelines. **AI agents must read this file before making any changes to the web dashboard or UI components.**
 5. **[docs/CLI.md](file:///c:/Users/User/code/dreamer/docs/CLI.md)**: Comprehensive CLI reference detailing all command options, subcommands, Bubble Tea interactive wizards, and background job scheduling controls.
 6. **[docs/API.md](file:///c:/Users/User/code/dreamer/docs/API.md)**: Complete API directory listing web routes, SPA paths, REST endpoints, and the codebase apply/undo safety engine strategies.
+7. **[docs/DATAFLOW.md](file:///c:/Users/User/code/dreamer/docs/DATAFLOW.md)**: End-to-end data flow reference tracing every subsystem — config loading, chat discovery, cache checks, transcript preparation, two-phase LLM analysis, output generation, state persistence, daemon loop, background jobs engine, web UI read/write/SSE paths, MCP/CLI finding transport, and OS sandbox containment.
 
 ---
 

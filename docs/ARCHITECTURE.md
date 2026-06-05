@@ -2,6 +2,8 @@
 
 This document describes the design principles, CLI commands, and component architecture of the `dreamer` system. It is kept up-to-date with the codebase.
 
+> For a full end-to-end trace of how data moves through every subsystem — from chat discovery through LLM analysis to `todos.md` output and the web UI — see **[docs/DATAFLOW.md](file:///c:/Users/User/code/dreamer/docs/DATAFLOW.md)**.
+
 ---
 
 ## 1. High-Level Design
