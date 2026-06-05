@@ -28,5 +28,5 @@ var allCategories = []Category{
 
 // All returns the canonical list of v1 categories.
 func All() []Category {
-	return allCategories
+	return append([]Category(nil), allCategories...)
 }

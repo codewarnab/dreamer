@@ -189,4 +189,3 @@ func projectMappingNode(name, path, since string) *yaml.Node {
 		},
 	}
 }
-
