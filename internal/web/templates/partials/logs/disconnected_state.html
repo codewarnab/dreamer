@@ -1,0 +1,19 @@
+{{define "logs_disconnected_state"}}
+<div x-show="!$store.sse.connected && !raw.trim()" style="padding: var(--space-6) var(--space-5); text-align: center; max-width: 580px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3);">
+  <h3 class="headline-md" style="margin-bottom: 2px;">Daemon connection lost</h3>
+  <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: var(--space-2);">
+    The dashboard cannot reach the Dreamer daemon. It may be stopped or still starting.
+  </p>
+  <div style="background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3); text-align: left; width: 100%; font-family: var(--font-mono); font-size: 12px;">
+    <div style="color: var(--focus-cyan); margin-bottom: 4px; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;">try this</div>
+    <div style="color: var(--text-muted); display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);">
+      <span>Run the daemon in your development terminal:</span>
+    </div>
+    <div style="margin-top: 6px; background: var(--canvas-black); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); color: var(--jelly-mint); overflow-x: auto; white-space: nowrap; display: flex; align-items: center; justify-content: space-between;">
+      <code>go run . daemon</code>
+      <button @click="navigator.clipboard.writeText('go run . daemon')" class="btn" style="padding: 2px 6px; font-size: 9px; border-color: var(--border-subtle); background: var(--bg-translucent-hover);" title="Copy command">Copy</button>
+    </div>
+  </div>
+  <button class="btn btn--run" @click="load()" style="margin-top: var(--space-2); min-width: 140px;">Retry Connection</button>
+</div>
+{{end}}

@@ -1,0 +1,34 @@
+{{define "styles"}}
+<link rel="stylesheet" href="/static/css/pages/settings.css">
+{{end}}
+
+{{define "content"}}
+<section x-data="settingsPage()" x-init="load()" @keydown.ctrl.s.window.prevent="save(activeSection)">
+  <header>
+    <span class="kicker">preferences</span>
+    <h1 class="headline-lg">settings</h1>
+    <p class="body" style="color: var(--text-secondary); max-width: 68ch; margin-top: var(--space-1);">
+      Your changes are saved as personal dashboard preferences, so your original setup stays easy to recover.
+    </p>
+  </header>
+
+  <div x-show="loadError" class="banner banner--error" role="alert" x-text="loadError" style="margin-top: var(--space-4); border-radius: var(--radius-md);"></div>
+
+  <div class="settings-shell">
+    {{template "settings_nav" .}}
+
+    <div>
+      {{template "settings_assistant_panel" .}}
+      {{template "settings_scanning_panel" .}}
+      {{template "settings_rules_panel" .}}
+      {{template "settings_safety_panel" .}}
+      {{template "settings_storage_panel" .}}
+      {{template "settings_dashboard_panel" .}}
+    </div>
+  </div>
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script defer src="/static/js/pages/settings.js"></script>
+{{end}}

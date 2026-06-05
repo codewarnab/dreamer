@@ -5,22 +5,7 @@
 -->
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="csrf-token" content="{{.CSRFToken}}">
-  <title>dreamer</title>
-  <script>
-    (function() {
-      var t = localStorage.getItem("dreamer-theme");
-      if (t === "light" || t === "dark") {
-        document.documentElement.setAttribute("data-theme", t);
-      }
-    })();
-  </script>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="stylesheet" href="/static/css/dreamer.css">
-</head>
+{{template "shared_head" .}}
 <body x-data="appState()">
   {{if .OverlayParseError}}
   <div class="banner banner--error" role="alert">overlay parse error: {{.OverlayParseError}}. Daemon is using pre-error values.</div>
@@ -32,48 +17,14 @@
   </div>
   {{end}}
   <div class="app-shell">
-    <aside class="sidebar" :class="sidebarCollapsed ? 'collapsed' : ''" aria-label="Primary navigation">
-      <div style="width: 208px;">
-        <div class="brand">
-          <a href="/" class="display-hero" style="font-size: 36px; line-height: 1; text-decoration: none; color: inherit;">DREAMER</a>
-        </div>
-        <nav class="kicker" aria-label="Projects" style="margin-top: var(--space-5);">
-          <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">projects</div>
-          {{range .Projects}}
-          <a href="/projects/{{.Name}}" data-nav="projects/{{.Name}}">{{.Name}}</a>
-          {{end}}
-          <a href="#" @click.prevent="$dispatch('open-modal', 'add-project')" data-nav="add">+ add project</a>
-        </nav>
-        <nav class="kicker" aria-label="System" style="margin-top: var(--space-5);">
-          <div class="label-mono" style="color: var(--text-secondary); margin-bottom: var(--space-2);">system</div>
-          <a href="/jobs" data-nav="jobs">jobs</a>
-          <a href="/settings" data-nav="settings">settings</a>
-          <a href="/logs" data-nav="logs">logs</a>
-          <a href="/providers" data-nav="providers">providers</a>
-        </nav>
-      </div>
-    </aside>
+    {{template "shared_nav" .}}
     <button @click="toggleSidebar()" class="btn-sidebar-toggle" :class="sidebarCollapsed ? 'collapsed' : ''" aria-label="Toggle sidebar" title="Toggle sidebar">
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="sidebar-toggle-icon" :class="sidebarCollapsed ? 'rotated' : ''">
         <path d="m15 18-6-6 6-6"/>
       </svg>
     </button>
     <div class="main">
-      <header class="topbar">
-        <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <span class="pill" :class="status === 'running' ? 'pill--healthy' : 'pill--warn'" x-text="status">running</span>
-          <span class="pill" :class="$store.sse.connected ? 'pill--healthy' : 'pill--warn'" x-text="$store.sse.connected ? 'sse: ok' : 'sse: reconnecting'">sse: connecting</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: var(--space-3);">
-          <button class="btn btn--ghost" @click="$store.theme.toggle()"
-                  :title="$store.theme.current === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
-                  style="font-size: 16px; padding: var(--space-1) var(--space-2); line-height: 1;">
-            <span x-text="$store.theme.current === 'dark' ? '☾' : '☀'"></span>
-          </button>
-          <button class="btn btn--run" @click="runNow()" :disabled="busy" x-text="busy ? 'queuing...' : 'run now'">run now</button>
-          <span x-show="msg" x-text="msg" style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);"></span>
-        </div>
-      </header>
+      {{template "shared_topbar" .}}
       <main id="content" role="main">
         {{block "content" .}}
         <section class="card">
@@ -291,9 +242,6 @@
     };
   </script>
 
-  <script defer src="/static/vendor/htmx.min.js"></script>
-  <script defer src="/static/js/app.js"></script>
-  {{block "scripts" .}}{{end}}
-  <script defer src="/static/vendor/alpine.min.js"></script>
+  {{template "shared_scripts" .}}
 </body>
 </html>

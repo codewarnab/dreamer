@@ -41,13 +41,13 @@ go run ./tools/quality --baseline .quality-baseline.json  # quality checks
 
 Deep architectural details, coding conventions, and testing quality policies have been modularized under the `docs/` directory to prevent file bloating and stale context. Refer to these files for complete guidance:
 
-1. **[docs/ARCHITECTURE.md](file:///c:/Users/User/code/dreamer/docs/ARCHITECTURE.md)**: Details the single-binary Go CLI pipeline execution workflow, complete listing of registered Cobra CLI commands, major internal packages (`pipeline`, `chat`, `analyzer`, `sandbox`, `backgroundjobs`, `web`, `jobqueue`, `migrate`), database persistence layouts, finding lifecycles, and configuration overlays.
-2. **[docs/TESTING.md](file:///c:/Users/User/code/dreamer/docs/TESTING.md)**: Explains the testing commands and documents the **10 critical "Test quality rules"** to avoid theatrical tests (including assertions, config propagation, clearing environment variables, resource cleanup, and race conditions).
-3. **[docs/CONVENTIONS.md](file:///c:/Users/User/code/dreamer/docs/CONVENTIONS.md)**: Defines general Go coding conventions, error-wrapping standards, git commit disciplines (integrating **[docs/HOW_TO_COMMIT.md](file:///c:/Users/User/code/dreamer/docs/HOW_TO_COMMIT.md)**), and strict naming check conventions (idiomatic abbreviations, boolean prefixes, constructor mappings, receiver consistency).
-4. **[docs/DESIGN.md](file:///c:/Users/User/code/dreamer/docs/DESIGN.md)**: Details the visual theme (The Verge-inspired), color palette roles, typography rules, component stylings, responsive behaviors, and LLM prompt guidelines. **AI agents must read this file before making any changes to the web dashboard or UI components.**
-5. **[docs/CLI.md](file:///c:/Users/User/code/dreamer/docs/CLI.md)**: Comprehensive CLI reference detailing all command options, subcommands, Bubble Tea interactive wizards, and background job scheduling controls.
-6. **[docs/API.md](file:///c:/Users/User/code/dreamer/docs/API.md)**: Complete API directory listing web routes, SPA paths, REST endpoints, and the codebase apply/undo safety engine strategies.
-7. **[docs/DATAFLOW.md](file:///c:/Users/User/code/dreamer/docs/DATAFLOW.md)**: End-to-end data flow reference tracing every subsystem — config loading, chat discovery, cache checks, transcript preparation, two-phase LLM analysis, output generation, state persistence, daemon loop, background jobs engine, web UI read/write/SSE paths, MCP/CLI finding transport, and OS sandbox containment.
+1. **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Details the single-binary Go CLI pipeline execution workflow, complete listing of registered Cobra CLI commands, major internal packages (`pipeline`, `chat`, `analyzer`, `sandbox`, `backgroundjobs`, `web`, `jobqueue`, `migrate`), database persistence layouts, finding lifecycles, and configuration overlays.
+2. **[docs/TESTING.md](docs/TESTING.md)**: Explains the testing commands and documents the **10 critical "Test quality rules"** to avoid theatrical tests (including assertions, config propagation, clearing environment variables, resource cleanup, and race conditions).
+3. **[docs/CONVENTIONS.md](docs/CONVENTIONS.md)**: Defines general Go coding conventions, error-wrapping standards, git commit disciplines (integrating **[docs/HOW_TO_COMMIT.md](docs/HOW_TO_COMMIT.md)**), and strict naming check conventions (idiomatic abbreviations, boolean prefixes, constructor mappings, receiver consistency).
+4. **[docs/DESIGN.md](docs/DESIGN.md)**: Details the visual theme (The Verge-inspired), color palette roles, typography rules, component stylings, responsive behaviors, and LLM prompt guidelines. **AI agents must read this file before making any changes to the web dashboard or UI components.**
+5. **[docs/CLI.md](docs/CLI.md)**: Comprehensive CLI reference detailing all command options, subcommands, Bubble Tea interactive wizards, and background job scheduling controls.
+6. **[docs/API.md](docs/API.md)**: Complete API directory listing web routes, SPA paths, REST endpoints, and the codebase apply/undo safety engine strategies.
+7. **[docs/DATAFLOW.md](docs/DATAFLOW.md)**: End-to-end data flow reference tracing every subsystem — config loading, chat discovery, cache checks, transcript preparation, two-phase LLM analysis, output generation, state persistence, daemon loop, background jobs engine, web UI read/write/SSE paths, MCP/CLI finding transport, and OS sandbox containment.
 
 ---
 
@@ -55,9 +55,9 @@ Deep architectural details, coding conventions, and testing quality policies hav
 
 Before planning or executing **any** task or modifications in this codebase, you **must** read and align with the specialized project skills located in the `.claude/` directory:
 
-- **[Dreamer Design & Cognitive Load Skill](file:///c:/Users/User/code/dreamer/.claude/skills/dreamer-design/SKILL.md)**: Fundamental guidelines on deep modules, 7±2 rules, newspaper code structures, functional core & imperative shell patterns, and vertical slicing principles.
-- **[Code Review & Quality Skill](file:///c:/Users/User/code/dreamer/.claude/skills/code-review-and-quality/skill.md)**: Multi-axis pre-merge review checklists covering correctness, silent error swallowing checks, lock concurrency rules, and resource leak preventions.
-- **[Naming Quality Check Skill](file:///c:/Users/User/code/dreamer/.claude/skills/naming-check/skill.md)**: Strict rules detailing Go naming best practices, shadowing preventions, package stutters, and singular/plural mismatch resolutions.
+- **[Dreamer Design & Cognitive Load Skill](.claude/skills/dreamer-design/SKILL.md)**: Fundamental guidelines on deep modules, 7±2 rules, newspaper code structures, functional core & imperative shell patterns, and vertical slicing principles.
+- **[Code Review & Quality Skill](.claude/skills/code-review-and-quality/skill.md)**: Multi-axis pre-merge review checklists covering correctness, silent error swallowing checks, lock concurrency rules, and resource leak preventions.
+- **[Naming Quality Check Skill](.claude/skills/naming-check/skill.md)**: Strict rules detailing Go naming best practices, shadowing preventions, package stutters, and singular/plural mismatch resolutions.
 
 ---
 

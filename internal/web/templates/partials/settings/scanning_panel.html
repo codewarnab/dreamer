@@ -1,0 +1,119 @@
+{{define "settings_scanning_panel"}}
+<div class="settings-panel" x-show="activeSection === 'scanning'">
+  <div class="settings-panel-header">
+    <div>
+      <h2 class="settings-panel-title">Scanning</h2>
+      <p class="settings-panel-copy">Control how often Dreamer scans, how much work it runs at once, and how long analysis jobs are allowed to continue.</p>
+    </div>
+  </div>
+
+  <div class="settings-grid">
+    <div class="settings-card">
+      <div class="settings-card-title"><span>schedule</span></div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">scan every</span>
+          <span class="setting-key">frequency_seconds</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.daemon.frequency_seconds" placeholder="3600"/>
+        <p class="setting-help">Current interval: <code x-text="formatSeconds(values.daemon.frequency_seconds)"></code>.</p>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">analysis timeout</span>
+          <span class="setting-key">max_analysis_duration</span>
+        </div>
+        <input class="input-styled" type="text" x-model="values.daemon.max_analysis_duration" placeholder="8h"/>
+        <p class="setting-help">Maximum wall-clock time for a project analysis job.</p>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">history retention</span>
+          <span class="setting-key">job_history_retention</span>
+        </div>
+        <input class="input-styled" type="text" x-model="values.daemon.job_history_retention" placeholder="720h"/>
+        <p class="setting-help">How long completed job records stay visible.</p>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-card-title"><span>workload</span></div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">projects at once</span>
+          <span class="setting-key">max_concurrent_jobs</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.daemon.max_concurrent_jobs" placeholder="1"/>
+        <p class="setting-help">Raise this only when your machine and providers can handle parallel project scans.</p>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">rule timeout</span>
+          <span class="setting-key">rule_timeout_seconds</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.analyzer.rule_timeout_seconds" placeholder="180"/>
+        <p class="setting-help">Per-rule timeout. Verification runs may use a larger internal ceiling.</p>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-card-title"><span>analysis mode</span></div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">execution mode</span>
+          <span class="setting-key">execution.mode</span>
+        </div>
+        <div class="select-wrap">
+          <select class="input-styled select-styled" x-model="values.analyzer.execution.mode">
+            <option value="sequential">steady and predictable</option>
+            <option value="parallel">faster, more provider load</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">parallel sessions</span>
+          <span class="setting-key">max_concurrency</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.analyzer.execution.max_concurrency" placeholder="0"/>
+        <p class="setting-help">Use 0 to let Dreamer match the number of chunks.</p>
+      </div>
+      <label class="setting-check">
+        <input type="checkbox" x-model="values.analyzer.include_subagent_transcripts"/>
+        <span>
+          <strong>Include child-agent transcripts</strong>
+          <span>More complete analysis, with a larger context and token footprint.</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-card-title"><span>transcript packing</span></div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">chunk size</span>
+          <span class="setting-key">max_chunk_bytes</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.analyzer.chunking.max_chunk_bytes" placeholder="480000"/>
+        <p class="setting-help">Maximum transcript bytes sent to one provider session. Use 0 to disable chunking.</p>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">provider headroom</span>
+          <span class="setting-key">provider_boundary_headroom</span>
+        </div>
+        <input class="input-styled" type="number" step="0.01" min="0" max="0.99" x-model="values.analyzer.chunking.provider_boundary_headroom" placeholder="0.20"/>
+        <p class="setting-help">Reserve space before packing work from another provider.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-footer">
+    <button class="btn btn--primary" @click="save('scanning')" :disabled="validateFields('scanning')">save scanning</button>
+    <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('scanning')" x-text="validateFields('scanning')"></span>
+    <span class="settings-footer-hint" x-show="!validateFields('scanning') && isDirty('scanning')">unsaved changes</span>
+    <div x-show="saved.scanning === true" class="status-message success"><span class="status-dot"></span> saved</div>
+    <div x-show="saved.scanning === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+  </div>
+</div>
+{{end}}

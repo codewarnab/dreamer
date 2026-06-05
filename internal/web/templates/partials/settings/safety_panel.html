@@ -1,0 +1,93 @@
+{{define "settings_safety_panel"}}
+<div class="settings-panel" x-show="activeSection === 'safety'">
+  <div class="settings-panel-header">
+    <div>
+      <h2 class="settings-panel-title">Privacy & Safety</h2>
+      <p class="settings-panel-copy">Control redaction and the operating-system sandbox posture used around provider sessions.</p>
+    </div>
+  </div>
+
+  <div class="settings-grid">
+    <div class="settings-card">
+      <div class="settings-card-title"><span>redaction</span></div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">custom secret patterns</span>
+          <span class="setting-key">redaction.patterns</span>
+        </div>
+        <textarea class="input-styled input-textarea" rows="6" x-model="values.redaction.patterns" placeholder="(?i)bearer\s+[a-zA-Z0-9_\-\.=]+"></textarea>
+        <p class="setting-help">Add one regular expression per line. Matches are replaced before logs and transcripts are analyzed.</p>
+      </div>
+      <div class="regex-helper-box" style="border-color: var(--border-mint-subtle); background: var(--bg-mint-subtle);">
+        <h4>redaction preview</h4>
+        <input class="input-styled" type="text" x-model="testString" style="font-family: var(--font-mono); background: var(--surface-2);"/>
+        <div style="margin-top: var(--space-3); border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: 13px; font-family: var(--font-mono); min-height: 38px; word-break: break-all;" :style="redactTest() !== testString ? 'color: var(--color-warn); border-color: var(--border-warn-subtle); background: var(--bg-warn-subtle);' : 'color: var(--text-secondary); background: var(--canvas-black);'" x-text="redactTest()"></div>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-card-title"><span>sandbox posture</span></div>
+      <label class="setting-check">
+        <input type="checkbox" x-model="values.sandbox.project_write"/>
+        <span>
+          <strong>Allow provider writes in project</strong>
+          <span>Only enable when you want provider sessions to edit files during analysis.</span>
+        </span>
+      </label>
+      <div class="setting-field" style="margin-top: var(--space-4);">
+        <div class="setting-label-row">
+          <span class="setting-label">network access</span>
+          <span class="setting-key">sandbox.network</span>
+        </div>
+        <div class="select-wrap">
+          <select class="input-styled select-styled" x-model="values.sandbox.network">
+            <option value="">default</option>
+            <option value="none">block network</option>
+            <option value="loopback">local only</option>
+            <option value="full">full network</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">system call policy</span>
+          <span class="setting-key">sandbox.seccomp</span>
+        </div>
+        <div class="select-wrap">
+          <select class="input-styled select-styled" x-model="values.sandbox.seccomp">
+            <option value="">default</option>
+            <option value="strict">strict</option>
+            <option value="off">off</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-grid">
+        <div class="setting-field">
+          <div class="setting-label-row"><span class="setting-label">memory MB</span></div>
+          <input class="input-styled" type="number" x-model="values.sandbox.resources.memory_mb" placeholder="default"/>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row"><span class="setting-label">processes</span></div>
+          <input class="input-styled" type="number" x-model="values.sandbox.resources.processes" placeholder="default"/>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row"><span class="setting-label">file handles</span></div>
+          <input class="input-styled" type="number" x-model="values.sandbox.resources.fds" placeholder="default"/>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row"><span class="setting-label">SID cleanup days</span></div>
+          <input class="input-styled" type="number" x-model="values.sandbox.sid_expiry_days" placeholder="7"/>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-footer">
+    <button class="btn btn--primary" @click="save('safety')" :disabled="validateFields('safety')">save safety</button>
+    <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('safety')" x-text="validateFields('safety')"></span>
+    <span class="settings-footer-hint" x-show="!validateFields('safety') && isDirty('safety')">unsaved changes</span>
+    <div x-show="saved.safety === true" class="status-message success"><span class="status-dot"></span> saved</div>
+    <div x-show="saved.safety === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+  </div>
+</div>
+{{end}}

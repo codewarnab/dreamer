@@ -34,7 +34,7 @@ AI coding assistants are state-free across chat sessions and do not know your pr
 
 `dreamer` reduces **Cognitive and Intent Debt** by:
 * **Mining Local Chat History:** Scraping the local graveyards of assistant chat logs to recover developer/AI interactions, capturing the implicit **intent** and **rationale**.
-* **Synthesizing Guardrails:** Converting recurring AI mistakes into automated, checkable constraints (lint rules, unit tests, configuration validation, CI checks, or [CLAUDE.md](file:///c:/Users/User/code/dreamer/CLAUDE.md)/AGENTS.md documentation updates).
+* **Synthesizing Guardrails:** Converting recurring AI mistakes into automated, checkable constraints (lint rules, unit tests, configuration validation, CI checks, or [CLAUDE.md](CLAUDE.md)/AGENTS.md documentation updates).
 * **Failing Loud and Fast:** Lowering cognitive load. Instead of keeping a complex mental model of every edge case in your head, the codebase automatically guards itself against assistant mistakes.
 
 ---
@@ -57,14 +57,14 @@ gantt
 
 ### Step 1: The Vision & Design Guidelines
 Before looking at Go code, align your mental model with the project’s philosophical goals and strict cognitive complexity constraints:
-* Read the core vision in [vision.md](file:///c:/Users/User/code/dreamer/docs/vision.md).
-* Read the architectural specification in [spec.md](file:///c:/Users/User/code/dreamer/docs/spec.md).
-* Study the design system and cognitive load principles in [dreamer-design/SKILL.md](file:///c:/Users/User/code/dreamer/.agents/skills/dreamer-design/SKILL.md). This file details the codebase's strict conventions (e.g., keeping Cyclomatic Complexity under 7, limiting config fields and parameters to 7±2, and avoiding horizontal "utils" layers).
+* Read the core vision in [vision.md](docs/vision.md).
+* Read the architectural specification in [spec.md](docs/spec.md).
+* Study the design system and cognitive load principles in [dreamer-design/SKILL.md](.agents/skills/dreamer-design/SKILL.md). This file details the codebase's strict conventions (e.g., keeping Cyclomatic Complexity under 7, limiting config fields and parameters to 7±2, and avoiding horizontal "utils" layers).
 
 ### Step 2: The Imperative Shell & Workflow (Orchestration)
 Understand how `dreamer` executes the overall workflow. The entry point is simple, delegating down to Cobra CLI commands:
-* **Entry Point:** [main.go](file:///c:/Users/User/code/dreamer/main.go) and the command definitions under [cmd/](file:///c:/Users/User/code/dreamer/cmd/). See [cmd/analyze.go](file:///c:/Users/User/code/dreamer/cmd/analyze.go) for the one-shot pipeline command.
-* **The Workflow Pipeline:** The heartbeat of the application lives in [internal/pipeline/pipeline.go](file:///c:/Users/User/code/dreamer/internal/pipeline/pipeline.go). This orchestrates:
+* **Entry Point:** [main.go](main.go) and the command definitions under [cmd/](cmd/). See [cmd/analyze.go](cmd/analyze.go) for the one-shot pipeline command.
+* **The Workflow Pipeline:** The heartbeat of the application lives in [internal/pipeline/pipeline.go](internal/pipeline/pipeline.go). This orchestrates:
   1. *Discovery* of chat transcripts.
   2. *Caching* of previously analyzed inputs (incremental analysis).
   3. *Analysis* via LLM providers (two phases).
@@ -72,22 +72,22 @@ Understand how `dreamer` executes the overall workflow. The entry point is simpl
 
 ### Step 3: Discovery & Chat Reading (Mining the Artifacts)
 See how `dreamer` finds and parses the interaction histories of different coding assistants on your system:
-* **Registry & Provider Interfaces:** Learn how different chats are registered in [internal/chat/provider.go](file:///c:/Users/User/code/dreamer/internal/chat/provider.go).
-* **Format-Specific Parsers:** Peek inside the readers directory [internal/chat/readers/](file:///c:/Users/User/code/dreamer/internal/chat/readers/) to see how raw SQLites, JSON, or JSONL logs (from Claude Code, VS Code Copilot Chat, Gemini, Kiro, Codex, etc.) are converted into unified chat structures.
-* **Privacy & Secret Redaction:** Read [internal/analyzer/redaction.go](file:///c:/Users/User/code/dreamer/internal/analyzer/redaction.go) to see how API keys, tokens, and custom patterns are stripped before transcripts leave the local sandbox.
+* **Registry & Provider Interfaces:** Learn how different chats are registered in [internal/chat/provider.go](internal/chat/provider.go).
+* **Format-Specific Parsers:** Peek inside the readers directory [internal/chat/readers/](internal/chat/readers/) to see how raw SQLites, JSON, or JSONL logs (from Claude Code, VS Code Copilot Chat, Gemini, Kiro, Codex, etc.) are converted into unified chat structures.
+* **Privacy & Secret Redaction:** Read [internal/analyzer/redaction.go](internal/analyzer/redaction.go) to see how API keys, tokens, and custom patterns are stripped before transcripts leave the local sandbox.
 
 ### Step 4: Grounding & LLM Analysis (Reducing Cognitive Debt)
 This is the core cognitive processor of `dreamer`. It takes redacted transcripts and constructs guardrails:
-* **Two-Phase Orchestrator:** Examine [internal/analyzer/orchestrator.go](file:///c:/Users/User/code/dreamer/internal/analyzer/orchestrator.go) and [internal/analyzer/orchestrator_chunked.go](file:///c:/Users/User/code/dreamer/internal/analyzer/orchestrator_chunked.go).
+* **Two-Phase Orchestrator:** Examine [internal/analyzer/orchestrator.go](internal/analyzer/orchestrator.go) and [internal/analyzer/orchestrator_chunked.go](internal/analyzer/orchestrator_chunked.go).
   * **Phase 1 (Mistake Extraction):** Mines raw transcripts for mistakes specific to this repository.
   * **Phase 2 (Guardrail Synthesis):** Runs only if mistakes are found. Generates actionable guardrails grounded in the toolchain.
-* **System Boundaries & Security:** Study [internal/analyzer/permission.go](file:///c:/Users/User/code/dreamer/internal/analyzer/permission.go) to see how the read-only sandbox is enforced. This ensures the LLM analyzer can read files or execute local helper queries, but can never write to the codebase or run destructive actions.
-* **Symbol Grounding:** Explore [internal/analyzer/grounding/](file:///c:/Users/User/code/dreamer/internal/analyzer/grounding/) to understand how proposed guardrails are checked against actual codebase symbols.
+* **System Boundaries & Security:** Study [internal/analyzer/permission.go](internal/analyzer/permission.go) to see how the read-only sandbox is enforced. This ensures the LLM analyzer can read files or execute local helper queries, but can never write to the codebase or run destructive actions.
+* **Symbol Grounding:** Explore [internal/analyzer/grounding/](internal/analyzer/grounding/) to understand how proposed guardrails are checked against actual codebase symbols.
 
 ### Step 5: Output Generation & Apply Engine (Resolving Intent Debt)
 Once the LLMs synthesize the guardrails, see how they are delivered to the user:
-* **Todos Generation & Deduplication:** Look at [internal/output/generator.go](file:///c:/Users/User/code/dreamer/internal/output/generator.go) to see how findings are merged and formatted into `<output_root>/<project>/todos.md`.
-* **The Web SPA & API:** Look at [internal/web/](file:///c:/Users/User/code/dreamer/internal/web/) to understand the embedded server, loopback dashboard, SSE event streams, and how findings transition states (applied, dismissed, resolved).
+* **Todos Generation & Deduplication:** Look at [internal/output/generator.go](internal/output/generator.go) to see how findings are merged and formatted into `<output_root>/<project>/todos.md`.
+* **The Web SPA & API:** Look at [internal/web/](internal/web/) to understand the embedded server, loopback dashboard, SSE event streams, and how findings transition states (applied, dismissed, resolved).
 * **The Apply / Undo Engine:** Learn how the system performs containment checks and applies sections (`append-section`, `replace-section`, etc.) directly to project configurations with exact pre/post SHA-256 validation to prevent conflicts.
 
 ---
@@ -98,8 +98,8 @@ Once the LLMs synthesize the guardrails, see how they are delivered to the user:
 
 | Pattern | Description | Dreamer Example |
 | :--- | :--- | :--- |
-| **Deep Modules** | Hiding complex internals (like SQLite session parsing or LLM prompt formatting) behind clean, shallow APIs. | [internal/chat/readers/](file:///c:/Users/User/code/dreamer/internal/chat/readers/) parses complex formats but exposes a single `ReadMessages` interface. |
-| **Declarative Registry** | Dynamically registering providers or parsers without modifying core orchestrator loops. | [internal/chat/provider.go](file:///c:/Users/User/code/dreamer/internal/chat/provider.go) uses an `init()` self-registration system for new chat readers. |
+| **Deep Modules** | Hiding complex internals (like SQLite session parsing or LLM prompt formatting) behind clean, shallow APIs. | [internal/chat/readers/](internal/chat/readers/) parses complex formats but exposes a single `ReadMessages` interface. |
+| **Declarative Registry** | Dynamically registering providers or parsers without modifying core orchestrator loops. | [internal/chat/provider.go](internal/chat/provider.go) uses an `init()` self-registration system for new chat readers. |
 | **Functional Core, Imperative Shell** | Separating I/O operations (reading files, calling LLM endpoints) from pure business logic. | Chunks processing and parsing are pure functions; `pipeline.go` operates as the imperative wrapper. |
 
 ---

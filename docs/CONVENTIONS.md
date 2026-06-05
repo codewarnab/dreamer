@@ -82,7 +82,7 @@ The following short names are standard Go and require no expansion:
 
 ---
 
-## 4. Git Commit Message Standards ([HOW_TO_COMMIT.md](file:///c:/Users/User/code/dreamer/docs/HOW_TO_COMMIT.md))
+## 4. Git Commit Message Standards ([HOW_TO_COMMIT.md](HOW_TO_COMMIT.md))
 
 Commit messages must document **why** a change was made, not just **what** changed. The *what* is visible in the diff; the *why* represents the architectural trade-offs, bug triggers, and long-term design intent.
 

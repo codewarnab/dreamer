@@ -117,7 +117,6 @@ window.projectFindingsPage = function () {
       const url = "/api/projects/" + encodeURIComponent(this.name) + "/findings/" + encodeURIComponent(this.active.hash) + "/" + verb;
       const res = await fetch(url, { method: "POST", headers: { "X-Dreamer-CSRF": tok } });
       if (!res.ok) {
-        // TODO(audit): Show user-visible error feedback instead of just console.warn (MEDIUM #26)
         console.warn("finding action failed", verb, res.status);
       }
       this.active = null;

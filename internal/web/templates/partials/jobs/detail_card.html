@@ -1,0 +1,42 @@
+{{define "jobs_detail_card"}}
+<!-- Details card -->
+<div class="card" style="margin-bottom: var(--space-4);">
+  <div class="kicker">details</div>
+  <div style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3);">
+    <div>
+      <span class="label-mono">prompt:</span>
+      <pre style="margin-top: var(--space-2); white-space: pre-wrap; word-break: break-word; background: var(--surface-1); padding: var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-sm); max-height: 200px; overflow-y: auto;" x-text="job?.prompt || ''"></pre>
+    </div>
+    <div style="display: flex; gap: var(--space-5); flex-wrap: wrap;">
+      <div><span class="label-mono">project:</span> <span x-text="job?.project_name || '—'"></span></div>
+      <div><span class="label-mono">provider:</span> <span x-text="job?.provider_id || '—'"></span></div>
+      <div><span class="label-mono">model:</span> <span x-text="job?.model || '(default)'"></span></div>
+    </div>
+    <div><span class="label-mono">schedule:</span> <span x-text="scheduleSummary"></span></div>
+    <div><span class="label-mono">next runs:</span> <span x-text="nextRuns.join(', ') || '—'"></span></div>
+    <div style="display: flex; gap: var(--space-5); flex-wrap: wrap;">
+      <div><span class="label-mono">created:</span> <span x-text="job?.created_at ? new Date(job.created_at).toLocaleString() : '—'"></span></div>
+      <div><span class="label-mono">updated:</span> <span x-text="job?.updated_at ? new Date(job.updated_at).toLocaleString() : '—'"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Health card -->
+<div class="card" style="margin-bottom: var(--space-4);">
+  <div class="kicker">health</div>
+  <div style="margin-top: var(--space-3); display: flex; gap: var(--space-5); flex-wrap: wrap;">
+    <div>
+      <span class="label-mono">OS schedule:</span>
+      <span class="pill" :class="osSchedule?.installed ? 'pill--healthy' : 'pill--warn'" x-text="osSchedule?.installed ? 'installed' : 'not installed'"></span>
+    </div>
+    <div>
+      <span class="label-mono">enabled:</span>
+      <span class="pill" :class="job?.enabled ? 'pill--healthy' : ''" x-text="job?.enabled ? 'yes' : 'paused'"></span>
+    </div>
+    <div>
+      <span class="label-mono">last run:</span>
+      <span x-text="latestRun ? formatRunStatus(latestRun) : 'never'"></span>
+    </div>
+  </div>
+</div>
+{{end}}

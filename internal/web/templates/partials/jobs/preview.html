@@ -1,0 +1,17 @@
+{{define "jobs_preview"}}
+<div x-show="preview" class="card" style="background: var(--surface-1); margin-top: var(--space-2);">
+  <div class="kicker">preview</div>
+  <div style="margin-top: var(--space-2);">
+    <div><span class="label-mono">schedule:</span> <span x-text="preview?.schedule_summary"></span></div>
+    <div><span class="label-mono">next runs:</span> <span x-text="preview?.next_3_runs?.join(', ')"></span></div>
+    <div><span class="label-mono">provider:</span> <span x-text="preview?.provider?.display_name"></span></div>
+    <div><span class="label-mono">file access:</span> <span class="pill" style="padding: 2px 8px; font-size: 11px;" x-text="preview?.permissions?.file_access"></span></div>
+    <div x-show="preview?.permissions?.writable_paths?.length > 0">
+      <span class="label-mono">writable paths:</span> <span x-text="preview?.permissions?.writable_paths?.join(', ')"></span>
+    </div>
+    <div x-show="preview?.warnings?.length > 0" style="color: var(--text-secondary);">
+      <span class="label-mono">warnings:</span> <span x-text="preview?.warnings?.join(', ')"></span>
+    </div>
+  </div>
+</div>
+{{end}}

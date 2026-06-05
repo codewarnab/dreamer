@@ -1,0 +1,21 @@
+{{define "styles"}}
+<link rel="stylesheet" href="/static/css/pages/logs.css">
+{{end}}
+
+{{define "content"}}
+<section x-data="logsPage()" x-init="initPage()">
+  {{template "logs_header" .}}
+  {{template "logs_controls" .}}
+
+  <!-- Main Console Viewer Box -->
+  <div class="card" style="padding: 0; overflow: hidden; border-color: var(--border-subtle); background: var(--canvas-black);">
+    {{template "logs_disconnected_state" .}}
+    {{template "logs_empty_state" .}}
+    {{template "logs_viewer" .}}
+  </div>
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script defer src="/static/js/pages/logs.js"></script>
+{{end}}

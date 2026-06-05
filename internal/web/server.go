@@ -129,15 +129,12 @@ func (s *Server) initTemplates() {
 		"settings",
 		"logs",
 		"providers",
-		"project_overview",
-		"project_findings",
-		"project_chats",
-		"project_history",
+		"projects/overview",
+		"projects/findings",
+		"projects/chats",
+		"projects/history",
 	} {
-		tmpl, err := template.ParseFS(assets,
-			"templates/layout.html",
-			"templates/"+page+".html",
-		)
+		tmpl, err := parsePageTemplate(assets, page)
 		if err != nil {
 			panic("web: parse templates/" + page + ": " + err.Error())
 		}
@@ -151,15 +148,138 @@ func (s *Server) initTemplates() {
 // HTML files are visible on the next browser refresh without a rebuild.
 func (s *Server) templateFor(page string) (*template.Template, error) {
 	if s.opts.DevDir != "" {
-		layoutPath := filepath.Join(s.opts.DevDir, "templates", "layout.html")
-		pagePath := filepath.Join(s.opts.DevDir, "templates", page+".html")
-		return template.ParseFiles(layoutPath, pagePath)
+		fsys := os.DirFS(s.opts.DevDir)
+		return parsePageTemplate(fsys, page)
 	}
 	tmpl, ok := s.templates[page]
 	if !ok {
 		return nil, fmt.Errorf("unknown page template: %s", page)
 	}
 	return tmpl, nil
+}
+
+// parsePageTemplate compiles a template for a specific page by gathering
+// layout files, partials, and the page template itself, then parsing them from fsys.
+func parsePageTemplate(fsys fs.FS, page string) (*template.Template, error) {
+	var filesToParse []string
+	added := make(map[string]bool)
+
+	addFile := func(path string) {
+		if !added[path] {
+			added[path] = true
+			filesToParse = append(filesToParse, path)
+		}
+	}
+
+	fileExists := func(path string) bool {
+		fi, err := fs.Stat(fsys, path)
+		return err == nil && !fi.IsDir()
+	}
+
+	dirExists := func(path string) bool {
+		fi, err := fs.Stat(fsys, path)
+		return err == nil && fi.IsDir()
+	}
+
+	walkHTMLFiles := func(dir string) ([]string, error) {
+		var files []string
+		err := fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.HasSuffix(d.Name(), ".html") {
+				files = append(files, path)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return files, nil
+	}
+
+	// 1. Identify the primary layout file and add it first.
+	var primaryLayout string
+	if fileExists("templates/layouts/layout.html") {
+		primaryLayout = "templates/layouts/layout.html"
+	} else if fileExists("templates/layout.html") {
+		primaryLayout = "templates/layout.html"
+	}
+	if primaryLayout != "" {
+		addFile(primaryLayout)
+	}
+
+	// 2. Add any other layouts.
+	if dirExists("templates/layouts") {
+		layoutFiles, err := walkHTMLFiles("templates/layouts")
+		if err != nil {
+			return nil, fmt.Errorf("walk layouts: %w", err)
+		}
+		for _, f := range layoutFiles {
+			addFile(f)
+		}
+	}
+
+	// 3. Add partials.
+	for _, partDir := range partialDirsForPage(page) {
+		if dirExists(partDir) {
+			partFiles, err := walkHTMLFiles(partDir)
+			if err != nil {
+				return nil, fmt.Errorf("walk partials in %s: %w", partDir, err)
+			}
+			for _, f := range partFiles {
+				addFile(f)
+			}
+		}
+	}
+
+	// 4. Add the page template itself.
+	pageFound := false
+	pagePath := "templates/pages/" + page + ".html"
+	if fileExists(pagePath) {
+		addFile(pagePath)
+		pageFound = true
+	} else {
+		fallbackPath := "templates/" + page + ".html"
+		if fileExists(fallbackPath) {
+			addFile(fallbackPath)
+			pageFound = true
+		}
+	}
+	if !pageFound {
+		return nil, fmt.Errorf("page template not found for %q", page)
+	}
+
+	if len(filesToParse) == 0 {
+		return nil, fmt.Errorf("no templates found to parse for page %q", page)
+	}
+
+	tmpl, err := template.ParseFS(fsys, filesToParse...)
+	if err != nil {
+		return nil, fmt.Errorf("parse templates for %q: %w", page, err)
+	}
+	return tmpl, nil
+}
+
+// partialDirsForPage resolves directories containing partial templates for a page.
+func partialDirsForPage(page string) []string {
+	dirs := []string{"templates/partials/shared"}
+	// Add specific page directory
+	dirs = append(dirs, "templates/partials/"+page)
+
+	// Handle page groups/prefixes
+	if strings.HasPrefix(page, "job") {
+		dirs = append(dirs, "templates/partials/jobs")
+	}
+	if strings.HasPrefix(page, "project") {
+		dirs = append(dirs, "templates/partials/projects", "templates/partials/project")
+	}
+	// If page is nested like "projects/overview", also check the prefix
+	if idx := strings.Index(page, "/"); idx != -1 {
+		prefix := page[:idx]
+		dirs = append(dirs, "templates/partials/"+prefix)
+	}
+	return dirs
 }
 
 // Addr returns the bound TCP address (host:port) after Start.
@@ -282,10 +402,10 @@ var pageRoutes = map[string]pageRoute{
 }
 
 var projectTabTemplates = map[string]string{
-	"":         "project_overview.html",
-	"findings": "project_findings.html",
-	"chats":    "project_chats.html",
-	"history":  "project_history.html",
+	"":         "projects/overview.html",
+	"findings": "projects/findings.html",
+	"chats":    "projects/chats.html",
+	"history":  "projects/history.html",
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {

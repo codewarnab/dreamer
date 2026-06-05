@@ -1,0 +1,12 @@
+{{define "logs_header"}}
+<header style="margin-bottom: var(--space-4); display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2);">
+  <div>
+    <span class="kicker">system diagnostics</span>
+    <h1 class="headline-lg" style="letter-spacing: -0.5px; margin-top: 2px;">logs</h1>
+  </div>
+  <!-- Helpful information showing the physical location of the active log file on disk -->
+  <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); background: var(--bg-translucent-card); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+    <span style="color: var(--focus-cyan);">Log File:</span> <code style="color: var(--text-muted);">dreamer.log</code>
+  </div>
+</header>
+{{end}}

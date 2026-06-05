@@ -1,0 +1,40 @@
+{{define "settings_rules_panel"}}
+<div class="settings-panel" x-show="activeSection === 'rules'">
+  <div class="settings-panel-header">
+    <div>
+      <h2 class="settings-panel-title">Findings & Rules</h2>
+      <p class="settings-panel-copy">Choose which kinds of findings Dreamer should look for, and how strongly each category should be treated.</p>
+    </div>
+  </div>
+
+  <div class="rule-grid">
+    <template x-for="rule in ruleCatalog" :key="rule.id">
+      <div class="rule-card">
+        <label class="setting-check">
+          <input type="checkbox" x-model="values.rules[rule.id].enabled"/>
+          <span>
+            <strong x-text="rule.label"></strong>
+            <span x-text="rule.description"></span>
+          </span>
+        </label>
+        <div class="select-wrap">
+          <select class="input-styled select-styled" x-model="values.rules[rule.id].severity">
+            <option value="">default severity</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="critical">critical</option>
+          </select>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div class="settings-footer">
+    <button class="btn btn--primary" @click="save('rules')">save rules</button>
+    <span class="settings-footer-hint" x-show="isDirty('rules')">unsaved changes</span>
+    <div x-show="saved.rules === true" class="status-message success"><span class="status-dot"></span> saved</div>
+    <div x-show="saved.rules === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,144 @@
+{{define "settings_assistant_panel"}}
+<div class="settings-panel" x-show="activeSection === 'assistant'">
+  <div class="settings-panel-header">
+    <div>
+      <h2 class="settings-panel-title">Assistant</h2>
+      <p class="settings-panel-copy">Choose the agent Dreamer uses by default, then tune the model and provider safety settings that matter during analysis runs.</p>
+    </div>
+    <span class="settings-badge settings-badge--mint">default route</span>
+  </div>
+
+  <div class="settings-grid settings-grid--wide">
+    <div class="settings-card settings-card--accent">
+      <div class="settings-card-title">
+        <span>default assistant</span>
+        <button class="btn-reset" @click="resetField('assistant', 'default_provider', 'openclaude-cli')">baseline</button>
+      </div>
+      <div class="provider-grid">
+        <template x-for="providerID in providerOptions" :key="providerID">
+          <button type="button" class="provider-choice" :class="values.assistant.default_provider === providerID ? 'active' : ''" @click="selectProvider(providerID)">
+            <span class="provider-choice-name" x-text="providerID"></span>
+            <span class="provider-choice-meta">
+              <span x-text="providerHealth(providerID).healthy ? 'healthy' : providerHealth(providerID).runs ? 'has history' : 'not run yet'"></span>
+              <span x-show="providerHealth(providerID).failures">failures: <strong x-text="providerHealth(providerID).failures"></strong></span>
+            </span>
+          </button>
+        </template>
+      </div>
+      <p class="setting-help">Used when a project does not choose its own assistant.</p>
+    </div>
+
+    <div class="settings-grid" x-show="selectedProviderID()">
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <span>model and limits</span>
+          <span class="settings-badge settings-badge--mint" x-text="selectedProviderID()"></span>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row">
+            <span class="setting-label">model</span>
+            <span class="setting-key">providers.*.model</span>
+          </div>
+          <input class="input-styled" type="text" list="provider-model-options" x-model="values.providers[selectedProviderID()].model" placeholder="auto"/>
+          <datalist id="provider-model-options">
+            <template x-for="model in modelOptions(selectedProviderID())" :key="model">
+              <option :value="model"></option>
+            </template>
+          </datalist>
+          <p class="setting-help">Pick a known model or enter a provider-specific model name.</p>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row">
+            <span class="setting-label">max input tokens</span>
+            <span class="setting-key">max_input_tokens</span>
+          </div>
+          <input class="input-styled" type="number" x-model="values.providers[selectedProviderID()].max_input_tokens" placeholder="provider default"/>
+          <p class="setting-help">Optional cap for very large transcripts.</p>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <span>provider access</span>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row">
+            <span class="setting-label">API key variable</span>
+            <span class="setting-key">api_key_env</span>
+          </div>
+          <input class="input-styled" type="text" x-model="values.providers[selectedProviderID()].api_key_env" placeholder="OPENAI_API_KEY"/>
+          <p class="setting-help">Name of the environment variable that already holds the key.</p>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row">
+            <span class="setting-label">direct key</span>
+            <span class="setting-key">password</span>
+          </div>
+          <div class="input-reveal">
+            <input class="input-styled" :type="revealSecret ? 'text' : 'password'" x-model="values.providers[selectedProviderID()].password" placeholder="leave blank to keep current secret"/>
+            <button type="button" class="btn-reveal" @click="revealSecret = !revealSecret" x-text="revealSecret ? 'hide' : 'show'" :aria-pressed="String(revealSecret)"></button>
+          </div>
+          <p class="setting-help">Use only when an environment variable is not practical. Saved values are redacted when reloaded.</p>
+        </div>
+        <label class="setting-check">
+          <input type="checkbox" x-model="values.providers[selectedProviderID()].use_logged_in_user"/>
+          <span>
+            <strong>Use my logged-in account</strong>
+            <span>Prefer local provider login/keychain when the provider supports it.</span>
+          </span>
+        </label>
+        <label class="setting-check" style="margin-top: var(--space-3);">
+          <input type="checkbox" x-model="values.providers[selectedProviderID()].auto_start"/>
+          <span>
+            <strong>Start provider when needed</strong>
+            <span>Let Dreamer start the provider process on the first run.</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <span>provider safety</span>
+          <span class="setting-key">sandbox</span>
+        </div>
+        <div class="select-wrap">
+          <select class="input-styled select-styled" x-model="values.providers[selectedProviderID()].sandbox">
+            <option value="">provider default</option>
+            <option value="auto">auto</option>
+            <option value="true">sandbox on</option>
+            <option value="false">sandbox off</option>
+          </select>
+        </div>
+        <p class="setting-help">Controls provider-level sandbox posture without editing command-line launch details.</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-title">
+          <span>recent health</span>
+        </div>
+        <template x-if="getSelectedProviderInfo()">
+          <div>
+            <div class="settings-metric-row">
+              <span>Runs: <strong x-text="getSelectedProviderInfo().runs || 0"></strong></span>
+              <span>Tokens: <strong x-text="getSelectedProviderInfo().total_tokens || 0"></strong></span>
+              <span>Failures: <strong :style="getSelectedProviderInfo().failures > 0 ? 'color: var(--color-error);' : ''" x-text="getSelectedProviderInfo().failures || 0"></strong></span>
+              <span>Timeouts: <strong x-text="getSelectedProviderInfo().timeouts || 0"></strong></span>
+            </div>
+            <p class="setting-help" x-show="getSelectedProviderInfo().model">Last known model: <code x-text="getSelectedProviderInfo().model"></code></p>
+            <p class="setting-help" x-show="getSelectedProviderInfo().last_error">Last error: <code x-text="getSelectedProviderInfo().last_error"></code></p>
+          </div>
+        </template>
+        <p class="setting-help" x-show="!getSelectedProviderInfo()">No run history yet for this assistant.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-footer">
+    <button class="btn btn--primary" @click="save('assistant')" :disabled="validateFields('assistant')">save assistant</button>
+    <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('assistant')" x-text="validateFields('assistant')"></span>
+    <span class="settings-footer-hint" x-show="!validateFields('assistant') && isDirty('assistant')">unsaved changes</span>
+    <div x-show="saved.assistant === true" class="status-message success"><span class="status-dot"></span> saved</div>
+    <div x-show="saved.assistant === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+  </div>
+</div>
+{{end}}

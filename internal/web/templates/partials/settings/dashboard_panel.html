@@ -1,0 +1,63 @@
+{{define "settings_dashboard_panel"}}
+<div class="settings-panel" x-show="activeSection === 'dashboard'">
+  <div class="settings-panel-header">
+    <div>
+      <h2 class="settings-panel-title">Dashboard</h2>
+      <p class="settings-panel-copy">Control the local web dashboard. These settings are applied after restarting the daemon.</p>
+    </div>
+    <span class="settings-badge settings-badge--warn">restart needed</span>
+  </div>
+
+  <div class="settings-note">
+    <span class="settings-badge settings-badge--warn">restart</span>
+    <span><strong>Dashboard changes take effect after a daemon restart.</strong> Saving here updates preferences now; the running server keeps its current address until restart.</span>
+  </div>
+
+  <div class="settings-grid">
+    <div class="settings-card">
+      <div class="settings-card-title"><span>availability</span></div>
+      <label class="setting-check">
+        <input type="checkbox" x-model="values.web.enabled"/>
+        <span>
+          <strong>Enable dashboard</strong>
+          <span>Start the local web UI with the daemon.</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-card-title"><span>local address</span></div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">host</span>
+          <span class="setting-key">web.host</span>
+        </div>
+        <input class="input-styled" type="text" x-model="values.web.host" placeholder="127.0.0.1"/>
+        <p class="setting-help">Only loopback addresses are supported.</p>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">port</span>
+          <span class="setting-key">web.port</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.web.port" placeholder="7777"/>
+      </div>
+      <div class="setting-field">
+        <div class="setting-label-row">
+          <span class="setting-label">log preview size KB</span>
+          <span class="setting-key">log_tail_kb</span>
+        </div>
+        <input class="input-styled" type="number" x-model="values.web.log_tail_kb" placeholder="256"/>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-footer">
+    <button class="btn btn--primary" @click="save('dashboard')" :disabled="validateFields('dashboard')">save dashboard</button>
+    <span class="settings-footer-hint settings-footer-hint--error" x-show="validateFields('dashboard')" x-text="validateFields('dashboard')"></span>
+    <span class="settings-footer-hint" x-show="!validateFields('dashboard') && isDirty('dashboard')">unsaved changes</span>
+    <div x-show="saved.dashboard === true" class="status-message success"><span class="status-dot"></span> saved</div>
+    <div x-show="saved.dashboard === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+  </div>
+</div>
+{{end}}

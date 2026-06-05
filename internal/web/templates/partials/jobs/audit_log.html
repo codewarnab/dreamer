@@ -1,0 +1,27 @@
+{{define "jobs_audit_log"}}
+<div x-show="showAudit" style="margin-top: var(--space-3);">
+  <div x-show="auditEvents.length === 0" style="color: var(--text-secondary); text-align: center; padding: var(--space-4) 0; font-family: var(--font-mono); font-size: 13px; font-style: italic;">
+    No background job audit events recorded.
+  </div>
+  <table x-show="auditEvents.length > 0" style="width: 100%; font-size: 0.85rem;">
+    <thead>
+      <tr>
+        <th style="text-align: left;">time</th>
+        <th style="text-align: left;">event</th>
+        <th style="text-align: left;">job</th>
+        <th style="text-align: left;">actor</th>
+      </tr>
+    </thead>
+    <tbody>
+      <template x-for="ev in auditEvents" :key="ev.timestamp + ev.event">
+        <tr>
+          <td x-text="new Date(ev.timestamp).toLocaleString()" style="white-space: nowrap;"></td>
+          <td><span class="pill" x-text="ev.event"></span></td>
+          <td x-text="ev.job_id || '—'"></td>
+          <td x-text="ev.actor || '—'"></td>
+        </tr>
+      </template>
+    </tbody>
+  </table>
+</div>
+{{end}}

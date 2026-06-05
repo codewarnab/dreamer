@@ -1,0 +1,93 @@
+{{define "jobs_edit_modal"}}
+<div class="modal-overlay" x-show="showEditModal" x-cloak style="display: none;">
+  <div class="modal-dialog" style="max-width: 600px; width: 100%;">
+    <h3>edit background job</h3>
+    <p style="margin-bottom: var(--space-4);">Modify the configurations and permissions for this recurring background job.</p>
+    
+    <div style="display: flex; flex-direction: column; gap: var(--space-3); max-height: 60vh; overflow-y: auto; padding-right: var(--space-2); margin-bottom: var(--space-4);">
+      <div>
+        <label class="label-mono" for="edit-name">name</label>
+        <input class="input" id="edit-name" type="text" x-model="editForm.name" style="display: block; margin-top: var(--space-2); width: 100%;">
+      </div>
+      
+      <div>
+        <label class="label-mono" for="edit-prompt">prompt</label>
+        <textarea class="input" id="edit-prompt" rows="4" x-model="editForm.prompt" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);"></textarea>
+      </div>
+
+      <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <label class="label-mono" for="edit-provider">provider</label>
+          <select class="input" id="edit-provider" x-model="editForm.provider_id" style="display: block; margin-top: var(--space-2); width: 100%;">
+            <template x-for="p in providers" :key="p.id">
+              <option :value="p.id" x-text="p.display_name"></option>
+            </template>
+          </select>
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+          <label class="label-mono" for="edit-model">model (optional)</label>
+          <input class="input" id="edit-model" type="text" x-model="editForm.model" placeholder="e.g. gpt-4o, claude-3-5-sonnet" style="display: block; margin-top: var(--space-2); width: 100%;">
+        </div>
+      </div>
+
+      <div style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <label class="label-mono" for="edit-file-access">file access</label>
+          <select class="input" id="edit-file-access" x-model="editForm.file_access" style="display: block; margin-top: var(--space-2); width: 100%;">
+            <option value="read_only">read_only</option>
+            <option value="selected_writes">selected_writes</option>
+            <option value="full_workspace">full_workspace</option>
+          </select>
+        </div>
+      </div>
+
+      <div x-show="editForm.file_access === 'selected_writes'">
+        <label class="label-mono" for="edit-writable-paths">writable paths (comma-separated)</label>
+        <input class="input" id="edit-writable-paths" type="text" x-model="editForm.writable_paths" placeholder="e.g. src/output, logs/summary.json" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+      </div>
+
+      <div>
+        <label class="label-mono">schedule</label>
+        <div style="display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap;">
+          <button class="btn" :class="editForm.schedule_kind === 'hourly' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'hourly'">hourly</button>
+          <button class="btn" :class="editForm.schedule_kind === 'daily' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'daily'">daily</button>
+          <button class="btn" :class="editForm.schedule_kind === 'weekly' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'weekly'">weekly</button>
+          <button class="btn" :class="editForm.schedule_kind === 'cron' ? 'btn--primary' : 'btn--ghost'" @click="editForm.schedule_kind = 'cron'">cron</button>
+        </div>
+      </div>
+
+      <div x-show="editForm.schedule_kind === 'daily' || editForm.schedule_kind === 'weekly'" style="display: flex; gap: var(--space-3); flex-wrap: wrap;">
+        <div x-show="editForm.schedule_kind === 'weekly'">
+          <label class="label-mono" for="edit-day">day of week</label>
+          <select class="input" id="edit-day" x-model="editForm.day_of_week" style="display: block; margin-top: var(--space-2);">
+            <option value="monday">monday</option>
+            <option value="tuesday">tuesday</option>
+            <option value="wednesday">wednesday</option>
+            <option value="thursday">thursday</option>
+            <option value="friday">friday</option>
+            <option value="saturday">saturday</option>
+            <option value="sunday">sunday</option>
+          </select>
+        </div>
+        <div>
+          <label class="label-mono" for="edit-time">time of day</label>
+          <input class="input" id="edit-time" type="time" x-model="editForm.time_of_day" style="display: block; margin-top: var(--space-2);">
+        </div>
+      </div>
+
+      <div x-show="editForm.schedule_kind === 'cron'">
+        <label class="label-mono" for="edit-cron">cron expression</label>
+        <input class="input" id="edit-cron" type="text" x-model="editForm.cron" placeholder="*/30 * * * *" style="display: block; margin-top: var(--space-2); width: 100%; font-family: var(--font-mono);">
+        <small style="color: var(--color-warn); display: block; margin-top: var(--space-1); font-size: 11px;">⚠️ Cron schedules are not supported on Windows locally.</small>
+      </div>
+    </div>
+
+    <div x-show="editError" style="color: var(--color-error); margin-bottom: var(--space-3);" x-text="editError"></div>
+    
+    <div class="modal-actions">
+      <button class="btn btn--ghost" @click="showEditModal = false" :disabled="editLoading">cancel</button>
+      <button class="btn btn--primary" @click="saveJob()" :disabled="editLoading" x-text="editLoading ? 'saving...' : 'save changes'"></button>
+    </div>
+  </div>
+</div>
+{{end}}

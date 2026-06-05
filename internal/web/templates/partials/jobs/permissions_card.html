@@ -1,0 +1,51 @@
+{{define "jobs_permissions_card"}}
+<div class="card" style="margin-bottom: var(--space-4);" x-show="job">
+  <div class="kicker">security & permissions</div>
+  <div style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3);">
+    
+    <!-- Static Configured Permissions -->
+    <div style="display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center; border-bottom: 1px dashed var(--surface-slate); padding-bottom: var(--space-3);">
+      <div>
+        <span class="label-mono">configured file access:</span>
+        <span class="pill pill--info" x-text="job?.permissions?.file_access || 'read_only'"></span>
+      </div>
+      <div x-show="job?.permissions?.writable_paths?.length > 0">
+        <span class="label-mono">writable paths:</span>
+        <span style="font-family: var(--font-mono); font-size: var(--text-sm);" x-text="job?.permissions?.writable_paths?.join(', ')"></span>
+      </div>
+      <div>
+        <span class="label-mono">network required:</span>
+        <span class="pill" :class="job?.permissions?.provider_network_required ? 'pill--warn' : 'pill--healthy'" x-text="job?.permissions?.provider_network_required ? 'yes' : 'no'"></span>
+      </div>
+    </div>
+
+    <!-- Runtime Sandbox Status -->
+    <div x-show="sandboxStatus" style="display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: center;">
+      <div>
+        <span class="label-mono">runtime sandbox:</span>
+        <span class="pill" :class="sandboxStatus?.available ? 'pill--healthy' : 'pill--warn'" x-text="sandboxStatus?.available ? 'active' : 'unavailable'"></span>
+      </div>
+      <div>
+        <span class="label-mono">runtime network:</span>
+        <span class="pill" :class="sandboxStatus?.network_open ? 'pill--warn' : 'pill--healthy'" x-text="sandboxStatus?.network_open ? 'open' : 'isolated'"></span>
+      </div>
+      <div>
+        <span class="label-mono">runtime file access:</span>
+        <span class="pill" x-text="sandboxStatus?.file_access || '—'"></span>
+      </div>
+    </div>
+    
+    <div x-show="!sandboxStatus" style="font-size: var(--text-xs); color: var(--text-secondary); font-style: italic;">
+      No execution data available yet to display runtime sandbox diagnostics.
+    </div>
+
+    <template x-if="sandboxStatus?.warnings?.length">
+      <div style="margin-top: var(--space-2);">
+        <template x-for="w in sandboxStatus.warnings" :key="w">
+          <div style="color: var(--color-warn); font-size: var(--text-sm);">&#9888; <span x-text="w"></span></div>
+        </template>
+      </div>
+    </template>
+  </div>
+</div>
+{{end}}
