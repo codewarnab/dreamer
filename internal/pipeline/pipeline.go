@@ -316,7 +316,10 @@ type transcriptResult struct {
 func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.Source, logger *logging.Logger) (transcriptResult, bool, error) {
 	var transcript transcriptResult
 
-	rulePacks := mergeRulePacks(discovery.appConfig, discovery.projectFile, discovery.projectPath)
+	rulePacks, err := mergeRulePacks(discovery.appConfig, discovery.projectFile, discovery.projectPath)
+	if err != nil {
+		return transcript, false, err
+	}
 	if !anyEnabled(rulePacks) {
 		return transcript, false, fmt.Errorf("all rule packs disabled; nothing to analyze")
 	}

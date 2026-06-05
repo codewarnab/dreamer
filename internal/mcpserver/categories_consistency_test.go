@@ -15,7 +15,7 @@ import (
 func TestValidCategoriesMatchesAnalyzer(t *testing.T) {
 	canonical := analyzer.AllRuleCategories()
 	for _, cat := range canonical {
-		if !mcpserver.ValidCategories[string(cat)] {
+		if !mcpserver.IsValidCategory(string(cat)) {
 			t.Errorf("mcpserver.ValidCategories missing category %q (present in analyzer.AllRuleCategories)", cat)
 		}
 	}

@@ -44,25 +44,40 @@ var ValidCategories = func() map[string]bool {
 	return m
 }()
 
+var validCategoriesMu sync.RWMutex
+
 // RegisterCategory adds a category to ValidCategories so that findings
-// recorded by user-defined rule packs pass ValidateFinding. It is safe to
-// call before any concurrent use of ValidateFinding (e.g. at startup in
-// mergeRulePacks). Calling it after the MCP server has started is a data
-// race and must be avoided.
+// recorded by user-defined rule packs pass ValidateFinding.
 func RegisterCategory(category string) {
+	validCategoriesMu.Lock()
+	defer validCategoriesMu.Unlock()
 	ValidCategories[strings.ToLower(strings.TrimSpace(category))] = true
+}
+
+// IsValidCategory reports whether category is registered for findings.
+func IsValidCategory(category string) bool {
+	validCategoriesMu.RLock()
+	defer validCategoriesMu.RUnlock()
+	return ValidCategories[category]
+}
+
+// RegisteredCategories returns a snapshot of all valid finding categories.
+func RegisteredCategories() []string {
+	validCategoriesMu.RLock()
+	defer validCategoriesMu.RUnlock()
+	keys := make([]string, 0, len(ValidCategories))
+	for k := range ValidCategories {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // sortedValidCategories returns the valid category names in sorted order
 // for use in error messages. Recomputed each call so it reflects any
 // categories registered after init.
 func sortedValidCategoriesStr() string {
-	keys := make([]string, 0, len(ValidCategories))
-	for k := range ValidCategories {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, ", ")
+	return strings.Join(RegisteredCategories(), ", ")
 }
 
 // Field length caps. Findings that exceed these limits bloat todos.md and
@@ -173,7 +188,7 @@ func ValidateFinding(f *FindingInput) error {
 	if f.Category == "" {
 		return newValidationError("category is required")
 	}
-	if !ValidCategories[f.Category] {
+	if !IsValidCategory(f.Category) {
 		return newValidationError("invalid category %q (valid: %s)", f.Category, sortedValidCategoriesStr())
 	}
 	if f.Mistake == "" {

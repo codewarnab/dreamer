@@ -132,10 +132,12 @@ func newJobsRunCommand() *cobra.Command {
 				}
 			}
 
-			// Close console window now that interactive output (--dry-run,
-			// --force, errors) is done. From here on, output goes to the
-			// log file and run store, not stdout.
-			suppressConsoleWindow()
+			// Scheduler-triggered Windows runs should not leave a transient
+			// console window open. Manual --force runs keep stderr attached so
+			// root-level command errors stay visible to the user.
+			if !force {
+				suppressConsoleWindow()
+			}
 
 			// Build scheduler for self-repair (best-effort).
 			var selfRepair *backgroundjobs.SelfRepairConfig

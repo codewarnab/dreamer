@@ -616,7 +616,7 @@ label {
 }
 .chats-error {
   margin-bottom: var(--space-3);
-  color: var(--text-danger, #c33);
+  color: var(--color-error);
 }
 
 /* Toast notifications */
@@ -862,4 +862,3 @@ label {
   visibility: visible;
   opacity: 1;
 }
-

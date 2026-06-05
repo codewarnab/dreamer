@@ -178,7 +178,7 @@ func TestBuildPhase2RecordingInstructions(t *testing.T) {
 func TestValidCategoriesInSync(t *testing.T) {
 	canonical := AllRuleCategories()
 	for _, cat := range canonical {
-		if !mcpserver.ValidCategories[string(cat)] {
+		if !mcpserver.IsValidCategory(string(cat)) {
 			t.Errorf("category %q in AllRuleCategories but missing from mcpserver.ValidCategories", cat)
 		}
 	}

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"strings"
 
 	"dreamer/internal/analyzer"
@@ -17,10 +18,10 @@ func anyEnabled(packs []analyzer.RulePack) bool {
 	return false
 }
 
-func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectPath string) []analyzer.RulePack {
+func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectPath string) ([]analyzer.RulePack, error) {
 	packs, err := analyzer.LoadDefaultRulePacks()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("load default rule packs: %w", err)
 	}
 
 	// Load user-defined packs from <projectPath>/.dreamer/rules/ and append
@@ -29,10 +30,7 @@ func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectP
 		rulesDir := config.ProjectRulesDir(projectPath)
 		extraPacks, err := analyzer.LoadProjectRulePacks(rulesDir)
 		if err != nil {
-			// Non-fatal directory read errors (missing dir) are already
-			// swallowed inside LoadProjectRulePacks; reaching here means
-			// a YAML file is malformed — surface it as a pack-load failure.
-			return nil
+			return nil, fmt.Errorf("load project rule packs: %w", err)
 		}
 		for _, p := range extraPacks {
 			// Register the new category so MCP finding recording accepts it.
@@ -50,7 +48,7 @@ func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectP
 			packs[i].TimeoutSeconds = cfg.Analyzer.RuleTimeoutSeconds
 		}
 	}
-	return packs
+	return packs, nil
 }
 
 func applyRuleToggles(packs []analyzer.RulePack, overrides map[string]config.RuleConfig) {

@@ -19,9 +19,14 @@ func detachedProcessAttr() *syscall.SysProcAttr {
 func suppressConsoleWindow() {}
 
 // killDaemon sends SIGTERM to the daemon's process group. The negative PID
-// targets the entire process group (the daemon is a session leader via Setsid).
+// targets the entire process group when the daemon is a session leader via
+// Setsid. Standalone servers discovered by port may not own a process group
+// with the same ID, so fall back to signaling the process itself.
 func killDaemon(pid int) error {
-	return syscall.Kill(-pid, syscall.SIGTERM)
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+		return syscall.Kill(pid, syscall.SIGTERM)
+	}
+	return nil
 }
 
 // FindPIDByPort finds the PID of the process listening on the given TCP port.
