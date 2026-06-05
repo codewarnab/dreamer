@@ -164,14 +164,18 @@ window.addEventListener("alpine:init", function () {
 // Alpine root state — exposed as `appState()`. Manages the topbar status
 // pill and run-now action.
 window.appState = function () {
+  var tabletBreakpoint = 768;
+  var sidebarStorageKey = "sidebarCollapsed";
+  var sidebarMediaQuery = window.matchMedia("(max-width: " + (tabletBreakpoint - 1) + "px)");
+
   return {
     status: "idle",
     busy: false,
     msg: "",
-    sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
+    sidebarCollapsed: sidebarMediaQuery.matches || localStorage.getItem(sidebarStorageKey) === "true",
     toggleSidebar: function () {
       this.sidebarCollapsed = !this.sidebarCollapsed;
-      localStorage.setItem("sidebarCollapsed", this.sidebarCollapsed);
+      localStorage.setItem(sidebarStorageKey, this.sidebarCollapsed);
     },
     csrf: function () {
       const meta = document.querySelector('meta[name="csrf-token"]');
@@ -179,6 +183,18 @@ window.appState = function () {
     },
     init: function () {
       var self = this;
+      var syncSidebarForViewport = function (event) {
+        if (event.matches) {
+          self.sidebarCollapsed = true;
+          return;
+        }
+        self.sidebarCollapsed = localStorage.getItem(sidebarStorageKey) === "true";
+      };
+      if (sidebarMediaQuery.addEventListener) {
+        sidebarMediaQuery.addEventListener("change", syncSidebarForViewport);
+      } else if (sidebarMediaQuery.addListener) {
+        sidebarMediaQuery.addListener(syncSidebarForViewport);
+      }
       // React to SSE events for topbar status.
       try {
         var sse = Alpine.store("sse");

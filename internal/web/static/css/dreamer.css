@@ -251,7 +251,12 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   background: var(--surface-slate);
   padding: var(--space-4);
   width: 240px;
-  overflow: hidden;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
               padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -291,7 +296,7 @@ hr { border: 0; border-top: var(--hairline); margin: var(--space-5) 0; }
   border-bottom: var(--hairline);
 }
 .btn-sidebar-toggle {
-  position: absolute;
+  position: fixed;
   top: 24px;
   left: 228px; /* 240px width - 12px (half of 24px button width) */
   z-index: 99;
