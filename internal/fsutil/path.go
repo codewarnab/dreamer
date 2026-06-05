@@ -90,12 +90,16 @@ func ResolveSymlinks(abs string) (string, error) {
 			return abs, nil
 		}
 		base := filepath.Base(currentPath)
-		tail = append([]string{base}, tail...)
+		// Build path in reverse order to avoid prepend reallocation overhead.
+		// Appending to slice is O(1) amortized, but prepending requires copying
+		// all existing elements forward on each iteration - O(n) per prepend.
+		tail = append(tail, base)
 		resolvedParent, err := filepath.EvalSymlinks(parent)
 		if err == nil {
+			// Reconstruct path by walking backwards through tail since we appended (not prepended)
 			out := resolvedParent
-			for _, seg := range tail {
-				out = filepath.Join(out, seg)
+			for i := len(tail) - 1; i >= 0; i-- {
+				out = filepath.Join(out, tail[i])
 			}
 			return filepath.Clean(out), nil
 		}

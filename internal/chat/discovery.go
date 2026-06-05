@@ -88,7 +88,12 @@ func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath 
 		return nil, err
 	}
 
-	combined := make([]Source, 0)
+	// Preallocate combined slice to total sources count to avoid dynamic reallocation
+	totalSources := 0
+	for _, sources := range results {
+		totalSources += len(sources)
+	}
+	combined := make([]Source, 0, totalSources)
 	for _, sources := range results {
 		combined = append(combined, sources...)
 	}

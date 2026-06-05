@@ -67,7 +67,8 @@ func newJobsRunsCommand() *cobra.Command {
 					return invalidFlagValueError(cmd, "status", status, sortedKeys(validRunStatuses))
 				}
 				statusLower := strings.ToLower(status)
-				var filtered []backgroundjobs.Run
+				// Preallocate filtered slice to input length - worst case all match
+				filtered := make([]backgroundjobs.Run, 0, len(runs))
 				for _, r := range runs {
 					if strings.ToLower(string(r.Status)) == statusLower {
 						filtered = append(filtered, r)
