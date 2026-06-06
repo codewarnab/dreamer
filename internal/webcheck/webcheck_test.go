@@ -164,3 +164,69 @@ func TestCheckNonexistentDir(t *testing.T) {
 		t.Errorf("expected no findings, got %d", len(findings))
 	}
 }
+
+// TestGlobDirRecursive verifies that globDir descends into subdirectories.
+// This guards against regressions where the linter silently scans zero files
+// because the production template tree uses nested directories.
+func TestGlobDirRecursive(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a nested structure mirroring the real template layout.
+	for _, rel := range []string{
+		"pages/foo.html",
+		"partials/bar/baz.html",
+		"layouts/base.html",
+	} {
+		fullPath := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte(`<p>ok</p>`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err := globDir(dir, ".html")
+	if err != nil {
+		t.Fatalf("globDir error: %v", err)
+	}
+	if len(files) != 3 {
+		t.Errorf("expected 3 files from nested dirs, got %d: %v", len(files), files)
+	}
+}
+
+// TestCheckRealTemplates runs webcheck against the actual web template tree
+// to ensure the linter can find files and that known x-html usages in the
+// production templates are detected (they are safe today, but the linter
+// must be able to see them).
+func TestCheckRealTemplates(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot determine source file path")
+	}
+	// Walk up from internal/webcheck/ to the repo root, then into internal/web/templates.
+	repoRoot := filepath.Join(filepath.Dir(filename), "..", "..")
+	templatesDir := filepath.Join(repoRoot, "internal", "web", "templates")
+
+	if _, err := os.Stat(templatesDir); os.IsNotExist(err) {
+		t.Skipf("real templates dir not found at %s", templatesDir)
+	}
+
+	findings, err := Check(Config{TemplatesDir: templatesDir})
+	if err != nil {
+		t.Fatalf("Check() against real templates: %v", err)
+	}
+
+	// Count x-html findings. We know at least two exist in the real tree
+	// (logs/viewer.html and pages/projects/findings.html). If this count is
+	// zero the linter has regressed to scanning nothing.
+	xhtmlCount := 0
+	for _, f := range findings {
+		if f.Check == "x-html" {
+			xhtmlCount++
+		}
+	}
+	if xhtmlCount == 0 {
+		t.Error("webcheck found zero x-html usages in the real template tree — linter is likely not recursing into subdirectories")
+	}
+}

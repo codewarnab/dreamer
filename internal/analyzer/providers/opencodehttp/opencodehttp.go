@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,26 @@ import (
 )
 
 const ID = "opencode-server"
+
+const (
+	// portDetectTimeout is how long to wait for the auto-started server
+	// to log its listen address before giving up and killing the process.
+	portDetectTimeout = 10 * time.Second
+
+	// modelListTimeout caps the GET /api/providers request used to enumerate
+	// available models. Short because this is called in the UI hot path.
+	modelListTimeout = 3 * time.Second
+
+	// sessionCleanupTimeout caps the DELETE /session/{id} call in the
+	// deferred cleanup after each Run. Generous enough for a graceful
+	// server-side delete without blocking the caller for long.
+	sessionCleanupTimeout = 5 * time.Second
+
+	// modelListBodyCap bounds the body read on GET /api/providers to prevent
+	// an unexpectedly large payload from exhausting memory. Orders of
+	// magnitude above any real model list.
+	modelListBodyCap = 512 * 1024
+)
 
 // closerFunc adapts a function into an io.Closer.
 type closerFunc func() error
@@ -97,7 +118,6 @@ type provider struct {
 	mu            sync.Mutex
 	started       bool
 	closed        bool
-	autoStart     bool      // true if we spawned the server ourselves
 	cmd           *exec.Cmd // non-nil when auto-started
 	stderrDrainer io.Closer // non-nil: signals background drainer to exit
 }
@@ -144,10 +164,9 @@ func (p *provider) Start(ctx context.Context) error {
 		return fmt.Errorf("opencode-server: start: %w", err)
 	}
 	p.cmd = cmd
-	p.autoStart = true
 
 	// Read stderr to find the port.
-	port, err := detectPort(stderr, 10*time.Second)
+	port, err := detectPort(stderr, portDetectTimeout)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -358,7 +377,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", fmt.Errorf("opencode-server: create session: %w", err)
 	}
 	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), sessionCleanupTimeout)
 		defer cancel()
 		s.deleteSession(cleanupCtx, sessionID)
 	}()
@@ -494,4 +513,84 @@ type messageRequest struct {
 type messageResponse struct {
 	Info  json.RawMessage `json:"info"`
 	Parts []messagePart   `json:"parts"`
+}
+
+// --- ModelLister ---
+
+// opencodeProviderEntry is the wire shape of one entry in GET /api/providers.
+// Only id and models are read; all other fields are ignored.
+type opencodeProviderEntry struct {
+	ID     string                     `json:"id"`
+	Models map[string]json.RawMessage `json:"models"` // values not inspected
+}
+
+// ListModels satisfies analyzer.ModelLister. It queries the running OpenCode
+// server for its advertised model list and returns the deduplicated, sorted IDs.
+//
+// Requires: p.Start() has been called successfully (p.started == true).
+// On any error the caller (ProviderMeta handler) falls back to defaults.go AllModels;
+// this method never returns a partial list alongside a non-nil error.
+func (p *provider) ListModels(ctx context.Context) ([]string, error) {
+	p.mu.Lock()
+	started := p.started
+	baseURL := p.baseURL
+	p.mu.Unlock()
+
+	if !started {
+		return nil, errors.New("opencode-server: provider not started; cannot list models")
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, modelListTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, baseURL+"/api/providers", nil)
+	if err != nil {
+		return nil, fmt.Errorf("opencode-server: list models: build request: %w", err)
+	}
+	p.setBasicAuthHeader(req)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("opencode-server: list models: do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("opencode-server: list models: status %d", resp.StatusCode)
+	}
+
+	// Cap response body to modelListBodyCap — orders of magnitude above any real model list.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, modelListBodyCap))
+	if err != nil {
+		return nil, fmt.Errorf("opencode-server: list models: read body: %w", err)
+	}
+
+	return parseProviderModels(data)
+}
+
+// parseProviderModels is a pure function that extracts model IDs from the
+// OpenCode GET /api/providers JSON payload. No I/O; directly testable.
+// Returns a sorted, deduplicated slice of model IDs. An empty provider list
+// yields an empty slice (not an error).
+func parseProviderModels(data []byte) ([]string, error) {
+	var entries []opencodeProviderEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("parseProviderModels: unmarshal: %w", err)
+	}
+
+	seen := make(map[string]struct{})
+	for _, entry := range entries {
+		for modelID := range entry.Models {
+			if modelID != "" {
+				seen[modelID] = struct{}{}
+			}
+		}
+	}
+
+	models := make([]string, 0, len(seen))
+	for id := range seen {
+		models = append(models, id)
+	}
+	sort.Strings(models)
+	return models, nil
 }

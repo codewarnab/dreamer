@@ -32,6 +32,7 @@ func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sand
 		BaseURL:             block.BaseURL,
 		Password:            block.Password,
 		MaxInputTokens:      block.MaxInputTokens,
+		MaxTurns:            block.MaxTurns,
 		Sandbox:             config.DefaultSandboxFor(providerID),
 		SandboxProjectWrite: sandboxCfg.ProjectWrite != nil && *sandboxCfg.ProjectWrite,
 		SandboxNetwork:      sandboxCfg.Network,
@@ -48,9 +49,6 @@ func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sand
 	if block.UseLoggedInUser != nil {
 		out.UseLoggedInUser = *block.UseLoggedInUser
 		out.UseLoggedInUserSet = true
-	}
-	if block.AutoStart != nil {
-		out.AutoStart = *block.AutoStart
 	}
 	if len(block.Env) > 0 {
 		out.Env = map[string]string{}

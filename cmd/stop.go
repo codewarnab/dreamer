@@ -37,7 +37,10 @@ func newStopCommand() *cobra.Command {
 					// daemon crashed and the PID was reused by another process,
 					// killing it would be dangerous. Compare against the live
 					// process image, not our own binary path.
-					if lockExec == "" || (func() bool {
+					// When lockExec is empty (legacy lock file without exec
+					// path), we cannot verify identity — treat conservatively
+					// and do not kill the process.
+					if lockExec != "" && (func() bool {
 						liveExec, ok := fsutil.ProcessExecutable(pid)
 						return ok && fsutil.ExecPathsMatch(lockExec, liveExec)
 					})() {

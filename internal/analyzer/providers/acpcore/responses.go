@@ -82,6 +82,40 @@ func pickReadOnlyModeID(rawResponse json.RawMessage) (string, bool) {
 	return "", false
 }
 
+// extractAvailableModelIDs returns all modelId values from a session/new
+// result's models.availableModels[] array. Returns nil when the field is
+// absent, empty, or the payload cannot be parsed — callers must treat a nil
+// return as "no models advertised" and fall back to their static list.
+//
+// This is the pure-function counterpart to pickAvailableModelID: that helper
+// selects one model by preference; this one returns the full set so the UI
+// model picker can show every option the agent supports.
+func extractAvailableModelIDs(rawResponse json.RawMessage) []string {
+	if len(rawResponse) == 0 {
+		return nil
+	}
+	var parsed struct {
+		Models struct {
+			AvailableModels []struct {
+				ModelID string `json:"modelId"`
+			} `json:"availableModels"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(rawResponse, &parsed); err != nil {
+		return nil
+	}
+	if len(parsed.Models.AvailableModels) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(parsed.Models.AvailableModels))
+	for _, m := range parsed.Models.AvailableModels {
+		if m.ModelID != "" {
+			ids = append(ids, m.ModelID)
+		}
+	}
+	return ids
+}
+
 func extractStopReason(rawResponse json.RawMessage) string {
 	if len(rawResponse) == 0 {
 		return ""

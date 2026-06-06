@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"dreamer/internal/analyzer"
+	"dreamer/internal/config"
 	"dreamer/internal/errs"
 	"dreamer/internal/sandbox"
 )
@@ -549,5 +550,107 @@ func TestCmdStartErrUnavailable(t *testing.T) {
 	}
 	if tagged.Kind != errs.KindProviderUnavailable {
 		t.Errorf("expected KindProviderUnavailable, got %q", tagged.Kind)
+	}
+}
+
+// testSpecWithMaxTurns returns a Spec with SupportsMaxTurns=true for testing
+// the --max-turns injection path.
+func testSpecWithMaxTurns() *Spec {
+	spec := testSpec()
+	spec.SupportsMaxTurns = true
+	return spec
+}
+
+func TestNewSession_MaxTurnsDefault_Injected(t *testing.T) {
+	// When MaxTurns==0 and SupportsMaxTurns==true, the harness injects
+	// --max-turns with the DefaultMaxTurns value.
+	spec := testSpecWithMaxTurns()
+	p := NewProvider(Options{}, spec)
+	sess, err := NewSession(p, analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+		Sandbox:          "false",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	cmd := sess.Command()
+	idx := -1
+	for i, arg := range cmd {
+		if arg == "--max-turns" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("--max-turns not found in command: %v", cmd)
+	}
+	if idx+1 >= len(cmd) {
+		t.Fatalf("--max-turns has no value in command: %v", cmd)
+	}
+	want := fmt.Sprintf("%d", config.DefaultMaxTurns)
+	if cmd[idx+1] != want {
+		t.Errorf("--max-turns value = %q, want %q", cmd[idx+1], want)
+	}
+}
+
+func TestNewSession_MaxTurnsExplicitOverride(t *testing.T) {
+	// When MaxTurns is set explicitly, that value is used instead of the default.
+	spec := testSpecWithMaxTurns()
+	p := NewProvider(Options{MaxTurns: 50}, spec)
+	sess, err := NewSession(p, analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+		Sandbox:          "false",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	cmd := sess.Command()
+	for i, arg := range cmd {
+		if arg == "--max-turns" && i+1 < len(cmd) && cmd[i+1] == "50" {
+			return // found the expected value
+		}
+	}
+	t.Errorf("--max-turns 50 not found in command: %v", cmd)
+}
+
+func TestNewSession_MaxTurnsDisabled(t *testing.T) {
+	// MaxTurns==-1 means the operator explicitly disabled the cap; the flag
+	// must NOT be injected.
+	spec := testSpecWithMaxTurns()
+	p := NewProvider(Options{MaxTurns: -1}, spec)
+	sess, err := NewSession(p, analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+		Sandbox:          "false",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	cmd := sess.Command()
+	for _, arg := range cmd {
+		if arg == "--max-turns" {
+			t.Errorf("--max-turns should not be injected when MaxTurns==-1, got: %v", cmd)
+			return
+		}
+	}
+}
+
+func TestNewSession_MaxTurnsNotSupportedBySpec(t *testing.T) {
+	// When SupportsMaxTurns==false (the default), --max-turns must NOT be
+	// injected even when MaxTurns==0 (which would default to 200).
+	spec := testSpec() // SupportsMaxTurns not set → false
+	p := NewProvider(Options{}, spec)
+	sess, err := NewSession(p, analyzer.SessionConfig{
+		WorkingDirectory: t.TempDir(),
+		Sandbox:          "false",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	cmd := sess.Command()
+	for _, arg := range cmd {
+		if arg == "--max-turns" {
+			t.Errorf("--max-turns should not be injected for spec with SupportsMaxTurns=false, got: %v", cmd)
+			return
+		}
 	}
 }

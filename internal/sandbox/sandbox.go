@@ -307,7 +307,7 @@ func PostStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 	}
 	if !Available() {
 		if cfg.Mode == ModeOn {
-			return nil, fmt.Errorf("sandbox: mode true requested but OS sandbox is not available on this platform")
+			return func() {}, fmt.Errorf("sandbox: mode true requested but OS sandbox is not available on this platform")
 		}
 		return func() {}, nil
 	}
@@ -326,7 +326,7 @@ func PostStartWithHandle(cmd *exec.Cmd, cfg Config) (uintptr, func(), error) {
 	}
 	if !Available() {
 		if cfg.Mode == ModeOn {
-			return 0, nil, fmt.Errorf("sandbox: mode true requested but OS sandbox is not available on this platform")
+			return 0, func() {}, fmt.Errorf("sandbox: mode true requested but OS sandbox is not available on this platform")
 		}
 		return 0, func() {}, nil
 	}

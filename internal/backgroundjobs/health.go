@@ -26,6 +26,13 @@ const (
 	HealthSeverityInfo    HealthSeverity = "info"
 )
 
+const (
+	// staleJobWindow is the minimum time since last run before a job is
+	// flagged as stale in health checks. 7 days covers a full week of
+	// expected weekly schedules without false-positive warnings.
+	staleJobWindow = 7 * 24 * time.Hour
+)
+
 // SystemHealth is the aggregated health result from CheckHealth.
 type SystemHealth struct {
 	SystemHealthy bool          `json:"system_healthy"`
@@ -145,7 +152,7 @@ func (h *HealthChecker) checkJob(ctx context.Context, jobID string, job *Job) Jo
 	// Check for stale last run.
 	if job.LastRunAt != nil {
 		staleDuration := time.Since(*job.LastRunAt)
-		if staleDuration > 7*24*time.Hour {
+		if staleDuration > staleJobWindow {
 			jh.Issues = append(jh.Issues, HealthIssue{
 				JobID:    jobID,
 				Severity: HealthSeverityInfo,

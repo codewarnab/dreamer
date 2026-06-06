@@ -271,8 +271,11 @@ func isAddrInUse(err error) bool {
 		return true
 	}
 	var errno syscall.Errno
-	// Windows WSAEADDRINUSE is represented by Errno 10048
-	if errors.As(err, &errno) && errno == 10048 {
+	// wsaeAddrinUse is the Windows Sockets error code for WSAEADDRINUSE.
+	// It is not defined in the stdlib's syscall package for non-Windows builds,
+	// so it is defined here as a numeric constant rather than syscall.WSAEADDRINUSE.
+	const wsaeAddrinUse = 10048
+	if errors.As(err, &errno) && errno == wsaeAddrinUse {
 		return true
 	}
 	return false

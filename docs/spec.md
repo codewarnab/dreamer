@@ -146,7 +146,6 @@ providers:
   copilot-sdk:
     model: gpt-5.3-codex
     use_logged_in_user: true
-    auto_start: false
     copilot_home: ""
     cli_url: ""
   copilot-acp:

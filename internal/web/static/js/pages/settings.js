@@ -7,7 +7,7 @@ window.settingsPage = function () {
       { id: "rules", label: "rules", meta: "" },
       { id: "safety", label: "safety", meta: "" },
       { id: "storage", label: "storage", meta: "" },
-      { id: "dashboard", label: "dashboard", meta: "restart" },
+      { id: "dashboard", label: "dashboard", meta: "" },
     ],
     ruleCatalog: [
       { id: "lint-rule", label: "Lint rules", description: "Policy and style issues reported by linters." },
@@ -17,23 +17,60 @@ window.settingsPage = function () {
       { id: "config", label: "Configuration", description: "Unsafe or confusing project configuration." },
       { id: "refactor-boundary", label: "Refactor boundaries", description: "Design seams and maintainability risks." },
     ],
+    // providerModelMap is the fallback model list used when /api/provider-meta
+    // is unavailable (network error, old server). Kept in sync manually as a
+    // last-resort; the live endpoint is authoritative.
     providerModelMap: {
       "copilot-sdk": ["auto"],
       "copilot-acp": ["auto"],
-      "claude-cli": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-7"],
-      "claude-acp": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"],
-      "gemini-cli": ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
-      "gemini-acp": ["gemini-3-flash-preview", "gemini-2.5-flash"],
-      "kiro-acp": ["claude-sonnet-4-5-20250929"],
+      "claude-cli": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6", "claude-opus-4-6"],
+      "claude-acp": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"],
+      "gemini-cli": ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
+      "gemini-acp": ["gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"],
+      "kiro-acp": ["claude-sonnet-4.5", "claude-sonnet-4"],
       "codex-cli": ["gpt-5.4-mini", "gpt-5.3-codex"],
       "codex-acp": ["gpt-5.4-mini"],
       "openclaude-cli": ["mimo-v2.5-pro"],
       "opencode-acp": ["deepseek-v4-flash"],
       "opencode-server": ["deepseek-v4-flash"],
-      "codebuff-sdk": ["claude-opus-4-7"],
+      "codebuff-sdk": ["claude-opus-4-6"],
     },
+    // providerMetaMap is populated from /api/provider-meta on load. Holds the
+    // full metadata entry (display_name, models, default_model, remediation)
+    // keyed by provider id.
+    providerMetaMap: {},
     providerOptions: [],
     providersList: [],
+    providerTestRunning: false,
+    providerTestResult: null,   // { ok, latency_ms } | { ok, error, category }
+    // modelFamilyApiKeyEnv maps model-name prefixes to the env var that carries
+    // the API key for that model family. Ordered most-specific first so prefix
+    // matching short-circuits early.
+    modelFamilyApiKeyEnv: [
+      { prefix: "claude-",    env: "ANTHROPIC_API_KEY" },
+      { prefix: "gpt-",       env: "OPENAI_API_KEY"    },
+      { prefix: "o1",         env: "OPENAI_API_KEY"    },
+      { prefix: "o3",         env: "OPENAI_API_KEY"    },
+      { prefix: "gemini-",    env: "GEMINI_API_KEY"    },
+      { prefix: "mistral-",   env: "MISTRAL_API_KEY"   },
+      { prefix: "ministral-", env: "MISTRAL_API_KEY"   },
+      { prefix: "grok-",      env: "XAI_API_KEY"       },
+      { prefix: "mimo-",      env: "OPENAI_API_KEY"    },
+      { prefix: "deepseek-",  env: "OPENAI_API_KEY"    },
+      { prefix: "llama",      env: "OPENAI_API_KEY"    },
+    ],
+    // errorCategories maps regex patterns to { label, action } pairs for
+    // the categorised error display in the health card. Ordered most-specific
+    // first. Mirrors providerErrorCategory() in handlers/providers.go —
+    // both must be updated together when new patterns are added.
+    errorCategories: [
+      { pattern: /rate.?limit|429|quota.?exceeded/i,                              label: "rate limited",    action: "Wait a few minutes, or switch to a different model."             },
+      { pattern: /not.?found.?in.?PATH|binary.*not found|not installed/i,         label: "not installed",   action: "Run the remediation command shown above, then retry."             },
+      { pattern: /all \d+ output lines failed to parse|provider schema change/i,  label: "version mismatch",action: "Update the provider CLI: npm update -g @gitlawb/openclaude"      },
+      { pattern: /permission denied|auth|unauthori[zs]ed|invalid.*key|api key/i,  label: "auth failure",    action: "Check the API key variable or direct key above."                  },
+      { pattern: /timeout|deadline|context canceled/i,                            label: "timed out",       action: "Increase max_analysis_duration or reduce transcript size."         },
+      { pattern: /no assistant content/i,                                          label: "empty response",  action: "The model returned nothing. Check the model name is valid."       },
+    ],
     testString: "my password is 'supersecret123' and api_key = sk-12a3b4c",
     values: {
       assistant: { default_provider: "" },
@@ -48,6 +85,7 @@ window.settingsPage = function () {
     },
     saved: {},
     baseline: {},
+    providerConfirmed: false, // true once the user has actively chosen a provider (or one was loaded from saved config)
     revealSecret: false,
     loadError: "",
     csrf: function () {
@@ -78,9 +116,32 @@ window.settingsPage = function () {
     anyDirty: function () {
       return this.sectionIDs().some(id => this.isDirty(id));
     },
+    // Extract the family prefix from a full provider ID by splitting on the last hyphen.
+    // "claude-cli" → "claude", "opencode-acp" → "opencode", "copilot-sdk" → "copilot".
+    familyOf: function (providerID) {
+      const idx = providerID.lastIndexOf("-");
+      return idx > 0 ? providerID.slice(0, idx) : providerID;
+    },
+    // Derive the ordered, deduplicated list of provider families from providerOptions.
+    providerFamilies: function () {
+      const seen = new Set();
+      const families = [];
+      for (const id of this.providerOptions) {
+        const family = this.familyOf(id);
+        if (!seen.has(family)) { seen.add(family); families.push(family); }
+      }
+      return families; // preserves providerOptions sort order
+    },
+    // All variant IDs that belong to a given family.
+    variantsOf: function (family) {
+      return this.providerOptions.filter(id => this.familyOf(id) === family);
+    },
     selectProvider: function (providerID) {
       this.values.assistant.default_provider = providerID;
+      this.providerConfirmed = true; // user made an explicit choice
       this.ensureProvider(providerID);
+      this.providerTestResult = null; // clear stale test result from prior provider
+      this.autofillApiKeyEnv();
     },
     selectedProviderID: function () {
       return this.values.assistant.default_provider || "";
@@ -92,12 +153,12 @@ window.settingsPage = function () {
       }
       const block = this.values.providers[providerID];
       if (block.use_logged_in_user === undefined) block.use_logged_in_user = false;
-      if (block.auto_start === undefined) block.auto_start = false;
       if (block.sandbox === undefined || block.sandbox === null) block.sandbox = "";
       if (block.model === undefined) block.model = "";
       if (block.api_key_env === undefined) block.api_key_env = "";
       if (block.password === undefined) block.password = "";
       if (block.max_input_tokens === undefined) block.max_input_tokens = "";
+      if (block.max_turns === undefined) block.max_turns = "";
     },
     providerHealth: function (providerID) {
       return this.providersList.find(p => p.id === providerID) || { id: providerID, runs: 0, failures: 0, total_tokens: 0, timeouts: 0, healthy: false };
@@ -108,11 +169,97 @@ window.settingsPage = function () {
       return this.providersList.find(p => p.id === selected) || null;
     },
     modelOptions: function (providerID) {
+      // Prefer live data from /api/provider-meta; fall back to hardcoded map.
+      if (this.providerMetaMap[providerID] && this.providerMetaMap[providerID].models) {
+        return this.providerMetaMap[providerID].models;
+      }
       return this.providerModelMap[providerID] || [];
+    },
+    // loadProviderMeta fetches /api/provider-meta and replaces the hardcoded
+    // providerModelMap + providerMetaMap with live server data. Falls back
+    // gracefully to the hardcoded map on network errors or old servers.
+    loadProviderMeta: async function () {
+      try {
+        const r = await fetch("/api/provider-meta");
+        if (!r.ok) return;
+        const data = await r.json();
+        for (const p of (data.providers || [])) {
+          if (p.models && p.models.length > 0) {
+            this.providerModelMap[p.id] = p.models;
+          }
+          this.providerMetaMap[p.id] = p;
+        }
+      } catch (_) {
+        // Graceful degradation: retain hardcoded fallback map.
+      }
+    },
+    // apiKeyEnvForModel returns the canonical env var name for the API key
+    // required by the given model, based on prefix matching.
+    apiKeyEnvForModel: function (model) {
+      if (!model) return "";
+      const lower = model.toLowerCase();
+      for (const entry of this.modelFamilyApiKeyEnv) {
+        if (lower.startsWith(entry.prefix)) return entry.env;
+      }
+      return "";
+    },
+    // autofillApiKeyEnv suggests an api_key_env value based on the current
+    // model name. Never overwrites an existing user value.
+    autofillApiKeyEnv: function () {
+      const providerID = this.selectedProviderID();
+      const block = this.values.providers[providerID] || {};
+      if (block.api_key_env) return; // never clobber an explicit value
+      const suggested = this.apiKeyEnvForModel(block.model);
+      if (suggested) block.api_key_env = suggested;
+    },
+    // setModel sets the model for the currently selected provider and
+    // triggers API key autofill. Used by the quick-pick chip strip.
+    setModel: function (model) {
+      const providerID = this.selectedProviderID();
+      if (!providerID) return;
+      this.values.providers[providerID].model = model;
+      this.autofillApiKeyEnv();
+    },
+    // categoriseProviderError maps an error message to a { label, action } pair
+    // using the errorCategories table. Returns null when msg is empty.
+    categoriseProviderError: function (msg) {
+      if (!msg) return null;
+      for (const cat of this.errorCategories) {
+        if (cat.pattern.test(msg)) {
+          return { label: cat.label, action: cat.action };
+        }
+      }
+      return { label: "error", action: "" };
+    },
+    // testProvider fires POST /api/providers/{id}/test and stores the result
+    // in providerTestResult for display in the health card.
+    testProvider: async function () {
+      if (this.providerTestRunning) return;
+      this.providerTestRunning = true;
+      this.providerTestResult  = null;
+      const id = this.selectedProviderID();
+      try {
+        const r = await fetch(`/api/providers/${encodeURIComponent(id)}/test`, {
+          method:  "POST",
+          headers: { "X-Dreamer-CSRF": this.csrf() },
+        });
+        if (!r.ok) {
+          this.providerTestResult = { ok: false, error: `server error (HTTP ${r.status})`, category: "error" };
+          return;
+        }
+        this.providerTestResult = await r.json();
+      } catch (e) {
+        this.providerTestResult = { ok: false, error: e.message, category: "error" };
+      } finally {
+        this.providerTestRunning = false;
+      }
     },
     resetField: function (secID, key, defVal) {
       this.values[secID][key] = defVal;
-      if (secID === "assistant" && key === "default_provider") this.ensureProvider(defVal);
+      if (secID === "assistant" && key === "default_provider") {
+        this.ensureProvider(defVal);
+        this.providerConfirmed = true;
+      }
       if (window.Alpine) Alpine.store("toasts").add("reset " + key + " to default value", "info");
     },
     formatSeconds: function (sec) {
@@ -141,7 +288,10 @@ window.settingsPage = function () {
         const selected = this.selectedProviderID();
         if (!selected) return "Choose a default assistant";
         const tokens = this.values.providers[selected]?.max_input_tokens;
-        return this.positiveNumberError(tokens, "Max input tokens");
+        const tokensErr = this.positiveNumberError(tokens, "Max input tokens");
+        if (tokensErr) return tokensErr;
+        const turns = this.values.providers[selected]?.max_turns;
+        return this.positiveNumberError(turns, "Max turns");
       }
       if (secID === "scanning") {
         return this.positiveNumberError(this.values.daemon.frequency_seconds, "Scan frequency") ||
@@ -202,6 +352,8 @@ window.settingsPage = function () {
         }
         const data = await r.json();
         this.values.assistant.default_provider = data.default_provider || "";
+        // If the API returned a saved provider, the detail cards can show immediately.
+        if (data.default_provider) this.providerConfirmed = true;
         for (const k of ["daemon", "logging", "web"]) {
           if (data[k]) Object.assign(this.values[k], data[k]);
         }
@@ -242,6 +394,7 @@ window.settingsPage = function () {
           const provData = await provReq.json();
           this.providersList = provData.providers || provData || [];
         }
+        await this.loadProviderMeta();
         this.snapshotAll();
       } catch (e) {
         this.loadError = "failed to fetch configuration: " + e.message;
@@ -265,10 +418,10 @@ window.settingsPage = function () {
         api_key_env: this.blankToNull(provider.api_key_env),
         password: this.blankToNull(provider.password),
         max_input_tokens: this.numberOrNull(provider.max_input_tokens),
+        max_turns: this.numberOrNull(provider.max_turns),
         sandbox: this.blankToNull(provider.sandbox),
       };
       if (provider.use_logged_in_user !== undefined) block.use_logged_in_user = !!provider.use_logged_in_user;
-      if (provider.auto_start !== undefined) block.auto_start = !!provider.auto_start;
       return { default_provider: providerID || null, providers: { [providerID]: block } };
     },
     sectionBody: function (secID) {

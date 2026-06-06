@@ -36,6 +36,7 @@ func init() {
 			Env:                 providerConfig.Env,
 			Model:               providerConfig.Model,
 			DefaultModel:        providerConfig.DefaultModel,
+			MaxTurns:            providerConfig.MaxTurns,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxWritableDirs: providerConfig.SandboxWritableDirs,
 			SandboxNetwork:      providerConfig.SandboxNetwork,

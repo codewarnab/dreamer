@@ -82,7 +82,7 @@ func NextRun(s ScheduleSpec, now time.Time) (time.Time, error) {
 
 	switch s.Kind {
 	case ScheduleInterval:
-		interval := 1 * time.Hour
+		interval := defaultIntervalDuration
 		if s.Every != "" {
 			if d, err := parseEveryDuration(s.Every); err == nil {
 				interval = d
@@ -276,7 +276,10 @@ func parseCronInt(s string) (int, error) {
 }
 
 // nextCronRun finds the next run time for a cron expression after 'now'.
-// Searches up to 366 days into the future to avoid infinite loops on rare expressions.
+// Searches up to maxCronLookaheadDays into the future to avoid infinite
+// loops on rare expressions (e.g. "29 Feb" on a non-leap year).
+const maxCronLookaheadDays = 366 // covers one full leap year
+
 func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, error) {
 	fields, err := parseCron(expr)
 	if err != nil {
@@ -289,7 +292,7 @@ func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, err
 	// Start from the next minute boundary.
 	candidate := now.Truncate(time.Minute).Add(time.Minute)
 
-	for day := 0; day < 366; day++ {
+	for day := 0; day < maxCronLookaheadDays; day++ {
 		checkDate := candidate.AddDate(0, 0, day)
 
 		// Check month.
@@ -331,7 +334,7 @@ func nextCronRun(expr string, now time.Time, loc *time.Location) (time.Time, err
 		}
 	}
 
-	return time.Time{}, fmt.Errorf("no matching cron time in next 366 days")
+	return time.Time{}, fmt.Errorf("no matching cron time in next %d days", maxCronLookaheadDays)
 }
 
 // isWildcard checks if a cron field contains every value in the range [lo, hi].
@@ -346,16 +349,21 @@ func DefaultTimeoutFor(spec ScheduleSpec) time.Duration {
 	const (
 		hardCap      = 1 * time.Hour
 		dailyDefault = 30 * time.Minute
+		// minTimeout is the lower bound so very short intervals don't
+		// produce a zero or sub-minute session timeout.
+		minTimeout = 1 * time.Minute
+		// intervalPct is the fraction of the interval used as the timeout.
+		intervalPct = 0.8
 	)
 	switch spec.Kind {
 	case ScheduleInterval:
 		interval := EveryDuration(spec)
-		timeout := time.Duration(float64(interval) * 0.8)
+		timeout := time.Duration(float64(interval) * intervalPct)
 		if timeout > hardCap {
 			timeout = hardCap
 		}
-		if timeout < 1*time.Minute {
-			timeout = 1 * time.Minute
+		if timeout < minTimeout {
+			timeout = minTimeout
 		}
 		return timeout
 	default:
@@ -384,31 +392,46 @@ func executionTimeLimit(spec ScheduleSpec) string {
 	}
 }
 
+const (
+	// minIntervalDuration is the minimum allowed --every interval.
+	// Shorter intervals risk overlapping runs and excessive resource usage.
+	minIntervalDuration = 1 * time.Minute
+
+	// maxIntervalDuration is the maximum allowed --every interval.
+	// Capped at 23 hours so there is always at least one trigger per day
+	// for daily-aligned use-cases without switching to a daily schedule.
+	maxIntervalDuration = 23 * time.Hour
+
+	// defaultIntervalDuration is used when the ScheduleInterval spec
+	// has no Every field set.
+	defaultIntervalDuration = 1 * time.Hour
+)
+
 // parseEveryDuration parses and validates an --every duration string.
 // Accepts Go duration strings (e.g. "5m", "15m", "2h", "90m").
-// Rejects values < 1 minute and > 23 hours.
+// Rejects values < minIntervalDuration and > maxIntervalDuration.
 func parseEveryDuration(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 0, fmt.Errorf("parse duration %q: expected Go duration like 5m, 15m, 2h", s)
 	}
-	if d < 1*time.Minute {
+	if d < minIntervalDuration {
 		return 0, fmt.Errorf("minimum interval is 1m, got %v", d)
 	}
-	if d > 23*time.Hour {
+	if d > maxIntervalDuration {
 		return 0, fmt.Errorf("maximum interval is 23h, got %v", d)
 	}
 	return d, nil
 }
 
-// EveryDuration returns the parsed Every duration, or 1 hour as default.
+// EveryDuration returns the parsed Every duration, or defaultIntervalDuration as default.
 func EveryDuration(spec ScheduleSpec) time.Duration {
 	if spec.Every != "" {
 		if d, err := parseEveryDuration(spec.Every); err == nil {
 			return d
 		}
 	}
-	return 1 * time.Hour
+	return defaultIntervalDuration
 }
 
 // durationToISO8601 converts a Go duration to ISO 8601 format (PT{N}H or PT{N}M).

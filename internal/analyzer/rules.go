@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -178,7 +179,7 @@ func LoadProjectRulePacks(dir string) ([]RulePack, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
 			continue
 		}
-		fullPath := path.Join(dir, e.Name())
+		fullPath := filepath.Join(dir, e.Name())
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			return nil, fmt.Errorf("read project rule pack %q: %w", fullPath, err)

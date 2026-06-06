@@ -22,7 +22,6 @@ type Options struct {
 	UseLoggedInUser    bool
 	UseLoggedInUserSet bool
 	CLIURL             string
-	AutoStart          bool
 	Model              string
 }
 
@@ -61,8 +60,8 @@ type provider struct {
 	started bool
 }
 
-// New builds a Copilot SDK provider. The Provider is started lazily on first
-// NewSession unless options.AutoStart is true.
+// New builds a Copilot SDK provider. The Provider is started lazily on the
+// first NewSession call.
 func New(options Options) (analyzer.Provider, error) {
 	sdkOptions, err := buildSDKClientOptions(options)
 	if err != nil {
@@ -71,11 +70,6 @@ func New(options Options) (analyzer.Provider, error) {
 	p := &provider{
 		options: options,
 		client:  newSDKClient(sdkOptions),
-	}
-	if options.AutoStart {
-		if err := p.Start(context.Background()); err != nil {
-			return nil, err
-		}
 	}
 	return p, nil
 }
@@ -203,7 +197,7 @@ func buildSDKClientOptions(options Options) (*copilot.ClientOptions, error) {
 
 	sdkOptions := &copilot.ClientOptions{
 		CLIUrl:    cliURL,
-		AutoStart: copilot.Bool(options.AutoStart),
+		AutoStart: copilot.Bool(true),
 		LogLevel:  "error",
 	}
 	if copilotHome != "" {

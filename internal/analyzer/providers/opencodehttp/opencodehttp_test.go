@@ -1038,3 +1038,151 @@ func TestExtractPortEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+// --- ListModels tests ---
+
+func TestListModels_ReturnsErrorIfNotStarted(t *testing.T) {
+	p := &provider{}
+	_, err := p.ListModels(context.Background())
+	if err == nil {
+		t.Fatal("expected error when provider not started")
+	}
+	if !strings.Contains(err.Error(), "not started") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestListModels_ParsesValidResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{"healthy": true})
+		case r.URL.Path == "/api/providers" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"id": "anthropic",
+					"models": map[string]any{
+						"claude-opus-4-6":   map[string]any{"id": "claude-opus-4-6", "name": "Claude Opus 4.6"},
+						"claude-sonnet-4-6": map[string]any{"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6"},
+					},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := New(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Close()
+
+	models, err := p.(*provider).ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models, got %d: %v", len(models), models)
+	}
+	// Results must be sorted.
+	if models[0] != "claude-opus-4-6" || models[1] != "claude-sonnet-4-6" {
+		t.Errorf("unexpected order: %v", models)
+	}
+}
+
+func TestListModels_ReturnsErrorOnHTTPFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{"healthy": true})
+		case r.URL.Path == "/api/providers" && r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := New(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Close()
+
+	_, err = p.(*provider).ListModels(context.Background())
+	if err == nil {
+		t.Fatal("expected error on non-200 response")
+	}
+}
+
+func TestListModels_ReturnsErrorOnMalformedJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{"healthy": true})
+		case r.URL.Path == "/api/providers" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, "not-valid-json")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p, err := New(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Close()
+
+	_, err = p.(*provider).ListModels(context.Background())
+	if err == nil {
+		t.Fatal("expected error on malformed JSON")
+	}
+}
+
+// --- parseProviderModels tests ---
+
+func TestParseProviderModels_EmptyProviderList(t *testing.T) {
+	models, err := parseProviderModels([]byte(`[]`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(models) != 0 {
+		t.Errorf("expected empty list, got %v", models)
+	}
+}
+
+func TestParseProviderModels_DeduplicatesAcrossProviders(t *testing.T) {
+	data := []byte(`[
+		{"id": "anthropic", "models": {"claude-opus-4-6": {}, "claude-sonnet-4-6": {}}},
+		{"id": "openai",    "models": {"claude-opus-4-6": {}, "gpt-4o": {}}}
+	]`)
+	models, err := parseProviderModels(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	seen := map[string]int{}
+	for _, m := range models {
+		seen[m]++
+	}
+	for id, count := range seen {
+		if count > 1 {
+			t.Errorf("model %q appears %d times, want 1", id, count)
+		}
+	}
+	if len(models) != 3 {
+		t.Errorf("expected 3 unique models, got %d: %v", len(models), models)
+	}
+}

@@ -7,6 +7,30 @@ import (
 	"strings"
 )
 
+// MaxPromptSize is the maximum allowed byte length for a background job prompt.
+// This constant is intentionally placed here (not in cmd/ or handlers/) so both
+// the CLI and the web handler can import it without creating an import cycle.
+// Value: 16 KiB — generous for any realistic natural-language task description.
+const MaxPromptSize = 16 * 1024
+
+// ParseFileAccess converts the user-facing string representation of a
+// FileAccessMode into the typed constant, returning an error for unknown values.
+// Centralising this here ensures that the CLI (cmd/jobs.go) and the web
+// handlers (internal/web/handlers/jobs.go) always enforce the same allowed set
+// and error message.
+func ParseFileAccess(s string) (FileAccessMode, error) {
+	switch s {
+	case "read_only":
+		return FileAccessReadOnly, nil
+	case "selected_writes":
+		return FileAccessSelectedWrites, nil
+	case "full_workspace":
+		return FileAccessFullWorkspace, nil
+	default:
+		return "", fmt.Errorf("file_access must be one of: read_only, selected_writes, full_workspace")
+	}
+}
+
 // protectedSuffixes are directory names that background jobs must never write
 // to, even when the project root is broad.
 var protectedSuffixes = []string{

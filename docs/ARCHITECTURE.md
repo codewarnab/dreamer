@@ -121,8 +121,51 @@ Guarantees side-effect containment for child processes spawned by LLM agents:
 - **macOS:** Employs seatbelt profiles (`sandbox-exec` SBPL) to block system socket binds, limit filesystem accesses, and block Mach services.
 - **Windows:** Constructs a custom restricted security identifier (SID) token with restricted write ACLs and wraps running trees in a Win32 Job Object for lifecycle cleanups.
 
+> For the full per-OS threat model, known limitations, testing requirements, and the four-function backend contract, see **[docs/SANDBOX.md](SANDBOX.md)**.
+
+### Provider System (`internal/analyzer/providers/`)
+Sixteen provider implementations across two transport archetypes (CLI stream-JSON and ACP JSON-RPC 2.0). All providers register via `init()` using `analyzer.RegisterProvider` and `analyzer.RegisterProviderMeta`. The shared `cliharness` package drives CLI providers; `acpcore` drives ACP providers.
+
+> For the `Provider`/`Session` interface contract, ACP wire protocol, permission handler wiring, Phase 2 transports, and required tests for adding a new provider, see **[docs/PROVIDERS.md](PROVIDERS.md)**.
+
+### Security Model
+Dreamer applies defence-in-depth: secret redaction before sending transcripts to the LLM, a policy-layer permission handler for tool calls, OS-level sandbox containment for subprocesses, CSRF + DNS-rebinding protection for the web dashboard, and run-token authentication for background job execution.
+
+> For the full threat model, trust boundaries, redaction guarantees, web security layer, and known security gaps with planned mitigations, see **[docs/SECURITY.md](SECURITY.md)**.
+
 ### Background Jobs Engine (`internal/backgroundjobs/`)
 Enforces strict cross-process locking and execution bounds:
 - **Locked CRUD:** Uses `<output_root>/background-jobs/store.lock` to coordinate CRUD operations on `jobs.json`.
 - **Run Security:** OS scheduler tasks execution triggers `dreamer jobs run <id> --run-token-file <path>`. The runner checks this token against `<store_dir>/run.token` to prevent unauthenticated executions.
 - **Reconciler:** Periodically syncs job specifications inside `jobs.json` with platform schedulers, resolving drifts, registering orphans, and checking system health states.
+- **Reconciler:** Periodically syncs job specifications inside `jobs.json` with platform schedulers, resolving drifts, registering orphans, and checking system health states.
+
+### Model List Cache (`internal/analyzer/modellistcache.go`)
+`ModelListCache` caches live provider model lists with a 5-minute in-memory TTL. On daemon startup (`web.Server.attachAPI`), the cache is pre-warmed from `<output_root>/model-list-cache.json` (7-day disk TTL) so the settings UI shows a useful model picker immediately without waiting for a background provider fetch. After each successful `ListModels` call, the background goroutine in `enrichWithLiveModels` calls `ModelListCache.Save(outputRoot)` to persist the result atomically.
+
+The `GET /api/provider-meta` response includes a `model_source` field per provider:
+- `"live"` — the models list was served from the in-memory cache (fetched from a running provider at some point since daemon start)
+- `"static"` — no cache entry yet; the static `defaults.AllModels` fallback was returned
+
+---
+
+## 5. Shared Helpers & Reusable Functions
+
+The codebase has a curated set of shared helper functions and constants that must be used instead of reimplementing equivalent logic inline. The authoritative catalogue is:
+
+> **[docs/SHARED_HELPERS.md](SHARED_HELPERS.md)** — complete reference with signatures, current callers, and a quick-lookup table. Read this before writing any helper, constant, or formula.
+
+Key packages that own cross-cutting reusable helpers:
+
+| Package | Primary reusable helpers |
+| :--- | :--- |
+| `internal/fsutil/` | `WriteFileAtomic`, `ExpandUserHome`, `NormalizeRootPath`, `PathWithinRoot`, `ResolveSymlinks`, `ListProjectFiles`, `ShouldSkipDir/File` |
+| `internal/backgroundjobs/` | `ParseFileAccess`, `MaxPromptSize`, `ValidateWritablePaths`, `ValidateSchedule`, `NextRun`, `GenerateJobID`, `ValidateJobID` |
+| `internal/pipeline/` | `ParseLookbackDuration` (unit-to-duration for `since` windows) |
+| `internal/state/` | `Load`, `Save`, `LoadHistory`, `StateCache`, `ChatCacheKey`, `HashFile`, `TruncateError`, `FindingStatus*` constants |
+| `internal/config/` | `ValidateProjectName`, `IsLifetimeSince`, `DefaultSince`, `AppendProjectToYAML`, `RemoveProjectFromYAML`, `DefaultModelFor`, `RemediationMessage` |
+| `internal/categories/` | `ApplyEligible`, `AllApplyEligible`, `All` |
+| `internal/logging/` | `Any`, `String`, `ErrAttr` |
+| `internal/errs/` | `NotInstalled`, `RateLimit`, `ProviderUnavailable`, `KindOf`, `Is` |
+| `internal/web/handlers/` | `buildLifecycleCounts`, `buildProviderHealth`, `findProjectByName`, `parseSinceWindow`, `loadFindingsFor`, `buildFindingView`, `buildScheduleSummary` |
+| `internal/analyzer/` | `ModelListCache.Get`, `ModelListCache.Set`, `ModelListCache.Load(dir)`, `ModelListCache.Save(dir)` — disk-persisted provider model list cache |

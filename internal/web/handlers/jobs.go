@@ -35,6 +35,19 @@ const (
 
 	// maxRunLimit is the maximum number of runs returned by run history.
 	maxRunLimit = 200
+
+	// auditDefaultLimit is the default number of audit events returned by
+	// GET /api/jobs/audit. Larger than defaultRunLimit because audit events
+	// are lightweight and operators typically want a broader window.
+	auditDefaultLimit = 100
+
+	// auditMaxLimit caps the ?limit= query param on the audit endpoint to
+	// prevent unbounded memory allocation from large audit logs.
+	auditMaxLimit = 500
+
+	// jobDetailRecentRunCount is the number of recent runs returned in the
+	// job detail view sidebar. Kept small to bound the response payload.
+	jobDetailRecentRunCount = 10
 )
 
 // errJobNotFound is returned by store mutations when the job ID does not exist.
@@ -168,6 +181,12 @@ func applyJobEdits(job *backgroundjobs.Job, payload editPayload, lookup func(str
 			job.Permissions.WritablePaths = nil
 		case "selected_writes":
 			job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
+			// WritablePaths must be provided either in this payload or already
+			// set on the job. Reject if neither is true so the persisted state
+			// is always valid (create/preview enforce the same invariant).
+			if payload.WritablePaths == nil && len(job.Permissions.WritablePaths) == 0 {
+				return false, nil, fmt.Errorf("writable_paths required when file_access=selected_writes")
+			}
 		case "full_workspace":
 			job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
 			job.Permissions.WritablePaths = nil
@@ -823,11 +842,11 @@ func JobAuditLog(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		limit := 100
+		limit := auditDefaultLimit
 		if v := r.URL.Query().Get("limit"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				if n > 500 {
-					n = 500
+				if n > auditMaxLimit {
+					n = auditMaxLimit
 				}
 				limit = n
 			}
@@ -890,12 +909,12 @@ func JobDetail(deps Deps) http.HandlerFunc {
 			latestRun, _ = deps.Jobs.Runs.Latest(jobID)
 		}
 
-		// Recent runs (last 10).
+		// Recent runs (last jobDetailRecentRunCount).
 		var recentRuns []backgroundjobs.Run
 		if deps.Jobs.Runs != nil {
 			allRuns, _ := deps.Jobs.Runs.List(jobID)
-			if len(allRuns) > 10 {
-				recentRuns = allRuns[:10]
+			if len(allRuns) > jobDetailRecentRunCount {
+				recentRuns = allRuns[:jobDetailRecentRunCount]
 			} else {
 				recentRuns = allRuns
 			}
@@ -1310,7 +1329,10 @@ func JobActivity(deps Deps) http.HandlerFunc {
 		}
 
 		// Read activity events from the JSONL file.
-		events, _ := backgroundjobs.ReadAllActivity(deps.Jobs.Runs.Dir(), jobID, runID)
+		events, actErr := backgroundjobs.ReadAllActivity(deps.Jobs.Runs.Dir(), jobID, runID)
+		if actErr != nil {
+			deps.Logger.Warn("activity read failed", logging.ErrAttr(actErr)...)
+		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"events":  events,

@@ -1,6 +1,7 @@
 package webcheck
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -46,21 +47,27 @@ func Check(cfg Config) ([]Finding, error) {
 	return all, nil
 }
 
-// globDir returns all files with the given extension in dir (non-recursive).
+// globDir returns all files with the given extension in dir (recursive).
 // Returns nil (not an error) if dir does not exist.
 func globDir(dir, ext string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) && path == dir {
+				return filepath.SkipAll
+			}
+			return err
+		}
+		if !d.IsDir() && filepath.Ext(d.Name()) == ext {
+			files = append(files, path)
+		}
+		return nil
+	})
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
-	}
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ext {
-			files = append(files, filepath.Join(dir, e.Name()))
-		}
 	}
 	return files, nil
 }

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"dreamer/internal/analyzer/providers/flagutil"
 	"dreamer/internal/analyzer/transport"
 	"dreamer/internal/chat"
+	"dreamer/internal/config"
 	"dreamer/internal/errs"
 	"dreamer/internal/sandbox"
 )
@@ -58,6 +60,11 @@ type Spec struct {
 	ResolveModel func(sc analyzer.SessionConfig, model, defaultModel string) string
 	// SkipPhase2Validation disables Phase2.Validate() in NewSession.
 	SkipPhase2Validation bool
+	// SupportsMaxTurns indicates the provider CLI accepts the --max-turns flag
+	// in headless (-p/--print) mode. True for claude-cli and openclaude-cli;
+	// false for gemini-cli (uses settings.json) and codex-cli (Rust binary
+	// rejects unknown flags hard).
+	SupportsMaxTurns bool
 }
 
 // Options is the per-provider configuration carried from YAML config.
@@ -71,6 +78,9 @@ type Options struct {
 	SandboxNetwork      string
 	SandboxSeccomp      string
 	SandboxResources    sandbox.ResourceLimits
+	// MaxTurns caps the number of agentic loop iterations per session.
+	// 0 = use config.DefaultMaxTurns; -1 = no cap.
+	MaxTurns int
 	// Background indicates the session is for a background job. When true,
 	// the default command uses a permissive permission mode (e.g.
 	// --permission-mode auto instead of plan) so the provider can execute
@@ -169,6 +179,21 @@ func NewSession(p *Provider, sessionConfig analyzer.SessionConfig) (*Session, er
 	model := spec.ResolveModel(sessionConfig, p.Options.Model, p.Options.DefaultModel)
 	if model != "" {
 		command = append(command, "--model", model)
+	}
+	// Inject --max-turns to cap agentic loop iterations and prevent runaway
+	// analysis from burning tokens until the job timeout fires (default 8h).
+	// Only injected for providers whose CLI supports the flag (claude-cli and
+	// openclaude-cli). Gemini CLI uses settings.json maxSessionTurns; Codex CLI
+	// (Rust) rejects unknown flags with a hard error.
+	if spec.SupportsMaxTurns {
+		maxTurns := p.Options.MaxTurns
+		if maxTurns == 0 {
+			maxTurns = config.DefaultMaxTurns
+		}
+		// maxTurns == -1 means the operator explicitly disabled the cap; skip.
+		if maxTurns > 0 {
+			command = append(command, "--max-turns", strconv.Itoa(maxTurns))
+		}
 	}
 	if spec.InjectPhase2 != nil {
 		command, err = spec.InjectPhase2(command, sessionConfig, useNative)
@@ -289,7 +314,7 @@ func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final st
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
 		if transport.IsRateLimitMessage(stderr) {
-			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
+			return final, errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
 		return final, err
 	}

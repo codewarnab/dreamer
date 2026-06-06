@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/backgroundjobs"
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
@@ -553,7 +554,22 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			}
 			return s.opts.RestartHook()
 		},
-		StateLock: handlers.NewProjectLock(),
+		StateLock:      handlers.NewProjectLock(),
+		ModelListCache: &analyzer.ModelListCache{},
+		CacheDir: func() string {
+			return s.opts.Config.Daemon.OutputRoot
+		},
+	}
+	// Warm the model list cache from disk so the settings UI shows a live
+	// model list immediately on first page load after a daemon restart,
+	// without waiting for a background provider fetch.
+	if outputRoot := s.opts.Config.Daemon.OutputRoot; outputRoot != "" {
+		if err := deps.ModelListCache.Load(outputRoot); err != nil {
+			s.opts.Logger.Warn("model list cache load failed",
+				logging.Any("dir", outputRoot),
+				logging.Any("err", err),
+			)
+		}
 	}
 	if s.opts.StateCache != nil {
 		deps.StateCache = s.opts.StateCache
@@ -571,6 +587,8 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	// and POST (creating/adding a new project folder) requests.
 	mux.Handle("/api/projects", handlers.Projects(deps))
 	mux.Handle("/api/providers", handlers.Providers(deps))
+	mux.Handle("/api/provider-meta", handlers.ProviderMeta(deps))
+	mux.Handle("/api/providers/", handlers.RouteProviders(deps))
 	mux.Handle("/api/settings", handlers.Settings(deps))
 	mux.Handle("/api/logs/tail", handlers.LogsTail(deps))
 	mux.Handle("/api/events", handlers.Events(deps))
