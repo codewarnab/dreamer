@@ -129,6 +129,13 @@ type SandboxResources struct {
 	FDs       int `yaml:"fds,omitempty" json:"fds,omitempty"`
 }
 
+// DefaultMaxTurns is the agentic loop iteration cap injected as --max-turns
+// into CLI-based providers that support the flag. Chosen as 10× the
+// observed p99 turn count for analysis tasks (~20 turns); high enough to
+// never interrupt normal operation, low enough to prevent runaway loops
+// from burning tokens until the job timeout fires (default 8 h).
+const DefaultMaxTurns = 200
+
 // ProviderBlock is a per-provider configuration entry under `providers:`.
 // Field semantics vary by provider id; unused fields are ignored per-provider.
 type ProviderBlock struct {
@@ -143,6 +150,10 @@ type ProviderBlock struct {
 	Password        string            `yaml:"password,omitempty" json:"password,omitempty"`
 	MaxInputTokens  int               `yaml:"max_input_tokens,omitempty" json:"max_input_tokens,omitempty"`
 	Sandbox         *string           `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+	// MaxTurns caps the number of agentic loop iterations the provider may
+	// execute per session. 0 means use the built-in default (DefaultMaxTurns).
+	// Set to -1 to disable the cap entirely (not recommended for production).
+	MaxTurns int `yaml:"max_turns,omitempty" json:"max_turns,omitempty"`
 }
 
 // AnalyzerConfig configures analyzer-wide knobs that are not provider-specific.
@@ -595,6 +606,11 @@ func MergeProviderBlock(base, overlay ProviderBlock) ProviderBlock {
 	}
 	if overlay.Sandbox != nil {
 		out.Sandbox = overlay.Sandbox
+	}
+	// MaxTurns: positive overlay wins; -1 (disable cap) overlay wins;
+	// 0 means "use default" and does not override a non-zero base.
+	if overlay.MaxTurns != 0 {
+		out.MaxTurns = overlay.MaxTurns
 	}
 	return out
 }

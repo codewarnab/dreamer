@@ -32,6 +32,7 @@ func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sand
 		BaseURL:             block.BaseURL,
 		Password:            block.Password,
 		MaxInputTokens:      block.MaxInputTokens,
+		MaxTurns:            block.MaxTurns,
 		Sandbox:             config.DefaultSandboxFor(providerID),
 		SandboxProjectWrite: sandboxCfg.ProjectWrite != nil && *sandboxCfg.ProjectWrite,
 		SandboxNetwork:      sandboxCfg.Network,

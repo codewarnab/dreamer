@@ -87,6 +87,10 @@ type ProviderConfig struct {
 	// providers use this to switch from read-only to permissive permission
 	// mode so the provider can execute commands.
 	Background bool
+
+	// MaxTurns caps the number of agentic loop iterations per session.
+	// 0 = use DefaultMaxTurns from config. -1 = no cap.
+	MaxTurns int
 }
 
 // ProviderFactory builds a Provider instance.
