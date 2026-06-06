@@ -141,6 +141,20 @@ type Session interface {
 	Close() error
 }
 
+// ModelLister is an optional capability a Provider may implement to surface a
+// live model list to the /api/provider-meta endpoint. Callers type-assert;
+// absence falls back gracefully to defaults.go AllModels — no silent degradation.
+//
+// Contract (Design by Contract):
+//   - Caller must have called Start() successfully before calling ListModels.
+//   - Implementations must respect ctx cancellation and return within ctx deadline.
+//   - An error return means "I cannot list models right now"; the caller will use
+//     the static fallback. Never return a partial list alongside a non-nil error.
+//   - Returned slice is sorted and deduplicated; first element is the default model.
+type ModelLister interface {
+	ListModels(ctx context.Context) ([]string, error)
+}
+
 type PermissionKind string
 
 const (
