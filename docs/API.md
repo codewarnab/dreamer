@@ -57,6 +57,7 @@ The daemon embeds an HTTP server bound to `127.0.0.1:7777` (configurable via the
 
 ### Configuration & Systems
 - `GET /api/providers` — List supported and active provider plugins.
+- `GET /api/provider-meta` — Static per-provider metadata (display name, model list, default model, sandbox default, remediation hint). For providers that implement `analyzer.ModelLister` and are running, the `models` field is replaced with the live list from the provider (cached 5 min); all others fall back to `defaults.go AllModels`.
 - `GET /api/settings` — Get the current merged config (base `config.yaml` + UI override config).
 - `PUT /api/settings` — Update preferences (writes exclusively to `ui-overrides.yaml`).
 - `GET /api/fs/exists` — Validate if a folder path exists locally.

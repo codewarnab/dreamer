@@ -45,6 +45,26 @@ type Session interface {
 | `Run(ctx, prompt, timeout)` | Executes one LLM turn, returning the full assistant text. Applies the timeout internally. Returns `analyzer.ErrNilContext` when `ctx == nil` (never substitute `context.Background` silently — it breaks cancellation propagation). Returns `errs.RateLimit(...)` on rate-limit signals so the orchestrator can back off. |
 | `Close()` | Releases session-scoped resources. For most providers this is a no-op. |
 
+### `ModelLister` (optional)
+
+```go
+type ModelLister interface {
+    ListModels(ctx context.Context) ([]string, error)
+}
+```
+
+`ModelLister` is an **optional** capability a provider may implement to surface a live model list to the `/api/provider-meta` endpoint.  The handler type-asserts `provider.(analyzer.ModelLister)`; absence falls back gracefully to `defaults.go AllModels` — no silent degradation.
+
+**Contract:**
+- Caller must have called `Start()` successfully before calling `ListModels`.
+- Implementations must respect `ctx` cancellation and return within its deadline.
+- An error return means "I cannot list models right now"; the caller uses the static fallback. Never return a partial list alongside a non-nil error.
+- Returned slice is sorted and deduplicated.
+
+Currently implemented by: `opencodehttp` (queries `GET /api/providers` on the running OpenCode server).
+
+The handler caches results for 5 minutes in `analyzer.ModelListCache` (wired via `handlers.Deps.ModelListCache`).  Adding `ModelLister` to more providers only requires implementing the interface in that provider's package — no handler or `Deps` changes needed.
+
 ---
 
 ## 2. Provider Registration
