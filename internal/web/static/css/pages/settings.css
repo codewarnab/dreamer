@@ -235,48 +235,7 @@
     margin-top: 2px;
   }
 
-  .provider-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: var(--space-3);
-  }
 
-  .provider-choice {
-    min-height: 76px;
-    padding: var(--space-3);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--canvas-black);
-    color: var(--text-primary);
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .provider-choice:hover {
-    border-color: var(--jelly-mint);
-  }
-
-  .provider-choice.active {
-    border-color: var(--jelly-mint);
-    background: var(--bg-mint-subtle);
-  }
-
-  .provider-choice-name {
-    display: block;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-
-  .provider-choice-meta {
-    display: flex;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-    margin-top: var(--space-2);
-    color: var(--text-secondary);
-    font-size: 12px;
-  }
 
   .settings-metric-row {
     display: flex;
@@ -506,5 +465,213 @@
 
     .settings-panel-header {
       flex-direction: column;
+    }
+  }
+
+  /* ── Custom provider select ──────────────────────────────────────── */
+
+  .prov-select {
+    position: relative;
+    width: 100%;
+  }
+
+  /* Trigger button */
+  .prov-select__trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px var(--space-4);
+    background: var(--surface-slate);
+    border: var(--hairline);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 14px;
+    text-align: left;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    min-height: 44px;
+  }
+
+  .prov-select__trigger:hover {
+    border-color: var(--jelly-mint);
+  }
+
+  .prov-select__trigger:focus-visible {
+    outline: 2px solid var(--focus-cyan);
+    outline-offset: 2px;
+    border-color: var(--jelly-mint);
+  }
+
+  /* When open, glow the trigger with mint */
+  [aria-expanded="true"] .prov-select__trigger {
+    border-color: var(--jelly-mint);
+    box-shadow: 0 0 0 1px var(--jelly-mint);
+  }
+
+  .prov-select__trigger-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* The family prefix badge */
+  .prov-select__family {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--jelly-mint);
+    background: var(--bg-mint-badge);
+    border: 1px solid var(--border-mint-badge);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    line-height: 1.6;
+  }
+
+  /* The selected variant ID */
+  .prov-select__id {
+    color: var(--text-primary);
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Chevron icon */
+  .prov-select__caret {
+    flex: 0 0 auto;
+    color: var(--text-primary);
+    opacity: 0.6;
+    transition: transform 0.2s ease, color 0.15s ease, opacity 0.15s ease;
+  }
+
+  .prov-select__trigger:hover .prov-select__caret {
+    opacity: 1;
+  }
+
+  .prov-select__caret--open {
+    transform: rotate(180deg);
+    color: var(--jelly-mint);
+    opacity: 1;
+  }
+
+  /* Dropdown panel */
+  .prov-select__panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 60;
+    background: var(--surface-slate);
+    border: var(--hairline);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(60, 255, 208, 0.06);
+    max-height: 320px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: var(--space-2) 0;
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+
+  .prov-select__panel::-webkit-scrollbar {
+    width: 4px;
+  }
+  .prov-select__panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .prov-select__panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+  }
+
+  /* Alpine transition helpers */
+  .prov-select__panel--enter,
+  .prov-select__panel--leave {
+    transition: opacity 0.12s ease, transform 0.12s ease;
+  }
+  .prov-select__panel--enter-start,
+  .prov-select__panel--leave-end {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  .prov-select__panel--enter-end,
+  .prov-select__panel--leave-start {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Group header */
+  .prov-select__group {
+    /* no extra margin — the label acts as separator */
+  }
+
+  .prov-select__group + .prov-select__group {
+    border-top: 1px solid var(--border-subtle);
+    margin-top: var(--space-1);
+    padding-top: var(--space-1);
+  }
+
+  .prov-select__group-label {
+    padding: 6px var(--space-4) 4px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--jelly-mint);
+    opacity: 0.75;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* Individual option row */
+  .prov-select__option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 8px var(--space-4);
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 0;
+    transition: background 0.1s ease, color 0.1s ease;
+    user-select: none;
+  }
+
+  .prov-select__option:hover,
+  .prov-select__option--focused {
+    background: var(--bg-translucent-hover);
+    color: var(--text-primary);
+  }
+
+  /* Selected state */
+  .prov-select__option--active {
+    color: var(--jelly-mint) !important;
+  }
+
+  /* Selected + focused */
+  .prov-select__option--active.prov-select__option--focused {
+    background: rgba(60, 255, 208, 0.06);
+  }
+
+  /* Check mark for selected item */
+  .prov-select__check {
+    flex: 0 0 auto;
+    color: var(--jelly-mint);
+    opacity: 0.85;
+  }
+
+  @media (max-width: 720px) {
+    .prov-select__panel {
+      max-height: 240px;
     }
   }

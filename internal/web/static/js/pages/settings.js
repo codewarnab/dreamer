@@ -7,7 +7,7 @@ window.settingsPage = function () {
       { id: "rules", label: "rules", meta: "" },
       { id: "safety", label: "safety", meta: "" },
       { id: "storage", label: "storage", meta: "" },
-      { id: "dashboard", label: "dashboard", meta: "restart" },
+      { id: "dashboard", label: "dashboard", meta: "" },
     ],
     ruleCatalog: [
       { id: "lint-rule", label: "Lint rules", description: "Policy and style issues reported by linters." },
@@ -48,6 +48,7 @@ window.settingsPage = function () {
     },
     saved: {},
     baseline: {},
+    providerConfirmed: false, // true once the user has actively chosen a provider (or one was loaded from saved config)
     revealSecret: false,
     loadError: "",
     csrf: function () {
@@ -78,8 +79,29 @@ window.settingsPage = function () {
     anyDirty: function () {
       return this.sectionIDs().some(id => this.isDirty(id));
     },
+    // Extract the family prefix from a full provider ID by splitting on the last hyphen.
+    // "claude-cli" → "claude", "opencode-acp" → "opencode", "copilot-sdk" → "copilot".
+    familyOf: function (providerID) {
+      const idx = providerID.lastIndexOf("-");
+      return idx > 0 ? providerID.slice(0, idx) : providerID;
+    },
+    // Derive the ordered, deduplicated list of provider families from providerOptions.
+    providerFamilies: function () {
+      const seen = new Set();
+      const families = [];
+      for (const id of this.providerOptions) {
+        const family = this.familyOf(id);
+        if (!seen.has(family)) { seen.add(family); families.push(family); }
+      }
+      return families; // preserves providerOptions sort order
+    },
+    // All variant IDs that belong to a given family.
+    variantsOf: function (family) {
+      return this.providerOptions.filter(id => this.familyOf(id) === family);
+    },
     selectProvider: function (providerID) {
       this.values.assistant.default_provider = providerID;
+      this.providerConfirmed = true; // user made an explicit choice
       this.ensureProvider(providerID);
     },
     selectedProviderID: function () {
@@ -92,7 +114,6 @@ window.settingsPage = function () {
       }
       const block = this.values.providers[providerID];
       if (block.use_logged_in_user === undefined) block.use_logged_in_user = false;
-      if (block.auto_start === undefined) block.auto_start = false;
       if (block.sandbox === undefined || block.sandbox === null) block.sandbox = "";
       if (block.model === undefined) block.model = "";
       if (block.api_key_env === undefined) block.api_key_env = "";
@@ -112,7 +133,10 @@ window.settingsPage = function () {
     },
     resetField: function (secID, key, defVal) {
       this.values[secID][key] = defVal;
-      if (secID === "assistant" && key === "default_provider") this.ensureProvider(defVal);
+      if (secID === "assistant" && key === "default_provider") {
+        this.ensureProvider(defVal);
+        this.providerConfirmed = true;
+      }
       if (window.Alpine) Alpine.store("toasts").add("reset " + key + " to default value", "info");
     },
     formatSeconds: function (sec) {
@@ -202,6 +226,8 @@ window.settingsPage = function () {
         }
         const data = await r.json();
         this.values.assistant.default_provider = data.default_provider || "";
+        // If the API returned a saved provider, the detail cards can show immediately.
+        if (data.default_provider) this.providerConfirmed = true;
         for (const k of ["daemon", "logging", "web"]) {
           if (data[k]) Object.assign(this.values[k], data[k]);
         }
@@ -268,7 +294,6 @@ window.settingsPage = function () {
         sandbox: this.blankToNull(provider.sandbox),
       };
       if (provider.use_logged_in_user !== undefined) block.use_logged_in_user = !!provider.use_logged_in_user;
-      if (provider.auto_start !== undefined) block.auto_start = !!provider.auto_start;
       return { default_provider: providerID || null, providers: { [providerID]: block } };
     },
     sectionBody: function (secID) {
