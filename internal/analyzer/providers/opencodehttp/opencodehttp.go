@@ -97,7 +97,6 @@ type provider struct {
 	mu            sync.Mutex
 	started       bool
 	closed        bool
-	autoStart     bool      // true if we spawned the server ourselves
 	cmd           *exec.Cmd // non-nil when auto-started
 	stderrDrainer io.Closer // non-nil: signals background drainer to exit
 }
@@ -144,7 +143,6 @@ func (p *provider) Start(ctx context.Context) error {
 		return fmt.Errorf("opencode-server: start: %w", err)
 	}
 	p.cmd = cmd
-	p.autoStart = true
 
 	// Read stderr to find the port.
 	port, err := detectPort(stderr, 10*time.Second)

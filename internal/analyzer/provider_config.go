@@ -49,9 +49,6 @@ func ProviderConfigFromBlock(providerID string, block config.ProviderBlock, sand
 		out.UseLoggedInUser = *block.UseLoggedInUser
 		out.UseLoggedInUserSet = true
 	}
-	if block.AutoStart != nil {
-		out.AutoStart = *block.AutoStart
-	}
 	if len(block.Env) > 0 {
 		out.Env = map[string]string{}
 		for k, v := range block.Env {

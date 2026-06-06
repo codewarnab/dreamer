@@ -721,16 +721,6 @@ func TestMergeProviderBlocks_UseLoggedInUserOverride(t *testing.T) {
 	}
 }
 
-func TestMergeProviderBlocks_AutoStartOverride(t *testing.T) {
-	tVal := true
-	base := ProviderBlock{}
-	override := ProviderBlock{AutoStart: &tVal}
-	got := MergeProviderBlock(base, override)
-	if got.AutoStart == nil || *got.AutoStart != true {
-		t.Fatalf("AutoStart = %v, want true", got.AutoStart)
-	}
-}
-
 func TestMergeProviderBlocks_CopilotHomeOverride(t *testing.T) {
 	base := ProviderBlock{CopilotHome: "/old"}
 	override := ProviderBlock{CopilotHome: "/new"}

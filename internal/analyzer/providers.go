@@ -49,7 +49,6 @@ type ProviderConfig struct {
 	CopilotHome        string
 	UseLoggedInUser    bool
 	UseLoggedInUserSet bool
-	AutoStart          bool
 	CLIURL             string
 
 	// CLI/ACP providers

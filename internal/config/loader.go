@@ -134,7 +134,6 @@ type SandboxResources struct {
 type ProviderBlock struct {
 	Model           string            `yaml:"model,omitempty" json:"model,omitempty"`
 	UseLoggedInUser *bool             `yaml:"use_logged_in_user,omitempty" json:"use_logged_in_user,omitempty"`
-	AutoStart       *bool             `yaml:"auto_start,omitempty" json:"auto_start,omitempty"`
 	CopilotHome     string            `yaml:"copilot_home,omitempty" json:"copilot_home,omitempty"`
 	CLIURL          string            `yaml:"cli_url,omitempty" json:"cli_url,omitempty"`
 	Command         []string          `yaml:"command,omitempty" json:"command,omitempty"`
@@ -562,9 +561,6 @@ func MergeProviderBlock(base, overlay ProviderBlock) ProviderBlock {
 	}
 	if overlay.UseLoggedInUser != nil {
 		out.UseLoggedInUser = overlay.UseLoggedInUser
-	}
-	if overlay.AutoStart != nil {
-		out.AutoStart = overlay.AutoStart
 	}
 	if overlay.CopilotHome != "" {
 		out.CopilotHome = overlay.CopilotHome

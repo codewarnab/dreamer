@@ -78,7 +78,6 @@ providers:
     # GitHub Copilot SDK (native Go SDK). See spec §18.
     model: {{provModel "copilot-sdk" .UserProvider .UserModel}}   # "auto" = SDK auto-select. Override: gpt-5.3-codex | gpt-4.1 | gpt-5
     use_logged_in_user: true    # options: true | false. Use keychain auth. Mutually exclusive with cli_url.
-    auto_start: false           # options: true | false. Spawn CLI eagerly vs. on first session.
     # copilot_home: ""          # override $COPILOT_HOME. Optional.
     # cli_url: ""               # connect to headless CLI server (e.g. "localhost:4321"). Disables use_logged_in_user.
 

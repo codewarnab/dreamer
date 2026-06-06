@@ -9,7 +9,6 @@ func init() {
 			UseLoggedInUser:    providerConfig.UseLoggedInUser,
 			UseLoggedInUserSet: providerConfig.UseLoggedInUserSet,
 			CLIURL:             providerConfig.CLIURL,
-			AutoStart:          providerConfig.AutoStart,
 			Model:              providerConfig.Model,
 		})
 	})
