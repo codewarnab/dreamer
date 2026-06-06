@@ -16,17 +16,18 @@ import (
 const ID = "claude-cli"
 
 var providerSpec = &cliharness.Spec{
-	ID:             ID,
-	ErrPrefix:      "claude-cli",
-	DefaultCommand: defaultCommand,
-	StartErr:       cliharness.StartErrNotInstalled("Install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate."),
-	CmdStartErr:    cliharness.CmdStartErrPlain("claude-cli"),
-	WorkingDirFlag: "--add-dir",
-	ConfigDir:      cliharness.ConfigDirFromEnv("CLAUDE_CONFIG_DIR", ".claude"),
-	ParseErrFirst:  false,
-	ReadStreamJSON: readStreamJSON,
-	InjectPhase2:   cliharness.InjectMCPFlags,
-	ResolveModel:   cliharness.ResolveModel2Tier,
+	ID:               ID,
+	ErrPrefix:        "claude-cli",
+	DefaultCommand:   defaultCommand,
+	StartErr:         cliharness.StartErrNotInstalled("Install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate."),
+	CmdStartErr:      cliharness.CmdStartErrPlain("claude-cli"),
+	WorkingDirFlag:   "--add-dir",
+	ConfigDir:        cliharness.ConfigDirFromEnv("CLAUDE_CONFIG_DIR", ".claude"),
+	ParseErrFirst:    false,
+	ReadStreamJSON:   readStreamJSON,
+	InjectPhase2:     cliharness.InjectMCPFlags,
+	ResolveModel:     cliharness.ResolveModel2Tier,
+	SupportsMaxTurns: true,
 }
 
 func init() {
@@ -36,6 +37,7 @@ func init() {
 			Env:                 providerConfig.Env,
 			Model:               providerConfig.Model,
 			DefaultModel:        providerConfig.DefaultModel,
+			MaxTurns:            providerConfig.MaxTurns,
 			SandboxProjectWrite: providerConfig.SandboxProjectWrite,
 			SandboxWritableDirs: providerConfig.SandboxWritableDirs,
 			SandboxNetwork:      providerConfig.SandboxNetwork,
