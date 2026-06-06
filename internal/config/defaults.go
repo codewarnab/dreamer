@@ -111,32 +111,33 @@ func init() {
 	})
 	RegisterProviderDefaults(ProviderClaudeCLI, ProviderDefaults{
 		DefaultModel:   "claude-haiku-4-5-20251001",
-		AllModels:      []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-7"},
+		AllModels:      []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6", "claude-opus-4-6"},
 		DefaultSandbox: "auto",
 		Remediation:    "Install Claude Code (`npm i -g @anthropic-ai/claude-code`) and run `claude` to authenticate (use `claude setup-token` for headless environments).",
 	})
 	RegisterProviderDefaults(ProviderClaudeACP, ProviderDefaults{
 		DefaultModel:   "claude-haiku-4-5-20251001",
-		AllModels:      []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"},
+		AllModels:      []string{"claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"},
 		DefaultSandbox: "auto",
 		Remediation:    "Ensure `claude --acp` starts and emits an ACP initialize response.",
 	})
 	RegisterProviderDefaults(ProviderGeminiCLI, ProviderDefaults{
 		DefaultModel:   "gemini-3-flash-preview",
-		AllModels:      []string{"gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"},
+		AllModels:      []string{"gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"},
 		DefaultSandbox: "auto",
 		Remediation:    "Install Gemini CLI (`npm i -g @google/gemini-cli` or `brew install gemini-cli`) and run `gemini` to authenticate (browser OAuth on first launch).",
 	})
 	RegisterProviderDefaults(ProviderGeminiACP, ProviderDefaults{
 		DefaultModel:   "gemini-3-flash-preview",
-		AllModels:      []string{"gemini-3-flash-preview", "gemini-2.5-flash"},
+		AllModels:      []string{"gemini-3-flash-preview", "gemini-3-pro-preview", "gemini-2.5-flash"},
 		ModelFallbacks: []string{"gemini-2.5-flash"},
 		DefaultSandbox: "auto",
 		Remediation:    "Ensure `gemini --acp` starts and emits an ACP initialize response.",
 	})
 	RegisterProviderDefaults(ProviderKiroACP, ProviderDefaults{
-		DefaultModel:   "claude-sonnet-4-5-20250929",
-		AllModels:      []string{"claude-sonnet-4-5-20250929"},
+		DefaultModel:   "claude-sonnet-4.5",
+		AllModels:      []string{"claude-sonnet-4.5", "claude-sonnet-4"},
+		ModelFallbacks: []string{"claude-sonnet-4-5-20250929"}, // legacy date-versioned slug
 		DefaultSandbox: "auto",
 		Remediation:    "Install the Kiro CLI and ensure `kiro-cli acp` starts cleanly.",
 	})
@@ -171,8 +172,8 @@ func init() {
 		Remediation:    "Start OpenCode server (`opencode serve`) or configure `providers.opencode-server.base_url` to point at a running instance.",
 	})
 	RegisterProviderDefaults(ProviderCodebuffSDK, ProviderDefaults{
-		DefaultModel:   "claude-opus-4-7",
-		AllModels:      []string{"claude-opus-4-7"},
+		DefaultModel:   "claude-opus-4-6",
+		AllModels:      []string{"claude-opus-4-6"},
 		DefaultSandbox: "false",
 		Remediation:    "Set `providers.codebuff-sdk.api_key_env` to the environment variable holding your Codebuff API key (or set `password`).",
 	})
