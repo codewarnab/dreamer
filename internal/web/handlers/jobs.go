@@ -181,6 +181,12 @@ func applyJobEdits(job *backgroundjobs.Job, payload editPayload, lookup func(str
 			job.Permissions.WritablePaths = nil
 		case "selected_writes":
 			job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
+			// WritablePaths must be provided either in this payload or already
+			// set on the job. Reject if neither is true so the persisted state
+			// is always valid (create/preview enforce the same invariant).
+			if payload.WritablePaths == nil && len(job.Permissions.WritablePaths) == 0 {
+				return false, nil, fmt.Errorf("writable_paths required when file_access=selected_writes")
+			}
 		case "full_workspace":
 			job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
 			job.Permissions.WritablePaths = nil
@@ -1323,7 +1329,10 @@ func JobActivity(deps Deps) http.HandlerFunc {
 		}
 
 		// Read activity events from the JSONL file.
-		events, _ := backgroundjobs.ReadAllActivity(deps.Jobs.Runs.Dir(), jobID, runID)
+		events, actErr := backgroundjobs.ReadAllActivity(deps.Jobs.Runs.Dir(), jobID, runID)
+		if actErr != nil {
+			deps.Logger.Warn("activity read failed", logging.ErrAttr(actErr)...)
+		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"events":  events,

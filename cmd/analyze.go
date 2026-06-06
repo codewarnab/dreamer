@@ -100,7 +100,7 @@ func newAnalyzeCommand() *cobra.Command {
 			}
 
 			if jsonOutput {
-				return printAnalyzeJSON(cmd, runResult)
+				return printAnalyzeJSON(cmd, runResult, dryRun)
 			}
 
 			if runResult.CacheHit {
@@ -168,7 +168,7 @@ type analyzeJSONResult struct {
 }
 
 // printAnalyzeJSON writes the analyze result as JSON to stdout.
-func printAnalyzeJSON(cmd *cobra.Command, result pipeline.Result) error {
+func printAnalyzeJSON(cmd *cobra.Command, result pipeline.Result, dryRun bool) error {
 	out := analyzeJSONResult{
 		Provider:        result.ProviderID,
 		SourcesAnalyzed: result.SourcesAnalyzed,
@@ -179,6 +179,7 @@ func printAnalyzeJSON(cmd *cobra.Command, result pipeline.Result) error {
 		TodosPath:       result.TodosPath,
 		CacheHit:        result.CacheHit,
 		MistakesFound:   result.MistakesFound,
+		DryRun:          dryRun,
 	}
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")

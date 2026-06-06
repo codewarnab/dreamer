@@ -314,7 +314,7 @@ func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final st
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
 		if transport.IsRateLimitMessage(stderr) {
-			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
+			return final, errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
 		return final, err
 	}

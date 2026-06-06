@@ -142,7 +142,7 @@ func (c *ModelListCache) Save(dir string) error {
 	// fsutil.WriteFileAtomic uses temp+rename so a crash mid-write never leaves
 	// a partial file. SecretPerms (0600) keeps the file owner-readable only —
 	// model lists aren't secrets but the dir may also hold key material.
-	if err := fsutil.WriteFileAtomic(path, data, fsutil.FilePerms); err != nil {
+	if err := fsutil.WriteFileAtomic(path, data, fsutil.SecretPerms); err != nil {
 		return fmt.Errorf("write model list cache %q: %w", path, err)
 	}
 	return nil

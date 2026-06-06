@@ -201,14 +201,19 @@ func (m *ActivityMonitor) Stop() ActivitySummary {
 	m.mu.Lock()
 	procCount := len(m.seenPID)
 	shellCount := 0
-	for _, exeName := range m.seenPID {
-		if IsShellInterpreter(exeName) {
+	// Copy seenPID under the lock so snapshotTCPConnections can iterate it
+	// safely after the lock is released (the readEvents goroutine may still
+	// be draining events concurrently until the context is cancelled).
+	pidSnapshot := make(map[uint32]string, len(m.seenPID))
+	for pid, name := range m.seenPID {
+		pidSnapshot[pid] = name
+		if IsShellInterpreter(name) {
 			shellCount++
 		}
 	}
 	m.mu.Unlock()
 
-	connCount := m.snapshotTCPConnections()
+	connCount := m.snapshotTCPConnections(pidSnapshot)
 
 	return ActivitySummary{
 		Processes:         procCount,
@@ -219,8 +224,8 @@ func (m *ActivityMonitor) Stop() ActivitySummary {
 
 // snapshotTCPConnections captures all TCP connections and filters to
 // those owned by PIDs in the job's process tree. Returns the count.
-func (m *ActivityMonitor) snapshotTCPConnections() int {
-	connections := getTCPConnections(m.seenPID)
+func (m *ActivityMonitor) snapshotTCPConnections(pidSnapshot map[uint32]string) int {
+	connections := getTCPConnections(pidSnapshot)
 	count := 0
 	for _, conn := range connections {
 		if writeErr := m.store.Write(conn); writeErr != nil {
@@ -247,7 +252,12 @@ func getTCPConnections(seenPID map[uint32]string) []ActivityEvent {
 				continue // not in our process tree
 			}
 			remoteIP := uint32ToIP(row.RemoteAddr)
-			remotePort := uint16(row.RemotePort) // host byte order on Windows
+			// dwRemotePort is stored in network byte order (big-endian) in the
+			// low 16 bits of a uint32. On little-endian Windows we must swap
+			// the bytes to get the actual port number. Port 80 (0x0050) is
+			// stored as 0x5000 in the field, so byte(p) and byte(p>>8) are
+			// already in the right positions for a big-endian read.
+			remotePort := uint16(row.RemotePort>>8) | uint16(row.RemotePort&0xff)<<8
 
 			// Skip loopback and zero addresses.
 			if remoteIP.IsLoopback() || remoteIP.IsUnspecified() {
