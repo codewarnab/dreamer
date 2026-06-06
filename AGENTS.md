@@ -48,6 +48,10 @@ Deep architectural details, coding conventions, and testing quality policies hav
 5. **[docs/CLI.md](docs/CLI.md)**: Comprehensive CLI reference detailing all command options, subcommands, Bubble Tea interactive wizards, and background job scheduling controls.
 6. **[docs/API.md](docs/API.md)**: Complete API directory listing web routes, SPA paths, REST endpoints, and the codebase apply/undo safety engine strategies.
 7. **[docs/DATAFLOW.md](docs/DATAFLOW.md)**: End-to-end data flow reference tracing every subsystem — config loading, chat discovery, cache checks, transcript preparation, two-phase LLM analysis, output generation, state persistence, daemon loop, background jobs engine, web UI read/write/SSE paths, MCP/CLI finding transport, and OS sandbox containment.
+8. **[docs/vision.md](docs/vision.md)**: Product vision, design principles (local-first, read-only, proposes-not-applies, provider-agnostic), v1/v1.5 feature scope, success criteria, and explicit non-goals. Read this to understand intent and avoid building out-of-scope features.
+9. **[docs/SANDBOX.md](docs/SANDBOX.md)**: Threat model, per-OS containment strategy (Windows ACL/Job Objects, Linux bubblewrap/seccomp, macOS Seatbelt), what IS and IS NOT sandboxed per platform, known persistence gaps and planned mitigations, the four-function backend contract, and sandbox testing requirements.
+10. **[docs/PROVIDERS.md](docs/PROVIDERS.md)**: `Provider`/`Session` interface contract, ACP JSON-RPC wire protocol, CLI stream-JSON harness pattern, permission handler wiring, Phase 2 tool transport (MCP and CLI), provider taxonomy, and required tests for adding a new provider.
+11. **[docs/SECURITY.md](docs/SECURITY.md)**: Full security threat model — trust boundaries, secret redaction guarantees, web CSRF/DNS-rebinding protection, sandbox summary, permission handler rules, background job run tokens, known security gaps, and a reference table of security-sensitive files.
 
 ---
 

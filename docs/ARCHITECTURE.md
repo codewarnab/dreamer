@@ -121,6 +121,18 @@ Guarantees side-effect containment for child processes spawned by LLM agents:
 - **macOS:** Employs seatbelt profiles (`sandbox-exec` SBPL) to block system socket binds, limit filesystem accesses, and block Mach services.
 - **Windows:** Constructs a custom restricted security identifier (SID) token with restricted write ACLs and wraps running trees in a Win32 Job Object for lifecycle cleanups.
 
+> For the full per-OS threat model, known limitations, testing requirements, and the four-function backend contract, see **[docs/SANDBOX.md](SANDBOX.md)**.
+
+### Provider System (`internal/analyzer/providers/`)
+Sixteen provider implementations across two transport archetypes (CLI stream-JSON and ACP JSON-RPC 2.0). All providers register via `init()` using `analyzer.RegisterProvider` and `analyzer.RegisterProviderMeta`. The shared `cliharness` package drives CLI providers; `acpcore` drives ACP providers.
+
+> For the `Provider`/`Session` interface contract, ACP wire protocol, permission handler wiring, Phase 2 transports, and required tests for adding a new provider, see **[docs/PROVIDERS.md](PROVIDERS.md)**.
+
+### Security Model
+Dreamer applies defence-in-depth: secret redaction before sending transcripts to the LLM, a policy-layer permission handler for tool calls, OS-level sandbox containment for subprocesses, CSRF + DNS-rebinding protection for the web dashboard, and run-token authentication for background job execution.
+
+> For the full threat model, trust boundaries, redaction guarantees, web security layer, and known security gaps with planned mitigations, see **[docs/SECURITY.md](SECURITY.md)**.
+
 ### Background Jobs Engine (`internal/backgroundjobs/`)
 Enforces strict cross-process locking and execution bounds:
 - **Locked CRUD:** Uses `<output_root>/background-jobs/store.lock` to coordinate CRUD operations on `jobs.json`.
