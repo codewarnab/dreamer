@@ -131,18 +131,42 @@
         <div class="settings-card-title">
           <span>model and limits</span>
           <span class="settings-badge settings-badge--mint" x-text="selectedProviderID()"></span>
+          <span
+            class="settings-badge"
+            :class="(providerMetaMap[selectedProviderID()]?.model_source === 'live') ? 'settings-badge--green' : 'settings-badge--muted'"
+            x-show="selectedProviderID()"
+            x-text="(providerMetaMap[selectedProviderID()]?.model_source === 'live') ? '● live models' : '○ default list'"
+          ></span>
         </div>
         <div class="setting-field">
           <div class="setting-label-row">
             <span class="setting-label">model</span>
             <span class="setting-key">providers.*.model</span>
           </div>
-          <input class="input-styled" type="text" list="provider-model-options" x-model="values.providers[selectedProviderID()].model" placeholder="auto"/>
+          <input class="input-styled" type="text" list="provider-model-options"
+                 x-model="values.providers[selectedProviderID()].model"
+                 @change="autofillApiKeyEnv()"
+                 @input="autofillApiKeyEnv()"
+                 placeholder="auto"/>
           <datalist id="provider-model-options">
             <template x-for="model in modelOptions(selectedProviderID())" :key="model">
               <option :value="model"></option>
             </template>
           </datalist>
+          <!-- Quick-pick chips: only shown when models are known, gives users a
+               visible affordance to click instead of having to type a model name. -->
+          <div class="model-chips" x-show="modelOptions(selectedProviderID()).length > 0" role="group" aria-label="quick-pick models">
+            <template x-for="model in modelOptions(selectedProviderID())" :key="model">
+              <button
+                type="button"
+                class="model-chip"
+                :class="{ 'model-chip--active': values.providers[selectedProviderID()].model === model }"
+                @click="setModel(model)"
+                :aria-pressed="String(values.providers[selectedProviderID()].model === model)"
+                x-text="model"
+              ></button>
+            </template>
+          </div>
           <p class="setting-help">Pick a known model or enter a provider-specific model name.</p>
         </div>
         <div class="setting-field">
@@ -152,6 +176,22 @@
           </div>
           <input class="input-styled" type="number" x-model="values.providers[selectedProviderID()].max_input_tokens" placeholder="provider default"/>
           <p class="setting-help">Optional cap for very large transcripts.</p>
+        </div>
+        <div class="setting-field">
+          <div class="setting-label-row">
+            <span class="setting-label">max turns</span>
+            <span class="setting-key">max_turns</span>
+          </div>
+          <input class="input-styled"
+                 type="number"
+                 min="1"
+                 x-model="values.providers[selectedProviderID()].max_turns"
+                 placeholder="200 (default)"/>
+          <p class="setting-help">
+            Caps the number of agentic loop iterations per analysis session.
+            Leave blank to use the default (200). Set higher for very large
+            codebases; lower for faster fail-fast behaviour.
+          </p>
         </div>
       </div>
 
@@ -164,8 +204,19 @@
             <span class="setting-label">API key variable</span>
             <span class="setting-key">api_key_env</span>
           </div>
-          <input class="input-styled" type="text" x-model="values.providers[selectedProviderID()].api_key_env" placeholder="OPENAI_API_KEY"/>
-          <p class="setting-help">Name of the environment variable that already holds the key.</p>
+          <input class="input-styled" type="text"
+                 x-model="values.providers[selectedProviderID()].api_key_env"
+                 placeholder="OPENAI_API_KEY"/>
+          <p class="setting-help">
+            Name of the environment variable that already holds the key.
+            <span x-show="!values.providers[selectedProviderID()]?.api_key_env &&
+                           apiKeyEnvForModel(values.providers[selectedProviderID()]?.model)"
+                  style="color: var(--focus-cyan);">
+              Suggested:
+              <code x-text="apiKeyEnvForModel(values.providers[selectedProviderID()]?.model)"></code>
+              — click the field to accept.
+            </span>
+          </p>
         </div>
         <div class="setting-field">
           <div class="setting-label-row">
@@ -207,6 +258,33 @@
         <div class="settings-card-title">
           <span>recent health</span>
         </div>
+
+        <!-- Pre-flight test button -->
+        <div style="margin-bottom: var(--space-3);">
+          <button class="btn"
+                  @click="testProvider()"
+                  :disabled="providerTestRunning"
+                  style="min-width: 130px;">
+            <span x-show="!providerTestRunning">test connection</span>
+            <span x-show="providerTestRunning">testing…</span>
+          </button>
+          <template x-if="providerTestResult">
+            <span style="margin-left: var(--space-2);">
+              <span class="pill"
+                    :class="providerTestResult.ok ? 'pill--healthy' : 'pill--error'"
+                    x-text="providerTestResult.ok
+                              ? '✓ connected (' + providerTestResult.latency_ms + ' ms)'
+                              : '✗ ' + (providerTestResult.category || 'failed')">
+              </span>
+              <p class="setting-help"
+                 x-show="!providerTestResult.ok && providerTestResult.error"
+                 x-text="providerTestResult.error"
+                 style="margin-top: var(--space-1); color: var(--color-error);">
+              </p>
+            </span>
+          </template>
+        </div>
+
         <template x-if="getSelectedProviderInfo()">
           <div>
             <div class="settings-metric-row">
@@ -216,10 +294,40 @@
               <span>Timeouts: <strong x-text="getSelectedProviderInfo().timeouts || 0"></strong></span>
             </div>
             <p class="setting-help" x-show="getSelectedProviderInfo().model">Last known model: <code x-text="getSelectedProviderInfo().model"></code></p>
-            <p class="setting-help" x-show="getSelectedProviderInfo().last_error">Last error: <code x-text="getSelectedProviderInfo().last_error"></code></p>
+
+            <!-- Improvement 3: categorised error badge + action hint -->
+            <template x-if="getSelectedProviderInfo()?.last_error">
+              <div style="margin-top: var(--space-2);">
+                <div style="display: flex; align-items: center; gap: var(--space-2);">
+                  <span class="pill pill--error"
+                        x-text="categoriseProviderError(getSelectedProviderInfo().last_error)?.label">
+                  </span>
+                  <code style="font-size: 11px; color: var(--text-secondary); word-break: break-all;"
+                        x-text="getSelectedProviderInfo().last_error">
+                  </code>
+                </div>
+                <p class="setting-help"
+                   style="margin-top: var(--space-1); color: var(--color-warn);"
+                   x-show="categoriseProviderError(getSelectedProviderInfo().last_error)?.action"
+                   x-text="categoriseProviderError(getSelectedProviderInfo().last_error)?.action">
+                </p>
+              </div>
+            </template>
           </div>
         </template>
-        <p class="setting-help" x-show="!getSelectedProviderInfo()">No run history yet for this assistant.</p>
+
+        <!-- No run history yet — show remediation hint if available -->
+        <template x-if="!getSelectedProviderInfo()">
+          <div>
+            <p class="setting-help">No run history yet for this assistant.</p>
+            <p class="setting-help"
+               x-show="providerHealth(selectedProviderID()).remediation"
+               style="color: var(--focus-cyan); margin-top: var(--space-1);">
+              Setup:
+              <span x-text="providerHealth(selectedProviderID()).remediation"></span>
+            </p>
+          </div>
+        </template>
       </div>
     </div>
   </div>

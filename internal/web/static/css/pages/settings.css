@@ -291,6 +291,51 @@
     color: var(--jelly-mint);
   }
 
+  .settings-badge--green {
+    background: var(--bg-mint-badge);
+    border: 1px solid var(--border-mint-badge);
+    color: var(--jelly-mint);
+  }
+
+  .settings-badge--muted {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+  }
+
+  /* Model quick-pick chip strip */
+  .model-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+  }
+
+  .model-chip {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.3px;
+    padding: 3px 10px;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+
+  .model-chip:hover {
+    border-color: var(--jelly-mint);
+    color: var(--jelly-mint);
+    background: var(--bg-mint-badge);
+  }
+
+  .model-chip--active {
+    border-color: var(--jelly-mint);
+    color: var(--jelly-mint);
+    background: var(--bg-mint-badge);
+  }
+
   .btn-reset {
     background: transparent;
     border: 1px solid var(--border-subtle);
