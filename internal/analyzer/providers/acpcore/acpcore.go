@@ -224,6 +224,44 @@ func (p *provider) Close() error {
 	return p.transport.close()
 }
 
+// ListModels satisfies analyzer.ModelLister. It calls session/new against a
+// temporary directory — the cheapest ACP call that returns the agent's
+// availableModels list — cancels the session immediately, and returns the IDs.
+//
+// Requires: p.Start() has been called successfully (p.started == true).
+// On any error the caller (ProviderMeta handler) falls back to defaults.go
+// AllModels. This method never returns a partial list alongside a non-nil error.
+func (p *provider) ListModels(ctx context.Context) ([]string, error) {
+	p.mu.Lock()
+	t := p.transport
+	started := p.started
+	p.mu.Unlock()
+
+	if !started || t == nil {
+		return nil, fmt.Errorf("acpcore: %s: provider not started; cannot list models", p.id)
+	}
+
+	newResult, err := t.call(ctx, "session/new", map[string]any{
+		"cwd":        os.TempDir(),
+		"mcpServers": []any{},
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("acpcore: %s: list models: session/new: %w", p.id, err)
+	}
+
+	// Best-effort cancel — ignore errors; the session will time out on its own.
+	sid := extractSessionID(newResult)
+	if sid != "" {
+		_ = t.notify(context.Background(), "session/cancel", map[string]any{"sessionId": sid})
+	}
+
+	ids := extractAvailableModelIDs(newResult)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("acpcore: %s: list models: agent returned no availableModels", p.id)
+	}
+	return ids, nil
+}
+
 type session struct {
 	transport      *transport
 	handler        permissionHandler

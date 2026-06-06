@@ -301,7 +301,11 @@ func (t *transport) drainStderr(r io.Reader) {
 	if r == nil {
 		return
 	}
-	buf := make([]byte, 1024)
+	// stderrDrainBufSize is a modest buffer for the stderr drain goroutine.
+	// Stderr output from ACP agents is typically line-oriented diagnostic
+	// text; 1 KiB avoids excessive syscall overhead without wasting memory.
+	const stderrDrainBufSize = 1024
+	buf := make([]byte, stderrDrainBufSize)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
@@ -330,12 +334,15 @@ func (t *transport) close() error {
 		done := make(chan error, 1)
 		go func() { done <- t.cmd.Wait() }()
 		var waitErr error
+
+		// transportCloseTimeout is the grace period before force-killing
+		// the agent process. Long enough for the agent to flush its
+		// final output; the sandbox's KILL_ON_JOB_CLOSE always ensures
+		// eventual exit even if this timer fires first.
+		const transportCloseTimeout = 5 * time.Second
+
 		select {
-		// 5s hard-coded: close() implements Close() error with no context
-		// parameter, so there's no deadline to propagate. The timeout is
-		// intentionally long to give the agent time to flush; Kill() +
-		// KILL_ON_JOB_CLOSE from the sandbox always ensures the process exits.
-		case <-time.After(5 * time.Second):
+		case <-time.After(transportCloseTimeout):
 			_ = t.cmd.Process.Kill()
 			waitErr = <-done
 		case waitErr = <-done:
@@ -352,7 +359,7 @@ func (t *transport) close() error {
 		go func() { t.goroutines.Wait(); close(waitCh) }()
 		select {
 		case <-waitCh:
-		case <-time.After(5 * time.Second):
+		case <-time.After(transportCloseTimeout):
 			// Goroutines didn't exit — abandon. KILL_ON_JOB_CLOSE will clean up.
 		}
 

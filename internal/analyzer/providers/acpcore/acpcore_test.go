@@ -262,6 +262,47 @@ func TestResolveACPConfigDirFallback(t *testing.T) {
 	}
 }
 
+// --- ListModels ---
+
+func TestListModels_ErrorWhenNotStarted(t *testing.T) {
+	p, err := New(Options{ID: "test", Command: []string{"echo"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = p.(analyzer.ModelLister).ListModels(context.Background())
+	if err == nil {
+		t.Fatal("expected error when provider not started")
+	}
+}
+
+func TestListModels_ImplementsModelLister(t *testing.T) {
+	p, err := New(Options{ID: "test", Command: []string{"echo"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, ok := p.(analyzer.ModelLister); !ok {
+		t.Fatal("acpcore provider must implement analyzer.ModelLister")
+	}
+}
+
+func TestListModels_ErrorWhenTransportClosed(t *testing.T) {
+	p, err := New(Options{ID: "test", Command: []string{"echo"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	prov := p.(*provider)
+	// Wire a pre-closed transport so the call() returns an error immediately.
+	closed := &transport{}
+	closed.closed = true
+	prov.started = true
+	prov.transport = closed
+
+	_, err = prov.ListModels(context.Background())
+	if err == nil {
+		t.Fatal("expected error with closed transport")
+	}
+}
+
 // --- copyStringMap ---
 
 func TestCopyStringMapNil(t *testing.T) {
