@@ -35,6 +35,19 @@ const (
 
 	// maxRunLimit is the maximum number of runs returned by run history.
 	maxRunLimit = 200
+
+	// auditDefaultLimit is the default number of audit events returned by
+	// GET /api/jobs/audit. Larger than defaultRunLimit because audit events
+	// are lightweight and operators typically want a broader window.
+	auditDefaultLimit = 100
+
+	// auditMaxLimit caps the ?limit= query param on the audit endpoint to
+	// prevent unbounded memory allocation from large audit logs.
+	auditMaxLimit = 500
+
+	// jobDetailRecentRunCount is the number of recent runs returned in the
+	// job detail view sidebar. Kept small to bound the response payload.
+	jobDetailRecentRunCount = 10
 )
 
 // errJobNotFound is returned by store mutations when the job ID does not exist.
@@ -823,11 +836,11 @@ func JobAuditLog(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		limit := 100
+		limit := auditDefaultLimit
 		if v := r.URL.Query().Get("limit"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				if n > 500 {
-					n = 500
+				if n > auditMaxLimit {
+					n = auditMaxLimit
 				}
 				limit = n
 			}
@@ -890,12 +903,12 @@ func JobDetail(deps Deps) http.HandlerFunc {
 			latestRun, _ = deps.Jobs.Runs.Latest(jobID)
 		}
 
-		// Recent runs (last 10).
+		// Recent runs (last jobDetailRecentRunCount).
 		var recentRuns []backgroundjobs.Run
 		if deps.Jobs.Runs != nil {
 			allRuns, _ := deps.Jobs.Runs.List(jobID)
-			if len(allRuns) > 10 {
-				recentRuns = allRuns[:10]
+			if len(allRuns) > jobDetailRecentRunCount {
+				recentRuns = allRuns[:jobDetailRecentRunCount]
 			} else {
 				recentRuns = allRuns
 			}

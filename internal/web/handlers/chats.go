@@ -16,6 +16,11 @@ import (
 	"dreamer/internal/state"
 )
 
+// maxChatBodySize caps request bodies for chat mutation endpoints (DELETE,
+// bulk-delete). Large enough to hold any reasonable path list while
+// bounding memory allocation from oversized payloads.
+const maxChatBodySize = 64 * 1024
+
 // discoverChatsCacheEntry holds a cached DiscoverChats result with its fetch time.
 type discoverChatsCacheEntry struct {
 	sources []chat.Source
@@ -212,7 +217,7 @@ func deleteProjectChat(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatBodySize)
 
 	var payload struct {
 		Path string `json:"path"`
@@ -266,7 +271,7 @@ func bulkDeleteProjectChats(deps Deps, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatBodySize)
 
 	var payload struct {
 		Paths []string `json:"paths"`

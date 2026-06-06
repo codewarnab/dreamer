@@ -286,7 +286,11 @@ func queryTCPTable(family uint32) []mibTcpRowOwnerPID {
 	// First call to get the required buffer size.
 	procGetExtendedTcpTable.Call(0, 0, 0, uintptr(family), uintptr(tcpTableOwnerPIDAll), 0)
 
-	buf := make([]byte, 65536) // 64KB should be enough for most systems
+	// tcpTableBufSize is 64 KiB — empirically sufficient for machines with
+	// hundreds of TCP connections. GetExtendedTcpTable returns the required
+	// size in the size parameter if the buffer is too small, allowing retry.
+	const tcpTableBufSize = 65536
+	buf := make([]byte, tcpTableBufSize)
 	size = uint32(len(buf))
 
 	ret, _, _ := procGetExtendedTcpTable.Call(

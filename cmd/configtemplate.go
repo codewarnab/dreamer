@@ -155,6 +155,7 @@ providers:
       OPENAI_MODEL: "mimo-v2.5-pro"
       OPENAI_API_KEY: "free-via-opengateway"
       CLAUDE_CODE_USE_OPENAI: "1"
+    # max_turns: 200   # Agentic loop iteration cap per session. 0 = default (200). -1 = no cap.
 
 # Analyzer settings.
 # rule_timeout_seconds: global timeout for every provider call (phase-1 + phase-2).

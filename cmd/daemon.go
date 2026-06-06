@@ -438,7 +438,12 @@ func startConfigWatcher(ctx context.Context, logger *logging.Logger, events *pip
 					dir := ev.Name
 					if _, isWatched := watched[dir]; isWatched {
 						go func(d string) {
-							time.Sleep(100 * time.Millisecond)
+							// watcherReaddDelay lets the OS finish any
+							// in-flight rename before we re-add the watch.
+							// 100 ms is empirically sufficient for editor
+							// temp+rename saves (vim, VS Code, emacs).
+							const watcherReaddDelay = 100 * time.Millisecond
+							time.Sleep(watcherReaddDelay)
 							_ = watcher.Remove(d)
 							if err := watcher.Add(d); err != nil {
 								logger.Warn("config watcher re-add failed", logging.Any("dir", d), logging.Any("err", err))

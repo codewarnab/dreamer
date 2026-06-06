@@ -93,9 +93,14 @@ func projectsPost(deps Deps, w http.ResponseWriter, r *http.Request) {
 	}
 	configPath := deps.ConfigPath()
 
-	// Enforce 4 KiB size limit on mutating request body. This is a crucial security measure
+	// maxProjectBodySize caps POST /api/projects request bodies.
+	// Project-add payloads carry only name, path, and since — 4 KiB is
+	// generous while guarding against memory exhaustion from huge payloads.
+	const maxProjectBodySize = 4096
+
+	// Enforce size limit on mutating request body. This is a crucial security measure
 	// to prevent denial-of-service (DoS) or memory exhaustion attacks from excessively large payloads.
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	r.Body = http.MaxBytesReader(w, r.Body, maxProjectBodySize)
 
 	var req projectAddRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

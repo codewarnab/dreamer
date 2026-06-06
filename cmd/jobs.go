@@ -22,6 +22,11 @@ import (
 
 const outputRootFlag = "output-root"
 
+// maxJobPromptSize caps the --prompt flag on CLI job commands. Kept in sync
+// with handlers.maxPromptSize (both are 16 KiB); a separate constant avoids
+// an import cycle between cmd and internal/web/handlers.
+const maxJobPromptSize = 16 * 1024
+
 // defaultProviderFactory delegates to the real analyzer registry.
 func defaultProviderFactory(id config.ProviderID, cfg analyzer.ProviderConfig) (analyzer.Provider, error) {
 	return analyzer.NewProvider(id, cfg)
@@ -175,9 +180,12 @@ func printJobsTable(cmd *cobra.Command, jobs []*backgroundjobs.Job, verbose bool
 			if t := effectiveNextRun(j); t != nil {
 				nextRun = t.Format("2006-01-02 15:04 MST")
 			}
+			// jobListPromptPreview is the max rune length of the prompt
+			// shown in the verbose table view, keeping rows readable.
+			const jobListPromptPreview = 40
 			prompt := j.Prompt
-			if len(prompt) > 40 {
-				prompt = prompt[:40] + "..."
+			if len(prompt) > jobListPromptPreview {
+				prompt = prompt[:jobListPromptPreview] + "..."
 			}
 			cmd.Printf("%-18s %-20s %-12s %-8t %-19s %s\n",
 				j.ID, truncateWithEllipsis(j.Name, 20), j.ProviderID, j.Enabled, nextRun, prompt)
@@ -673,12 +681,16 @@ func newJobsShowCommand() *cobra.Command {
 			if len(runs) == 0 {
 				cmd.Println("\nNo runs recorded.")
 			} else {
-				cmd.Printf("\nRecent runs (last 10):\n")
+				// jobShowRecentRunCount is the number of runs shown in the
+				// `jobs show` CLI view — matches jobDetailRecentRunCount in
+				// the web handler for consistency.
+				const jobShowRecentRunCount = 10
+				cmd.Printf("\nRecent runs (last %d):\n", jobShowRecentRunCount)
 				cmd.Printf("%-20s %-12s %-20s %-10s %s\n",
 					"STARTED_AT", "STATUS", "FINISHED_AT", "DURATION", "RUN_ID")
 				limit := len(runs)
-				if limit > 10 {
-					limit = 10
+				if limit > jobShowRecentRunCount {
+					limit = jobShowRecentRunCount
 				}
 				for i := 0; i < limit; i++ {
 					r := runs[i]
@@ -729,11 +741,12 @@ func formatDuration(d time.Duration) string {
 	}
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60
-	if d < 24*time.Hour {
+	const hoursPerDay = 24
+	if d < hoursPerDay*time.Hour {
 		return fmt.Sprintf("%dh %dm", h, m)
 	}
-	days := h / 24
-	h = h % 24
+	days := h / hoursPerDay
+	h = h % hoursPerDay
 	return fmt.Sprintf("%dd %dh %dm", days, h, m)
 }
 
@@ -975,7 +988,7 @@ func newJobsEditCommand() *cobra.Command {
 			}
 
 			if cmd.Flags().Changed("prompt") {
-				if len(prompt) > 16*1024 {
+				if len(prompt) > maxJobPromptSize {
 					return fmt.Errorf("prompt exceeds 16 KiB limit")
 				}
 				job.Prompt = prompt

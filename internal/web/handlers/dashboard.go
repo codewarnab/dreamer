@@ -10,10 +10,24 @@ import (
 	"sort"
 	"time"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/config"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
 	"dreamer/internal/state"
+)
+
+// dateLayout is Go's reference-time format for YYYY-MM-DD date strings.
+const dateLayout = "2006-01-02"
+
+const (
+	// sparklineWindow7d is the number of days in the short token/run summary window.
+	sparklineWindow7d = 7
+
+	// sparklineWindow30d is the number of days in the sparkline display window.
+	// Also used as the cap on the number of sparkline data points returned to
+	// prevent the response payload growing unboundedly as history accumulates.
+	sparklineWindow30d = 30
 )
 
 // Deps is the minimal slice of server context the handlers need. Config is
@@ -48,6 +62,13 @@ type Deps struct {
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs JobDeps
+	// ModelListCache caches live model lists fetched from providers that
+	// implement analyzer.ModelLister. Nil disables live fetching — the
+	// handler falls back to config.AllModels for all providers.
+	ModelListCache *analyzer.ModelListCache
+	// CacheDir returns the directory where the model list cache file is
+	// persisted across daemon restarts. Empty string disables disk persistence.
+	CacheDir func() string
 }
 
 // Dashboard returns an http.HandlerFunc for GET /api/dashboard.
@@ -123,8 +144,8 @@ func buildDashboard(cfg *config.App, sc *state.StateCache) dashboardResponse {
 	healthy := map[string]bool{}
 	seen := map[string]bool{}
 
-	cutoff7d := time.Now().UTC().AddDate(0, 0, -7)
-	cutoff30d := time.Now().UTC().AddDate(0, 0, -30)
+	cutoff7d := time.Now().UTC().AddDate(0, 0, -sparklineWindow7d)
+	cutoff30d := time.Now().UTC().AddDate(0, 0, -sparklineWindow30d)
 	aggregatedSparkline := map[string]state.DaySummary{}
 
 	for _, p := range cfg.Projects {
@@ -213,8 +234,8 @@ func buildDashboard(cfg *config.App, sc *state.StateCache) dashboardResponse {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if len(keys) > 30 {
-		keys = keys[len(keys)-30:]
+	if len(keys) > sparklineWindow30d {
+		keys = keys[len(keys)-sparklineWindow30d:]
 	}
 	out.Sparkline30d = make([]state.DaySummary, 0, len(keys))
 	for _, k := range keys {
@@ -268,7 +289,7 @@ func buildSparklines(days []state.DaySummary, cutoff30d, cutoff7d time.Time) (sp
 	sparkline = map[string]state.DaySummary{}
 	perCategory = map[string]int{}
 	for _, d := range days {
-		parsedDate, parseErr := time.Parse("2006-01-02", d.Date)
+		parsedDate, parseErr := time.Parse(dateLayout, d.Date)
 		if parseErr != nil {
 			continue
 		}
