@@ -52,6 +52,16 @@ var discardedErrCallees = map[string]bool{
 	// Sync: a silent failure defeats the durability guarantee the call exists
 	// to provide (PR #60, mirrors the WriteFileAtomic fsync path).
 	"(*os.File).Sync": true,
+	// exec.Cmd: a dropped error means treating a failed/missing/killed child
+	// process as success — runner.go discarded cmd.Run() and reported a clean
+	// exit for a crashed provider (PR #60).
+	"(*os/exec.Cmd).Run":            true,
+	"(*os/exec.Cmd).Output":         true,
+	"(*os/exec.Cmd).CombinedOutput": true,
+	"(*os/exec.Cmd).Wait":           true,
+	// Activity log read: a blank-discard returns a nil slice, rendering an
+	// empty activity feed with no signal that the read failed (L8, PR #84).
+	"dreamer/internal/backgroundjobs.ReadAllActivity": true,
 }
 
 // runDiscardederr flags assignments that drop a curated callee's error return

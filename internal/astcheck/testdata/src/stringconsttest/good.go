@@ -1,6 +1,10 @@
 package stringconsttest
 
-const permModeConst = "permission-mode"
+const (
+	permModeConst  = "permission-mode"
+	singleDupConst = "single-dup-value"
+	tinyConst      = "on!"
+)
 
 // --- GOOD patterns: not flagged ---
 
@@ -34,9 +38,14 @@ func goodSentence() string {
 	return "this is a sentence"
 }
 
+// goodTiny: matches tinyConst but is below minConstMatchLen — not flagged.
+func goodTiny() string {
+	return "on!"
+}
+
 // Third occurrence of each bad string (in a different file).
 func badPermMode3() string {
-	return "permission-mode" // want `string "permission-mode" repeated 3 times across 2 files; extract to a constant`
+	return "permission-mode" // want `string "permission-mode" duplicates constant permModeConst; use the constant`
 }
 
 func badBypass3() string {

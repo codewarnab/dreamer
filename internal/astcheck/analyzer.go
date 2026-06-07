@@ -16,17 +16,21 @@
 //	theatricaltest   warn   tests that don't assert their advertised behavior   (default on)
 //	atomicwrite      warn   os.WriteFile; use fsutil.WriteFileAtomic            (default on)
 //	discardederr     warn   _-discard of a curated callee's error return        (default on)
+//	pathjoin         warn   path.Join on a filesystem path; use filepath.Join   (default on)
+//	nilcleanup       warn   nil cleanup func returned alongside an error        (default on)
 //	unboundedread    warn   io.ReadAll on stdin/request body without a cap      (default on)
 //	overlaybool      warn   overlay-merged bool field; use *bool                (default on)
 //	lockorder        error  read before fsutil.AcquireLock; TOCTOU race        (default on)
 //	lockskip         error  exported method on mutex struct skips lock          (default on)
 //	permissionbypass error  sandbox write-posture without Available() check     (default on)
-//	stringconst      warn   repeated string literals across files; use constants(default on)
+//	stringconst      warn   repeated literals / literal duplicating a constant  (default on)
 //	stringerr        warn   strings.Contains(err.Error(), literal); use errors.Is/As(default on)
 //	errverbatim      warn   err.Error() as HTTP response body; leaks paths       (default on)
 //	symlinkresolve   warn   filepath.Clean in containment check without EvalSymlinks(default on)
 //	implicitstatus   info   w.Write without preceding w.WriteHeader              (default on)
+//	unusedmethod     info   unexported func/method with no in-package callers   (default on)
 //	goroutinerecover info   pipeline goroutine without a recover() guard        (default OFF)
+//	flagpropagation  info   bool param in cmd/ never read; flag dropped         (default OFF)
 package astcheck
 
 import (

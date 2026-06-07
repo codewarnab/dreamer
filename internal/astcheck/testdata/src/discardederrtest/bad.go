@@ -3,6 +3,7 @@ package discardederrtest
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
 )
@@ -21,4 +22,10 @@ func badIgnoredErrPosition() {
 
 func badMethod(f *os.File) {
 	_ = f.Sync() // want "error from \\(\\*os.File\\).Sync discarded"
+}
+
+func badExecCmd(cmd *exec.Cmd) {
+	_ = cmd.Run()       // want "error from \\(\\*os/exec.Cmd\\).Run discarded"
+	_, _ = cmd.Output() // want "error from \\(\\*os/exec.Cmd\\).Output discarded"
+	_ = cmd.Wait()      // want "error from \\(\\*os/exec.Cmd\\).Wait discarded"
 }

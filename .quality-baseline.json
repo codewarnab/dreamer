@@ -1,11 +1,6 @@
 {
   "version": 1,
   "findings": {
-    "atomicwrite:Executor.writeRunLog:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
-      "check": "atomicwrite",
-      "symbol": "Executor.writeRunLog",
-      "message": "os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes"
-    },
     "atomicwrite:ResolveInstallID:os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes": {
       "check": "atomicwrite",
       "symbol": "ResolveInstallID",
@@ -21,10 +16,365 @@
       "symbol": "installLinuxStartup",
       "message": "os.WriteFile is not atomic; use fsutil.WriteFileAtomic for durable, crash-safe writes"
     },
+    "css-hardcoded-color::hardcoded color #0284c7 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #0284c7 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #0d9b6a should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #0d9b6a should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #1a1a1a should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #1a1a1a should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #2563eb should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #2563eb should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #374151 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #374151 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #6b7280 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #6b7280 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #6f42c1 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #6f42c1 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #b45309 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #b45309 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #b84dff should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #b84dff should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #d90429 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #d90429 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #dc2626 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #dc2626 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #dee2e6 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #dee2e6 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #e9ecef should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #e9ecef should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #f1f3f5 should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #f1f3f5 should use a CSS custom property from the design token system"
+    },
+    "css-hardcoded-color::hardcoded color #f8f9fa should use a CSS custom property from the design token system": {
+      "check": "css-hardcoded-color",
+      "symbol": "",
+      "message": "hardcoded color #f8f9fa should use a CSS custom property from the design token system"
+    },
+    "css-undefined-token::CSS custom property --bg-error-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-error-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-mint-badge is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-mint-badge is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-mint-code is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-mint-code is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-mint-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-mint-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-translucent-badge is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-translucent-badge is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-translucent-card is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-translucent-card is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-translucent-hover is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-translucent-hover is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-translucent-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-translucent-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-warn-badge is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-warn-badge is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-warn-card is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-warn-card is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --bg-warn-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --bg-warn-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-error-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-error-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-mint-badge is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-mint-badge is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-mint-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-mint-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-subtle is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-subtle is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-translucent-badge is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-translucent-badge is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-warn-badge is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-warn-badge is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --border-warn-card is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --border-warn-card is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --canvas-black is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --canvas-black is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --color-error is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --color-error is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --color-warn is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --color-warn is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --focus-cyan is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --focus-cyan is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --font-body is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --font-body is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --font-mono is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --font-mono is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --hairline is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --hairline is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --jelly-mint is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --jelly-mint is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --log-highlight-bg is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --log-highlight-bg is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --log-highlight-text is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --log-highlight-text is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --log-text-error is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --log-text-error is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --log-text-warn is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --log-text-warn is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --radius-lg is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --radius-lg is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --radius-md is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --radius-md is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --radius-pill is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --radius-pill is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --radius-sm is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --radius-sm is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --space-1 is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --space-1 is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --space-2 is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --space-2 is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --space-3 is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --space-3 is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --space-4 is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --space-4 is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --space-5 is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --space-5 is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --surface-1 is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --surface-1 is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --surface-slate is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --surface-slate is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --text-inverted is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --text-inverted is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --text-muted is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --text-muted is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --text-primary is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --text-primary is referenced but not defined in :root"
+    },
+    "css-undefined-token::CSS custom property --text-secondary is referenced but not defined in :root": {
+      "check": "css-undefined-token",
+      "symbol": "",
+      "message": "CSS custom property --text-secondary is referenced but not defined in :root"
+    },
+    "discardederr:TestBuildConfigSecondWritableDirContainsProviderHome:error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestBuildConfigSecondWritableDirContainsProviderHome",
+      "message": "error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestExpandUserHome_TildeBackslash:error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestExpandUserHome_TildeBackslash",
+      "message": "error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestExpandUserHome_TildeOnly:error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestExpandUserHome_TildeOnly",
+      "message": "error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestExpandUserHome_TildeSlash:error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestExpandUserHome_TildeSlash",
+      "message": "error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestReadFindingsJSONL:error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestReadFindingsJSONL",
+      "message": "error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestResolveConfigDir_HomeFallback:error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestResolveConfigDir_HomeFallback",
+      "message": "error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestResolveConfigDir_WhitespaceIgnored:error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestResolveConfigDir_WhitespaceIgnored",
+      "message": "error from os.UserHomeDir discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestRunPreservesDataDuringMigration:error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestRunPreservesDataDuringMigration",
+      "message": "error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:TestRunRecordFinding_ValidationFailure:error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "TestRunRecordFinding_ValidationFailure",
+      "message": "error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:dialStdio:error from (*os/exec.Cmd).Wait discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "dialStdio",
+      "message": "error from (*os/exec.Cmd).Wait discarded; ignoring it has hidden bugs — handle or check it"
+    },
     "discardederr:jobsInteractiveModel.makeRunCmd:error from os.Executable discarded; ignoring it has hidden bugs — handle or check it": {
       "check": "discardederr",
       "symbol": "jobsInteractiveModel.makeRunCmd",
       "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:jsonBody:error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "jsonBody",
+      "message": "error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it"
     },
     "discardederr:newDaemonCommand:error from time.ParseDuration discarded; ignoring it has hidden bugs — handle or check it": {
       "check": "discardederr",
@@ -36,10 +386,60 @@
       "symbol": "newJobsRunCommand",
       "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
     },
+    "discardederr:phase1Reply:error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "phase1Reply",
+      "message": "error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:phase2Reply:error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "phase2Reply",
+      "message": "error from encoding/json.Marshal discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:provider.Close:error from (*os/exec.Cmd).Wait discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "provider.Close",
+      "message": "error from (*os/exec.Cmd).Wait discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "discardederr:provider.Start:error from (*os/exec.Cmd).Wait discarded; ignoring it has hidden bugs — handle or check it": {
+      "check": "discardederr",
+      "symbol": "provider.Start",
+      "message": "error from (*os/exec.Cmd).Wait discarded; ignoring it has hidden bugs — handle or check it"
+    },
     "discardederr:tryAcquire:error from os.Executable discarded; ignoring it has hidden bugs — handle or check it": {
       "check": "discardederr",
       "symbol": "tryAcquire",
       "message": "error from os.Executable discarded; ignoring it has hidden bugs — handle or check it"
+    },
+    "nilcleanup:AcquireLock:nil cleanup func returned with error; return func(){} so callers can defer unconditionally": {
+      "check": "nilcleanup",
+      "symbol": "AcquireLock",
+      "message": "nil cleanup func returned with error; return func(){} so callers can defer unconditionally"
+    },
+    "nilcleanup:PostStartOrKill:nil cleanup func returned with error; return func(){} so callers can defer unconditionally": {
+      "check": "nilcleanup",
+      "symbol": "PostStartOrKill",
+      "message": "nil cleanup func returned with error; return func(){} so callers can defer unconditionally"
+    },
+    "nilcleanup:PostStartWithHandleOrKill:nil cleanup func returned with error; return func(){} so callers can defer unconditionally": {
+      "check": "nilcleanup",
+      "symbol": "PostStartWithHandleOrKill",
+      "message": "nil cleanup func returned with error; return func(){} so callers can defer unconditionally"
+    },
+    "nilcleanup:Prepare:nil cleanup func returned with error; return func(){} so callers can defer unconditionally": {
+      "check": "nilcleanup",
+      "symbol": "Prepare",
+      "message": "nil cleanup func returned with error; return func(){} so callers can defer unconditionally"
+    },
+    "nilcleanup:acquireWritableACL:nil cleanup func returned with error; return func(){} so callers can defer unconditionally": {
+      "check": "nilcleanup",
+      "symbol": "acquireWritableACL",
+      "message": "nil cleanup func returned with error; return func(){} so callers can defer unconditionally"
+    },
+    "nilcleanup:prepare:nil cleanup func returned with error; return func(){} so callers can defer unconditionally": {
+      "check": "nilcleanup",
+      "symbol": "prepare",
+      "message": "nil cleanup func returned with error; return func(){} so callers can defer unconditionally"
     },
     "permissionbypass:Executor.executeJob:SandboxProjectWrite set without sandbox.Available() check": {
       "check": "permissionbypass",
@@ -50,6 +450,341 @@
       "check": "permissionbypass",
       "symbol": "Executor.executeJob",
       "message": "SandboxWritableDirs set without sandbox.Available() check"
+    },
+    "settesthome:setPipelineTestHome:setTestHome helper \"setPipelineTestHome\" missing env vars: CLAUDE_CONFIG_DIR, GEMINI_HOME, OPENCODE_DB, KIRO_CLI_DB, CODEBUFF_CONFIG_DIR, XDG_DATA_HOME": {
+      "check": "settesthome",
+      "symbol": "setPipelineTestHome",
+      "message": "setTestHome helper \"setPipelineTestHome\" missing env vars: CLAUDE_CONFIG_DIR, GEMINI_HOME, OPENCODE_DB, KIRO_CLI_DB, CODEBUFF_CONFIG_DIR, XDG_DATA_HOME"
+    },
+    "settesthome:setTestHome:setTestHome helper \"setTestHome\" missing env vars: CLAUDE_CONFIG_DIR, GEMINI_HOME, OPENCODE_DB, KIRO_CLI_DB, CODEBUFF_CONFIG_DIR, XDG_DATA_HOME": {
+      "check": "settesthome",
+      "symbol": "setTestHome",
+      "message": "setTestHome helper \"setTestHome\" missing env vars: CLAUDE_CONFIG_DIR, GEMINI_HOME, OPENCODE_DB, KIRO_CLI_DB, CODEBUFF_CONFIG_DIR, XDG_DATA_HOME"
+    },
+    "stringconst::string \"claude-cli\" duplicates constant ID; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"claude-cli\" duplicates constant ID; use the constant"
+    },
+    "stringconst::string \"codex-cli\" duplicates constant ID; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"codex-cli\" duplicates constant ID; use the constant"
+    },
+    "stringconst::string \"gemini-cli\" duplicates constant ID; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"gemini-cli\" duplicates constant ID; use the constant"
+    },
+    "stringconst::string \"history.json\" duplicates constant historyFile; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"history.json\" duplicates constant historyFile; use the constant"
+    },
+    "stringconst::string \"jobs.json\" duplicates constant jobsFile; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"jobs.json\" duplicates constant jobsFile; use the constant"
+    },
+    "stringconst::string \"openclaude-cli\" duplicates constant ID; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"openclaude-cli\" duplicates constant ID; use the constant"
+    },
+    "stringconst::string \"state.json\" duplicates constant stateFile; use the constant": {
+      "check": "stringconst",
+      "symbol": "",
+      "message": "string \"state.json\" duplicates constant stateFile; use the constant"
+    },
+    "stringconst:HealthChecker.CheckHealth:string \"error\" duplicates constant HealthSeverityError; use the constant": {
+      "check": "stringconst",
+      "symbol": "HealthChecker.CheckHealth",
+      "message": "string \"error\" duplicates constant HealthSeverityError; use the constant"
+    },
+    "stringconst:ParseMode:string \"auto\" duplicates constant ModeAuto; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseMode",
+      "message": "string \"auto\" duplicates constant ModeAuto; use the constant"
+    },
+    "stringconst:ParseMode:string \"false\" duplicates constant ModeOff; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseMode",
+      "message": "string \"false\" duplicates constant ModeOff; use the constant"
+    },
+    "stringconst:ParseMode:string \"true\" duplicates constant ModeOn; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseMode",
+      "message": "string \"true\" duplicates constant ModeOn; use the constant"
+    },
+    "stringconst:ParseNetwork:string \"isolated\" duplicates constant NetworkIsolated; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseNetwork",
+      "message": "string \"isolated\" duplicates constant NetworkIsolated; use the constant"
+    },
+    "stringconst:ParseNetwork:string \"open\" duplicates constant NetworkOpen; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseNetwork",
+      "message": "string \"open\" duplicates constant NetworkOpen; use the constant"
+    },
+    "stringconst:ParseSeccomp:string \"full\" duplicates constant SeccompFull; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseSeccomp",
+      "message": "string \"full\" duplicates constant SeccompFull; use the constant"
+    },
+    "stringconst:ParseSeccomp:string \"minimal\" duplicates constant SeccompMinimal; use the constant": {
+      "check": "stringconst",
+      "symbol": "ParseSeccomp",
+      "message": "string \"minimal\" duplicates constant SeccompMinimal; use the constant"
+    },
+    "stringconst:SQLiteReader.QuerySessionsModifiedSince:string \"sqlite\" duplicates constant DefaultSQLiteDriverName; use the constant": {
+      "check": "stringconst",
+      "symbol": "SQLiteReader.QuerySessionsModifiedSince",
+      "message": "string \"sqlite\" duplicates constant DefaultSQLiteDriverName; use the constant"
+    },
+    "stringconst:init:string \"codex-acp\" duplicates constant ID; use the constant": {
+      "check": "stringconst",
+      "symbol": "init",
+      "message": "string \"codex-acp\" duplicates constant ID; use the constant"
+    },
+    "stringconst:provider.Start:string \"opencode-server\" duplicates constant ID; use the constant": {
+      "check": "stringconst",
+      "symbol": "provider.Start",
+      "message": "string \"opencode-server\" duplicates constant ID; use the constant"
+    },
+    "stringconst:validateWebHost:string \"127.0.0.1\" duplicates constant DefaultWebHost; use the constant": {
+      "check": "stringconst",
+      "symbol": "validateWebHost",
+      "message": "string \"127.0.0.1\" duplicates constant DefaultWebHost; use the constant"
+    },
+    "symlinkresolve:isVolumeRelativeRootedPath:filepath.Clean used in containment check without symlink resolution; call fsutil.ResolveSymlinks or filepath.EvalSymlinks first": {
+      "check": "symlinkresolve",
+      "symbol": "isVolumeRelativeRootedPath",
+      "message": "filepath.Clean used in containment check without symlink resolution; call fsutil.ResolveSymlinks or filepath.EvalSymlinks first"
+    },
+    "theatricaltest:TestAtomicwrite:test TestAtomicwrite has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestAtomicwrite",
+      "message": "test TestAtomicwrite has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestBuildSystemdUnitContainsExpectedFields:test TestBuildSystemdUnitContainsExpectedFields has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestBuildSystemdUnitContainsExpectedFields",
+      "message": "test TestBuildSystemdUnitContainsExpectedFields has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestBuildSystemdUnitQuotesPathsWithSpaces:test TestBuildSystemdUnitQuotesPathsWithSpaces has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestBuildSystemdUnitQuotesPathsWithSpaces",
+      "message": "test TestBuildSystemdUnitQuotesPathsWithSpaces has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestConcurrentGetSet_NoDataRace:test TestConcurrentGetSet_NoDataRace has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestConcurrentGetSet_NoDataRace",
+      "message": "test TestConcurrentGetSet_NoDataRace has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectGoProject:test TestDetectGoProject has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectGoProject",
+      "message": "test TestDetectGoProject has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectGoProjectWithGolangciLint:test TestDetectGoProjectWithGolangciLint has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectGoProjectWithGolangciLint",
+      "message": "test TestDetectGoProjectWithGolangciLint has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectJavaScriptProject:test TestDetectJavaScriptProject has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectJavaScriptProject",
+      "message": "test TestDetectJavaScriptProject has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectJavaScriptWithEslint:test TestDetectJavaScriptWithEslint has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectJavaScriptWithEslint",
+      "message": "test TestDetectJavaScriptWithEslint has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectJavaScriptWithVitest:test TestDetectJavaScriptWithVitest has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectJavaScriptWithVitest",
+      "message": "test TestDetectJavaScriptWithVitest has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectMultipleEcosystems:test TestDetectMultipleEcosystems has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectMultipleEcosystems",
+      "message": "test TestDetectMultipleEcosystems has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectMypyStandalone:test TestDetectMypyStandalone has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectMypyStandalone",
+      "message": "test TestDetectMypyStandalone has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectPythonWithFlake8:test TestDetectPythonWithFlake8 has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectPythonWithFlake8",
+      "message": "test TestDetectPythonWithFlake8 has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectPythonWithPyproject:test TestDetectPythonWithPyproject has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectPythonWithPyproject",
+      "message": "test TestDetectPythonWithPyproject has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectRustProject:test TestDetectRustProject has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectRustProject",
+      "message": "test TestDetectRustProject has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDetectTypeScriptWithTsconfig:test TestDetectTypeScriptWithTsconfig has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDetectTypeScriptWithTsconfig",
+      "message": "test TestDetectTypeScriptWithTsconfig has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestDiscardederr:test TestDiscardederr has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestDiscardederr",
+      "message": "test TestDiscardederr has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestErrverbatim:test TestErrverbatim has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestErrverbatim",
+      "message": "test TestErrverbatim has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestFilterSourcesByLookback:test TestFilterSourcesByLookback has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestFilterSourcesByLookback",
+      "message": "test TestFilterSourcesByLookback has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestFilterSourcesByLookbackDisabledReturnsAllSources:test TestFilterSourcesByLookbackDisabledReturnsAllSources has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestFilterSourcesByLookbackDisabledReturnsAllSources",
+      "message": "test TestFilterSourcesByLookbackDisabledReturnsAllSources has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestFlagpropagation:test TestFlagpropagation has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestFlagpropagation",
+      "message": "test TestFlagpropagation has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestGoroutinerecover:test TestGoroutinerecover has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestGoroutinerecover",
+      "message": "test TestGoroutinerecover has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestImplicitstatus:test TestImplicitstatus has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestImplicitstatus",
+      "message": "test TestImplicitstatus has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestLockorder:test TestLockorder has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestLockorder",
+      "message": "test TestLockorder has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestLockskip:test TestLockskip has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestLockskip",
+      "message": "test TestLockskip has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestLogDefaultedSinceNotices_NilConfig:test TestLogDefaultedSinceNotices_NilConfig has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestLogDefaultedSinceNotices_NilConfig",
+      "message": "test TestLogDefaultedSinceNotices_NilConfig has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestLogDefaultedSinceNotices_NilLogger:test TestLogDefaultedSinceNotices_NilLogger has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestLogDefaultedSinceNotices_NilLogger",
+      "message": "test TestLogDefaultedSinceNotices_NilLogger has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestNilcleanup:test TestNilcleanup has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestNilcleanup",
+      "message": "test TestNilcleanup has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestNodirectlog:test TestNodirectlog has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestNodirectlog",
+      "message": "test TestNodirectlog has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestOverlaybool:test TestOverlaybool has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestOverlaybool",
+      "message": "test TestOverlaybool has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestPathjoin:test TestPathjoin has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestPathjoin",
+      "message": "test TestPathjoin has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestPermissionbypass:test TestPermissionbypass has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestPermissionbypass",
+      "message": "test TestPermissionbypass has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestPrepareAndPostStart_RunsChild:test TestPrepareAndPostStart_RunsChild has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestPrepareAndPostStart_RunsChild",
+      "message": "test TestPrepareAndPostStart_RunsChild has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestProjectLock_ReleaseClosureIdempotent:test TestProjectLock_ReleaseClosureIdempotent has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestProjectLock_ReleaseClosureIdempotent",
+      "message": "test TestProjectLock_ReleaseClosureIdempotent has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestRenderMistakeLineRuleOnly:test TestRenderMistakeLineRuleOnly has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestRenderMistakeLineRuleOnly",
+      "message": "test TestRenderMistakeLineRuleOnly has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestRenderMistakeLineToolAndRule:test TestRenderMistakeLineToolAndRule has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestRenderMistakeLineToolAndRule",
+      "message": "test TestRenderMistakeLineToolAndRule has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestRenderMistakeLineToolOnly:test TestRenderMistakeLineToolOnly has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestRenderMistakeLineToolOnly",
+      "message": "test TestRenderMistakeLineToolOnly has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestRenderWarningsSectionWithRunID:test TestRenderWarningsSectionWithRunID has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestRenderWarningsSectionWithRunID",
+      "message": "test TestRenderWarningsSectionWithRunID has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestSettesthome:test TestSettesthome has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestSettesthome",
+      "message": "test TestSettesthome has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestStringconst:test TestStringconst has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestStringconst",
+      "message": "test TestStringconst has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestStringerr:test TestStringerr has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestStringerr",
+      "message": "test TestStringerr has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestSymlinkresolve:test TestSymlinkresolve has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestSymlinkresolve",
+      "message": "test TestSymlinkresolve has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestTheatricaltest:test TestTheatricaltest has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestTheatricaltest",
+      "message": "test TestTheatricaltest has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestUnboundedread:test TestUnboundedread has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestUnboundedread",
+      "message": "test TestUnboundedread has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "theatricaltest:TestUnusedmethod:test TestUnusedmethod has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestUnusedmethod",
+      "message": "test TestUnusedmethod has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
+    "x-html::x-html injects unescaped HTML; use x-text + CSS-based rendering to prevent XSS": {
+      "check": "x-html",
+      "symbol": "",
+      "message": "x-html injects unescaped HTML; use x-text + CSS-based rendering to prevent XSS"
     }
   }
 }

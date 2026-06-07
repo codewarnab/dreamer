@@ -57,7 +57,18 @@ func run() error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "quality: webcheck: %v\n", err)
 	} else {
-		result.Findings = append(result.Findings, convertWebFindings(webFindings, cfg.MinSeverity)...)
+		converted := convertWebFindings(webFindings, cfg.MinSeverity)
+		// astcheck.Run subtracts the baseline before returning, but web
+		// findings are appended here afterwards — subtract them too, or
+		// baselined CSS/template findings fail every run.
+		if !cfg.WriteBaseline && cfg.BaselinePath != "" {
+			baselineKeys, err := astcheck.ReadBaseline(cfg.BaselinePath)
+			if err != nil {
+				return err
+			}
+			converted = astcheck.SubtractBaseline(converted, baselineKeys)
+		}
+		result.Findings = append(result.Findings, converted...)
 	}
 
 	if cfg.WriteBaseline {

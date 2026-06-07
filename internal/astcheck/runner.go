@@ -183,20 +183,26 @@ func loadPackages(patterns []string) ([]*packages.Package, error) {
 	return dedupTestPackages(pkgs), nil
 }
 
-// dedupTestPackages removes the external test package variant (pkg_test) when
-// the internal variant (pkg) is also present, to avoid running analyzers twice.
+// dedupTestPackages keeps one variant per package path, preferring the
+// test-augmented variant (more syntax files) so analyzers that consult
+// test-file information — unusedmethod's "used only from a test" check,
+// theatricaltest — see the whole package. Running both variants would
+// double-report every finding in the shared non-test files.
 func dedupTestPackages(pkgs []*packages.Package) []*packages.Package {
-	seen := make(map[string]bool)
+	best := make(map[string]int) // PkgPath → index into out
 	var out []*packages.Package
 	for _, pkg := range pkgs {
 		if len(pkg.Errors) > 0 {
 			continue
 		}
 		key := pkg.PkgPath
-		if seen[key] {
+		if i, ok := best[key]; ok {
+			if len(pkg.Syntax) > len(out[i].Syntax) {
+				out[i] = pkg
+			}
 			continue
 		}
-		seen[key] = true
+		best[key] = len(out)
 		out = append(out, pkg)
 	}
 	return out

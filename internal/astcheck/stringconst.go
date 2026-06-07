@@ -11,7 +11,7 @@ import (
 
 var stringconstAnalyzer = &analysis.Analyzer{
 	Name: "stringconst",
-	Doc:  "flags string literals repeated >= 3 times across >= 2 files that should be extracted to constants",
+	Doc:  "flags string literals repeated >= 3 times across >= 2 files, and literals duplicating an existing same-package constant",
 	Run:  runStringconst,
 }
 
@@ -31,6 +31,10 @@ const minOccurrences = 3
 // must appear in before it is flagged.
 const minDistinctFiles = 2
 
+// minConstMatchLen is the minimum literal length for the duplicates-a-constant
+// report; tiny tokens like "on" or "..." coincide with consts too often (PR #16).
+const minConstMatchLen = 4
+
 // stringOccurrence tracks a single string literal occurrence.
 type stringOccurrence struct {
 	pos    token.Pos
@@ -47,15 +51,25 @@ func runStringconst(pass *analysis.Pass) (any, error) {
 	}
 
 	literals := make(map[string][]stringOccurrence)
+	constsByValue := make(map[string]string)
 	for _, file := range pass.Files {
 		filename := pass.Fset.File(file.Pos()).Name()
 		if isTestFile(filename) {
 			continue
 		}
 		collectStringLiterals(file, pass, filename, literals)
+		collectConstNames(file, constsByValue)
 	}
 
 	for lit, occs := range literals {
+		// Second report kind: a literal exactly duplicating a same-package
+		// const is flagged regardless of repeat count (PR #16).
+		if constName, ok := constsByValue[lit]; ok && len(lit) >= minConstMatchLen {
+			for _, oc := range occs {
+				pass.Reportf(oc.pos, "string %q duplicates constant %s; use the constant", lit, constName)
+			}
+			continue
+		}
 		if len(occs) < minOccurrences {
 			continue
 		}
@@ -133,6 +147,34 @@ func collectConstLiterals(file *ast.File) map[token.Pos]bool {
 		}
 	}
 	return positions
+}
+
+// collectConstNames records name → value for every package-level string
+// constant in file with a direct literal value, into constsByValue (value key).
+// First declaration wins so reports are deterministic per file order.
+func collectConstNames(file *ast.File, constsByValue map[string]string) {
+	for _, decl := range file.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, val := range vs.Values {
+				bl, ok := val.(*ast.BasicLit)
+				if !ok || bl.Kind != token.STRING || i >= len(vs.Names) {
+					continue
+				}
+				value := stripQuotes(bl.Value)
+				if _, exists := constsByValue[value]; !exists {
+					constsByValue[value] = vs.Names[i].Name
+				}
+			}
+		}
+	}
 }
 
 // shouldSkipString reports whether s should be excluded from duplicate

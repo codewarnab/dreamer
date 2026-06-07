@@ -66,12 +66,17 @@ fmt:
 # Lint: run golangci-lint (auto-installs if missing)
 GOLANGCI_LINT_VERSION := v2.1.6
 GOPATH_BIN := $(shell go env GOPATH)/bin
+# `config verify` first: v2 silently ignores some invalid keys, so a schema
+# check catches config drift before a run that quietly skips linters (PR #60).
+# `run ./...` covers ./tools/... too — keep .golangci.yml free of tools excludes.
 lint:
 	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint config verify; \
 		golangci-lint run ./...; \
 	else \
 		echo "golangci-lint not found, installing $(GOLANGCI_LINT_VERSION)..."; \
 		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+		$(GOPATH_BIN)/golangci-lint config verify; \
 		$(GOPATH_BIN)/golangci-lint run ./...; \
 	fi
 
