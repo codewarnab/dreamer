@@ -172,6 +172,8 @@ func parsePageTemplate(fsys fs.FS, page string) (*template.Template, error) {
 		}
 	}
 
+	// Returning false on any error (including ErrNotExist) is intentional:
+	// template selection should degrade gracefully when files are absent.
 	fileExists := func(path string) bool {
 		fi, err := fs.Stat(fsys, path)
 		return err == nil && !fi.IsDir()

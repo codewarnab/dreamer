@@ -94,17 +94,28 @@ func (s *linuxScheduler) Remove(ctx context.Context, jobID string) error {
 		return fmt.Errorf("remove: %w", err)
 	}
 	baseName := "dreamer-job-" + jobID
-	// Ignore errors from disable/stop — units may not exist.
-	s.runCmd(ctx, "systemctl", "--user", "disable", "--now", baseName+".timer")
-	s.runCmd(ctx, "systemctl", "--user", "stop", baseName+".timer")
-	s.runCmd(ctx, "systemctl", "--user", "stop", baseName+".service")
+	// Non-fatal: units may not be loaded if Install was never called or the
+	// daemon was already stopped. Log for diagnostics, mirror Darwin behaviour.
+	if _, err := s.runCmd(ctx, "systemctl", "--user", "disable", "--now", baseName+".timer"); err != nil {
+		s.logger.Debug("systemctl disable (non-fatal)", logging.String("job_id", jobID), logging.Any("error", err))
+	}
+	if _, err := s.runCmd(ctx, "systemctl", "--user", "stop", baseName+".timer"); err != nil {
+		s.logger.Debug("systemctl stop timer (non-fatal)", logging.String("job_id", jobID), logging.Any("error", err))
+	}
+	if _, err := s.runCmd(ctx, "systemctl", "--user", "stop", baseName+".service"); err != nil {
+		s.logger.Debug("systemctl stop service (non-fatal)", logging.String("job_id", jobID), logging.Any("error", err))
+	}
 
 	unitDir, err := s.unitDir()
 	if err != nil {
 		return err
 	}
-	os.Remove(filepath.Join(unitDir, baseName+".timer"))
-	os.Remove(filepath.Join(unitDir, baseName+".service"))
+	if err := os.Remove(filepath.Join(unitDir, baseName+".timer")); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove timer unit: %w", err)
+	}
+	if err := os.Remove(filepath.Join(unitDir, baseName+".service")); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove service unit: %w", err)
+	}
 	return s.reloadDaemon(ctx)
 }
 

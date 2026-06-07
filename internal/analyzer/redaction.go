@@ -60,6 +60,8 @@ func (r *Redactor) Redact(text string) (string, RedactionResult) {
 	for _, pattern := range r.patterns {
 		marker := "[REDACTED:" + pattern.Name + "]"
 		hits := 0
+		// func(string) string is valid Go: the parameter is unnamed because we
+		// only need to count matches, not inspect the matched text.
 		workingText = pattern.Pattern.ReplaceAllStringFunc(workingText, func(string) string {
 			hits++
 			return marker

@@ -46,6 +46,7 @@ func MintCSRFToken() string {
 // Together the two layers prevent both read (DNS-rebinding) and write (CSRF)
 // attacks from off-loopback origins.
 func CSRFMiddleware(token string, next http.Handler) http.Handler {
+	tokenBytes := []byte(token) // precomputed once; constant for middleware lifetime
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Layer 1: Host validation for ALL methods (including GET/HEAD/OPTIONS).
 		// Strip port before checking. net.SplitHostPort handles both
@@ -71,7 +72,7 @@ func CSRFMiddleware(token string, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get(csrfHeader)), []byte(token)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get(csrfHeader)), tokenBytes) != 1 {
 			http.Error(w, "CSRF token missing or wrong", http.StatusForbidden)
 			return
 		}

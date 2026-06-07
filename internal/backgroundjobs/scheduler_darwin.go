@@ -83,7 +83,9 @@ func (s *darwinScheduler) Remove(ctx context.Context, jobID string) error {
 		s.logger.Debug("launchctl bootout (non-fatal)", logging.String("job_id", jobID), logging.Any("error", bootErr))
 	}
 
-	os.Remove(plistPath)
+	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove plist: %w", err)
+	}
 	return nil
 }
 

@@ -58,6 +58,9 @@ func runRecordFinding(outputPath string, stdin io.Reader, stdout io.Writer) erro
 	if len(input) == 0 {
 		return writeRecordResult(stdout, mcpserver.RecordResult{OK: false, Error: "no input on stdin"})
 	}
+	// Standard Go overflow-detection idiom: read one byte beyond the limit so
+	// we can distinguish "exactly maxStdinBytes" from "more than maxStdinBytes".
+	// If LimitReader delivers maxStdinBytes+1 bytes, the input is too large.
 	if len(input) > maxStdinBytes {
 		return writeRecordResult(stdout, mcpserver.RecordResult{OK: false, Error: "input too large (max 1 MiB)"})
 	}
