@@ -51,8 +51,12 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Cause }
 
 // newErr is the shared internal constructor. If cause is directly a *Error
-// (double-wrap case), the inner Kind is preserved and Details are merged
-// (outer wins on key collision) rather than re-tagging.
+// (double-wrap case), the INNER Kind is deliberately preserved (not the
+// caller's kind parameter) and Details are merged (outer wins on collision).
+// This keeps the most specific classification sticky: a RateLimit error
+// wrapped by ProviderUnavailable must still report Kind rate_limit so
+// retry/backoff logic keyed on KindOf keeps working. Covered by
+// TestDoubleWrap_PreservesInnerKind.
 func newErr(kind Kind, provider, op, message, hint string, details map[string]any, cause error) *Error {
 	if details == nil {
 		details = map[string]any{}
@@ -66,7 +70,7 @@ func newErr(kind Kind, provider, op, message, hint string, details map[string]an
 			merged[k] = v
 		}
 		return &Error{
-			Kind:     inner.Kind,
+			Kind:     inner.Kind, // intentional: inner (more specific) kind wins
 			Provider: provider,
 			Op:       op,
 			Message:  message,

@@ -43,9 +43,9 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 
 	messages := make([]ChatMessage, 0)
 	for scanner.Scan() {
-		// Use Bytes() to avoid a string allocation per line; TrimSpace on
-		// []byte is allocation-free. The slice is only valid until the next
-		// Scan call, but json.Unmarshal copies what it needs.
+		// Bytes() is allocation-free but only valid until the next Scan call.
+		// Safe here: parseJSONLRecordBytes immediately calls json.Unmarshal,
+		// which copies all data it needs before this function returns.
 		raw := bytes.TrimSpace(scanner.Bytes())
 		if len(raw) == 0 {
 			continue

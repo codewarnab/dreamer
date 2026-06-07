@@ -16,6 +16,8 @@ func (s *State) RecordProviderSuccess(providerID string, tokens int64) {
 	if s.ProviderUsage == nil {
 		s.ProviderUsage = map[string]ProviderUsage{}
 	}
+	// Reading from a nil map in Go returns the zero value safely — only writes
+	// panic. The nil check above initialises the map before this read anyway.
 	usage := s.ProviderUsage[providerID]
 	usage.Runs++
 	if tokens > 0 {
@@ -35,6 +37,8 @@ func (s *State) RecordProviderFailure(providerID string, err error) {
 	if s.ProviderUsage == nil {
 		s.ProviderUsage = map[string]ProviderUsage{}
 	}
+	// Reading from a nil map in Go returns the zero value safely — only writes
+	// panic. The nil check above initialises the map before this read anyway.
 	usage := s.ProviderUsage[providerID]
 	if errors.Is(err, context.DeadlineExceeded) {
 		usage.Timeouts++

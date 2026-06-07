@@ -311,6 +311,8 @@ func PostStart(cmd *exec.Cmd, cfg Config) (cleanup func(), err error) {
 		}
 		return func() {}, nil
 	}
+	// func(){} is a deliberate safe no-op — callers always call cleanup()
+	// without nil-checking, so returning nil here would panic at call sites.
 	if cmd == nil || cmd.Process == nil {
 		return func() {}, nil
 	}
@@ -330,6 +332,7 @@ func PostStartWithHandle(cmd *exec.Cmd, cfg Config) (uintptr, func(), error) {
 		}
 		return 0, func() {}, nil
 	}
+	// func(){} is a deliberate safe no-op — same rationale as PostStart above.
 	if cmd == nil || cmd.Process == nil {
 		return 0, func() {}, nil
 	}

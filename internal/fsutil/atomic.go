@@ -28,7 +28,7 @@ func WriteFileAtomic(path string, contentBytes []byte, perm os.FileMode) error {
 	// base.tmp.*) so they don't accumulate across runs.
 	if matches, _ := filepath.Glob(filepath.Join(dir, base+".tmp*")); len(matches) > 0 {
 		for _, m := range matches {
-			_ = os.Remove(m)
+			_ = os.Remove(m) // best-effort: stale temps are cosmetic, not data-loss
 		}
 	}
 	file, err := os.CreateTemp(dir, base+".tmp.*")

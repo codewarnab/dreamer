@@ -48,7 +48,7 @@ func (a *ActivityRing) Snapshot() []pipeline.Event {
 // until ctx is done. Run as a goroutine.
 func (a *ActivityRing) Bind(ctx context.Context, bus *pipeline.EventBus) {
 	ch := bus.Subscribe(16)
-	defer bus.Unsubscribe(ch)
+	defer bus.Unsubscribe(ch) // runs when ctx is cancelled, not per iteration
 	for {
 		select {
 		case <-ctx.Done():

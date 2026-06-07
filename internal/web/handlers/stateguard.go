@@ -23,6 +23,9 @@ func NewProjectLock() *ProjectLock {
 // The returned closure is single-shot: calling it more than once is a
 // no-op. Always defer the returned closure after the ok/error check.
 func (pl *ProjectLock) Lock(projectName string) func() {
+	// pl.mu is held for the entire check-and-write block below, so there is
+	// no TOCTOU race. NewProjectLock initialises pl.locks via make(), so a
+	// nil-map write here is impossible when this type is used correctly.
 	pl.mu.Lock()
 	entry, ok := pl.locks[projectName]
 	if !ok {

@@ -53,8 +53,10 @@ func createCapabilitySID(workspaceDir string, expiryDays int) (*windows.SID, err
 	if data, err := os.ReadFile(path); err == nil {
 		if sid, err := windows.StringToSid(strings.TrimSpace(string(data))); err == nil {
 			// Refresh mtime so pruneOrphanSIDs doesn't delete active SIDs.
+			// Best-effort: a failed touch only risks earlier re-creation of
+			// the SID file, never incorrect sandboxing.
 			now := time.Now()
-			os.Chtimes(path, now, now)
+			_ = os.Chtimes(path, now, now)
 			return sid, nil
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {

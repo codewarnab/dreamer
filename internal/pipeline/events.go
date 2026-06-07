@@ -48,6 +48,9 @@ type EventBus struct {
 func NewEventBus() *EventBus { return &EventBus{} }
 
 func (b *EventBus) Subscribe(buf int) chan Event {
+	if buf <= 0 {
+		buf = 16 // guard against unbuffered/invalid sizes: every publish would drop
+	}
 	ch := make(chan Event, buf)
 	b.mu.Lock()
 	b.subscribers = append(b.subscribers, ch)
@@ -69,6 +72,8 @@ func (b *EventBus) Unsubscribe(ch chan Event) {
 
 func (b *EventBus) Publish(e Event) {
 	if e.At.IsZero() {
+		// e is passed by value, so this modifies only our local copy — the
+		// caller's Event is unaffected.
 		e.At = time.Now().UTC()
 	}
 	b.mu.RLock()
