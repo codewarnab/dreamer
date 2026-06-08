@@ -66,7 +66,11 @@ func runPathjoin(pass *analysis.Pass) (any, error) {
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
-			if !ok || !isPathPkgCall(call, pass.TypesInfo) {
+			if !ok {
+				return true
+			}
+			fnName, matched := pathPkgCallName(call, pass.TypesInfo)
+			if !matched {
 				return true
 			}
 			hasFS, hasURL := false, false
@@ -80,7 +84,8 @@ func runPathjoin(pass *analysis.Pass) (any, error) {
 			}
 			if hasFS && !hasURL {
 				pass.Reportf(call.Pos(),
-					"path.Join used on a filesystem path; use filepath.Join (path is for URLs/slash paths)")
+					"path.%s used on a filesystem path; use filepath.%s (path is for URLs/slash paths)",
+					fnName, fnName)
 			}
 			return true
 		})
@@ -88,18 +93,21 @@ func runPathjoin(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// isPathPkgCall reports whether call is one of the flagged functions from the
-// standard library "path" package, resolved via type information.
-func isPathPkgCall(call *ast.CallExpr, info *types.Info) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
+// pathPkgCallName reports whether call is one of the flagged functions from
+// the standard library "path" package, and returns the function name.
+func pathPkgCallName(call *ast.CallExpr, info *types.Info) (name string, ok bool) {
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return "", false
 	}
-	fn, ok := info.Uses[sel.Sel].(*types.Func)
-	if !ok || fn.Pkg() == nil {
-		return false
+	fn, isFn := info.Uses[sel.Sel].(*types.Func)
+	if !isFn || fn.Pkg() == nil {
+		return "", false
 	}
-	return fn.Pkg().Path() == "path" && pathPkgFuncs[fn.Name()]
+	if fn.Pkg().Path() != "path" || !pathPkgFuncs[fn.Name()] {
+		return "", false
+	}
+	return fn.Name(), true
 }
 
 // argEvidence walks an argument expression and aggregates evidence from
