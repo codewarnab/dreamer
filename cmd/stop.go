@@ -55,8 +55,15 @@ func newStopCommand() *cobra.Command {
 							}
 						}
 					} else {
-						_ = os.Remove(lockPath)
-						cmd.Println("cleaned up stale daemon lockfile")
+						// lockExec is empty (legacy lock) and the process is alive:
+						// we cannot verify ownership, so leave the lock in place and
+						// warn the operator rather than silently orphaning the daemon.
+						if lockExec == "" {
+							cmd.Printf("warning: daemon (PID %d) is running but lock file has no executable path; cannot verify ownership — leaving lock in place\n", pid)
+						} else {
+							_ = os.Remove(lockPath)
+							cmd.Println("cleaned up stale daemon lockfile")
+						}
 					}
 				} else {
 					// Stale lockfile — clean it up.

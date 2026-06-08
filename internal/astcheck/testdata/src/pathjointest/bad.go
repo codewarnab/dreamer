@@ -16,5 +16,5 @@ func badOSCall() string {
 }
 
 func badFSName(configPath string) string {
-	return path.Dir(configPath) // want "path.Join used on a filesystem path"
+	return path.Dir(configPath) // want "path.Dir used on a filesystem path"
 }

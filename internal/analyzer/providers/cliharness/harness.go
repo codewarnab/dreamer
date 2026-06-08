@@ -321,9 +321,9 @@ func handleErrorsWaitFirst(spec *Spec, parseErr, waitErr error, stderr, final st
 	if parseErr != nil {
 		err := fmt.Errorf("%s: parse stream-json: %w (stderr: %s)", spec.ErrPrefix, parseErr, stderr)
 		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderr) {
-			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
+			return final, errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
-		return "", err
+		return final, err
 	}
 	if final == "" {
 		return "", fmt.Errorf("%s: no assistant content emitted (stderr: %s)", spec.ErrPrefix, stderr)
@@ -338,14 +338,14 @@ func handleErrorsParseFirst(spec *Spec, parseErr, waitErr error, stderr, final s
 	if parseErr != nil {
 		err := fmt.Errorf("%s: %w (stderr: %s)", spec.ErrPrefix, parseErr, stderr)
 		if transport.IsRateLimitMessage(parseErr.Error()) || transport.IsRateLimitMessage(stderr) {
-			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
+			return final, errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
 		return final, err
 	}
 	if waitErr != nil {
 		err := fmt.Errorf("%s: process exited: %w (stderr: %s)", spec.ErrPrefix, waitErr, stderr)
 		if transport.IsRateLimitMessage(stderr) || transport.IsRateLimitMessage(waitErr.Error()) {
-			return "", errs.RateLimit(spec.ID, "session.run", 0, err)
+			return final, errs.RateLimit(spec.ID, "session.run", 0, err)
 		}
 		return final, err
 	}
