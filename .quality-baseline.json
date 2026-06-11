@@ -671,6 +671,11 @@
       "symbol": "TestImplicitstatus",
       "message": "test TestImplicitstatus has no assertions (t.Error/Fatal/require.*); test always passes"
     },
+    "theatricaltest:TestLatemutation:test TestLatemutation has no assertions (t.Error/Fatal/require.*); test always passes": {
+      "check": "theatricaltest",
+      "symbol": "TestLatemutation",
+      "message": "test TestLatemutation has no assertions (t.Error/Fatal/require.*); test always passes"
+    },
     "theatricaltest:TestLockorder:test TestLockorder has no assertions (t.Error/Fatal/require.*); test always passes": {
       "check": "theatricaltest",
       "symbol": "TestLockorder",

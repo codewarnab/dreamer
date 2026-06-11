@@ -379,6 +379,17 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 		return "", fmt.Errorf("start provider: %w", err)
 	}
 
+	// Set up activity monitoring. The PostStartHook is called by the
+	// harness after the child process starts and the Job Object is
+	// created. We create the store here and the monitor inside the hook
+	// (since we need the job handle from the OS). The hook MUST be set
+	// before NewSession: the harness copies it out of the config at
+	// session creation, so a later assignment is silently ignored.
+	var actMonitor *ActivityMonitor
+	actStore := NewActivityStore(e.RunStore.Dir(), job.ID, runID)
+	defer actStore.Close()
+	run.ActivityLogPath = ActivityLogPath(e.RunStore.Dir(), job.ID, runID)
+
 	sessionCfg := analyzer.SessionConfig{
 		WorkingDirectory: job.ProjectPath,
 		Model:            providerCfg.Model,
@@ -386,6 +397,13 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 		SystemMessage:    buildBackgroundSystemMessage(job),
 		RunID:            runID,
 		Sandbox:          providerCfg.Sandbox,
+		PostStartHook: func(jobHandle uintptr) {
+			actMonitor = NewActivityMonitor(jobHandle, 0, actStore, e.Logger)
+			if startErr := actMonitor.Start(ctx); startErr != nil {
+				e.Logger.Warn("activity monitor start failed", logging.Any("err", startErr))
+				actMonitor = nil
+			}
+		},
 	}
 
 	session, err := provider.NewSession(ctx, sessionCfg)
@@ -401,22 +419,6 @@ func (e *Executor) executeJob(ctx context.Context, job *Job, providerCfg analyze
 		sessionTimeout = time.Until(deadline)
 		if sessionTimeout <= 0 {
 			sessionTimeout = DefaultTimeoutFor(job.Schedule)
-		}
-	}
-	// Set up activity monitoring. The PostStartHook is called by the
-	// harness after the child process starts and the Job Object is
-	// created. We create the store here and the monitor inside the hook
-	// (since we need the job handle from the OS).
-	var actStore *ActivityStore
-	var actMonitor *ActivityMonitor
-	actStore = NewActivityStore(e.RunStore.Dir(), job.ID, runID)
-	defer actStore.Close()
-	run.ActivityLogPath = ActivityLogPath(e.RunStore.Dir(), job.ID, runID)
-	sessionCfg.PostStartHook = func(jobHandle uintptr) {
-		actMonitor = NewActivityMonitor(jobHandle, 0, actStore, e.Logger)
-		if startErr := actMonitor.Start(ctx); startErr != nil {
-			e.Logger.Warn("activity monitor start failed", logging.Any("err", startErr))
-			actMonitor = nil
 		}
 	}
 
