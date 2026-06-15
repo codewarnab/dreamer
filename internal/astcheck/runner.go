@@ -4,11 +4,13 @@
 package astcheck
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"dreamer/internal/gitutil"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -280,7 +282,8 @@ func changedFilesGit(rev string) (map[string]bool, error) {
 
 	// --name-only: just file paths
 	// --diff-filter=ACMR: only added/copied/modified/renamed (not deleted)
-	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=ACMR", rev, "--")
+	cmd, cancel := gitutil.Command(context.Background(), "diff", "--name-only", "--diff-filter=ACMR", rev, "--")
+	defer cancel()
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -303,7 +306,8 @@ func changedFilesGit(rev string) (map[string]bool, error) {
 
 // gitRoot returns the absolute path of the current git repository root.
 func gitRoot() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd, cancel := gitutil.Command(context.Background(), "rev-parse", "--show-toplevel")
+	defer cancel()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
