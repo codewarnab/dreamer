@@ -55,7 +55,7 @@ func TestTransportCallContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	_, err := tr.call(ctx, "test", nil, nil)
+	_, err := tr.call(ctx, "test", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}

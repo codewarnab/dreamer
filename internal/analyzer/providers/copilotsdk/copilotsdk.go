@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -57,6 +58,8 @@ func SetSDKClientFactory(factory sdkClientFactory) func() {
 type provider struct {
 	options Options
 	client  sdkClient
+
+	mu      sync.Mutex
 	started bool
 }
 
@@ -83,6 +86,8 @@ func (p *provider) Start(ctx context.Context) error {
 	if ctx == nil {
 		return analyzer.ErrNilContext
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.started {
 		return nil
 	}

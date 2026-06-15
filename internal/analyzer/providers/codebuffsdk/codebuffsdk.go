@@ -203,8 +203,15 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		return "", fmt.Errorf("codebuff-sdk: marshal request: %w", err)
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	// A zero timeout means the caller already supplied the desired lifetime
+	// through ctx. context.WithTimeout(ctx, 0) would expire immediately and
+	// turn the provider-default path into a guaranteed cancellation.
+	reqCtx := ctx
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		reqCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	url := s.provider.baseURL + "/chat/completions"
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(body))

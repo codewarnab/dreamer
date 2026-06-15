@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -146,6 +148,60 @@ func TestStartIdempotent(t *testing.T) {
 	}
 	if err := p.Start(context.Background()); err != nil {
 		t.Fatalf("second Start: %v", err)
+	}
+}
+
+func TestNewSessionConcurrentStartOnce(t *testing.T) {
+	var startCalls int32
+	startEntered := make(chan struct{})
+	allowStartReturn := make(chan struct{})
+	restore := SetSDKClientFactory(func(*copilot.ClientOptions) sdkClient {
+		return &fakeSDKClientBlockingStart{
+			startCalls:       &startCalls,
+			startEntered:     startEntered,
+			allowStartReturn: allowStartReturn,
+		}
+	})
+	defer restore()
+	p, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Close()
+
+	const sessionCount = 8
+	errsCh := make(chan error, sessionCount)
+	sessionsCh := make(chan analyzer.Session, sessionCount)
+	var wg sync.WaitGroup
+	wg.Add(sessionCount)
+	for i := 0; i < sessionCount; i++ {
+		go func() {
+			defer wg.Done()
+			session, err := p.NewSession(context.Background(), analyzer.SessionConfig{WorkingDirectory: t.TempDir()})
+			if err != nil {
+				errsCh <- err
+				return
+			}
+			sessionsCh <- session
+		}()
+	}
+
+	<-startEntered
+	close(allowStartReturn)
+	wg.Wait()
+	close(errsCh)
+	close(sessionsCh)
+
+	for err := range errsCh {
+		t.Errorf("NewSession: %v", err)
+	}
+	for session := range sessionsCh {
+		if err := session.Close(); err != nil {
+			t.Errorf("session Close: %v", err)
+		}
+	}
+	if got := atomic.LoadInt32(&startCalls); got != 1 {
+		t.Fatalf("client.Start calls = %d, want 1", got)
 	}
 }
 
@@ -542,6 +598,24 @@ func (f *fakeSDKClientWithStartTracking) CreateSession(_ context.Context, _ *cop
 	return &fakeSDKSession{}, nil
 }
 func (f *fakeSDKClientWithStartTracking) Stop() error { return nil }
+
+type fakeSDKClientBlockingStart struct {
+	startCalls       *int32
+	startEntered     chan<- struct{}
+	allowStartReturn <-chan struct{}
+}
+
+func (f *fakeSDKClientBlockingStart) Start(_ context.Context) error {
+	if atomic.AddInt32(f.startCalls, 1) == 1 {
+		close(f.startEntered)
+	}
+	<-f.allowStartReturn
+	return nil
+}
+func (f *fakeSDKClientBlockingStart) CreateSession(_ context.Context, _ *copilot.SessionConfig) (sdkSession, error) {
+	return &fakeSDKSession{}, nil
+}
+func (f *fakeSDKClientBlockingStart) Stop() error { return nil }
 
 // --- NewSession happy path (triggers lazy Start) ---
 

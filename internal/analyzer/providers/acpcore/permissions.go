@@ -9,19 +9,17 @@ import (
 )
 
 func (t *transport) handlePermissionRequest(envelope rpcEnvelope) {
-	t.mu.Lock()
-	handler := t.permHandler
-	t.mu.Unlock()
-
-	approved, reason := decidePermission(handler, envelope.Params)
-
-	// Re-parse params for option selection. A malformed envelope produced a
-	// denial above; selectPermissionOptionID still needs to pick a rejection
-	// option from whatever option list (if any) the agent supplied.
 	var params map[string]any
 	if envelope.Params != nil {
 		_ = json.Unmarshal(envelope.Params, &params)
 	}
+	handler := t.permissionHandlerFor(params)
+
+	approved, reason := decidePermission(handler, envelope.Params)
+
+	// A malformed envelope produced a denial above; selectPermissionOptionID
+	// still needs to pick a rejection option from whatever option list (if any)
+	// the agent supplied.
 	optionID := selectPermissionOptionID(params, approved)
 	var outcome map[string]any
 	if optionID != "" {
@@ -43,6 +41,22 @@ func (t *transport) handlePermissionRequest(envelope rpcEnvelope) {
 	if err := t.send(response); err != nil {
 		fmt.Fprintf(os.Stderr, "acpcore: send permission response failed (agent may hang): %v\n", err)
 	}
+}
+
+func (t *transport) permissionHandlerFor(params map[string]any) permissionHandler {
+	if params == nil {
+		return nil
+	}
+	sessionID, _ := params["sessionId"].(string)
+	if sessionID == "" {
+		return nil
+	}
+	handlerRaw, ok := t.permHandlers.Load(sessionID)
+	if !ok {
+		return nil
+	}
+	handler, _ := handlerRaw.(permissionHandler)
+	return handler
 }
 
 // decidePermission produces (approved, reason) for an ACP permission request

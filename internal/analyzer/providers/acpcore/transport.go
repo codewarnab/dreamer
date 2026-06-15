@@ -30,12 +30,12 @@ type transport struct {
 	nextID  int64
 	pending sync.Map // map[string]chan jsonrpcResponse
 
-	mu          sync.Mutex
-	closed      bool
-	permHandler permissionHandler
-	stderrBuf   strings.Builder
+	mu        sync.Mutex
+	closed    bool
+	stderrBuf strings.Builder
 
-	streams sync.Map // map[string]*sessionStream — keyed by ACP sessionId
+	permHandlers sync.Map // map[string]permissionHandler — keyed by ACP sessionId
+	streams      sync.Map // map[string]*sessionStream — keyed by ACP sessionId
 
 	sandboxCleanup func() // closes job handle after process exits
 	prepareCleanup func() // closes restricted token after process exits
@@ -74,6 +74,17 @@ func (t *transport) openStream(sessionID string) *sessionStream {
 
 func (t *transport) closeStream(sessionID string) {
 	t.streams.Delete(sessionID)
+}
+
+func (t *transport) registerPermissionHandler(sessionID string, handler permissionHandler) {
+	if sessionID == "" || handler == nil {
+		return
+	}
+	t.permHandlers.Store(sessionID, handler)
+}
+
+func (t *transport) unregisterPermissionHandler(sessionID string) {
+	t.permHandlers.Delete(sessionID)
 }
 
 // handleSessionUpdate routes session/update notifications to the per-session
@@ -142,7 +153,7 @@ func (e *jsonrpcError) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
 
-func (t *transport) call(ctx context.Context, method string, params any, onPermission permissionHandler) (json.RawMessage, error) {
+func (t *transport) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	requestID := strings.TrimSpace(fmt.Sprintf("%d", atomic.AddInt64(&t.nextID, 1)))
 	respCh := make(chan jsonrpcResponse, 1)
 	t.pending.Store(requestID, respCh)
@@ -157,18 +168,6 @@ func (t *transport) call(ctx context.Context, method string, params any, onPermi
 	if err := t.send(payload); err != nil {
 		return nil, err
 	}
-
-	// Re-arm permission handler scope while this call is in-flight.
-	t.mu.Lock()
-	if onPermission != nil {
-		t.permHandler = onPermission
-	}
-	t.mu.Unlock()
-	defer func() {
-		t.mu.Lock()
-		t.permHandler = nil
-		t.mu.Unlock()
-	}()
 
 	select {
 	case <-ctx.Done():

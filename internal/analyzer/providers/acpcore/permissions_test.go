@@ -68,6 +68,43 @@ func TestDecidePermissionNilHandlerApproves(t *testing.T) {
 	}
 }
 
+func TestPermissionHandlerForRoutesBySessionID(t *testing.T) {
+	tr := &transport{}
+	tr.registerPermissionHandler("session-a", func(map[string]any) map[string]any {
+		return map[string]any{"decision": "allow"}
+	})
+	tr.registerPermissionHandler("session-b", func(map[string]any) map[string]any {
+		return map[string]any{"decision": "deny", "reason": "session-b denied"}
+	})
+	t.Cleanup(func() {
+		tr.unregisterPermissionHandler("session-a")
+		tr.unregisterPermissionHandler("session-b")
+	})
+
+	handler := tr.permissionHandlerFor(map[string]any{"sessionId": "session-b"})
+	if handler == nil {
+		t.Fatal("expected handler for session-b")
+	}
+	approved, reason := decidePermission(handler, json.RawMessage(`{"sessionId":"session-b","kind":"read"}`))
+	if approved {
+		t.Fatalf("session-b handler should deny")
+	}
+	if reason != "session-b denied" {
+		t.Fatalf("reason = %q, want session-b denied", reason)
+	}
+}
+
+func TestPermissionHandlerForUnknownSessionIsNil(t *testing.T) {
+	tr := &transport{}
+	tr.registerPermissionHandler("session-a", func(map[string]any) map[string]any {
+		return map[string]any{"decision": "deny"}
+	})
+
+	if got := tr.permissionHandlerFor(map[string]any{"sessionId": "missing"}); got != nil {
+		t.Fatal("expected no handler for unknown session")
+	}
+}
+
 // --- selectPermissionOptionID ---
 
 func TestSelectPermissionOptionIDApproved(t *testing.T) {
