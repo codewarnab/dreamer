@@ -24,13 +24,6 @@ const (
 func WriteFileAtomic(path string, contentBytes []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
-	// Clean up stale temp files from a prior crash (e.g. base.tmp or
-	// base.tmp.*) so they don't accumulate across runs.
-	if matches, _ := filepath.Glob(filepath.Join(dir, base+".tmp*")); len(matches) > 0 {
-		for _, m := range matches {
-			_ = os.Remove(m) // best-effort: stale temps are cosmetic, not data-loss
-		}
-	}
 	file, err := os.CreateTemp(dir, base+".tmp.*")
 	if err != nil {
 		return fmt.Errorf("open atomic temp in %q: %w", dir, err)
