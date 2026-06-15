@@ -131,7 +131,12 @@ func SaveHistory(outputRoot, projectName string, h *History) error {
 // UpdateHistoryToday merges delta into the bucket whose Date == today (a
 // caller-provided ISO date string in UTC). It creates the bucket if
 // absent, prunes entries beyond maxHistoryDays, and persists atomically.
-func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryDelta) error {
+func UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryDelta, lock *ProjectLock) error {
+	if lock != nil {
+		unlock := lock.Lock(projectName)
+		defer unlock()
+	}
+
 	history, err := LoadHistory(outputRoot, projectName)
 	if err != nil {
 		return err

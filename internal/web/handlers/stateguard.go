@@ -1,41 +1,22 @@
 package handlers
 
-import "sync"
+import "dreamer/internal/state"
 
-// projectEntry wraps a mutex for per-project locking.
-type projectEntry struct {
-	mu sync.Mutex
-}
-
-// ProjectLock serializes state Load→Mutate→Save cycles per project
-// so concurrent web handlers don't clobber each other's mutations.
-type ProjectLock struct {
-	mu    sync.Mutex
-	locks map[string]*projectEntry
-}
+// ProjectLock is an alias for state.ProjectLock.
+//
+// ProjectLock was originally defined here (in the handlers package) because
+// it was only needed by web lifecycle handlers.  It has been moved to the
+// state package so the pipeline can also import it without creating an import
+// cycle (pipeline → web/handlers would be circular).
+//
+// The alias keeps all existing handler code compiling without modification:
+// handlers.NewProjectLock(), handlers.ProjectLock, and deps.StateLock all
+// continue to work exactly as before.
+type ProjectLock = state.ProjectLock
 
 // NewProjectLock creates a ProjectLock ready for use.
+// Delegates to state.NewProjectLock so callers in this package need not
+// change their import list.
 func NewProjectLock() *ProjectLock {
-	return &ProjectLock{locks: make(map[string]*projectEntry)}
-}
-
-// Lock acquires the per-project mutex and returns a release function.
-// The returned closure is single-shot: calling it more than once is a
-// no-op. Always defer the returned closure after the ok/error check.
-func (pl *ProjectLock) Lock(projectName string) func() {
-	// pl.mu is held for the entire check-and-write block below, so there is
-	// no TOCTOU race. NewProjectLock initialises pl.locks via make(), so a
-	// nil-map write here is impossible when this type is used correctly.
-	pl.mu.Lock()
-	entry, ok := pl.locks[projectName]
-	if !ok {
-		entry = &projectEntry{}
-		pl.locks[projectName] = entry
-	}
-	pl.mu.Unlock()
-	entry.mu.Lock()
-	var once sync.Once
-	return func() {
-		once.Do(entry.mu.Unlock)
-	}
+	return state.NewProjectLock()
 }

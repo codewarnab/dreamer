@@ -31,6 +31,7 @@ type workerPool struct {
 	logger     *logging.Logger
 	cache      *pipeline.DiscoveryCache
 	stateCache *state.StateCache
+	stateLock  *state.ProjectLock // shared with the web server; see daemon.go
 	events     *pipeline.EventBus
 	overrides  daemonOverrides
 	wg         sync.WaitGroup
@@ -44,6 +45,7 @@ type workerPoolConfig struct {
 	logger     *logging.Logger
 	cache      *pipeline.DiscoveryCache
 	stateCache *state.StateCache
+	stateLock  *state.ProjectLock // shared with the web server; see daemon.go
 	events     *pipeline.EventBus
 	overrides  daemonOverrides
 }
@@ -58,6 +60,7 @@ func newWorkerPool(ctx context.Context, wpc workerPoolConfig) *workerPool {
 		logger:     wpc.logger,
 		cache:      wpc.cache,
 		stateCache: wpc.stateCache,
+		stateLock:  wpc.stateLock,
 		events:     wpc.events,
 		overrides:  wpc.overrides,
 	}
@@ -154,15 +157,21 @@ func (wp *workerPool) runJob(workerID int, job *jobqueue.Job) {
 	defer cancel()
 
 	opts := pipeline.Options{
-		Config:                 wp.cfg,
-		LiveConfig:             wp.live,
-		ProjectPath:            job.ProjectPath,
-		ProjectName:            job.Project,
-		ProviderID:             job.Provider,
-		Force:                  false,
-		Since:                  job.Since,
-		DiscoveryCache:         wp.cache,
-		StateCache:             wp.stateCache,
+		Config:         wp.cfg,
+		LiveConfig:     wp.live,
+		ProjectPath:    job.ProjectPath,
+		ProjectName:    job.Project,
+		ProviderID:     job.Provider,
+		Force:          false,
+		Since:          job.Since,
+		DiscoveryCache: wp.cache,
+		StateCache:     wp.stateCache,
+		// StateLock is the same instance used by the web lifecycle handlers
+		// (Apply/Undo/Dismiss/…).  Sharing the lock ensures that a web
+		// mutation that arrives during a long analysis run is not silently
+		// clobbered when the pipeline writes its final state.json.
+		// See state.ProjectLock and state.MergePipelineResult for details.
+		StateLock:              wp.stateLock,
 		Events:                 wp.events,
 		ParallelOverride:       wp.overrides.forceParallel,
 		MaxConcurrencyOverride: wp.overrides.maxConcurrency,

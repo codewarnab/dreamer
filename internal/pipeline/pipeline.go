@@ -78,6 +78,27 @@ type Options struct {
 	// so concurrent web handler reads see the new data.
 	StateCache *state.StateCache
 
+	// StateLock, when non-nil, is acquired around every state Load→Merge→Save
+	// at the end of a pipeline run.
+	//
+	// Why this is required
+	//
+	// Without this lock the pipeline and the web lifecycle handlers (Apply,
+	// Undo, Dismiss, …) race on state.json.  The pipeline holds its working
+	// copy of *State from the start of analysis — potentially hours — then
+	// overwrites the file at the end.  Any web mutation that happened during
+	// the run is silently clobbered (lost-update race).
+	//
+	// Passing the same *state.ProjectLock that handlers.Deps.StateLock points
+	// to ensures all writers serialise through the same in-process mutex.
+	// The lock is held only for the narrow re-load→merge→save window at the
+	// end of the run, NOT for the full analysis duration.
+	//
+	// When nil (e.g. standalone `dreamer analyze` with no daemon/web server
+	// running) a fresh lock is created per run so the code path is identical;
+	// there is simply no other writer to race against.
+	StateLock *state.ProjectLock
+
 	// Events, when non-nil, receives run.start/run.done events.
 	Events *EventBus
 
@@ -137,17 +158,22 @@ type runCtx struct {
 	state      *state.State
 	packs      []analyzer.RulePack
 	providerID string
-	stateCache *state.StateCache // nil = skip invalidation
+	stateCache *state.StateCache  // nil = skip invalidation
+	stateLock  *state.ProjectLock // never nil — guaranteed in Run()
 }
 
 // persistFailureState saves currentState on a failure path; logs but does
 // not propagate the save error because the caller is already returning a
 // more useful error. Also prunes (B28/B29) so a perma-failing project does
 // not accumulate stale entries forever.
+//
+// Uses MergePipelineResult (re-load + merge + save under ProjectLock) to
+// avoid clobbering web-handler mutations that occurred during the run.
+// See state.ProjectLock and state.MergePipelineResult for the full rationale.
 func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
 	pruneLastRunPerCategory(rc.state.LastRunPerCategory, rc.packs)
 	pruneProviderUsage(rc.state.ProviderUsage, rc.providerID)
-	if err := state.Save(rc.outputRoot, rc.project, rc.state); err != nil && logger != nil {
+	if err := state.MergePipelineResult(rc.outputRoot, rc.project, rc.state, rc.stateLock); err != nil && logger != nil {
 		logger.Warn("failure-path state save failed",
 			logging.Any("err", err),
 			logging.Any("cause", cause),
@@ -158,13 +184,19 @@ func (rc *runCtx) persistFailureState(cause error, logger *logging.Logger) {
 	}
 }
 
-// savePrunedState prunes stale entries (B28/B29) then writes state. Used by
-// every successful-save site in pipeline.Run so every save path gets the
-// same hygiene, not just the happy path.
+// savePrunedState prunes stale entries (B28/B29) then writes state via a
+// locked re-load→merge→save to prevent the pipeline from clobbering
+// web-handler mutations (apply/dismiss/resolve) that occurred during the run.
+//
+// All three save sites in pipeline.Run go through this method so the
+// lost-update protection is uniform across the happy path, the Phase 1
+// cache path, and the failure path.
+//
+// See state.ProjectLock and state.MergePipelineResult for the full rationale.
 func (rc *runCtx) savePrunedState() error {
 	pruneLastRunPerCategory(rc.state.LastRunPerCategory, rc.packs)
 	pruneProviderUsage(rc.state.ProviderUsage, rc.providerID)
-	err := state.Save(rc.outputRoot, rc.project, rc.state)
+	err := state.MergePipelineResult(rc.outputRoot, rc.project, rc.state, rc.stateLock)
 	if err == nil && rc.stateCache != nil {
 		rc.stateCache.Invalidate(rc.project)
 	}
@@ -330,7 +362,15 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.S
 	}
 
 	includeSubagents := discovery.appConfig.Analyzer.IncludeSubagentTranscripts != nil && *discovery.appConfig.Analyzer.IncludeSubagentTranscripts
-	tb, err := buildProviderBlocks(sources, redactor, logger, includeSubagents)
+	chunkCfg := discovery.appConfig.Analyzer.Chunking
+	if opts.MaxChunkBytesOverrideSet {
+		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
+	}
+	// Reuse the chunk byte cap as the per-source read budget. PackChunks is
+	// too late to protect daemon memory because decoded messages and formatted
+	// transcript lines already exist by then; enforcing the same cap while
+	// scanning each source bounds lifetime runs without adding another knob.
+	tb, err := buildProviderBlocks(sources, redactor, logger, includeSubagents, chunkCfg.MaxChunkBytes)
 	if err != nil {
 		return transcript, false, err
 	}
@@ -354,10 +394,6 @@ func runTranscriptPrep(opts Options, discovery discoveryResult, sources []chat.S
 		}, true, nil
 	}
 
-	chunkCfg := discovery.appConfig.Analyzer.Chunking
-	if opts.MaxChunkBytesOverrideSet {
-		chunkCfg.MaxChunkBytes = opts.MaxChunkBytesOverride
-	}
 	chunks, chunkWarnings := PackChunks(tb.blocks, chunkCfg, opts.Since)
 	if len(chunks) == 0 {
 		return transcript, false, fmt.Errorf("chunker produced zero chunks despite non-empty transcript")
@@ -591,7 +627,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 
 	// Check for cached Phase 1 results from a prior run where Phase 1
 	// succeeded but the pipeline did not complete (e.g. Phase 2 failed).
-	p1CacheKey := phase1CacheKey(cacheKeys, repoHeadSHA, runContext.packs)
+	p1CacheKey := phase1CacheKey(cacheKeys, repoHeadSHA, opts.Since, runContext.packs)
 	cachedMistakes := loadPhase1Cache(currentState, p1CacheKey)
 
 	var pipelineResult analyzer.AnalysisResult
@@ -737,7 +773,7 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 		Tokens:            0,
 		RunDurationMillis: time.Since(runStart).Milliseconds(),
 		PerCategory:       perCategory,
-	}); err != nil {
+	}, runContext.stateLock); err != nil {
 		logger.Warn("history update failed", logging.Any("err", err))
 	}
 
@@ -816,6 +852,16 @@ func Run(ctx context.Context, opts Options, logger *logging.Logger) (Result, err
 		packs:      transcript.rulePacks,
 		providerID: discovery.providerID,
 		stateCache: opts.StateCache,
+		// stateLock is never nil: use the caller-supplied shared lock when
+		// running under the daemon (where the web server is also mutating
+		// state), or create a fresh one for standalone `dreamer analyze`
+		// runs where there is no concurrent writer to race against.
+		stateLock: func() *state.ProjectLock {
+			if opts.StateLock != nil {
+				return opts.StateLock
+			}
+			return state.NewProjectLock()
+		}(),
 	}
 
 	if zeroMessages {

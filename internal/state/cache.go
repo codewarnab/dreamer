@@ -20,11 +20,8 @@ type stateCacheEntry struct {
 // StateCache is a read-through cache for state.json and history.json.
 // Entries are validated by comparing os.Stat mtime+size against the cached
 // values. Invalidate drops an entry so the next read re-fetches from disk.
-// Thread-safe; designed for concurrent web handler use.
-//
-// NOTE: GetState/GetHistory return cached pointers directly (no copy).
-// Callers must treat returned values as read-only. Mutating a returned
-// *State or *History corrupts the cache without holding the lock.
+// Thread-safe; designed for concurrent web handler use. GetState and
+// GetHistory return detached copies so callers cannot mutate cached data.
 type StateCache struct {
 	mu    sync.RWMutex
 	items map[string]*stateCacheEntry
@@ -49,7 +46,7 @@ func (sc *StateCache) GetState(outputRoot, projectName string) (*State, error) {
 	if ok && entry.state != nil {
 		if info, statErr := os.Stat(statePath); statErr == nil {
 			if info.ModTime().Equal(entry.stateMod) && info.Size() == entry.stateSize {
-				st := entry.state
+				st := cloneState(entry.state)
 				sc.mu.RUnlock()
 				return st, nil
 			}
@@ -69,7 +66,7 @@ func (sc *StateCache) GetState(outputRoot, projectName string) (*State, error) {
 	if ok && entry.state != nil {
 		if info, statErr := os.Stat(statePath); statErr == nil {
 			if info.ModTime().Equal(entry.stateMod) && info.Size() == entry.stateSize {
-				return entry.state, nil
+				return cloneState(entry.state), nil
 			}
 		}
 	}
@@ -93,7 +90,7 @@ func (sc *StateCache) GetState(outputRoot, projectName string) (*State, error) {
 	existing.stateSize = info.Size()
 	sc.items[projectName] = existing
 
-	return st, nil
+	return cloneState(st), nil
 }
 
 // GetHistory returns the cached history for a project if the on-disk
@@ -110,7 +107,7 @@ func (sc *StateCache) GetHistory(outputRoot, projectName string) (*History, erro
 	if ok && entry.history != nil {
 		if info, statErr := os.Stat(histPath); statErr == nil {
 			if info.ModTime().Equal(entry.histMod) && info.Size() == entry.histSize {
-				h := entry.history
+				h := cloneHistory(entry.history)
 				sc.mu.RUnlock()
 				return h, nil
 			}
@@ -127,7 +124,7 @@ func (sc *StateCache) GetHistory(outputRoot, projectName string) (*History, erro
 	if ok && entry.history != nil {
 		if info, statErr := os.Stat(histPath); statErr == nil {
 			if info.ModTime().Equal(entry.histMod) && info.Size() == entry.histSize {
-				return entry.history, nil
+				return cloneHistory(entry.history), nil
 			}
 		}
 	}
@@ -151,7 +148,7 @@ func (sc *StateCache) GetHistory(outputRoot, projectName string) (*History, erro
 	existing.histSize = info.Size()
 	sc.items[projectName] = existing
 
-	return hist, nil
+	return cloneHistory(hist), nil
 }
 
 // Invalidate drops the cached entry for a project so the next GetState
@@ -161,4 +158,118 @@ func (sc *StateCache) Invalidate(projectName string) {
 	sc.mu.Lock()
 	delete(sc.items, projectName)
 	sc.mu.Unlock()
+}
+
+func cloneState(st *State) *State {
+	if st == nil {
+		return nil
+	}
+	copyState := *st
+	copyState.ChatHashes = cloneStringMap(st.ChatHashes)
+	copyState.FindingHashes = append([]string(nil), st.FindingHashes...)
+	copyState.ProviderUsage = cloneProviderUsageMap(st.ProviderUsage)
+	copyState.UsageStats = cloneInt64Map(st.UsageStats)
+	copyState.LastRunPerCategory = cloneTimeMap(st.LastRunPerCategory)
+	copyState.Findings = cloneFindingStateMap(st.Findings)
+	copyState.CachedPhase1 = cloneCachedPhase1Result(st.CachedPhase1)
+	return &copyState
+}
+
+func cloneHistory(history *History) *History {
+	if history == nil {
+		return nil
+	}
+	copyHistory := *history
+	copyHistory.Days = make([]DaySummary, len(history.Days))
+	for i, day := range history.Days {
+		copyHistory.Days[i] = day
+		copyHistory.Days[i].PerCategory = cloneIntMap(day.PerCategory)
+	}
+	return &copyHistory
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneProviderUsageMap(src map[string]ProviderUsage) map[string]ProviderUsage {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]ProviderUsage, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneInt64Map(src map[string]int64) map[string]int64 {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]int64, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneTimeMap(src map[string]time.Time) map[string]time.Time {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]time.Time, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneFindingStateMap(src map[string]FindingState) map[string]FindingState {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]FindingState, len(src))
+	for key, value := range src {
+		if value.AppliedReversal != nil {
+			reversal := *value.AppliedReversal
+			value.AppliedReversal = &reversal
+		}
+		if value.ApplySpec != nil {
+			spec := *value.ApplySpec
+			value.ApplySpec = &spec
+		}
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneCachedPhase1Result(src *CachedPhase1Result) *CachedPhase1Result {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	dst.Mistakes = make(map[string][]CachedMistake, len(src.Mistakes))
+	for key, mistakes := range src.Mistakes {
+		dst.Mistakes[key] = append([]CachedMistake(nil), mistakes...)
+	}
+	return &dst
+}
+
+func cloneIntMap(src map[string]int) map[string]int {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]int, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
