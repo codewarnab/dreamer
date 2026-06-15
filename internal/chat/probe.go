@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"dreamer/internal/chat/readers"
@@ -260,7 +261,11 @@ func splitDiscoveryField(line string) (string, string, bool) {
 	}
 	key := strings.TrimSpace(line[:index])
 	value := strings.TrimSpace(line[index+1:])
-	value = strings.Trim(value, `"`)
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		value = unquoted
+	} else {
+		value = strings.Trim(value, `"`)
+	}
 	if key == "" || value == "" {
 		return "", "", false
 	}
