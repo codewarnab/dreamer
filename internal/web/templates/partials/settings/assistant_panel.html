@@ -169,14 +169,8 @@
           </div>
           <p class="setting-help">Pick a known model or enter a provider-specific model name.</p>
         </div>
-        <div class="setting-field">
-          <div class="setting-label-row">
-            <span class="setting-label">max input tokens</span>
-            <span class="setting-key">max_input_tokens</span>
-          </div>
-          <input class="input-styled" type="number" x-model="values.providers[selectedProviderID()].max_input_tokens" placeholder="provider default"/>
-          <p class="setting-help">Optional cap for very large transcripts.</p>
-        </div>
+        <!-- Input volume is controlled by analyzer.chunking.max_chunk_bytes;
+             no provider currently exposes a real input-token cap. -->
         <div class="setting-field">
           <div class="setting-label-row">
             <span class="setting-label">max turns</span>

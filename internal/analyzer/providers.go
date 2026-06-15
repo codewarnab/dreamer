@@ -62,9 +62,6 @@ type ProviderConfig struct {
 	BaseURL  string
 	Password string
 
-	// Token budget override (optional, 0 = use provider default)
-	MaxInputTokens int
-
 	// Sandbox is the raw "sandbox" config value ("auto", "true", "false",
 	// or empty for default). Parsed by the sandbox package.
 	Sandbox string

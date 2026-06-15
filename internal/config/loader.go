@@ -148,7 +148,6 @@ type ProviderBlock struct {
 	APIKeyEnv       string            `yaml:"api_key_env,omitempty" json:"api_key_env,omitempty"`
 	BaseURL         string            `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	Password        string            `yaml:"password,omitempty" json:"password,omitempty"`
-	MaxInputTokens  int               `yaml:"max_input_tokens,omitempty" json:"max_input_tokens,omitempty"`
 	Sandbox         *string           `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
 	// MaxTurns caps the number of agentic loop iterations the provider may
 	// execute per session. 0 means use the built-in default (DefaultMaxTurns).
@@ -600,9 +599,6 @@ func MergeProviderBlock(base, overlay ProviderBlock) ProviderBlock {
 	}
 	if overlay.Password != "" {
 		out.Password = overlay.Password
-	}
-	if overlay.MaxInputTokens > 0 {
-		out.MaxInputTokens = overlay.MaxInputTokens
 	}
 	if overlay.Sandbox != nil {
 		out.Sandbox = overlay.Sandbox

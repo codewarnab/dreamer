@@ -784,15 +784,6 @@ func TestMergeProviderBlocks_PasswordOverride(t *testing.T) {
 	}
 }
 
-func TestMergeProviderBlocks_MaxInputTokensOverride(t *testing.T) {
-	base := ProviderBlock{MaxInputTokens: 100}
-	override := ProviderBlock{MaxInputTokens: 200}
-	got := MergeProviderBlock(base, override)
-	if got.MaxInputTokens != 200 {
-		t.Fatalf("MaxInputTokens = %d, want 200", got.MaxInputTokens)
-	}
-}
-
 func TestMergeProviderBlocks_SandboxOverride(t *testing.T) {
 	mode := "true"
 	base := ProviderBlock{}
@@ -805,14 +796,13 @@ func TestMergeProviderBlocks_SandboxOverride(t *testing.T) {
 
 func TestMergeProviderBlocks_EmptyOverridePreservesBase(t *testing.T) {
 	base := ProviderBlock{
-		Model:          "model",
-		CopilotHome:    "/home",
-		CLIURL:         "http://url",
-		APIKeyEnv:      "KEY",
-		BaseURL:        "http://base",
-		Password:       "pw",
-		MaxInputTokens: 500,
-		Command:        []string{"cmd"},
+		Model:       "model",
+		CopilotHome: "/home",
+		CLIURL:      "http://url",
+		APIKeyEnv:   "KEY",
+		BaseURL:     "http://base",
+		Password:    "pw",
+		Command:     []string{"cmd"},
 	}
 	override := ProviderBlock{}
 	got := MergeProviderBlock(base, override)
@@ -822,7 +812,7 @@ func TestMergeProviderBlocks_EmptyOverridePreservesBase(t *testing.T) {
 	if got.APIKeyEnv != "KEY" || got.BaseURL != "http://base" || got.Password != "pw" {
 		t.Fatal("base fields not preserved (2)")
 	}
-	if got.MaxInputTokens != 500 || len(got.Command) != 1 {
+	if len(got.Command) != 1 {
 		t.Fatal("base fields not preserved (3)")
 	}
 }
