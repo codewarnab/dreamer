@@ -19,6 +19,23 @@ type SourceProvider interface {
 	SizeBytes(source Source) (int64, error)
 }
 
+type ReadOptions struct {
+	Budget readers.ReadBudget
+}
+
+type ReadResult struct {
+	Messages  []readers.ChatMessage
+	Truncated bool
+	Bytes     int
+}
+
+// BudgetedReader is an optional extension for source readers that can enforce
+// a per-source byte cap while streaming. The pipeline uses it when available
+// because chunking happens after decoded messages are already resident in RAM.
+type BudgetedReader interface {
+	ReadMessagesWithOptions(source Source, options ReadOptions) (ReadResult, error)
+}
+
 // BatchSizer is an optional provider extension for providers whose underlying
 // storage benefits from batching size lookups (typically SQLite-backed: one
 // DB-open serves many sessions). Callers should type-assert and prefer the

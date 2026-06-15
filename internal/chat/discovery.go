@@ -1,7 +1,9 @@
 package chat
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,11 +63,14 @@ func DefaultDiscoveryEnvironment() (DiscoveryEnvironment, error) {
 }
 
 // discoverChatsFromEnvironment runs every registered provider's Discover hook
-// in parallel and returns the merged, sorted slice of Sources. First
-// non-nil error from any provider wins.
+// in parallel and returns the merged, sorted slice of Sources. Individual
+// provider failures are warned and skipped so one corrupt store does not hide
+// chats from every other provider. Discovery returns an error only when every
+// registered provider fails.
 func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath string) ([]Source, error) {
 	providers := Providers()
 	results := make([][]Source, len(providers))
+	providerErrors := make([]error, len(providers))
 
 	var (
 		group errgroup.Group
@@ -76,7 +81,10 @@ func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath 
 		group.Go(func() error {
 			sources, err := provider.Discover(environment, projectPath)
 			if err != nil {
-				return err
+				mu.Lock()
+				providerErrors[index] = fmt.Errorf("%s discovery: %w", provider.Type(), err)
+				mu.Unlock()
+				return nil
 			}
 			mu.Lock()
 			results[index] = sources
@@ -86,6 +94,20 @@ func discoverChatsFromEnvironment(environment DiscoveryEnvironment, projectPath 
 	}
 	if err := group.Wait(); err != nil {
 		return nil, err
+	}
+
+	successfulProviders := 0
+	var failedProviderErrors []error
+	for _, err := range providerErrors {
+		if err == nil {
+			successfulProviders++
+			continue
+		}
+		failedProviderErrors = append(failedProviderErrors, err)
+		slog.Warn("chat discovery provider failed", "err", err)
+	}
+	if len(providers) > 0 && successfulProviders == 0 {
+		return nil, errors.Join(failedProviderErrors...)
 	}
 
 	// Preallocate combined slice to total sources count to avoid dynamic reallocation

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,7 +63,11 @@ func walkChatFiles(root string, sourceType SourceType, extensions map[string]str
 	discovered := make([]Source, 0)
 	err = filepath.WalkDir(trimmedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			slog.Warn("skip unreadable chat path", "path", path, "err", walkErr)
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if entry.IsDir() {
 			return nil
@@ -79,7 +84,8 @@ func walkChatFiles(root string, sourceType SourceType, extensions map[string]str
 
 		fileInfo, err := entry.Info()
 		if err != nil {
-			return fmt.Errorf("read chat file metadata for %q: %w", path, err)
+			slog.Warn("skip chat file with unreadable metadata", "path", path, "err", err)
+			return nil
 		}
 
 		discovered = append(discovered, Source{

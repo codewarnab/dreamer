@@ -97,6 +97,23 @@ func TestReadKiroConversationRequiresID(t *testing.T) {
 	}
 }
 
+func TestReadKiroConversationReturnsParseError(t *testing.T) {
+	dbPath := registerFixtureKiroDataset(t, fixtureKiroDataset{
+		Conversations: []fixtureKiroConversation{
+			{Key: "/home/ani/proj", ConversationID: "bad", Value: "{not valid json", UpdatedAt: 1_700_000_000},
+		},
+	})
+
+	reader := KiroReader{DriverName: fixtureKiroDriverName}
+	_, err := reader.ReadConversation(dbPath, "bad")
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "parse kiro conversation") {
+		t.Fatalf("error = %v, want parse kiro conversation context", err)
+	}
+}
+
 type fixtureKiroDriver struct{}
 
 func (fixtureKiroDriver) Open(name string) (driver.Conn, error) {

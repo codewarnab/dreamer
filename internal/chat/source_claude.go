@@ -76,11 +76,20 @@ func extractClaudeParentID(path string) string {
 }
 
 func (claudeProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
-	messages, err := readers.ReadClaudeJSONLWithToolFolding(source.Path)
+	result, err := claudeProvider{}.ReadMessagesWithOptions(source, ReadOptions{})
+	return result.Messages, err
+}
+
+func (claudeProvider) ReadMessagesWithOptions(source Source, options ReadOptions) (ReadResult, error) {
+	result, err := readers.ReadClaudeJSONLWithToolFoldingResult(source.Path, options.Budget)
 	if err != nil {
-		return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
+		return ReadResult{}, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
 	}
-	return readers.SanitizeClaudeMessages(messages), nil
+	return ReadResult{
+		Messages:  readers.SanitizeClaudeMessages(result.Messages),
+		Truncated: result.Truncated,
+		Bytes:     result.Bytes,
+	}, nil
 }
 
 func probeClaudeSessionCWD(sessionPath string) (string, bool) {

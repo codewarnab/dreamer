@@ -1046,7 +1046,10 @@ func TestCopilotSessionMessageFromRecordEmptyContent(t *testing.T) {
 
 func TestParseJSONLRecordBytesCopilotUserMessage(t *testing.T) {
 	raw := []byte(`{"type":"user.message","data":{"content":"test input"}}`)
-	msg, ok := parseJSONLRecordBytes(raw)
+	msg, err, ok := parseJSONLRecordBytes(raw)
+	if err != nil {
+		t.Fatalf("parseJSONLRecordBytes returned error: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected ok")
 	}
@@ -1057,7 +1060,10 @@ func TestParseJSONLRecordBytesCopilotUserMessage(t *testing.T) {
 
 func TestParseJSONLRecordBytesCopilotAssistantMessage(t *testing.T) {
 	raw := []byte(`{"type":"assistant.message","data":{"content":"test reply"}}`)
-	msg, ok := parseJSONLRecordBytes(raw)
+	msg, err, ok := parseJSONLRecordBytes(raw)
+	if err != nil {
+		t.Fatalf("parseJSONLRecordBytes returned error: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected ok")
 	}
@@ -1104,5 +1110,36 @@ func TestReadJSONLWithOptionsSanitizesCopilotDeduplication(t *testing.T) {
 	}
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 after dedup, got %d", len(messages))
+	}
+}
+
+func TestReadJSONLWithOptionsResultTruncatesAtBudget(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "budget.jsonl")
+	contents := strings.Join([]string{
+		`{"role":"user","content":"12345"}`,
+		`{"role":"assistant","content":"abcdef"}`,
+		`{"role":"user","content":"must not be read"}`,
+	}, "\n")
+	if err := os.WriteFile(filePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	result, err := ReadJSONLWithOptionsResult(filePath, JSONLReadOptions{
+		Budget: ReadBudget{MaxBytes: len("user: \n") + len("12345") + len("assistant: \n") + 3},
+	})
+	if err != nil {
+		t.Fatalf("ReadJSONLWithOptionsResult: %v", err)
+	}
+	if !result.Truncated {
+		t.Fatal("expected truncated result")
+	}
+	if len(result.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2", len(result.Messages))
+	}
+	if got := result.Messages[1].Content; got != "abc" {
+		t.Fatalf("truncated content = %q, want abc", got)
+	}
+	if strings.Contains(result.Messages[len(result.Messages)-1].Content, "must not") {
+		t.Fatal("reader kept content after budget should have stopped scanning")
 	}
 }

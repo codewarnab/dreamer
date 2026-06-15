@@ -85,11 +85,16 @@ func extractGeminiCLIParentID(path string) string {
 }
 
 func (geminiCLIProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
-	messages, err := readers.ReadGeminiCLI(source.Path)
+	result, err := geminiCLIProvider{}.ReadMessagesWithOptions(source, ReadOptions{})
+	return result.Messages, err
+}
+
+func (geminiCLIProvider) ReadMessagesWithOptions(source Source, options ReadOptions) (ReadResult, error) {
+	result, err := readers.ReadGeminiCLIWithBudget(source.Path, options.Budget)
 	if err != nil {
-		return nil, fmt.Errorf("read gemini cli chat source %q: %w", source.Path, err)
+		return ReadResult{}, fmt.Errorf("read gemini cli chat source %q: %w", source.Path, err)
 	}
-	return messages, nil
+	return ReadResult{Messages: result.Messages, Truncated: result.Truncated, Bytes: result.Bytes}, nil
 }
 
 func probeGeminiCLISessionCWD(sessionPath string) (string, bool) {
