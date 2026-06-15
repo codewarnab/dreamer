@@ -137,14 +137,15 @@ func TestGenerateTodosWritesAtomicallyLeavesNoTempFile(t *testing.T) {
 	setTestHome(t, home)
 	outputRoot := filepath.Join(home, ".config", "dreamer")
 
-	// Pre-seed a stale .tmp from a hypothetical prior-crash run.
-	staleDir := filepath.Join(outputRoot, "project-a")
-	if err := os.MkdirAll(staleDir, 0o755); err != nil {
+	// Pre-seed a temp owned by another writer. Atomic writes must not
+	// remove it because that can corrupt concurrent writes.
+	tempDir := filepath.Join(outputRoot, "project-a")
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	staleTmp := filepath.Join(staleDir, "todos.md.tmp")
-	if err := os.WriteFile(staleTmp, []byte("garbage from crash"), 0o644); err != nil {
-		t.Fatalf("seed stale tmp: %v", err)
+	preExistingTemp := filepath.Join(tempDir, "todos.md.tmp.12345")
+	if err := os.WriteFile(preExistingTemp, []byte("in-flight writer"), 0o644); err != nil {
+		t.Fatalf("seed temp: %v", err)
 	}
 
 	if _, err := GenerateTodos("project-a", []analyzer.Finding{{
@@ -156,8 +157,12 @@ func TestGenerateTodosWritesAtomicallyLeavesNoTempFile(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("GenerateTodos returned error: %v", err)
 	}
-	if _, err := os.Stat(staleTmp); !os.IsNotExist(err) {
-		t.Fatalf("stale .tmp must not survive an atomic write, stat err=%v", err)
+	got, err := os.ReadFile(preExistingTemp)
+	if err != nil {
+		t.Fatalf("pre-existing temp was removed: %v", err)
+	}
+	if string(got) != "in-flight writer" {
+		t.Fatalf("pre-existing temp content = %q, want %q", got, "in-flight writer")
 	}
 }
 

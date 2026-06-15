@@ -343,8 +343,10 @@ func TestSaveAtomicCleansUpStaleTempFile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		t.Fatalf("MkdirAll error: %v", err)
 	}
-	// Simulate an interrupted prior Save by pre-populating .tmp with garbage.
-	if err := os.WriteFile(statePath+".tmp", []byte("garbage from a prior crash"), 0o644); err != nil {
+	// Simulate a temp owned by another writer. Save must not remove it
+	// because that can corrupt concurrent atomic writes.
+	preExistingTemp := statePath + ".tmp.12345"
+	if err := os.WriteFile(preExistingTemp, []byte("in-flight writer"), 0o644); err != nil {
 		t.Fatalf("seed tmp file: %v", err)
 	}
 
@@ -360,8 +362,12 @@ func TestSaveAtomicCleansUpStaleTempFile(t *testing.T) {
 	if loaded.RepoHeadSHA != "sha" {
 		t.Fatalf("RepoHeadSHA = %q, want sha", loaded.RepoHeadSHA)
 	}
-	if _, err := os.Stat(statePath + ".tmp"); !os.IsNotExist(err) {
-		t.Fatalf("stale .tmp should be replaced by rename; stat err=%v", err)
+	got, err := os.ReadFile(preExistingTemp)
+	if err != nil {
+		t.Fatalf("pre-existing temp was removed: %v", err)
+	}
+	if string(got) != "in-flight writer" {
+		t.Fatalf("pre-existing temp content = %q, want %q", got, "in-flight writer")
 	}
 }
 
