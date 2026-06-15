@@ -246,6 +246,75 @@ func TestJobsPause_Resume_RecomputesNextRunAt(t *testing.T) {
 	}
 }
 
+func TestJobsEdit_PreservesRunnerOwnedFields(t *testing.T) {
+	homeDir := t.TempDir()
+	setTestHome(t, homeDir)
+	outputRoot := t.TempDir()
+	cfgPath := writeJobsConfig(t, outputRoot)
+
+	jobID := "abc1234567890001"
+	createTestJob(t, outputRoot, jobID)
+
+	lg := logging.Silent()
+	store := backgroundjobs.NewStore(outputRoot, lg)
+	lastRunAt := time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC)
+	nextRunAt := time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC)
+	lastChecked := time.Date(2025, 3, 1, 10, 30, 0, 0, time.UTC)
+	if err := store.Update(context.Background(), func(s *backgroundjobs.State) error {
+		job := s.Jobs[jobID]
+		job.LastRunAt = &lastRunAt
+		job.NextRunAt = &nextRunAt
+		job.Health = backgroundjobs.HealthState{
+			SystemScheduling: backgroundjobs.SchedulingValid,
+			JobSchedule:      backgroundjobs.JobScheduleValid,
+			RunState:         backgroundjobs.RunStatusCompleted,
+			PermissionState:  backgroundjobs.PermissionAllowed,
+			LastChecked:      &lastChecked,
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed runner fields: %v", err)
+	}
+
+	stdout, _, err := executeRootCommand("jobs", "edit", jobID, "--config", cfgPath, "--name", "renamed-job")
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if !strings.Contains(stdout, "job updated") {
+		t.Errorf("expected update message, got: %s", stdout)
+	}
+
+	state, err := store.Load()
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	job := state.Jobs[jobID]
+	if job.Name != "renamed-job" {
+		t.Fatalf("Name = %q, want renamed-job", job.Name)
+	}
+	if job.LastRunAt == nil || !job.LastRunAt.Equal(lastRunAt) {
+		t.Fatalf("LastRunAt = %v, want %v", job.LastRunAt, lastRunAt)
+	}
+	if job.NextRunAt == nil || !job.NextRunAt.Equal(nextRunAt) {
+		t.Fatalf("NextRunAt = %v, want %v", job.NextRunAt, nextRunAt)
+	}
+	if job.Health.SystemScheduling != backgroundjobs.SchedulingValid {
+		t.Errorf("SystemScheduling = %q, want %q", job.Health.SystemScheduling, backgroundjobs.SchedulingValid)
+	}
+	if job.Health.JobSchedule != backgroundjobs.JobScheduleValid {
+		t.Errorf("JobSchedule = %q, want %q", job.Health.JobSchedule, backgroundjobs.JobScheduleValid)
+	}
+	if job.Health.RunState != backgroundjobs.RunStatusCompleted {
+		t.Errorf("RunState = %q, want %q", job.Health.RunState, backgroundjobs.RunStatusCompleted)
+	}
+	if job.Health.PermissionState != backgroundjobs.PermissionAllowed {
+		t.Errorf("PermissionState = %q, want %q", job.Health.PermissionState, backgroundjobs.PermissionAllowed)
+	}
+	if job.Health.LastChecked == nil || !job.Health.LastChecked.Equal(lastChecked) {
+		t.Fatalf("LastChecked = %v, want %v", job.Health.LastChecked, lastChecked)
+	}
+}
+
 func TestJobsPause_HasOutputRootFlag(t *testing.T) {
 	cmd := newJobsPauseCommand()
 	if cmd.Flag("output-root") == nil {
