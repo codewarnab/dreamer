@@ -157,7 +157,6 @@ window.settingsPage = function () {
       if (block.model === undefined) block.model = "";
       if (block.api_key_env === undefined) block.api_key_env = "";
       if (block.password === undefined) block.password = "";
-      if (block.max_input_tokens === undefined) block.max_input_tokens = "";
       if (block.max_turns === undefined) block.max_turns = "";
     },
     providerHealth: function (providerID) {
@@ -287,9 +286,6 @@ window.settingsPage = function () {
       if (secID === "assistant") {
         const selected = this.selectedProviderID();
         if (!selected) return "Choose a default assistant";
-        const tokens = this.values.providers[selected]?.max_input_tokens;
-        const tokensErr = this.positiveNumberError(tokens, "Max input tokens");
-        if (tokensErr) return tokensErr;
         const turns = this.values.providers[selected]?.max_turns;
         return this.positiveNumberError(turns, "Max turns");
       }
@@ -417,7 +413,6 @@ window.settingsPage = function () {
         model: this.blankToNull(provider.model),
         api_key_env: this.blankToNull(provider.api_key_env),
         password: this.blankToNull(provider.password),
-        max_input_tokens: this.numberOrNull(provider.max_input_tokens),
         max_turns: this.numberOrNull(provider.max_turns),
         sandbox: this.blankToNull(provider.sandbox),
       };

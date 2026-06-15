@@ -390,7 +390,8 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 		return fmt.Errorf("save job: %w", err)
 	}
 
-	// Install OS schedule (best-effort).
+	// Install OS schedule.
+	scheduleInstalled := false
 	if sched, schedErr := buildScheduler(outputRoot, configPath); schedErr == nil {
 		params := backgroundjobs.ScheduleParams{
 			JobID:    jobID,
@@ -400,15 +401,24 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 		}
 		osState, installErr := sched.Install(cmd.Context(), params)
 		if installErr != nil {
-			lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+			fmt.Fprintf(os.Stderr, "warning: OS schedule install failed: %v\n", installErr)
+			fmt.Fprintf(os.Stderr, "  The job was saved but will not run until the schedule is installed.\n")
+			fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to retry.\n")
 		} else {
-			_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+			scheduleInstalled = true
+			if updateErr := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
 				if j := s.Jobs[jobID]; j != nil {
 					j.OSSchedule = osState
 				}
 				return nil
-			})
+			}); updateErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: OS schedule installed but state write-back failed: %v\n", updateErr)
+				fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to sync state.\n")
+			}
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: could not build scheduler: %v\n", schedErr)
+		fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to install the OS schedule.\n")
 	}
 
 	// Audit.
@@ -427,7 +437,11 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 		cmd.Printf("NOTE: This job will run with network access and %s file permissions.\n", job.Permissions.FileAccess)
 	}
 
-	cmd.Printf("job created: %s\n", jobID)
+	if scheduleInstalled {
+		cmd.Printf("job created: %s\n", jobID)
+	} else {
+		cmd.Printf("job created: %s (OS schedule not installed — run 'dreamer jobs reconcile')\n", jobID)
+	}
 	return nil
 }
 
@@ -876,7 +890,7 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 		return err
 	}
 
-	// Update OS schedule (best-effort).
+	// Update OS schedule.
 	if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
 		state, loadErr := store.Load()
 		if loadErr == nil {
@@ -892,30 +906,40 @@ func setJobEnabled(cmd *cobra.Command, jobID string, enabled bool) error {
 					}
 					osState, installErr := sched.Install(cmd.Context(), params)
 					if installErr != nil {
-						lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+						fmt.Fprintf(os.Stderr, "warning: OS schedule install failed: %v\n", installErr)
+						fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to retry.\n")
 					} else {
-						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+						if updateErr := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
 							if j := s.Jobs[jobID]; j != nil {
 								j.OSSchedule = osState
 							}
 							return nil
-						})
+						}); updateErr != nil {
+							fmt.Fprintf(os.Stderr, "warning: OS schedule installed but state write-back failed: %v\n", updateErr)
+							fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to sync state.\n")
+						}
 					}
 				} else {
 					// Remove OS schedule for paused jobs.
 					if removeErr := sched.Remove(cmd.Context(), jobID); removeErr != nil {
-						lg.Warn("remove OS schedule failed", logging.Any("error", removeErr))
+						fmt.Fprintf(os.Stderr, "warning: OS schedule removal failed: %v\n", removeErr)
+						fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to sync state.\n")
 					} else {
-						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+						if updateErr := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
 							if j := s.Jobs[jobID]; j != nil {
 								j.OSSchedule = backgroundjobs.OSScheduleState{}
 							}
 							return nil
-						})
+						}); updateErr != nil {
+							fmt.Fprintf(os.Stderr, "warning: OS schedule removed but state write-back failed: %v\n", updateErr)
+						}
 					}
 				}
 			}
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: could not build scheduler: %v\n", schedErr)
+		fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to sync OS schedule state.\n")
 	}
 
 	if enabled {
@@ -966,157 +990,160 @@ func newJobsEditCommand() *cobra.Command {
 			lg := logging.Silent()
 			store := backgroundjobs.NewStore(outputRoot, lg)
 
-			// Load current job to validate it exists.
-			state, err := store.Load()
-			if err != nil {
-				return fmt.Errorf("load jobs: %w", err)
-			}
-			job, ok := state.Jobs[jobID]
-			if !ok {
-				return jobNotFoundError(cmd, jobID)
-			}
-
 			scheduleChanged := false
+			var editedJob backgroundjobs.Job
 
-			// Apply changed fields.
-			if cmd.Flags().Changed("name") {
-				runes := []rune(strings.TrimSpace(name))
-				if len(runes) > 64 {
-					name = string(runes[:64])
-				}
-				job.Name = name
-			}
-
-			if cmd.Flags().Changed("prompt") {
-				if len(prompt) > maxJobPromptSize {
-					return fmt.Errorf("prompt exceeds 16 KiB limit")
-				}
-				job.Prompt = prompt
-			}
-
-			if cmd.Flags().Changed("provider") {
-				meta := backgroundjobs.ProviderMetaByID(providerID)
-				if meta == nil {
-					return fmt.Errorf("provider %q not found", providerID)
-				}
-				if !meta.BackgroundSafe {
-					return providerNotBackgroundSafeError(cmd, providerID)
-				}
-				job.ProviderID = providerID
-			}
-
-			if cmd.Flags().Changed("model") {
-				job.Model = model
-			}
-
-			// Schedule: if any schedule-related flag changed, rebuild spec.
-			if cmd.Flags().Changed("schedule") || cmd.Flags().Changed("every") ||
-				cmd.Flags().Changed("time-of-day") || cmd.Flags().Changed("day-of-week") ||
-				cmd.Flags().Changed("cron") || cmd.Flags().Changed("timezone") {
-
-				// Use changed flags, falling back to existing job values.
-				kind := job.Schedule.Kind
-				if cmd.Flags().Changed("schedule") {
-					kind = backgroundjobs.ScheduleKind(scheduleKind)
-					if kind == "interval" {
-						kind = backgroundjobs.ScheduleInterval
-					}
-				}
-				newSchedule := job.Schedule
-				newSchedule.Kind = kind
-				if cmd.Flags().Changed("every") {
-					newSchedule.Every = every
-				}
-				if cmd.Flags().Changed("time-of-day") {
-					newSchedule.TimeOfDay = timeOfDay
-				}
-				if cmd.Flags().Changed("day-of-week") {
-					newSchedule.DayOfWeek = dayOfWeek
-				}
-				if cmd.Flags().Changed("cron") {
-					newSchedule.Cron = cron
-				}
-				if cmd.Flags().Changed("timezone") {
-					newSchedule.Timezone = timezone
-				}
-
-				if err := backgroundjobs.ValidateSchedule(newSchedule); err != nil {
-					return fmt.Errorf("invalid schedule: %w", err)
-				}
-				if newSchedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
-					return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
-				}
-				job.Schedule = newSchedule
-				scheduleChanged = true
-			}
-
-			if cmd.Flags().Changed("file-access") {
-				switch fileAccess {
-				case "read_only":
-					job.Permissions.FileAccess = backgroundjobs.FileAccessReadOnly
-					job.Permissions.WritablePaths = nil
-				case "selected_writes":
-					job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
-				case "full_workspace":
-					job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
-					job.Permissions.WritablePaths = nil
-				default:
-					return fmt.Errorf("--file-access must be one of: read_only, selected_writes, full_workspace")
-				}
-			}
-
-			if cmd.Flags().Changed("writable-paths") {
-				if job.Permissions.FileAccess != backgroundjobs.FileAccessSelectedWrites {
-					return fmt.Errorf("--writable-paths requires --file-access selected_writes")
-				}
-				var paths []string
-				for _, p := range strings.Split(writablePaths, ",") {
-					if trimmed := strings.TrimSpace(p); trimmed != "" {
-						paths = append(paths, trimmed)
-					}
-				}
-				job.Permissions.WritablePaths = paths
-			}
-
-			job.UpdatedAt = time.Now().UTC()
-
-			// Recalculate next run if schedule changed.
-			if scheduleChanged {
-				nextRun, err := backgroundjobs.NextRun(job.Schedule, time.Now().UTC())
-				if err != nil {
-					return fmt.Errorf("calculate next run: %w", err)
-				}
-				job.NextRunAt = &nextRun
-			}
-
-			// Save.
 			if err := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
-				s.Jobs[jobID] = job
+				job := s.Jobs[jobID]
+				if job == nil {
+					return jobNotFoundError(cmd, jobID)
+				}
+
+				// Apply changed fields to the locked, freshly loaded job so
+				// concurrent runner fields are preserved.
+				if cmd.Flags().Changed("name") {
+					runes := []rune(strings.TrimSpace(name))
+					if len(runes) > 64 {
+						name = string(runes[:64])
+					}
+					job.Name = name
+				}
+
+				if cmd.Flags().Changed("prompt") {
+					if len(prompt) > maxJobPromptSize {
+						return fmt.Errorf("prompt exceeds 16 KiB limit")
+					}
+					job.Prompt = prompt
+				}
+
+				if cmd.Flags().Changed("provider") {
+					meta := backgroundjobs.ProviderMetaByID(providerID)
+					if meta == nil {
+						return fmt.Errorf("provider %q not found", providerID)
+					}
+					if !meta.BackgroundSafe {
+						return providerNotBackgroundSafeError(cmd, providerID)
+					}
+					job.ProviderID = providerID
+				}
+
+				if cmd.Flags().Changed("model") {
+					job.Model = model
+				}
+
+				// Schedule: if any schedule-related flag changed, rebuild spec.
+				if cmd.Flags().Changed("schedule") || cmd.Flags().Changed("every") ||
+					cmd.Flags().Changed("time-of-day") || cmd.Flags().Changed("day-of-week") ||
+					cmd.Flags().Changed("cron") || cmd.Flags().Changed("timezone") {
+
+					// Use changed flags, falling back to existing job values.
+					kind := job.Schedule.Kind
+					if cmd.Flags().Changed("schedule") {
+						kind = backgroundjobs.ScheduleKind(scheduleKind)
+						if kind == "interval" {
+							kind = backgroundjobs.ScheduleInterval
+						}
+					}
+					newSchedule := job.Schedule
+					newSchedule.Kind = kind
+					if cmd.Flags().Changed("every") {
+						newSchedule.Every = every
+					}
+					if cmd.Flags().Changed("time-of-day") {
+						newSchedule.TimeOfDay = timeOfDay
+					}
+					if cmd.Flags().Changed("day-of-week") {
+						newSchedule.DayOfWeek = dayOfWeek
+					}
+					if cmd.Flags().Changed("cron") {
+						newSchedule.Cron = cron
+					}
+					if cmd.Flags().Changed("timezone") {
+						newSchedule.Timezone = timezone
+					}
+
+					if err := backgroundjobs.ValidateSchedule(newSchedule); err != nil {
+						return fmt.Errorf("invalid schedule: %w", err)
+					}
+					if newSchedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
+						return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
+					}
+					job.Schedule = newSchedule
+					scheduleChanged = true
+				}
+
+				if cmd.Flags().Changed("file-access") {
+					switch fileAccess {
+					case "read_only":
+						job.Permissions.FileAccess = backgroundjobs.FileAccessReadOnly
+						job.Permissions.WritablePaths = nil
+					case "selected_writes":
+						job.Permissions.FileAccess = backgroundjobs.FileAccessSelectedWrites
+					case "full_workspace":
+						job.Permissions.FileAccess = backgroundjobs.FileAccessFullWorkspace
+						job.Permissions.WritablePaths = nil
+					default:
+						return fmt.Errorf("--file-access must be one of: read_only, selected_writes, full_workspace")
+					}
+				}
+
+				if cmd.Flags().Changed("writable-paths") {
+					if job.Permissions.FileAccess != backgroundjobs.FileAccessSelectedWrites {
+						return fmt.Errorf("--writable-paths requires --file-access selected_writes")
+					}
+					var paths []string
+					for _, p := range strings.Split(writablePaths, ",") {
+						if trimmed := strings.TrimSpace(p); trimmed != "" {
+							paths = append(paths, trimmed)
+						}
+					}
+					job.Permissions.WritablePaths = paths
+				}
+
+				job.UpdatedAt = time.Now().UTC()
+
+				// Recalculate next run if schedule changed.
+				if scheduleChanged {
+					nextRun, err := backgroundjobs.NextRun(job.Schedule, time.Now().UTC())
+					if err != nil {
+						return fmt.Errorf("calculate next run: %w", err)
+					}
+					job.NextRunAt = &nextRun
+				}
+
+				editedJob = *job
 				return nil
 			}); err != nil {
 				return fmt.Errorf("save job: %w", err)
 			}
 
-			// Reinstall OS schedule if schedule changed (best-effort).
+			// Reinstall OS schedule if schedule changed.
 			if scheduleChanged {
 				if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
 					params := backgroundjobs.ScheduleParams{
 						JobID:    jobID,
-						Schedule: job.Schedule,
-						Name:     backgroundjobs.SanitizeScheduleName(job.Name),
-						Enabled:  job.Enabled,
+						Schedule: editedJob.Schedule,
+						Name:     backgroundjobs.SanitizeScheduleName(editedJob.Name),
+						Enabled:  editedJob.Enabled,
 					}
 					osState, installErr := sched.Install(cmd.Context(), params)
 					if installErr != nil {
-						lg.Warn("install OS schedule failed", logging.Any("error", installErr))
+						fmt.Fprintf(os.Stderr, "warning: OS schedule install failed: %v\n", installErr)
+						fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to retry.\n")
 					} else {
-						_ = store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
+						if updateErr := store.Update(cmd.Context(), func(s *backgroundjobs.State) error {
 							if j := s.Jobs[jobID]; j != nil {
 								j.OSSchedule = osState
 							}
 							return nil
-						})
+						}); updateErr != nil {
+							fmt.Fprintf(os.Stderr, "warning: OS schedule installed but state write-back failed: %v\n", updateErr)
+							fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to sync state.\n")
+						}
 					}
+				} else {
+					fmt.Fprintf(os.Stderr, "warning: could not build scheduler: %v\n", schedErr)
+					fmt.Fprintf(os.Stderr, "  Run 'dreamer jobs reconcile' to install the updated OS schedule.\n")
 				}
 			}
 
@@ -1192,11 +1219,15 @@ func newJobsDeleteCommand() *cobra.Command {
 				return nil
 			}
 
-			// Remove OS schedule before deleting the job (best-effort).
+			// Remove OS schedule before deleting the job.
 			if sched, schedErr := buildScheduler(outputRoot, resolvedConfigPath); schedErr == nil {
 				if removeErr := sched.Remove(cmd.Context(), jobID); removeErr != nil {
-					lg.Warn("remove OS schedule failed", logging.Any("error", removeErr))
+					fmt.Fprintf(os.Stderr, "warning: OS schedule removal failed: %v\n", removeErr)
+					fmt.Fprintf(os.Stderr, "  A stale OS schedule may remain. Run 'dreamer jobs reconcile' to clean up.\n")
 				}
+			} else {
+				fmt.Fprintf(os.Stderr, "warning: could not build scheduler: %v\n", schedErr)
+				fmt.Fprintf(os.Stderr, "  A stale OS schedule may remain. Run 'dreamer jobs reconcile' to clean up.\n")
 			}
 
 			if err := store.DeleteJob(jobID); err != nil {

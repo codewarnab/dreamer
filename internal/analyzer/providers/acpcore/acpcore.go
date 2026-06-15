@@ -153,7 +153,7 @@ func (p *provider) Start(ctx context.Context) error {
 			},
 			"terminal": false,
 		},
-	}, nil)
+	})
 	if err != nil {
 		_ = t.close()
 		return fmt.Errorf("acpcore: initialize: %w", err)
@@ -244,7 +244,7 @@ func (p *provider) ListModels(ctx context.Context) ([]string, error) {
 	newResult, err := t.call(ctx, "session/new", map[string]any{
 		"cwd":        os.TempDir(),
 		"mcpServers": []any{},
-	}, nil)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("acpcore: %s: list models: session/new: %w", p.id, err)
 	}
@@ -293,7 +293,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 	newResult, err := s.transport.call(ctx, "session/new", map[string]any{
 		"cwd":        s.workingDir,
 		"mcpServers": []any{},
-	}, s.handler)
+	})
 	if err != nil {
 		return "", fmt.Errorf("acpcore: session/new: %w", err)
 	}
@@ -305,6 +305,8 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		// Best-effort tear-down; session/cancel is a notification.
 		_ = s.transport.notify(context.Background(), "session/cancel", map[string]any{"sessionId": sid})
 	}()
+	s.transport.registerPermissionHandler(sid, s.handler)
+	defer s.transport.unregisterPermissionHandler(sid)
 
 	// Optional agent tuning. Only attempt when the agent advertised the option
 	// in session/new — calling set_model with an unsupported id triggers
@@ -314,13 +316,13 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 		_, _ = s.transport.call(ctx, "session/set_model", map[string]any{
 			"sessionId": sid,
 			"modelId":   id,
-		}, nil)
+		})
 	}
 	if id, ok := pickReadOnlyModeID(newResult); ok {
 		if _, err := s.transport.call(ctx, "session/set_mode", map[string]any{
 			"sessionId": sid,
 			"modeId":    id,
-		}, nil); err != nil {
+		}); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: acp set_mode(%s) failed, read-only boundary not enforced: %v\n", id, err)
 		}
 	}
@@ -345,7 +347,7 @@ func (s *session) Run(ctx context.Context, prompt string, timeout time.Duration)
 			map[string]any{"type": "text", "text": body},
 		},
 	}
-	promptResponse, err := s.transport.call(ctx, "session/prompt", params, s.handler)
+	promptResponse, err := s.transport.call(ctx, "session/prompt", params)
 	if err != nil {
 		wrapped := fmt.Errorf("acpcore: session/prompt: %w", err)
 		if transportutil.IsRateLimitMessage(err.Error()) {

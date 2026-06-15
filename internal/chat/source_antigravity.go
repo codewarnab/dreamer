@@ -77,21 +77,26 @@ func discoverAntigravityGeminiSessions(homeDir string, projectPath string, gemin
 }
 
 func (antigravityProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
+	result, err := antigravityProvider{}.ReadMessagesWithOptions(source, ReadOptions{})
+	return result.Messages, err
+}
+
+func (antigravityProvider) ReadMessagesWithOptions(source Source, options ReadOptions) (ReadResult, error) {
 	switch strings.ToLower(filepath.Ext(source.Path)) {
 	case ".pb", ".pbtxt":
 		messages, err := readers.ReadProtobuf(source.Path)
 		if err != nil {
-			return nil, fmt.Errorf("read protobuf chat source %q: %w", source.Path, err)
+			return ReadResult{}, fmt.Errorf("read protobuf chat source %q: %w", source.Path, err)
 		}
-		return messages, nil
+		return ReadResult{Messages: messages}, nil
 	case ".jsonl", ".json":
-		messages, err := readers.ReadAntigravityGemini(source.Path)
+		result, err := readers.ReadAntigravityGeminiWithBudget(source.Path, options.Budget)
 		if err != nil {
-			return nil, fmt.Errorf("read antigravity chat source %q: %w", source.Path, err)
+			return ReadResult{}, fmt.Errorf("read antigravity chat source %q: %w", source.Path, err)
 		}
-		return messages, nil
+		return ReadResult{Messages: result.Messages, Truncated: result.Truncated, Bytes: result.Bytes}, nil
 	default:
-		return nil, fmt.Errorf("unsupported antigravity chat source file %q (supported: .pb, .pbtxt, .jsonl)", source.Path)
+		return ReadResult{}, fmt.Errorf("unsupported antigravity chat source file %q (supported: .pb, .pbtxt, .jsonl)", source.Path)
 	}
 }
 

@@ -90,6 +90,19 @@ func newDaemonCommand() *cobra.Command {
 
 			stateCache := state.NewStateCache()
 
+			// stateLock is the single shared per-project mutex that serialises
+			// ALL state.json Load→Mutate→Save cycles in this process.
+			//
+			// It is threaded into both the worker pool (pipeline side) and the
+			// web server (handler side) so they compete for the same lock.
+			//
+			// Without this: the pipeline loads state at run-start, holds it
+			// for up to the full max_analysis_duration (hours), then saves at
+			// the end — overwriting any Apply/Dismiss/Undo that a web handler
+			// performed during the run.  See state.ProjectLock for the full
+			// race description and state.MergePipelineResult for the fix.
+			stateLock := state.NewProjectLock()
+
 			var live atomic.Pointer[config.App]
 			live.Store(cfg)
 
@@ -100,11 +113,12 @@ func newDaemonCommand() *cobra.Command {
 				logger:     logger,
 				cache:      discoveryCache,
 				stateCache: stateCache,
+				stateLock:  stateLock,
 				events:     events,
 				overrides:  overrides,
 			})
 			workers.Start()
-			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath, stateCache)
+			webDone := startWebIfEnabled(ctx, cfg, &live, queue, events, logger, overlayPath, stop, resolvedConfigPath, stateCache, stateLock)
 
 			startConfigWatcher(ctx, logger, events, &live, resolvedConfigPath, overlayPath)
 			enqueueMissingJobs(ctx, queue, cfg, logger)
@@ -190,7 +204,7 @@ func initDaemonRuntime(baseCtx context.Context, cfg *config.App, logger *logging
 }
 
 // startWebIfEnabled starts the embedded web server when cfg.Web.Enabled is true.
-func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointer[config.App], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string, stateCache *state.StateCache) <-chan struct{} {
+func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointer[config.App], queue *jobqueue.Queue, events *pipeline.EventBus, logger *logging.Logger, overlayPath string, stop context.CancelFunc, configPath string, stateCache *state.StateCache, stateLock *state.ProjectLock) <-chan struct{} {
 	done := make(chan struct{})
 	if cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
 		close(done)
@@ -315,6 +329,7 @@ func startWebIfEnabled(ctx context.Context, cfg *config.App, live *atomic.Pointe
 		RestartHook: restartHook,
 		Activity:    activity,
 		StateCache:  stateCache,
+		StateLock:   stateLock,
 		Jobs:        jobsDeps,
 	})
 	if srvErr != nil {

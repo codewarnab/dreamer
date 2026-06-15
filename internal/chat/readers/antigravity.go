@@ -54,26 +54,37 @@ var antigravityDropRules = []antigravityDropRule{
 // source-specific cleanup here so callers can continue using the simple
 // ChatMessage contract without knowing the storage details.
 func ReadAntigravityGemini(filePath string) ([]ChatMessage, error) {
+	result, err := ReadAntigravityGeminiWithBudget(filePath, ReadBudget{})
+	return result.Messages, err
+}
+
+func ReadAntigravityGeminiWithBudget(filePath string, budget ReadBudget) (ReadResult, error) {
 	switch strings.ToLower(filepath.Ext(filePath)) {
 	case ".jsonl":
-		messages, err := ReadJSONL(filePath)
+		result, err := ReadJSONLWithOptionsResult(filePath, JSONLReadOptions{Budget: budget})
 		if err != nil {
-			return nil, err
+			return ReadResult{}, err
 		}
-		return SanitizeAntigravityMessages(messages), nil
+		return ReadResult{
+			Messages:  SanitizeAntigravityMessages(result.Messages),
+			Truncated: result.Truncated,
+			Bytes:     result.Bytes,
+		}, nil
 	case ".pbtxt":
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			return nil, fmt.Errorf("read antigravity text protobuf file %q: %w", filePath, err)
+			return ReadResult{}, fmt.Errorf("read antigravity text protobuf file %q: %w", filePath, err)
 		}
 		if messages := parseAntigravityTextProtoMessages(string(data)); len(messages) > 0 {
-			return SanitizeAntigravityMessages(messages), nil
+			return ReadResult{Messages: SanitizeAntigravityMessages(messages)}, nil
 		}
-		return readAntigravityProtobuf(filePath)
+		messages, err := readAntigravityProtobuf(filePath)
+		return ReadResult{Messages: messages}, err
 	case ".pb":
-		return readAntigravityProtobuf(filePath)
+		messages, err := readAntigravityProtobuf(filePath)
+		return ReadResult{Messages: messages}, err
 	default:
-		return nil, fmt.Errorf("unsupported antigravity chat source file %q (supported: .jsonl, .pb, .pbtxt)", filePath)
+		return ReadResult{}, fmt.Errorf("unsupported antigravity chat source file %q (supported: .jsonl, .pb, .pbtxt)", filePath)
 	}
 }
 

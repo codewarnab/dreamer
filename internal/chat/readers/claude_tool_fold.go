@@ -45,9 +45,14 @@ type pendingToolCall struct {
 // tool_use + tool_result pairs into single compact messages. Tool interactions
 // are preserved as "[ToolName] input → output" instead of being dropped.
 func ReadClaudeJSONLWithToolFolding(filePath string) ([]ChatMessage, error) {
+	result, err := ReadClaudeJSONLWithToolFoldingResult(filePath, ReadBudget{})
+	return result.Messages, err
+}
+
+func ReadClaudeJSONLWithToolFoldingResult(filePath string, budget ReadBudget) (ReadResult, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("open jsonl file %q: %w", filePath, err)
+		return ReadResult{}, fmt.Errorf("open jsonl file %q: %w", filePath, err)
 	}
 	defer file.Close()
 
@@ -56,6 +61,7 @@ func ReadClaudeJSONLWithToolFolding(filePath string) ([]ChatMessage, error) {
 
 	var messages []ChatMessage
 	pending := make(map[string]pendingToolCall)
+	messageBudget := newMessageBudget(budget.MaxBytes)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -69,24 +75,47 @@ func ReadClaudeJSONLWithToolFolding(filePath string) ([]ChatMessage, error) {
 		}
 
 		msgs := processClaudeRecord(record, pending)
-		messages = append(messages, msgs...)
+		for _, msg := range msgs {
+			kept, ok := messageBudget.keep(msg)
+			if !ok {
+				break
+			}
+			messages = append(messages, kept)
+			if messageBudget.truncated {
+				break
+			}
+		}
+		if messageBudget.truncated {
+			break
+		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan jsonl file %q: %w", filePath, err)
+		return ReadResult{}, fmt.Errorf("scan jsonl file %q: %w", filePath, err)
 	}
 
 	// Emit any orphaned tool calls that never received a result.
 	for id, call := range pending {
-		messages = append(messages, ChatMessage{
+		message, ok := messageBudget.keep(ChatMessage{
 			Role:      "assistant",
 			Content:   formatToolCall(call.name, call.input, ""),
 			Timestamp: call.timestamp,
 			ToolName:  call.name,
 		})
+		if !ok {
+			break
+		}
+		messages = append(messages, message)
 		delete(pending, id)
+		if messageBudget.truncated {
+			break
+		}
 	}
 
-	return messages, nil
+	return ReadResult{
+		Messages:  messages,
+		Truncated: messageBudget.truncated,
+		Bytes:     messageBudget.bytes,
+	}, nil
 }
 
 // processClaudeRecord handles a single JSONL record, extracting text messages

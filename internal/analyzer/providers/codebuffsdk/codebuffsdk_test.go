@@ -149,6 +149,41 @@ func TestSessionRunEndToEnd(t *testing.T) {
 	}
 }
 
+func TestSessionRunZeroTimeoutUsesParentContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		json.NewEncoder(w).Encode(chatCompletionResponse{
+			Choices: []choice{{Message: chatMessage{Role: "assistant", Content: "ok"}}},
+		})
+	}))
+	defer srv.Close()
+
+	p, err := New(Options{BaseURL: srv.URL, APIKey: "test-key"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer p.Close()
+
+	sess, err := p.NewSession(context.Background(), analyzer.SessionConfig{})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+
+	got, err := sess.Run(context.Background(), "test", 0)
+	if err != nil {
+		t.Fatalf("Run with zero timeout: %v", err)
+	}
+	if got != "ok" {
+		t.Fatalf("Run = %q, want ok", got)
+	}
+}
+
 func TestSessionRunRateLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

@@ -100,7 +100,11 @@ func (reader KiroReader) ReadConversation(dbPath string, conversationID string) 
 		return nil, fmt.Errorf("scan kiro conversation value: %w", err)
 	}
 
-	return parseKiroConversationValue(value), nil
+	messages, err := parseKiroConversationValue(value)
+	if err != nil {
+		return nil, fmt.Errorf("parse kiro conversation %q: %w", conversationID, err)
+	}
+	return messages, nil
 }
 
 func (reader KiroReader) openDatabase(dbPath string) (*sql.DB, error) {
@@ -222,20 +226,20 @@ func (reader KiroReader) DeleteConversation(dbPath string, conversationID string
 	return nil
 }
 
-func parseKiroConversationValue(historyJSON string) []ChatMessage {
+func parseKiroConversationValue(historyJSON string) ([]ChatMessage, error) {
 	trimmed := strings.TrimSpace(historyJSON)
 	if trimmed == "" {
-		return nil
+		return nil, nil
 	}
 
 	var record map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &record); err != nil {
-		return nil
+		return nil, err
 	}
 
 	historyValue, ok := record["history"].([]any)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	messages := make([]ChatMessage, 0, len(historyValue)*2)
@@ -251,7 +255,7 @@ func parseKiroConversationValue(historyJSON string) []ChatMessage {
 			messages = append(messages, message)
 		}
 	}
-	return messages
+	return messages, nil
 }
 
 func kiroUserTurnMessage(turn map[string]any) (ChatMessage, bool) {

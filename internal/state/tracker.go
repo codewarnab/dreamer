@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -8,13 +9,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"dreamer/internal/config"
 	"dreamer/internal/fsutil"
+	"dreamer/internal/gitutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/migrate"
 )
@@ -340,7 +341,8 @@ func RepoHeadSHA(workingDirectory string, loggers ...*logging.Logger) string {
 	if workingDirectoryPath == "" {
 		return ""
 	}
-	cmd := exec.Command("git", "-C", workingDirectoryPath, "rev-parse", "HEAD")
+	cmd, cancel := gitutil.Command(context.Background(), "-C", workingDirectoryPath, "rev-parse", "HEAD")
+	defer cancel()
 	out, err := cmd.Output()
 	if err != nil {
 		if len(loggers) > 0 && loggers[0] != nil {

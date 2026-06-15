@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"dreamer/internal/analyzer"
 	"dreamer/internal/chat"
+	"dreamer/internal/logging"
 )
 
 func TestNormalizeWhitespace(t *testing.T) {
@@ -32,6 +34,47 @@ func TestNormalizeWhitespace(t *testing.T) {
 				t.Fatalf("normalizeWhitespace(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildProviderBlocksWarnsWhenSourceBudgetTruncates(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "session.jsonl")
+	contents := strings.Join([]string{
+		`{"role":"user","content":"12345"}`,
+		`{"role":"assistant","content":"abcdef"}`,
+		`{"role":"user","content":"must not be retained"}`,
+	}, "\n")
+	if err := os.WriteFile(sourcePath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write jsonl source fixture: %v", err)
+	}
+
+	redactor, err := analyzer.NewRedactor(nil)
+	if err != nil {
+		t.Fatalf("NewRedactor: %v", err)
+	}
+
+	build, err := buildProviderBlocks([]chat.Source{{
+		Path: sourcePath,
+		Tool: chat.SourceTypeCodexSessionJSONL,
+	}}, redactor, logging.Silent(), true, len("user: \n")+len("12345")+len("assistant: \n")+3)
+	if err != nil {
+		t.Fatalf("buildProviderBlocks: %v", err)
+	}
+	if len(build.warnings) != 1 {
+		t.Fatalf("warnings = %v, want one truncation warning", build.warnings)
+	}
+	if !strings.Contains(build.warnings[0], "Truncated") {
+		t.Fatalf("warning = %q, want truncation warning", build.warnings[0])
+	}
+	if len(build.blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(build.blocks))
+	}
+	text := build.blocks[0].Text()
+	if !strings.Contains(text, "assistant: abc") {
+		t.Fatalf("transcript = %q, want truncated assistant message", text)
+	}
+	if strings.Contains(text, "must not be retained") {
+		t.Fatalf("transcript retained content after budget: %q", text)
 	}
 }
 

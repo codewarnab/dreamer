@@ -32,13 +32,13 @@ func TestStateCache_GetState_MissThenHit(t *testing.T) {
 		t.Fatalf("RepoHeadSHA = %q, want %q", st1.RepoHeadSHA, "abc123")
 	}
 
-	// Second call — cache hit, returns same pointer.
+	// Second call — cache hit, returns a detached copy.
 	st2, err := sc.GetState("", "project-a")
 	if err != nil {
 		t.Fatalf("GetState (hit): %v", err)
 	}
-	if st1 != st2 {
-		t.Fatalf("expected same pointer on cache hit, got different pointers")
+	if st1 == st2 {
+		t.Fatalf("expected detached copy on cache hit")
 	}
 }
 
@@ -180,13 +180,93 @@ func TestStateCache_GetHistory_MissThenHit(t *testing.T) {
 		t.Fatalf("Days = %d, want 1", len(h1.Days))
 	}
 
-	// Second call — cache hit, same pointer.
+	// Second call — cache hit, detached copy.
 	h2, err := sc.GetHistory(outputRoot, "project-a")
 	if err != nil {
 		t.Fatalf("GetHistory (hit): %v", err)
 	}
-	if h1 != h2 {
-		t.Fatalf("expected same pointer on cache hit")
+	if h1 == h2 {
+		t.Fatalf("expected detached copy on cache hit")
+	}
+}
+
+func TestStateCache_GetState_ReturnsDeepCopy(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	sc := NewStateCache()
+	if err := Save("", "project-a", &State{
+		RepoHeadSHA: "v1",
+		ChatHashes:  map[string]string{"chat": "hash"},
+		Findings: map[string]FindingState{
+			"finding": {
+				ApplySpec:       &FindingApplySpec{Category: "doc", TargetFile: "README.md"},
+				AppliedReversal: &FindingReversal{Path: "README.md", PreImage: "before"},
+			},
+		},
+		CachedPhase1: &CachedPhase1Result{
+			Mistakes: map[string][]CachedMistake{"doc": {{Summary: "original"}}},
+		},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	st1, err := sc.GetState("", "project-a")
+	if err != nil {
+		t.Fatalf("GetState first: %v", err)
+	}
+	st1.RepoHeadSHA = "mutated"
+	st1.ChatHashes["chat"] = "mutated"
+	finding := st1.Findings["finding"]
+	finding.ApplySpec.TargetFile = "MUTATED.md"
+	finding.AppliedReversal.PreImage = "mutated"
+	st1.Findings["finding"] = finding
+	st1.CachedPhase1.Mistakes["doc"][0].Summary = "mutated"
+
+	st2, err := sc.GetState("", "project-a")
+	if err != nil {
+		t.Fatalf("GetState second: %v", err)
+	}
+	if st2.RepoHeadSHA != "v1" || st2.ChatHashes["chat"] != "hash" {
+		t.Fatalf("cached scalar/map state was mutated: %+v", st2)
+	}
+	finding = st2.Findings["finding"]
+	if finding.ApplySpec.TargetFile != "README.md" || finding.AppliedReversal.PreImage != "before" {
+		t.Fatalf("cached finding pointers were mutated: %+v", finding)
+	}
+	if st2.CachedPhase1.Mistakes["doc"][0].Summary != "original" {
+		t.Fatalf("cached phase1 mistakes were mutated: %+v", st2.CachedPhase1)
+	}
+}
+
+func TestStateCache_GetHistory_ReturnsDeepCopy(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	sc := NewStateCache()
+	outputRoot := filepath.Join(home, "output")
+	if err := SaveHistory(outputRoot, "project-a", &History{
+		Version: historyVersion,
+		Days: []DaySummary{
+			{Date: "2026-05-28", Runs: 1, PerCategory: map[string]int{"doc": 1}},
+		},
+	}); err != nil {
+		t.Fatalf("SaveHistory: %v", err)
+	}
+
+	h1, err := sc.GetHistory(outputRoot, "project-a")
+	if err != nil {
+		t.Fatalf("GetHistory first: %v", err)
+	}
+	h1.Days[0].Runs = 99
+	h1.Days[0].PerCategory["doc"] = 99
+
+	h2, err := sc.GetHistory(outputRoot, "project-a")
+	if err != nil {
+		t.Fatalf("GetHistory second: %v", err)
+	}
+	if h2.Days[0].Runs != 1 || h2.Days[0].PerCategory["doc"] != 1 {
+		t.Fatalf("cached history was mutated: %+v", h2.Days[0])
 	}
 }
 

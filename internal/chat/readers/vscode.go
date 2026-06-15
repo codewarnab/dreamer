@@ -48,6 +48,7 @@ func readVSCodeChatJSONL(filePath string) ([]ChatMessage, error) {
 	defer file.Close()
 
 	document := map[string]any{}
+	droppedRecords := 0
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, initialScannerBufferSize), maxScannerBufferSize)
 	for scanner.Scan() {
@@ -58,6 +59,7 @@ func readVSCodeChatJSONL(filePath string) ([]ChatMessage, error) {
 
 		var record map[string]any
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			droppedRecords++
 			continue
 		}
 		applyVSCodeChatJSONLRecord(document, record)
@@ -65,6 +67,7 @@ func readVSCodeChatJSONL(filePath string) ([]ChatMessage, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan vscode chat jsonl file %q: %w", filePath, err)
 	}
+	logDroppedParseRecords("vscode chat jsonl reader", filePath, droppedRecords)
 
 	return vscodeMessagesFromDocument(document), nil
 }

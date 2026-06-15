@@ -34,6 +34,21 @@ const (
 	// readHeaderTimeout is the http.Server ReadHeaderTimeout. Prevents
 	// slowloris-style attacks on the loopback server.
 	readHeaderTimeout = 5 * time.Second
+
+	// readTimeout is the http.Server ReadTimeout. Limits how long the server
+	// waits to read the full request body. Does not affect SSE response
+	// streaming (only the read side of the connection).
+	readTimeout = 30 * time.Second
+
+	// idleTimeout is the http.Server IdleTimeout. Recycles keep-alive
+	// connections that have been idle between requests. The loopback server
+	// serves a local dashboard, so a generous value avoids needless
+	// reconnect overhead.
+	idleTimeout = 120 * time.Second
+
+	// maxHeaderBytes caps request header size. 64 KiB is well above any
+	// legitimate browser or API request and guards against header-stuffing.
+	maxHeaderBytes = 64 << 10 // 64 KiB
 )
 
 // Options bundles the dependencies a Server needs.
@@ -69,6 +84,23 @@ type Options struct {
 	// StateCache, when non-nil, is shared with handlers for read-through
 	// caching of state.json and history.json. Nil creates a fresh cache.
 	StateCache *state.StateCache
+	// StateLock, when non-nil, is the shared per-project mutex used by both
+	// the web lifecycle handlers and the analysis pipeline.
+	//
+	// Why this must be shared
+	//
+	// The pipeline loads state at the start of an analysis run (potentially
+	// hours long) and saves at the end.  Without a shared lock, a web
+	// Apply/Dismiss/Undo that happens during the run is silently clobbered
+	// when the pipeline writes its final state — a lost-update race on
+	// state.json.  Passing the same *state.ProjectLock instance to both
+	// web.Options and pipeline.Options ensures every Load→Mutate→Save cycle
+	// in either subsystem is serialised through a single in-process mutex
+	// per project name.
+	//
+	// When nil a fresh lock is allocated (backward-compatible for callers
+	// that do not run a pipeline alongside the server, e.g. tests).
+	StateLock *state.ProjectLock
 	// Jobs holds background job dependencies. When zero-valued, job
 	// endpoints return 503.
 	Jobs handlers.JobDeps
@@ -329,7 +361,17 @@ func (s *Server) Start() error {
 			s.opts.Logger.Error("write port file failed", append([]logging.Attr{logging.Any("path", portPath)}, logging.ErrAttr(err)...)...)
 		}
 	}
-	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: readHeaderTimeout}
+	// WriteTimeout is intentionally omitted: a global write deadline would
+	// kill long-lived SSE connections on /api/events. Those streams are
+	// bounded instead by context cancellation (client disconnect and daemon
+	// shutdown) inside the handler itself.
+	s.httpSrv = &http.Server{
+		Handler:           s.routes(),
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
 	go func() {
 		if !s.opts.Standalone {
 			s.opts.Logger.Info("web start", logging.Any("host", host), logging.Any("port", port), logging.Any("bind_addr", s.addr))
@@ -556,7 +598,15 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 			}
 			return s.opts.RestartHook()
 		},
-		StateLock:      handlers.NewProjectLock(),
+		StateLock: func() *handlers.ProjectLock {
+			if s.opts.StateLock != nil {
+				return s.opts.StateLock
+			}
+			// Fallback: allocate a fresh lock so callers that do not supply
+			// one (e.g. standalone web mode without a co-located pipeline)
+			// still get correct handler-to-handler serialisation.
+			return handlers.NewProjectLock()
+		}(),
 		ModelListCache: &analyzer.ModelListCache{},
 		CacheDir: func() string {
 			return s.opts.Config.Daemon.OutputRoot

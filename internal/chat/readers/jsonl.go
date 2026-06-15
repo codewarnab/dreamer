@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -25,16 +26,37 @@ type ChatMessage struct {
 
 type JSONLReadOptions struct {
 	Sanitizer func([]ChatMessage) []ChatMessage
+	Budget    ReadBudget
+}
+
+// ReadBudget caps the decoded transcript bytes retained from one source.
+// Chunking happens after all sources have already been decoded and formatted,
+// so this guard must live in the reader layer to keep lifetime scans from
+// accumulating an unbounded corpus in daemon memory.
+type ReadBudget struct {
+	MaxBytes int
+}
+
+type ReadResult struct {
+	Messages  []ChatMessage
+	Truncated bool
+	Bytes     int
 }
 
 func ReadJSONL(filePath string) ([]ChatMessage, error) {
-	return ReadJSONLWithOptions(filePath, JSONLReadOptions{})
+	result, err := ReadJSONLWithOptionsResult(filePath, JSONLReadOptions{})
+	return result.Messages, err
 }
 
 func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMessage, error) {
+	result, err := ReadJSONLWithOptionsResult(filePath, options)
+	return result.Messages, err
+}
+
+func ReadJSONLWithOptionsResult(filePath string, options JSONLReadOptions) (ReadResult, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("open jsonl file %q: %w", filePath, err)
+		return ReadResult{}, fmt.Errorf("open jsonl file %q: %w", filePath, err)
 	}
 	defer file.Close()
 
@@ -42,6 +64,8 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 	scanner.Buffer(make([]byte, initialScannerBufferSize), maxScannerBufferSize)
 
 	messages := make([]ChatMessage, 0)
+	droppedRecords := 0
+	budget := newMessageBudget(options.Budget.MaxBytes)
 	for scanner.Scan() {
 		// Bytes() is allocation-free but only valid until the next Scan call.
 		// Safe here: parseJSONLRecordBytes immediately calls json.Unmarshal,
@@ -51,39 +75,110 @@ func ReadJSONLWithOptions(filePath string, options JSONLReadOptions) ([]ChatMess
 			continue
 		}
 
-		message, ok := parseJSONLRecordBytes(raw)
+		message, parseErr, ok := parseJSONLRecordBytes(raw)
+		if parseErr != nil {
+			droppedRecords++
+			continue
+		}
 		if !ok {
 			continue
 		}
+		message, ok = budget.keep(message)
+		if !ok {
+			break
+		}
 		messages = append(messages, message)
+		if budget.truncated {
+			break
+		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan jsonl file %q: %w", filePath, err)
+		return ReadResult{}, fmt.Errorf("scan jsonl file %q: %w", filePath, err)
 	}
+	logDroppedParseRecords("jsonl reader", filePath, droppedRecords)
 
 	if options.Sanitizer != nil {
 		messages = options.Sanitizer(messages)
 	}
 
-	return messages, nil
+	return ReadResult{
+		Messages:  messages,
+		Truncated: budget.truncated,
+		Bytes:     budget.bytes,
+	}, nil
+}
+
+type messageBudget struct {
+	maxBytes  int
+	bytes     int
+	truncated bool
+}
+
+func newMessageBudget(maxBytes int) *messageBudget {
+	return &messageBudget{maxBytes: maxBytes}
+}
+
+func (b *messageBudget) keep(message ChatMessage) (ChatMessage, bool) {
+	overhead := retainedMessageOverhead(message)
+	if b.maxBytes <= 0 {
+		b.bytes += overhead + len(message.Content)
+		return message, true
+	}
+	remaining := b.maxBytes - b.bytes - overhead
+	if remaining <= 0 {
+		b.truncated = true
+		return ChatMessage{}, false
+	}
+	if len(message.Content) <= remaining {
+		b.bytes += overhead + len(message.Content)
+		return message, true
+	}
+	message.Content = truncateStringBytes(message.Content, remaining)
+	b.bytes += overhead + len(message.Content)
+	b.truncated = true
+	return message, strings.TrimSpace(message.Content) != ""
+}
+
+func retainedMessageOverhead(message ChatMessage) int {
+	// Mirrors the pipeline's transcript line shape closely enough for budget
+	// enforcement without importing pipeline formatting into the reader layer.
+	overhead := len(message.Role) + len(": \n")
+	if !message.Timestamp.IsZero() {
+		overhead += len("[] ") + len(time.RFC3339)
+	}
+	return overhead
+}
+
+func truncateStringBytes(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		if maxBytes <= 0 {
+			return ""
+		}
+		return value
+	}
+	for maxBytes > 0 && !utf8.ValidString(value[:maxBytes]) {
+		maxBytes--
+	}
+	return strings.TrimSpace(value[:maxBytes])
 }
 
 func parseJSONLRecord(line string) (ChatMessage, bool) {
-	return parseJSONLRecordBytes([]byte(line))
+	message, _, ok := parseJSONLRecordBytes([]byte(line))
+	return message, ok
 }
 
-func parseJSONLRecordBytes(raw []byte) (ChatMessage, bool) {
+func parseJSONLRecordBytes(raw []byte) (ChatMessage, error, bool) {
 	var record map[string]any
 	if err := json.Unmarshal(raw, &record); err != nil {
-		return ChatMessage{}, false
+		return ChatMessage{}, err, false
 	}
 
 	if message, ok := copilotSessionMessageFromRecord(record); ok {
-		return message, true
+		return message, nil, true
 	}
 
 	if message, ok := messageFromMap(record, record); ok {
-		return message, true
+		return message, nil, true
 	}
 
 	for _, nestedValue := range nestedMessageCandidates(record) {
@@ -93,11 +188,11 @@ func parseJSONLRecordBytes(raw []byte) (ChatMessage, bool) {
 		}
 
 		if message, ok := messageFromMap(nestedRecord, record); ok {
-			return message, true
+			return message, nil, true
 		}
 	}
 
-	return ChatMessage{}, false
+	return ChatMessage{}, nil, false
 }
 
 func copilotSessionMessageFromRecord(record map[string]any) (ChatMessage, bool) {

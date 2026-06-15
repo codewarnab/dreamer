@@ -84,7 +84,7 @@ func TestAcceptance_V15(t *testing.T) {
 			date := now.AddDate(0, 0, -i).Format("2006-01-02")
 			runMillis := int64(10000 + i*2000)
 			delta := state.DaySummaryDelta{Runs: 1, RunDurationMillis: runMillis, PerCategory: map[string]int{"doc": 1}}
-			if err := state.UpdateHistoryToday(root, name, date, delta); err != nil {
+			if err := state.UpdateHistoryToday(root, name, date, delta, state.NewProjectLock()); err != nil {
 				t.Fatalf("seed %s: %v", date, err)
 			}
 			totalRunDurationMillis += runMillis

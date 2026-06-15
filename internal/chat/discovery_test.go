@@ -2,6 +2,7 @@ package chat
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"dreamer/internal/chat/readers"
 )
 
 func TestDiscoverChatsFromRootsFindsCopilotVSCodeAndClaudeChats(t *testing.T) {
@@ -122,6 +125,59 @@ func TestDiscoverChatsReadsDefaultRoots(t *testing.T) {
 	}
 	if len(sources) != 4 {
 		t.Fatalf("expected 4 sources, got %d", len(sources))
+	}
+}
+
+func TestDiscoverChatsSkipsFailedProviderWhenOthersSucceed(t *testing.T) {
+	projectDir := t.TempDir()
+	foundPath := filepath.Join(projectDir, "chat.jsonl")
+	modifiedTime := time.Now().UTC().Truncate(time.Second)
+	withRegisteredProviders(t,
+		fakeDiscoveryProvider{
+			sourceType: SourceTypeCopilotSessionJSONL,
+			sources: []Source{{
+				Path:         foundPath,
+				Tool:         SourceTypeCopilotSessionJSONL,
+				ModifiedTime: modifiedTime,
+			}},
+		},
+		fakeDiscoveryProvider{
+			sourceType: SourceTypeClaudeCodeSession,
+			err:        errors.New("permission denied"),
+		},
+	)
+
+	sources, err := discoverChatsFromEnvironment(DiscoveryEnvironment{}, projectDir)
+	if err != nil {
+		t.Fatalf("discoverChatsFromEnvironment returned error: %v", err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("expected one source from successful provider, got %d", len(sources))
+	}
+	assertSource(t, map[string]Source{foundPath: sources[0]}, foundPath, SourceTypeCopilotSessionJSONL, modifiedTime)
+}
+
+func TestDiscoverChatsFailsWhenEveryProviderFails(t *testing.T) {
+	withRegisteredProviders(t,
+		fakeDiscoveryProvider{
+			sourceType: SourceTypeCopilotSessionJSONL,
+			err:        errors.New("copilot unreadable"),
+		},
+		fakeDiscoveryProvider{
+			sourceType: SourceTypeClaudeCodeSession,
+			err:        errors.New("claude unreadable"),
+		},
+	)
+
+	sources, err := discoverChatsFromEnvironment(DiscoveryEnvironment{}, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error when every provider fails")
+	}
+	if len(sources) != 0 {
+		t.Fatalf("expected no sources on full discovery failure, got %d", len(sources))
+	}
+	if !strings.Contains(err.Error(), "copilot") || !strings.Contains(err.Error(), "claude") {
+		t.Fatalf("error = %q, want both provider errors", err.Error())
 	}
 }
 
@@ -1754,4 +1810,33 @@ func TestCodebuffProviderDeleteSource(t *testing.T) {
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Error("expected file to be deleted")
 	}
+}
+
+type fakeDiscoveryProvider struct {
+	sourceType SourceType
+	sources    []Source
+	err        error
+}
+
+func (p fakeDiscoveryProvider) Type() SourceType { return p.sourceType }
+
+func (p fakeDiscoveryProvider) Discover(DiscoveryEnvironment, string) ([]Source, error) {
+	return p.sources, p.err
+}
+
+func (fakeDiscoveryProvider) ReadMessages(Source) ([]readers.ChatMessage, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (fakeDiscoveryProvider) DeleteSource(Source) error { return nil }
+
+func (fakeDiscoveryProvider) SizeBytes(Source) (int64, error) { return 0, nil }
+
+func withRegisteredProviders(t *testing.T, providers ...SourceProvider) {
+	t.Helper()
+	originalProviders := registeredProviders
+	registeredProviders = providers
+	t.Cleanup(func() {
+		registeredProviders = originalProviders
+	})
 }

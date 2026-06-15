@@ -138,14 +138,16 @@ func readLockMetadata(path string) (pid int, execPath string, err error) {
 // binary, resolving symlinks and using case-insensitive comparison on
 // Windows.
 func ExecPathsMatch(pathA, pathB string) bool {
+	pathA = normalizeExecPath(pathA)
+	pathB = normalizeExecPath(pathB)
 	// Resolve symlinks so an in-place upgrade still matches the recorded path.
 	// Fall back to plain string compare when EvalSymlinks fails (e.g. the
 	// recorded binary has since been deleted).
 	if resolvedA, err := filepath.EvalSymlinks(pathA); err == nil {
-		pathA = resolvedA
+		pathA = normalizeExecPath(resolvedA)
 	}
 	if resolvedB, err := filepath.EvalSymlinks(pathB); err == nil {
-		pathB = resolvedB
+		pathB = normalizeExecPath(resolvedB)
 	}
 	// NTFS is case-insensitive; QueryFullProcessImageNameW returns
 	// case-preserved paths that may differ from the recorded value.
@@ -153,4 +155,11 @@ func ExecPathsMatch(pathA, pathB string) bool {
 		return strings.EqualFold(pathA, pathB)
 	}
 	return pathA == pathB
+}
+
+func normalizeExecPath(path string) string {
+	if runtime.GOOS == "windows" {
+		path = strings.TrimPrefix(path, `\\?\`)
+	}
+	return filepath.Clean(path)
 }

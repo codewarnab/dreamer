@@ -1,13 +1,15 @@
 package fsutil
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"dreamer/internal/gitutil"
 )
 
 // DefaultFileListCap is the maximum number of files returned by ListProjectFiles.
@@ -71,7 +73,8 @@ func ListProjectFiles(projectRoot string, maxFiles int) ([]string, error) {
 // while respecting .gitignore. Returns nil, err if git is unavailable or
 // the directory is not a git repo.
 func listViaGit(projectRoot string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard")
+	cmd, cancel := gitutil.Command(context.Background(), "ls-files", "--cached", "--others", "--exclude-standard")
+	defer cancel()
 	cmd.Dir = projectRoot
 	out, err := cmd.Output()
 	if err != nil {

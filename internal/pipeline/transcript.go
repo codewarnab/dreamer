@@ -12,6 +12,12 @@ import (
 	"dreamer/internal/logging"
 )
 
+type sourceReadResult struct {
+	messages  []readers.ChatMessage
+	truncated bool
+	bytes     int
+}
+
 // multiWhitespace matches runs of spaces, tabs, and newlines so
 // normalizeWhitespace can collapse them into a single space before hashing.
 var multiWhitespace = regexp.MustCompile(`[\t\r\n ]+`)
@@ -24,11 +30,33 @@ func normalizeWhitespace(s string) string {
 }
 
 func readMessagesFromSource(source chat.Source) ([]readers.ChatMessage, error) {
+	result, err := readMessagesFromSourceWithBudget(source, 0)
+	return result.messages, err
+}
+
+func readMessagesFromSourceWithBudget(source chat.Source, maxSourceBytes int) (sourceReadResult, error) {
 	provider, ok := chat.ProviderFor(source.Tool)
 	if !ok {
-		return nil, fmt.Errorf("unsupported chat source tool %q for %q", source.Tool, source.Path)
+		return sourceReadResult{}, fmt.Errorf("unsupported chat source tool %q for %q", source.Tool, source.Path)
 	}
-	return provider.ReadMessages(source)
+	if budgeted, ok := provider.(chat.BudgetedReader); ok {
+		result, err := budgeted.ReadMessagesWithOptions(source, chat.ReadOptions{
+			Budget: readers.ReadBudget{MaxBytes: maxSourceBytes},
+		})
+		if err != nil {
+			return sourceReadResult{}, err
+		}
+		return sourceReadResult{
+			messages:  result.Messages,
+			truncated: result.Truncated,
+			bytes:     result.Bytes,
+		}, nil
+	}
+	messages, err := provider.ReadMessages(source)
+	if err != nil {
+		return sourceReadResult{}, err
+	}
+	return sourceReadResult{messages: messages}, nil
 }
 
 // transcriptBuild bundles the outputs of buildProviderBlocks so the
@@ -45,7 +73,7 @@ type transcriptBuild struct {
 // buildProviderBlocks reads + redacts every source and groups results by tool.
 // Returns one ProviderBlock per tool with messages in discovery order.
 // When includeSubagents is false, sources with a non-empty ParentID are skipped.
-func buildProviderBlocks(sources []chat.Source, redactor *analyzer.Redactor, logger *logging.Logger, includeSubagents bool) (transcriptBuild, error) {
+func buildProviderBlocks(sources []chat.Source, redactor *analyzer.Redactor, logger *logging.Logger, includeSubagents bool, maxSourceBytes int) (transcriptBuild, error) {
 	type toolAggregator struct {
 		tool     string
 		paths    []string
@@ -62,16 +90,20 @@ func buildProviderBlocks(sources []chat.Source, redactor *analyzer.Redactor, log
 			logger.Info("skipping subagent transcript", logging.Any("path", source.Path), logging.Any("parent_id", source.ParentID))
 			continue
 		}
-		messages, err := readMessagesFromSource(source)
+		readResult, err := readMessagesFromSourceWithBudget(source, maxSourceBytes)
 		if err != nil {
 			logger.Warn("source read failed", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("err", err))
 			warnings = append(warnings, fmt.Sprintf("Skipped %s (%v).", source.Path, err))
 			continue
 		}
+		messages := readResult.messages
 		raw := len(messages)
 		if len(messages) == 0 {
 			logger.Info("source empty", logging.Any("path", source.Path), logging.Any("tool", source.Tool), logging.Any("raw", raw))
 			continue
+		}
+		if readResult.truncated {
+			warnings = append(warnings, fmt.Sprintf("Truncated %s after %d retained bytes; tighten since or raise analyzer.chunking.max_chunk_bytes for more history.", source.Path, readResult.bytes))
 		}
 		usedSources = append(usedSources, source)
 		toolKey := string(source.Tool)

@@ -447,7 +447,10 @@ For each finding:
 
 ### 7.6 Token budget
 
-Per call: provider-dependent; default cap 200k tokens input, 8k output. Configurable per provider under `providers.<id>.max_input_tokens`.
+Input volume is bounded before provider calls by `analyzer.chunking.max_chunk_bytes`,
+which also caps each source read budget. Provider token windows are not exposed
+as per-provider knobs because the supported transports do not share a reliable
+input-token limit API.
 
 ---
 

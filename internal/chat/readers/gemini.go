@@ -19,9 +19,14 @@ import (
 // sentinel records `{"$set":...}` and `{"$rewindTo":...}` are emitted on edits
 // and rewinds; both are skipped.
 func ReadGeminiCLI(filePath string) ([]ChatMessage, error) {
+	result, err := ReadGeminiCLIWithBudget(filePath, ReadBudget{})
+	return result.Messages, err
+}
+
+func ReadGeminiCLIWithBudget(filePath string, budget ReadBudget) (ReadResult, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("open gemini cli session %q: %w", filePath, err)
+		return ReadResult{}, fmt.Errorf("open gemini cli session %q: %w", filePath, err)
 	}
 	defer file.Close()
 
@@ -30,6 +35,8 @@ func ReadGeminiCLI(filePath string) ([]ChatMessage, error) {
 
 	messages := make([]ChatMessage, 0)
 	lineNumber := 0
+	droppedRecords := 0
+	messageBudget := newMessageBudget(budget.MaxBytes)
 	for scanner.Scan() {
 		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
@@ -39,6 +46,7 @@ func ReadGeminiCLI(filePath string) ([]ChatMessage, error) {
 
 		var record map[string]any
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			droppedRecords++
 			continue
 		}
 		if isGeminiSentinel(record) {
@@ -49,22 +57,44 @@ func ReadGeminiCLI(filePath string) ([]ChatMessage, error) {
 			if nested, ok := record["messages"].([]any); ok {
 				for _, item := range nested {
 					if message, ok := geminiMessageFromValue(item); ok {
-						messages = append(messages, message)
+						kept, ok := messageBudget.keep(message)
+						if !ok {
+							break
+						}
+						messages = append(messages, kept)
+						if messageBudget.truncated {
+							break
+						}
 					}
+				}
+				if messageBudget.truncated {
+					break
 				}
 				continue
 			}
 		}
 
 		if message, ok := geminiMessageFromValue(record); ok {
-			messages = append(messages, message)
+			kept, ok := messageBudget.keep(message)
+			if !ok {
+				break
+			}
+			messages = append(messages, kept)
+			if messageBudget.truncated {
+				break
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan gemini cli session %q: %w", filePath, err)
+		return ReadResult{}, fmt.Errorf("scan gemini cli session %q: %w", filePath, err)
 	}
+	logDroppedParseRecords("gemini cli reader", filePath, droppedRecords)
 
-	return messages, nil
+	return ReadResult{
+		Messages:  messages,
+		Truncated: messageBudget.truncated,
+		Bytes:     messageBudget.bytes,
+	}, nil
 }
 
 func isGeminiSentinel(record map[string]any) bool {

@@ -230,10 +230,11 @@ func todosOutputPath(outputRoot string, projectName string) string {
 	return p
 }
 
-// phase1CacheKey builds a deterministic hash of the transcript identity and
-// rule pack configuration. If either changes, the cached Phase 1 results
-// are invalid.
-func phase1CacheKey(chatHashes map[string]string, repoHeadSHA string, packs []analyzer.RulePack) string {
+// phase1CacheKey builds a deterministic hash of every input that can change
+// Phase 1 mistakes. Since and thresholds are intentionally included even
+// though they are not prompt text: since changes the discovered transcript
+// set, and thresholds change which model-reported mistakes survive replay.
+func phase1CacheKey(chatHashes map[string]string, repoHeadSHA, sinceLabel string, packs []analyzer.RulePack) string {
 	h := sha256.New()
 	// Sorted chat hash entries for determinism.
 	paths := make([]string, 0, len(chatHashes))
@@ -245,6 +246,7 @@ func phase1CacheKey(chatHashes map[string]string, repoHeadSHA string, packs []an
 		fmt.Fprintf(h, "%s=%s\n", p, chatHashes[p])
 	}
 	fmt.Fprintf(h, "repo_head=%s\n", repoHeadSHA)
+	fmt.Fprintf(h, "since=%s\n", strings.TrimSpace(sinceLabel))
 	// Include enabled categories and their Phase 1 prompt components so
 	// config changes invalidate the cache. Only Phase 1 inputs are hashed;
 	// Phase 2 fields (e.g. GuardrailPromptTemplate) are excluded because
@@ -253,8 +255,10 @@ func phase1CacheKey(chatHashes map[string]string, repoHeadSHA string, packs []an
 		if !p.Enabled {
 			continue
 		}
-		fmt.Fprintf(h, "pack=%s|tpl=%s|preamble=%s|desc=%s|schema=%s\n",
-			p.Category, p.MistakePromptTemplate,
+		fmt.Fprintf(h, "pack=%s|threshold=%g|tpl=%s|preamble=%s|desc=%s|schema=%s\n",
+			p.Category,
+			p.Threshold,
+			p.MistakePromptTemplate,
 			p.EffectivePhase1Preamble(),
 			p.EffectivePhase1CategoryDescription(),
 			p.EffectivePhase1ResponseSchema())

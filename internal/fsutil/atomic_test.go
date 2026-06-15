@@ -78,13 +78,14 @@ func TestWriteFileAtomicReplacesExistingFile(t *testing.T) {
 	}
 }
 
-func TestWriteFileAtomicSucceedsWithPreExistingTempFile(t *testing.T) {
+func TestWriteFileAtomicPreservesPreExistingTempFile(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "out.txt")
-	// Simulate a stale temp file from a prior crash (old naming pattern).
-	if err := os.WriteFile(target+".tmp", []byte("crashed mid-write"), 0o644); err != nil {
+	existingTemp := target + ".tmp.12345"
+	if err := os.WriteFile(existingTemp, []byte("in-flight writer"), 0o644); err != nil {
 		t.Fatalf("seed tmp: %v", err)
 	}
+
 	if err := WriteFileAtomic(target, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
@@ -94,5 +95,12 @@ func TestWriteFileAtomicSucceedsWithPreExistingTempFile(t *testing.T) {
 	}
 	if string(got) != "ok" {
 		t.Fatalf("content = %q, want %q", got, "ok")
+	}
+	got, err = os.ReadFile(existingTemp)
+	if err != nil {
+		t.Fatalf("pre-existing temp was removed: %v", err)
+	}
+	if string(got) != "in-flight writer" {
+		t.Fatalf("pre-existing temp content = %q, want %q", got, "in-flight writer")
 	}
 }

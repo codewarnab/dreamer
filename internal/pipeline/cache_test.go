@@ -328,8 +328,8 @@ func TestPhase1CacheKeyDeterministic(t *testing.T) {
 	packs := []analyzer.RulePack{
 		{Category: "test", Enabled: true, MistakePromptTemplate: "tmpl1"},
 	}
-	k1 := phase1CacheKey(hashes, "abc", packs)
-	k2 := phase1CacheKey(hashes, "abc", packs)
+	k1 := phase1CacheKey(hashes, "abc", "24h", packs)
+	k2 := phase1CacheKey(hashes, "abc", "24h", packs)
 	if k1 != k2 {
 		t.Errorf("same inputs produced different keys: %q vs %q", k1, k2)
 	}
@@ -337,8 +337,8 @@ func TestPhase1CacheKeyDeterministic(t *testing.T) {
 
 func TestPhase1CacheKeyChangesOnTranscriptChange(t *testing.T) {
 	packs := []analyzer.RulePack{{Category: "test", Enabled: true}}
-	k1 := phase1CacheKey(map[string]string{"a.jsonl": "h1"}, "abc", packs)
-	k2 := phase1CacheKey(map[string]string{"a.jsonl": "h2"}, "abc", packs)
+	k1 := phase1CacheKey(map[string]string{"a.jsonl": "h1"}, "abc", "24h", packs)
+	k2 := phase1CacheKey(map[string]string{"a.jsonl": "h2"}, "abc", "24h", packs)
 	if k1 == k2 {
 		t.Error("different hashes should produce different keys")
 	}
@@ -347,8 +347,8 @@ func TestPhase1CacheKeyChangesOnTranscriptChange(t *testing.T) {
 func TestPhase1CacheKeyChangesOnRepoHeadChange(t *testing.T) {
 	hashes := map[string]string{"a.jsonl": "h1"}
 	packs := []analyzer.RulePack{{Category: "test", Enabled: true}}
-	k1 := phase1CacheKey(hashes, "abc", packs)
-	k2 := phase1CacheKey(hashes, "def", packs)
+	k1 := phase1CacheKey(hashes, "abc", "24h", packs)
+	k2 := phase1CacheKey(hashes, "def", "24h", packs)
 	if k1 == k2 {
 		t.Error("different repo HEAD should produce different keys")
 	}
@@ -356,10 +356,29 @@ func TestPhase1CacheKeyChangesOnRepoHeadChange(t *testing.T) {
 
 func TestPhase1CacheKeyChangesOnPackChange(t *testing.T) {
 	hashes := map[string]string{"a.jsonl": "h1"}
-	k1 := phase1CacheKey(hashes, "abc", []analyzer.RulePack{{Category: "test", Enabled: true, MistakePromptTemplate: "old"}})
-	k2 := phase1CacheKey(hashes, "abc", []analyzer.RulePack{{Category: "test", Enabled: true, MistakePromptTemplate: "new"}})
+	k1 := phase1CacheKey(hashes, "abc", "24h", []analyzer.RulePack{{Category: "test", Enabled: true, MistakePromptTemplate: "old"}})
+	k2 := phase1CacheKey(hashes, "abc", "24h", []analyzer.RulePack{{Category: "test", Enabled: true, MistakePromptTemplate: "new"}})
 	if k1 == k2 {
 		t.Error("different pack templates should produce different keys")
+	}
+}
+
+func TestPhase1CacheKeyChangesOnThresholdChange(t *testing.T) {
+	hashes := map[string]string{"a.jsonl": "h1"}
+	k1 := phase1CacheKey(hashes, "abc", "24h", []analyzer.RulePack{{Category: "test", Enabled: true, Threshold: 0.5}})
+	k2 := phase1CacheKey(hashes, "abc", "24h", []analyzer.RulePack{{Category: "test", Enabled: true, Threshold: 0.9}})
+	if k1 == k2 {
+		t.Error("different thresholds should produce different keys")
+	}
+}
+
+func TestPhase1CacheKeyChangesOnSinceChange(t *testing.T) {
+	hashes := map[string]string{"a.jsonl": "h1"}
+	packs := []analyzer.RulePack{{Category: "test", Enabled: true}}
+	k1 := phase1CacheKey(hashes, "abc", "24h", packs)
+	k2 := phase1CacheKey(hashes, "abc", "lifetime", packs)
+	if k1 == k2 {
+		t.Error("different since windows should produce different keys")
 	}
 }
 

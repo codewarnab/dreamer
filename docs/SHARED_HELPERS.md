@@ -376,7 +376,7 @@ Returns true for binary/media file extensions.
 |---|---|
 | `state.LoadHistory(outputRoot, projectName string) (*History, error)` | Read history.json; returns empty history when missing |
 | `state.SaveHistory(outputRoot, projectName string, h *History) error` | Atomic write of history.json |
-| `state.UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryDelta) error` | Merge a run delta into today's bucket and persist |
+| `state.UpdateHistoryToday(outputRoot, projectName, today string, delta DaySummaryDelta, lock *ProjectLock) error` | Merge a run delta into today's bucket and persist under the shared per-project lock |
 | `state.HistoryPath(outputRoot, projectName string) (string, error)` | Resolves the history.json path |
 
 **Current callers of `LoadHistory`:** `dashboard.go` (cache fallback), `history.go` endpoint handler
@@ -461,7 +461,23 @@ deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
 
 ---
 
-## 19. Structured Errors (`internal/errs/`)
+## 19. Git Subprocesses (`internal/gitutil/command.go`)
+
+### `gitutil.Command(parent context.Context, args ...string) (*exec.Cmd, context.CancelFunc)`
+
+Creates a `git` command with a 10-second timeout and `GIT_TERMINAL_PROMPT=0` so local metadata probes cannot hang Dreamer on credential prompts, broken repositories, or slow network filesystems. Callers must `defer cancel()` after creation.
+
+```go
+cmd, cancel := gitutil.Command(context.Background(), "rev-parse", "HEAD")
+defer cancel()
+out, err := cmd.Output()
+```
+
+**Current callers:** `internal/state/tracker.go`, `internal/fsutil/filelist.go`, `internal/astcheck/runner.go`
+
+---
+
+## 20. Structured Errors (`internal/errs/`)
 
 ### Constructors
 | Function | Use case |
@@ -482,7 +498,7 @@ deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
 
 ---
 
-## 20. Job Validation Helpers (`internal/web/handlers/jobs.go`)
+## 21. Job Validation Helpers (`internal/web/handlers/jobs.go`)
 
 ### `validateCreatePayload(cfg *config.App, payload createPayload, lookup func(string) *backgroundjobs.ProviderMeta) (projectPath string, warnings []string, err error)`
 
@@ -572,6 +588,7 @@ if err := cache.Save(cacheDir); err != nil {
 | Check auto-apply eligibility | `categories.ApplyEligible` |
 | Build structured log field | `logging.Any` / `logging.String` |
 | Build error log fields | `logging.ErrAttr` |
+| Run bounded non-interactive git | `gitutil.Command` |
 | Create a tagged provider error | `errs.NotInstalled` / `errs.RateLimit` / `errs.ProviderUnavailable` |
 | Warm model list from disk | `(*ModelListCache).Load(dir)` |
 | Persist model list to disk | `(*ModelListCache).Save(dir)` |

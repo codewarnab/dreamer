@@ -62,13 +62,19 @@ func discoverCodexSessions(homeDir string, projectPath string) ([]Source, error)
 }
 
 func (codexProvider) ReadMessages(source Source) ([]readers.ChatMessage, error) {
-	messages, err := readers.ReadJSONLWithOptions(source.Path, readers.JSONLReadOptions{
+	result, err := codexProvider{}.ReadMessagesWithOptions(source, ReadOptions{})
+	return result.Messages, err
+}
+
+func (codexProvider) ReadMessagesWithOptions(source Source, options ReadOptions) (ReadResult, error) {
+	result, err := readers.ReadJSONLWithOptionsResult(source.Path, readers.JSONLReadOptions{
 		Sanitizer: readers.SanitizeCodexMessages,
+		Budget:    options.Budget,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
+		return ReadResult{}, fmt.Errorf("read jsonl chat source %q: %w", source.Path, err)
 	}
-	return messages, nil
+	return ReadResult{Messages: result.Messages, Truncated: result.Truncated, Bytes: result.Bytes}, nil
 }
 
 func probeCodexSessionCWD(sessionPath string) (string, bool) {
