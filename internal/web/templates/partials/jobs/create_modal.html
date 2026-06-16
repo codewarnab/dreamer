@@ -1,0 +1,22 @@
+{{define "jobs_create_modal"}}
+<div class="modal-overlay" x-show="showCreateModal" x-cloak style="display: none;"
+     @click.self="closeCreate()" @keydown.escape.window="showCreateModal && closeCreate()">
+  <div class="modal-dialog" style="max-width: 600px; width: 100%;">
+    <h3>create background job</h3>
+    <p style="margin-bottom: var(--space-4);">Schedule a recurring prompt that runs automatically via your configured providers.</p>
+
+    <div style="max-height: 60vh; overflow-y: auto; padding-right: var(--space-2); margin-bottom: var(--space-4);">
+      {{template "jobs_create_form" .}}
+      {{template "jobs_preview" .}}
+    </div>
+
+    <div x-show="error" style="color: var(--color-error); margin-bottom: var(--space-3);" x-text="error"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn--ghost" @click="closeCreate()" :disabled="loading">cancel</button>
+      <button class="btn btn--ghost" @click="previewJob()" :disabled="loading">preview</button>
+      <button class="btn btn--primary" @click="createJob()" :disabled="loading" x-text="loading ? 'creating...' : 'create'"></button>
+    </div>
+  </div>
+</div>
+{{end}}

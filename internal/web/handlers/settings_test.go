@@ -128,6 +128,79 @@ func TestSettings_PUTCreatesMissingOverlay(t *testing.T) {
 	}
 }
 
+// TestSettings_PUTRulePromptOverrideRoundTrip locks in the per-category prompt
+// editing contract: a prompt template writes to the overlay, sending null
+// clears it, and the sibling severity survives both — relying on the recursive
+// merge in mergePartial.
+func TestSettings_PUTRulePromptOverrideRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	overlayPath := filepath.Join(dir, "ui-overrides.yaml")
+	if err := os.WriteFile(overlayPath, []byte("analyzer:\n  rules:\n    test:\n      severity: high\n"), 0o644); err != nil {
+		t.Fatalf("seed overlay: %v", err)
+	}
+	deps := Deps{
+		Config:      func() *config.App { return &config.App{} },
+		OverlayPath: func() string { return overlayPath },
+	}
+
+	// Write a mistake prompt override; severity must survive.
+	body := strings.NewReader(`{"analyzer":{"rules":{"test":{"mistake_prompt_template":"custom prompt"}}}}`)
+	r := httptest.NewRequest("PUT", "/api/settings", body)
+	w := httptest.NewRecorder()
+	Settings(deps)(w, r)
+	if w.Code != 200 {
+		t.Fatalf("write status %d body=%s", w.Code, w.Body)
+	}
+	rule := readRuleOverlay(t, overlayPath)
+	if rule["mistake_prompt_template"] != "custom prompt" {
+		t.Fatalf("mistake_prompt_template not written: %+v", rule)
+	}
+	if rule["severity"] != "high" {
+		t.Fatalf("severity clobbered by prompt write: %+v", rule)
+	}
+
+	// Clear the override with null; severity must still survive.
+	body = strings.NewReader(`{"analyzer":{"rules":{"test":{"mistake_prompt_template":null}}}}`)
+	r = httptest.NewRequest("PUT", "/api/settings", body)
+	w = httptest.NewRecorder()
+	Settings(deps)(w, r)
+	if w.Code != 200 {
+		t.Fatalf("clear status %d body=%s", w.Code, w.Body)
+	}
+	rule = readRuleOverlay(t, overlayPath)
+	if _, ok := rule["mistake_prompt_template"]; ok {
+		t.Fatalf("mistake_prompt_template not cleared: %+v", rule)
+	}
+	if rule["severity"] != "high" {
+		t.Fatalf("severity lost on clear: %+v", rule)
+	}
+}
+
+func readRuleOverlay(t *testing.T, overlayPath string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatalf("read overlay: %v", err)
+	}
+	var got map[string]any
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal overlay: %v", err)
+	}
+	analyzerBlock, ok := got["analyzer"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing analyzer block: %+v", got)
+	}
+	rules, ok := analyzerBlock["rules"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing rules block: %+v", got)
+	}
+	rule, ok := rules["test"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing test rule: %+v", got)
+	}
+	return rule
+}
+
 func TestSettings_PUTRejectsRestrictedFields(t *testing.T) {
 	for _, field := range []string{"command", "env", "base_url", "cli_url"} {
 		t.Run(field, func(t *testing.T) {

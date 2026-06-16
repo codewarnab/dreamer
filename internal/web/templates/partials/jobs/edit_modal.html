@@ -1,5 +1,6 @@
 {{define "jobs_edit_modal"}}
-<div class="modal-overlay" x-show="showEditModal" x-cloak style="display: none;">
+<div class="modal-overlay" x-show="showEditModal" x-cloak style="display: none;"
+     @click.self="showEditModal = false" @keydown.escape.window="showEditModal && (showEditModal = false)">
   <div class="modal-dialog" style="max-width: 600px; width: 100%;">
     <h3>edit background job</h3>
     <p style="margin-bottom: var(--space-4);">Modify the configurations and permissions for this recurring background job.</p>

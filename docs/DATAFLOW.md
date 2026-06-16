@@ -458,6 +458,15 @@ live.Store(newConfig)   (atomic.Pointer CAS swap)
 events.Publish(config.reloaded)  → SSE broadcast to all clients
 ```
 
+The Settings write path also carries **per-category prompt overrides**. The rules
+panel reads embedded defaults from `GET /api/rule-defaults` (sourced from
+`analyzer.LoadDefaultRulePacks()`, never the overlay) to show placeholder/reset
+text, and a `PUT /api/settings` body may set `analyzer.rules.<category>.{mistake_prompt_template,
+guardrail_prompt_template, phase1_category_description}`. `mergePartial` folds these
+into the overlay's existing rule map recursively (siblings like `severity` survive),
+and a `null` value deletes the key so the embedded pack default applies again at
+`applyRuleToggles`.
+
 ### Apply / Undo Path (Finding Remediation)
 
 ```
