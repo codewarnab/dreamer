@@ -126,8 +126,18 @@ window.addEventListener("alpine:init", function () {
     var evaluate = runtime.evaluate;
     var cleanup = runtime.cleanup;
     var close = function () { if (expression) evaluate(expression); };
-    var onClick = function (event) { if (event.target === el) close(); };
-    var onKey = function (event) { if (event.key === "Escape") close(); };
+    // The overlay stays in the DOM and is toggled via x-show (display:none),
+    // so guard every handler on actual visibility — otherwise a global Escape
+    // would evaluate the close expression for hidden modals too (resetting
+    // forms / cancelling actions while nothing is open), and a single Escape
+    // would close every stacked modal at once.
+    var isVisible = function () { return el.offsetParent !== null; };
+    var onClick = function (event) { if (event.target === el && isVisible()) close(); };
+    var onKey = function (event) {
+      if (event.key !== "Escape" || event.defaultPrevented || !isVisible()) return;
+      event.preventDefault();
+      close();
+    };
     if (modifiers.indexOf("no-backdrop") === -1) {
       el.addEventListener("click", onClick);
     }

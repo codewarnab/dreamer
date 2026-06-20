@@ -554,6 +554,32 @@ if err := cache.Save(cacheDir); err != nil {
 
 ---
 
+## Frontend Shared Helpers (`internal/web/static/js/app.js`)
+
+The web UI is vanilla JS + Alpine.js + HTMX. Shared client-side knowledge lives in `app.js`, loaded on every page before the per-page scripts. Do not re-derive these inline in a page script or template.
+
+### `window.dreamerAPI`
+
+Single source of truth for HTTP + CSRF. `csrf()` reads the `<meta name="csrf-token">` tag; `requestJSON`/`getJSON`/`postJSON`/`deleteJSON` inject the `X-Dreamer-CSRF` header on mutating requests and throw on non-2xx (with `err.body.error`). Page state objects that keep a `csrf()` method must delegate to `window.dreamerAPI.csrf()` rather than re-querying the meta tag.
+
+**Current callers:** `layouts/layout.html` (`addProjectModal`), `pages/jobs.js`, `pages/job_detail.js`, `pages/settings.js`.
+
+### `window.dreamerJobs`
+
+Job-form serialization shared by the create (jobs list) and edit (job detail) flows so the two never drift:
+- `buildSchedule(form)` — maps `schedule_kind`/`time_of_day`/`day_of_week`/`cron` to the API schedule object.
+- `parseWritablePaths(raw)` — splits the comma-separated input into a trimmed, empty-free array.
+
+**Current callers:** `pages/jobs.js` (`buildPayload`), `pages/job_detail.js` (`saveJob`).
+
+### `x-modal-close` (Alpine directive)
+
+Centralizes modal dismissal: clicking the backdrop (the `.modal-overlay`/`.modal-backdrop` element itself) or pressing Escape closes the modal. Apply it to the overlay element with the close action as its expression, e.g. `<div class="modal-overlay" x-modal-close="isOpen = false">`. No `@click.stop` on the inner dialog is needed (a backdrop click only fires when the click target *is* the overlay). Add the `.no-backdrop` modifier for confirmations that must not be dismissed by an accidental backdrop click (Escape still works). This replaces the old per-modal mix of `@click.self`, `@click.stop`, `@click.outside`, and `@keydown.escape.window` — which is how some modals silently shipped without backdrop-dismiss.
+
+**Current callers:** add-project (`layouts/layout.html`), jobs create/edit (`partials/jobs/*_modal.html`), remove-project (`pages/dashboard.html`), chat delete (`pages/projects/chats.html`), finding details (`pages/projects/findings.html`), prompt editor (`partials/settings/rules_panel.html`).
+
+---
+
 ## Quick Reference Table
 
 | What you need | Use |
@@ -591,4 +617,7 @@ if err := cache.Save(cacheDir); err != nil {
 | Run bounded non-interactive git | `gitutil.Command` |
 | Create a tagged provider error | `errs.NotInstalled` / `errs.RateLimit` / `errs.ProviderUnavailable` |
 | Warm model list from disk | `(*ModelListCache).Load(dir)` |
+| Make a CSRF'd JSON request (frontend) | `window.dreamerAPI` (`csrf`/`postJSON`/`getJSON`/`deleteJSON`) |
+| Serialize a job schedule / writable paths (frontend) | `window.dreamerJobs.buildSchedule` / `parseWritablePaths` |
+| Close a modal on backdrop click + Escape (frontend) | `x-modal-close` Alpine directive |
 | Persist model list to disk | `(*ModelListCache).Save(dir)` |
