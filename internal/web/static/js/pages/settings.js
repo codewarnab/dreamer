@@ -102,7 +102,7 @@ window.settingsPage = function () {
     revealSecret: false,
     loadError: "",
     csrf: function () {
-      return document.querySelector('meta[name="csrf-token"]')?.content || "";
+      return window.dreamerAPI.csrf();
     },
     sectionIDs: function () {
       return this.navSections.map(s => s.id);

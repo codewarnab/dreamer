@@ -67,6 +67,33 @@ window.dreamerUI = {
   },
 };
 
+// dreamerJobs — shared job-form serialization. Both the jobs list (create) and
+// the job detail (edit) page build the same schedule and writable-paths payload
+// shapes; keeping that knowledge here prevents the two pages from drifting.
+window.dreamerJobs = {
+  // buildSchedule maps a job form's schedule fields to the API schedule object.
+  // Only the fields relevant to the selected kind are included.
+  buildSchedule: function (form) {
+    var s = { kind: form.schedule_kind, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+    if (form.schedule_kind === "daily") {
+      s.time_of_day = form.time_of_day;
+    } else if (form.schedule_kind === "weekly") {
+      s.time_of_day = form.time_of_day;
+      s.day_of_week = form.day_of_week;
+    } else if (form.schedule_kind === "cron") {
+      s.cron = form.cron;
+    }
+    return s;
+  },
+
+  // parseWritablePaths turns the comma-separated writable-paths input into a
+  // trimmed, empty-free array.
+  parseWritablePaths: function (raw) {
+    if (!raw) return [];
+    return raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  },
+};
+
 (function () {
   document.body.addEventListener("htmx:configRequest", function (evt) {
     if (evt.detail && evt.detail.headers) {
