@@ -1,27 +1,21 @@
 {{define "content"}}
 <section x-data="jobsPage()" x-init="load()">
-  <header style="margin-bottom: var(--space-5);">
-    <span class="kicker">background jobs</span>
-    <h1 class="headline-lg">jobs</h1>
-    <p class="body" style="color: var(--text-secondary); max-width: 60ch;">
-      Schedule recurring prompts that run automatically via your configured providers.
-    </p>
+  <header style="margin-bottom: var(--space-5); display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4);">
+    <div>
+      <span class="kicker">background jobs</span>
+      <h1 class="headline-lg">jobs</h1>
+      <p class="body" style="color: var(--text-secondary); max-width: 60ch;">
+        Schedule recurring prompts that run automatically via your configured providers.
+      </p>
+    </div>
+    <button class="btn btn--primary" x-show="jobs.length > 0" @click="openCreate()" style="flex-shrink: 0;">+ new job</button>
   </header>
 
   <!-- System health card -->
   {{template "jobs_health_card" .}}
 
-  <!-- Create job card -->
-  <div class="card" style="margin-bottom: var(--space-4);">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-      <div class="kicker">create job</div>
-      <button class="btn btn--ghost" @click="showCreate = !showCreate" x-text="showCreate ? 'collapse' : 'expand'"></button>
-    </div>
-    <div x-show="showCreate" style="margin-top: var(--space-4);">
-      {{template "jobs_create_form" .}}
-      {{template "jobs_preview" .}}
-    </div>
-  </div>
+  <!-- Create job modal -->
+  {{template "jobs_create_modal" .}}
 
   <!-- Job list table -->
   <div class="card">

@@ -26,6 +26,13 @@ import (
 // in terminals and IDEs). The web UI reads/parses this file under the hood, but
 // we do not expose the file path or name "todos.md" to the user, as they consume
 // and manage these items via this browser interface.
+//
+// TODO(types): Adopt tygo to generate the SPA's TypeScript types directly from
+// these Go response structs (FindingView and the projects/jobs/settings shapes),
+// making Go the single source of truth and eliminating frontend/backend drift.
+// Plan: add tygo.yaml, a `make generate-types` target emitting into the internal/web
+// SPA's generated types file, and wire it into the build/CI. (Inspired by Noodle's
+// tygo-based ui/src/client/generated-types.ts.)
 type FindingView struct {
 	Hash        string `json:"hash"`
 	Category    string `json:"category"`

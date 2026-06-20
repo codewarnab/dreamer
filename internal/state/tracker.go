@@ -204,6 +204,22 @@ func LoadWithResult(outputRoot, projectName string) (LoadResult, error) {
 	}, nil
 }
 
+// DESIGN NOTE (future): finding-lifecycle reducer + event log.
+//
+// Save currently overwrites the whole state.json on every mutation, so the
+// transition history (applied/dismissed/resolved/undone) is discarded and the
+// mutation logic is spread across internal/web/handlers. A future refactor
+// could introduce a pure reducer — Reduce(State, Event) -> (State, []Effect) —
+// where handlers emit events instead of mutating State directly, backed by an
+// append-only NDJSON event log. Benefits: provably correct apply/undo (undo =
+// compensating event / replay), a free audit log, and trivially testable pure
+// transitions, matching the functional-core/imperative-shell principle in
+// .claude/skills/dreamer-design. Costs: large surface area (internal/state,
+// internal/web/handlers, SSE bus), plus log compaction/snapshots and event
+// schema versioning over time. Recommended path: migrate to a reducer first
+// while keeping state.json as storage; add the event log later only if the
+// audit/replay capability is wanted. (Inspired by Noodle's internal/reducer.)
+//
 // Save writes the per-project state atomically via temp file + os.Rename
 // (B3). On a *schema upgrade* (prior file's version < StateVersion) the
 // prior file is preserved at <path>.v<prior-version>.bak so the user can

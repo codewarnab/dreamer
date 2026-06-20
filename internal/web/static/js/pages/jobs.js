@@ -2,7 +2,7 @@ window.jobsPage = function () {
   return {
     jobs: [],
     health: null,
-    showCreate: false,
+    showCreateModal: false,
     form: {
       prompt: '',
       project_name: '',
@@ -64,6 +64,15 @@ window.jobsPage = function () {
     destroy: function () {
       this._sseUnsub.forEach(function (fn) { fn(); });
       this._sseUnsub = [];
+    },
+    openCreate: function () {
+      this.error = '';
+      this.preview = null;
+      this.showCreateModal = true;
+      this.$nextTick(function () { document.getElementById('job-prompt')?.focus(); });
+    },
+    closeCreate: function () {
+      this.showCreateModal = false;
     },
     loadAudit: async function () {
       var r = await fetch('/api/jobs/audit');
@@ -135,7 +144,7 @@ window.jobsPage = function () {
         this.form.model = '';
         this.form.file_access = 'read_only';
         this.form.writable_paths = '';
-        this.showCreate = false;
+        this.showCreateModal = false;
         await this.load();
       } catch (e) { this.error = 'network error'; }
       finally { this.loading = false; }

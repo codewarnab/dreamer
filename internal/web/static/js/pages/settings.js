@@ -39,6 +39,19 @@ window.settingsPage = function () {
     // full metadata entry (display_name, models, default_model, remediation)
     // keyed by provider id.
     providerMetaMap: {},
+    // ruleDefaults holds embedded per-category prompt defaults from
+    // /api/rule-defaults, keyed by category id. Used as textarea placeholders
+    // so an empty field visibly means "using the built-in default".
+    ruleDefaults: {},
+    // promptModalRuleID is the rule id whose prompt editor modal is open, or
+    // null when the modal is closed. Edits bind directly to values.rules[id].
+    promptModalRuleID: null,
+    // promptFocusedField is the prompt field currently being edited in the
+    // modal; it drives the accordion (focused field expands, others collapse).
+    promptFocusedField: null,
+    // promptFields lists the per-category override fields the modal edits, used
+    // to count active overrides for the card badge.
+    promptFields: ["mistake_prompt_template", "guardrail_prompt_template", "phase1_category_description"],
     providerOptions: [],
     providersList: [],
     providerTestRunning: false,
@@ -190,6 +203,67 @@ window.settingsPage = function () {
         }
       } catch (_) {
         // Graceful degradation: retain hardcoded fallback map.
+      }
+    },
+    promptDefault: function (ruleID, field) {
+      return (this.ruleDefaults[ruleID] || {})[field] || "";
+    },
+    // openPromptModal opens the per-category prompt editor for ruleID. Blank
+    // fields are left blank on purpose: the embedded default shows through as
+    // the textarea placeholder (see the :placeholder bindings in the template),
+    // so an empty model value means "use built-in default". Opening the modal
+    // therefore never mutates values.rules and never marks the section dirty.
+    openPromptModal: function (ruleID) {
+      this.promptFocusedField = null;
+      this.promptModalRuleID = ruleID;
+    },
+    // closePromptModal closes the prompt editor. Edits are already live on
+    // values.rules[id]; the user still has to click "save rules" to persist.
+    closePromptModal: function () {
+      this.promptModalRuleID = null;
+      this.promptFocusedField = null;
+    },
+    // resetPromptField clears the override back to empty, so the embedded
+    // default reapplies (shown as placeholder, serialized as null on save).
+    resetPromptField: function (ruleID, field) {
+      this.values.rules[ruleID][field] = "";
+    },
+    // promptModalRule returns the ruleCatalog entry for the open modal, or an
+    // empty object when none is open (guards template access during teardown).
+    promptModalRule: function () {
+      return this.ruleCatalog.find(r => r.id === this.promptModalRuleID) || {};
+    },
+    // promptOverrideValue returns the override to persist for a prompt field:
+    // null when the field is blank or still equal to the embedded default (so
+    // no override is stored and the default keeps applying), else the edited
+    // text.
+    promptOverrideValue: function (ruleID, field) {
+      const rule = this.values.rules[ruleID];
+      if (!rule) return null;
+      const v = rule[field] || "";
+      if (v.trim() === "" || v === this.promptDefault(ruleID, field)) return null;
+      return v;
+    },
+    // promptFieldIsCustom reports whether a field carries a real override
+    // (drives the per-field "reset to default" affordance).
+    promptFieldIsCustom: function (ruleID, field) {
+      return this.promptOverrideValue(ruleID, field) !== null;
+    },
+    // customPromptCount returns how many of the three prompt fields carry a
+    // real override for ruleID, driving the "N custom" card badge.
+    customPromptCount: function (ruleID) {
+      return this.promptFields.filter(f => this.promptFieldIsCustom(ruleID, f)).length;
+    },
+    // loadRuleDefaults fetches /api/rule-defaults and stores the embedded
+    // per-category prompt defaults for use as textarea placeholders. Falls
+    // back to empty placeholders on network errors or old servers.
+    loadRuleDefaults: async function () {
+      try {
+        const r = await fetch("/api/rule-defaults");
+        if (!r.ok) return;
+        this.ruleDefaults = await r.json();
+      } catch (_) {
+        // Graceful degradation: empty placeholders.
       }
     },
     // apiKeyEnvForModel returns the canonical env var name for the API key
@@ -370,6 +444,9 @@ window.settingsPage = function () {
           this.values.rules[rule.id] = {
             enabled: existing.enabled !== undefined ? !!existing.enabled : true,
             severity: existing.severity || "",
+            mistake_prompt_template: existing.mistake_prompt_template || "",
+            guardrail_prompt_template: existing.guardrail_prompt_template || "",
+            phase1_category_description: existing.phase1_category_description || "",
           };
         });
 
@@ -391,6 +468,7 @@ window.settingsPage = function () {
           this.providersList = provData.providers || provData || [];
         }
         await this.loadProviderMeta();
+        await this.loadRuleDefaults();
         this.snapshotAll();
       } catch (e) {
         this.loadError = "failed to fetch configuration: " + e.message;
@@ -449,6 +527,9 @@ window.settingsPage = function () {
           rules[rule.id] = {
             enabled: !!this.values.rules[rule.id].enabled,
             severity: this.blankToNull(this.values.rules[rule.id].severity),
+            mistake_prompt_template: this.promptOverrideValue(rule.id, "mistake_prompt_template"),
+            guardrail_prompt_template: this.promptOverrideValue(rule.id, "guardrail_prompt_template"),
+            phase1_category_description: this.promptOverrideValue(rule.id, "phase1_category_description"),
           };
         });
         return { analyzer: { rules } };

@@ -59,7 +59,8 @@ The daemon embeds an HTTP server bound to `127.0.0.1:7777` (configurable via the
 - `GET /api/providers` — List supported and active provider plugins.
 - `GET /api/provider-meta` — Static per-provider metadata (display name, model list, default model, sandbox default, remediation hint). For providers that implement `analyzer.ModelLister` and are running, the `models` field is replaced with the live list from the provider (cached 5 min); all others fall back to `defaults.go AllModels`.
 - `GET /api/settings` — Get the current merged config (base `config.yaml` + UI override config).
-- `PUT /api/settings` — Update preferences (writes exclusively to `ui-overrides.yaml`).
+- `PUT /api/settings` — Update preferences (writes exclusively to `ui-overrides.yaml`). Rule entries under `analyzer.rules.<category>` accept the per-category prompt overrides `mistake_prompt_template`, `guardrail_prompt_template`, and `phase1_category_description` (in addition to `enabled` and `severity`); a `null` value clears the override so the embedded default applies again.
+- `GET /api/rule-defaults` — Read-only embedded per-category prompt defaults, keyed by lowercase category id (`{ "test": { "mistake_prompt_template": "...", "guardrail_prompt_template": "...", "phase1_category_description": "..." }, ... }`). Sourced from `analyzer.LoadDefaultRulePacks()`; the settings UI uses these as placeholder/reset text. GET only (405 otherwise). Only these three genuinely per-category fields are exposed — the global, parse-critical preamble/schema fields are intentionally omitted.
 - `GET /api/fs/exists` — Validate if a folder path exists locally.
 - `POST /api/fs/pick-directory` — Trigger a native OS directory picker dialog (returns absolute folder path).
 

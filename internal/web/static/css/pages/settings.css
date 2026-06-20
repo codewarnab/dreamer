@@ -438,17 +438,133 @@
 
   .rule-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--space-3);
   }
 
   .rule-card {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: var(--space-3);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    background: var(--canvas-black);
-    padding: var(--space-3);
+    background: var(--surface-slate);
+    padding: var(--space-4);
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+
+  .rule-card:hover {
+    border-color: var(--jelly-mint);
+  }
+
+  /* Flatten the inner checkbox so it isn't a second bordered box-in-a-box. */
+  .rule-card .setting-check {
+    min-height: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    border-radius: 0;
+  }
+
+  /* Separate the severity select from the label block with a single hairline. */
+  .rule-card .select-wrap {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* Enabled rule: a mint hairline border marks the active state without depth. */
+  .rule-card:has(.setting-check input:checked) {
+    border-color: var(--jelly-mint);
+  }
+
+  /* "Customize prompts" trigger — opens the per-category editor modal.
+     Flat per DESIGN.md: a hairline-separated text button, no nested box. */
+  .rule-prompts-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding-top: var(--space-3);
+    border: none;
+    border-top: 1px solid var(--border-subtle);
+    background: none;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    transition: color 150ms ease;
+  }
+
+  .rule-prompts-btn:hover {
+    color: var(--jelly-mint);
+  }
+
+  .rule-prompts-badge {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--jelly-mint);
+  }
+
+  /* Per-category prompt editor modal body. */
+  .prompt-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    max-height: 60vh;
+    overflow-y: auto;
+    margin-bottom: var(--space-4);
+    padding-right: var(--space-2);
+  }
+
+  .rule-prompt-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .rule-prompt-label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .rule-prompt-reset {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    transition: color 150ms ease;
+  }
+
+  .rule-prompt-reset:hover {
+    color: var(--jelly-mint);
+  }
+
+  /* Accordion textarea: the focused field grows while its siblings shrink.
+     Height animates with an easeOutExpo curve for a smooth, settling feel. */
+  .prompt-modal-body textarea.input {
+    width: 100%;
+    height: 7.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    resize: none;
+    transition: height 480ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .rule-prompt-field.is-expanded textarea.input {
+    height: 19rem;
+  }
+
+  .rule-prompt-field.is-collapsed textarea.input {
+    height: 3rem;
   }
 
   .regex-helper-box {

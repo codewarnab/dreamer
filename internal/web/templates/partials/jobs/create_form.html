@@ -77,10 +77,5 @@
     <label class="label-mono" for="job-name">name (optional)</label>
     <input class="input" id="job-name" type="text" x-model="form.name" placeholder="auto-generated from prompt" style="display: block; margin-top: var(--space-2); width: 100%;">
   </div>
-  <div style="display: flex; gap: var(--space-3); align-items: center;">
-    <button class="btn btn--ghost" @click="previewJob()" :disabled="loading">preview</button>
-    <button class="btn btn--primary" @click="createJob()" :disabled="loading" x-text="loading ? 'creating...' : 'create'"></button>
-    <span x-show="error" x-text="error" style="color: var(--color-error);"></span>
-  </div>
 </div>
 {{end}}

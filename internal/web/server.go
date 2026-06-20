@@ -642,6 +642,7 @@ func (s *Server) attachAPI(mux *http.ServeMux) {
 	mux.Handle("/api/provider-meta", handlers.ProviderMeta(deps))
 	mux.Handle("/api/providers/", handlers.RouteProviders(deps))
 	mux.Handle("/api/settings", handlers.Settings(deps))
+	mux.Handle("/api/rule-defaults", handlers.RuleDefaults(deps))
 	mux.Handle("/api/logs/tail", handlers.LogsTail(deps))
 	mux.Handle("/api/events", handlers.Events(deps))
 	mux.Handle("/api/fs/exists", handlers.FSExists(deps))

@@ -26,6 +26,10 @@
             <option value="critical">critical</option>
           </select>
         </div>
+        <button type="button" class="rule-prompts-btn" @click="openPromptModal(rule.id)">
+          <span>Customize prompts</span>
+          <span class="rule-prompts-badge" x-show="customPromptCount(rule.id) > 0" x-text="customPromptCount(rule.id) + ' custom'"></span>
+        </button>
       </div>
     </template>
   </div>
@@ -35,6 +39,70 @@
     <span class="settings-footer-hint" x-show="isDirty('rules')">unsaved changes</span>
     <div x-show="saved.rules === true" class="status-message success"><span class="status-dot"></span> saved</div>
     <div x-show="saved.rules === 'error'" class="status-message error"><span class="status-dot"></span> failed</div>
+  </div>
+
+  <!-- Per-category prompt editor. One shared modal; promptModalRuleID selects the category.
+       Edits bind directly to values.rules[id], so "save rules" persists them. -->
+  <div class="modal-overlay" x-show="promptModalRuleID" x-cloak style="display: none;"
+       role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title"
+       @keydown.escape.window="closePromptModal()">
+    <div class="modal-dialog" style="max-width: 680px; width: 100%;" @click.outside="closePromptModal()">
+      <template x-if="promptModalRuleID">
+        <div>
+          <h3 id="prompt-modal-title">Customize prompts &mdash; <span x-text="promptModalRule().label"></span></h3>
+          <p>Override the built-in prompts for this category. Leave a field blank to use the default shown as placeholder text.</p>
+
+          <div class="prompt-modal-body">
+            <div class="rule-prompt-field"
+                 :class="{ 'is-expanded': promptFocusedField === 'mistake_prompt_template', 'is-collapsed': promptFocusedField && promptFocusedField !== 'mistake_prompt_template' }">
+              <div class="rule-prompt-label-row">
+                <label class="label-mono">mistake prompt</label>
+                <button type="button" class="rule-prompt-reset"
+                        x-show="promptFieldIsCustom(promptModalRuleID, 'mistake_prompt_template')"
+                        @click="resetPromptField(promptModalRuleID, 'mistake_prompt_template')">reset to default</button>
+              </div>
+              <textarea class="input"
+                @focus="promptFocusedField = 'mistake_prompt_template'"
+                @blur="promptFocusedField = null"
+                x-model="values.rules[promptModalRuleID].mistake_prompt_template"
+                :placeholder="(ruleDefaults[promptModalRuleID] || {}).mistake_prompt_template"></textarea>
+            </div>
+            <div class="rule-prompt-field"
+                 :class="{ 'is-expanded': promptFocusedField === 'guardrail_prompt_template', 'is-collapsed': promptFocusedField && promptFocusedField !== 'guardrail_prompt_template' }">
+              <div class="rule-prompt-label-row">
+                <label class="label-mono">guardrail prompt</label>
+                <button type="button" class="rule-prompt-reset"
+                        x-show="promptFieldIsCustom(promptModalRuleID, 'guardrail_prompt_template')"
+                        @click="resetPromptField(promptModalRuleID, 'guardrail_prompt_template')">reset to default</button>
+              </div>
+              <textarea class="input"
+                @focus="promptFocusedField = 'guardrail_prompt_template'"
+                @blur="promptFocusedField = null"
+                x-model="values.rules[promptModalRuleID].guardrail_prompt_template"
+                :placeholder="(ruleDefaults[promptModalRuleID] || {}).guardrail_prompt_template"></textarea>
+            </div>
+            <div class="rule-prompt-field"
+                 :class="{ 'is-expanded': promptFocusedField === 'phase1_category_description', 'is-collapsed': promptFocusedField && promptFocusedField !== 'phase1_category_description' }">
+              <div class="rule-prompt-label-row">
+                <label class="label-mono">phase 1 category description</label>
+                <button type="button" class="rule-prompt-reset"
+                        x-show="promptFieldIsCustom(promptModalRuleID, 'phase1_category_description')"
+                        @click="resetPromptField(promptModalRuleID, 'phase1_category_description')">reset to default</button>
+              </div>
+              <textarea class="input"
+                @focus="promptFocusedField = 'phase1_category_description'"
+                @blur="promptFocusedField = null"
+                x-model="values.rules[promptModalRuleID].phase1_category_description"
+                :placeholder="(ruleDefaults[promptModalRuleID] || {}).phase1_category_description"></textarea>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn--primary" @click="closePromptModal()">done</button>
+          </div>
+        </div>
+      </template>
+    </div>
   </div>
 </div>
 {{end}}
