@@ -45,8 +45,8 @@
        Edits bind directly to values.rules[id], so "save rules" persists them. -->
   <div class="modal-overlay" x-show="promptModalRuleID" x-cloak style="display: none;"
        role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title"
-       @keydown.escape.window="closePromptModal()">
-    <div class="modal-dialog" style="max-width: 680px; width: 100%;" @click.outside="closePromptModal()">
+       x-modal-close="closePromptModal()">
+    <div class="modal-dialog" style="max-width: 680px; width: 100%;">
       <template x-if="promptModalRuleID">
         <div>
           <h3 id="prompt-modal-title">Customize prompts &mdash; <span x-text="promptModalRule().label"></span></h3>

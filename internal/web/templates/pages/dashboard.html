@@ -179,7 +179,7 @@
     role="dialog"
     aria-modal="true"
     :aria-label="'Remove project ' + removeModal.name"
-    @keydown.escape.window="removeModal.open = false"
+    x-modal-close="removeModal.open = false"
     x-transition:enter="transition ease-out duration-150"
     x-transition:enter-start="opacity-0"
     x-transition:enter-end="opacity-100"
@@ -188,7 +188,7 @@
     x-transition:leave-end="opacity-0"
     style="display:none;"
   >
-    <div class="modal-dialog" @click.stop>
+    <div class="modal-dialog">
       <h3>remove project</h3>
       <p>
         Remove <code x-text="removeModal.name"></code> from dreamer?

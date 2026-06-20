@@ -83,6 +83,34 @@ window.dreamerUI = {
 // We use window.addEventListener instead of document.addEventListener to bypass
 // the strict static webcheck regex rule.
 window.addEventListener("alpine:init", function () {
+  // x-modal-close centralizes modal dismissal so every overlay shares one
+  // implementation of "click the backdrop or press Escape to close" instead of
+  // each template re-deriving it (which is how some modals — e.g. add-project —
+  // silently shipped without backdrop-dismiss). Apply it to the `.modal-overlay`
+  // (backdrop) element; the expression is the close action, e.g.
+  //   <div class="modal-overlay" x-modal-close="isOpen = false">
+  // A backdrop click only closes when the click lands on the overlay itself, so
+  // clicks inside the dialog never bubble up to dismiss it — no @click.stop on
+  // the dialog needed. Add the `.no-backdrop` modifier for confirmations that
+  // must not be dismissed by an accidental backdrop click (Escape still works).
+  Alpine.directive("modal-close", function (el, meta, runtime) {
+    var expression = meta.expression;
+    var modifiers = meta.modifiers;
+    var evaluate = runtime.evaluate;
+    var cleanup = runtime.cleanup;
+    var close = function () { if (expression) evaluate(expression); };
+    var onClick = function (event) { if (event.target === el) close(); };
+    var onKey = function (event) { if (event.key === "Escape") close(); };
+    if (modifiers.indexOf("no-backdrop") === -1) {
+      el.addEventListener("click", onClick);
+    }
+    window.addEventListener("keydown", onKey);
+    cleanup(function () {
+      el.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    });
+  });
+
   Alpine.store("sse", {
     connected: false,
     lastEvent: null,
