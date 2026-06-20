@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -138,6 +140,16 @@ type setupModel struct {
 	confirmed        bool
 	width            int
 	height           int
+
+	// Live model discovery (Option C: static fallback + live merge).
+	// prior holds the existing config (nil on first run) so a live ListModels
+	// probe can reuse the user's provider block (CLI paths, api-key env).
+	// cacheDir is where the daemon persists model lists; "" disables both the
+	// warm read and the write-back. fetchingModels drives the "checking…" hint.
+	prior          *config.App
+	cacheDir       string
+	modelCache     *analyzer.ModelListCache
+	fetchingModels bool
 }
 
 // prefillFromConfig pulls defaults out of an existing config so re-running
@@ -272,7 +284,21 @@ func transportLabel(kind string) string {
 	if l, ok := transportLabels[kind]; ok {
 		return l
 	}
+	if kind == "" {
+		return "Default"
+	}
 	return kind
+}
+
+// transportDescription returns the one-line hint for a transport kind, falling
+// back to a generic line for kinds without a curated description (and for the
+// empty kind of a provider id with no transport suffix) so list entries are
+// never blank.
+func transportDescription(kind string) string {
+	if d, ok := transportDescriptions[kind]; ok {
+		return d
+	}
+	return "Default connection for this provider."
 }
 
 // providerFamilies groups the registered providers by family, preserving
@@ -321,7 +347,7 @@ func familyItems(families []providerFamily) []list.Item {
 	return items
 }
 
-func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel {
+func newSetupModel(advanced, skipStartup bool, initial setupAnswers, prior *config.App) setupModel {
 	families := providerFamilies()
 	providers := familyItems(families)
 	// Use a sensible initial width; WindowSizeMsg will update it.
@@ -394,6 +420,19 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 	}
 	sinceList := newCompactList("10/10 - Project lookback (since)", sinces, 60)
 
+	// Warm a model-list cache from the daemon's on-disk cache (when a prior
+	// config points at an output root). This lets the model step show live
+	// models the daemon/web previously fetched, even before this run's own
+	// async probe returns. Failures are non-fatal — we fall back to statics.
+	var cacheDir string
+	modelCache := &analyzer.ModelListCache{}
+	if prior != nil {
+		cacheDir = prior.Daemon.OutputRoot
+		if cacheDir != "" {
+			_ = modelCache.Load(cacheDir)
+		}
+	}
+
 	m := setupModel{
 		step:             stepProvider,
 		advanced:         advanced,
@@ -410,6 +449,9 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		projectNameInput: projectNameInput,
 		projectSinceList: sinceList,
 		answers:          initial,
+		prior:            prior,
+		cacheDir:         cacheDir,
+		modelCache:       modelCache,
 	}
 	if m.answers.provider == "" {
 		m.answers.provider = config.DefaultProviderID
@@ -497,6 +539,9 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.logLevelList.SetWidth(innerWidth)
 		m.projectSinceList.SetWidth(innerWidth)
+	case modelsFetchedMsg:
+		m.applyFetchedModels(typedMsg)
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -603,9 +648,9 @@ func (m setupModel) goBack() (tea.Model, tea.Cmd) {
 func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
-		m.advanceProvider()
+		return m, m.advanceProvider()
 	case stepTransport:
-		m.advanceTransport()
+		return m, m.advanceTransport()
 	case stepModel:
 		m.advanceModel()
 	case stepFrequency:
@@ -660,50 +705,97 @@ func (m setupModel) providerHasTransportChoice() bool {
 }
 
 // advanceProvider records the chosen family. Families with a single
-// transport skip straight to the model step; families with several show the
-// connection sub-page first.
-func (m *setupModel) advanceProvider() {
+// transport skip straight to the model step (returning its live-fetch cmd);
+// families with several show the connection sub-page first.
+func (m *setupModel) advanceProvider() tea.Cmd {
 	sel, ok := m.providerList.SelectedItem().(selectItem)
 	if !ok {
-		return
+		return nil
 	}
 	fam := m.familyByName(sel.id)
 	if fam == nil || len(fam.transports) == 0 {
-		return
+		return nil
 	}
 	if len(fam.transports) == 1 {
 		m.answers.provider = fam.transports[0].id
-		m.gotoModelStep()
-		return
+		return m.gotoModelStep()
 	}
 	items := make([]list.Item, len(fam.transports))
 	for i, t := range fam.transports {
-		items[i] = selectItem{id: t.id, title: transportLabel(t.kind), desc: transportDescriptions[t.kind]}
+		items[i] = selectItem{id: t.id, title: transportLabel(t.kind), desc: transportDescription(t.kind)}
 	}
-	m.transportList = newCompactList("1/5 - "+fam.display+": choose connection", items, m.providerList.Width())
+	// Sub-page of the provider step (step 1), not a top-level step of its own,
+	// so it carries no "n/5" counter that would desync the rest of the numbering.
+	m.transportList = newCompactList(fam.display+": choose connection", items, m.providerList.Width())
 	m.step = stepTransport
+	return nil
 }
 
-// advanceTransport records the chosen transport variant and moves on.
-func (m *setupModel) advanceTransport() {
+// advanceTransport records the chosen transport variant and moves on,
+// returning the model step's live-fetch cmd.
+func (m *setupModel) advanceTransport() tea.Cmd {
 	if sel, ok := m.transportList.SelectedItem().(selectItem); ok {
 		m.answers.provider = sel.id
 	}
-	m.gotoModelStep()
+	return m.gotoModelStep()
 }
 
 // gotoModelStep builds the model picker for the chosen provider and advances.
-func (m *setupModel) gotoModelStep() {
-	models := defaultModelsFor(m.answers.provider)
+// The initial list merges any warm-cached live models with the static
+// defaults; the returned cmd (when non-nil) probes the running provider for a
+// fresh list that is merged in via modelsFetchedMsg.
+func (m *setupModel) gotoModelStep() tea.Cmd {
+	provider := m.answers.provider
+	models := mergeModelLists(m.warmModels(provider), defaultModelsFor(provider))
+	m.setModelList(models)
+	m.step = stepModel
+
+	if !providerSupportsModelListing(provider, m.prior) {
+		m.fetchingModels = false
+		return nil
+	}
+	m.fetchingModels = true
+	return fetchModelsCmd(provider, m.prior, m.cacheDir)
+}
+
+// warmModels returns model names already known for provider from the on-disk
+// cache the daemon/web populated, or nil when none.
+func (m *setupModel) warmModels(provider string) []string {
+	if m.modelCache == nil {
+		return nil
+	}
+	return m.modelCache.Peek(provider)
+}
+
+// setModelList rebuilds the model picker from models, keeping the current
+// selection when that model survives the rebuild and otherwise defaulting to
+// the first entry. answers.model is synced to the resulting selection.
+func (m *setupModel) setModelList(models []string) {
+	prevSelected := m.answers.model
 	items := make([]list.Item, len(models))
+	selectIdx := 0
 	for i, model := range models {
 		items[i] = selectItem{id: model}
+		if model == prevSelected {
+			selectIdx = i
+		}
 	}
-	m.modelList = newCompactList("2/5 - Model for "+m.answers.provider, items, m.providerList.Width())
+	width := m.providerList.Width()
+	m.modelList = newCompactList(m.modelStepTitle(), items, width)
 	if len(models) > 0 {
-		m.answers.model = models[0]
+		m.modelList.Select(selectIdx)
+		m.answers.model = models[selectIdx]
 	}
-	m.step = stepModel
+}
+
+// modelStepTitle renders the model step heading, appending a discovery hint
+// while a live probe is in flight.
+func (m *setupModel) modelStepTitle() string {
+	title := "2/5 - Model for " + m.answers.provider
+	if m.fetchingModels {
+		title += "  (checking for latest models…)"
+	}
+	return title
 }
 
 func (m *setupModel) advanceModel() {
@@ -876,7 +968,7 @@ func (m setupModel) View() string {
 	case stepModel:
 		body = m.modelList.View()
 	case stepFrequency:
-		body = fmt.Sprintf("3/5 - Daemon frequency (minutes):\n\n%s\n\n(Press Enter to accept)", m.freqInput.View())
+		body = fmt.Sprintf("3/5 - How often should dreamer check your projects?\n\nDreamer runs in the background and re-analyzes your\nprojects on a schedule. Enter the gap between runs,\nin minutes (e.g. 60 = hourly, 1440 = once a day).\n\n%s minutes\n\n(Press Enter to accept)", m.freqInput.View())
 	case stepOutputRoot:
 		body = fmt.Sprintf("4/5 - Where should dreamer save results?\n(analysis reports, logs, and project state)\n\n%s\n\nPress Enter to use the default, or type a custom folder path.", m.outputInput.View())
 	case stepStartupYN:
@@ -934,7 +1026,7 @@ func (m setupModel) View() string {
 				)
 			}
 		}
-		body += "\nPress Enter to confirm or Ctrl+C to cancel.\n\nNote: re-running setup rewrites the file and drops YAML comments.\nKeep ui-overrides.yaml-bound edits in the web UI to preserve config.yaml comments."
+		body += "\nPress Enter to confirm or Ctrl+C to cancel.\n\nYou can change any of these settings later from the web dashboard."
 	}
 	banner := bannerStyle.Render(dreamerBanner)
 	box := style.Render(body)
@@ -972,6 +1064,144 @@ func (m setupModel) View() string {
 	return layout
 }
 
+// modelsFetchedMsg carries the result of an async live model-list probe back
+// into the bubbletea event loop. An empty models slice means the probe failed
+// or the provider does not support listing — the static list stays in place.
+type modelsFetchedMsg struct {
+	provider string
+	models   []string
+}
+
+// mergeModelLists merges a live (authoritative) list with the static fallback,
+// preserving live order — its first element is the provider's reported default
+// — then appending any static-only models. Entries are de-duplicated, keeping
+// first occurrence; empty strings are dropped. Either argument may be empty.
+func mergeModelLists(live, static []string) []string {
+	seen := make(map[string]struct{}, len(live)+len(static))
+	out := make([]string, 0, len(live)+len(static))
+	for _, group := range [][]string{live, static} {
+		for _, model := range group {
+			if model == "" {
+				continue
+			}
+			if _, dup := seen[model]; dup {
+				continue
+			}
+			seen[model] = struct{}{}
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
+// providerConfigForProbe builds the analyzer.ProviderConfig used by the live
+// model probe, reusing the user's existing provider block (CLI paths, api-key
+// env) when prior config exists. Sandbox is forced off: a model-list probe is
+// a lightweight capability query, and running sandbox prepare from this path
+// has triggered heap corruption on Windows (see handlers.enrichWithLiveModels).
+func providerConfigForProbe(providerID string, prior *config.App) analyzer.ProviderConfig {
+	var block config.ProviderBlock
+	var sandboxCfg config.SandboxConfig
+	if prior != nil {
+		if prior.Providers != nil {
+			block = prior.Providers[providerID]
+		}
+		sandboxCfg = prior.Sandbox
+	}
+	cfg := analyzer.ProviderConfigFromBlock(providerID, block, sandboxCfg)
+	cfg.Sandbox = "false"
+	return cfg
+}
+
+// providerSupportsModelListing reports whether the provider can be constructed
+// and implements analyzer.ModelLister. Construction is cheap (no process is
+// spawned until Start), so this gates the spinner and the async probe without
+// flicker for providers that can only ever serve the static list.
+func providerSupportsModelListing(providerID string, prior *config.App) bool {
+	factory, ok := analyzer.LookupProvider(analyzer.ProviderID(providerID))
+	if !ok {
+		return false
+	}
+	prov, err := factory(providerConfigForProbe(providerID, prior))
+	if err != nil {
+		return false
+	}
+	defer prov.Close()
+	_, ok = prov.(analyzer.ModelLister)
+	return ok
+}
+
+// modelProbeTimeout bounds the live probe (Start + ListModels). ACP providers
+// cold-start a child process and exchange initialize/session round-trips, so a
+// generous budget avoids cutting off a slow-but-working provider. The probe runs
+// off the UI goroutine, so this never blocks keystrokes.
+const modelProbeTimeout = 30 * time.Second
+
+// fetchModelsCmd returns a tea.Cmd that probes a running provider for its live
+// model list and, on success, persists it to the daemon's on-disk cache so the
+// web UI and future wizard runs benefit. It always resolves to a
+// modelsFetchedMsg (empty on any failure) so the UI can clear its spinner.
+func fetchModelsCmd(providerID string, prior *config.App, cacheDir string) tea.Cmd {
+	return func() tea.Msg {
+		fail := modelsFetchedMsg{provider: providerID}
+		factory, ok := analyzer.LookupProvider(analyzer.ProviderID(providerID))
+		if !ok {
+			return fail
+		}
+		prov, err := factory(providerConfigForProbe(providerID, prior))
+		if err != nil {
+			return fail
+		}
+		lister, ok := prov.(analyzer.ModelLister)
+		if !ok {
+			return fail
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), modelProbeTimeout)
+		defer cancel()
+		defer prov.Close()
+		if err := prov.Start(ctx); err != nil {
+			return fail
+		}
+		models, err := lister.ListModels(ctx)
+		if err != nil || len(models) == 0 {
+			return fail
+		}
+		persistModelList(providerID, models, cacheDir)
+		return modelsFetchedMsg{provider: providerID, models: models}
+	}
+}
+
+// persistModelList writes a freshly probed model list into the daemon's
+// on-disk cache, preserving entries for other providers. Best-effort: a
+// missing cache dir or an I/O error is silently ignored — the live list is
+// still applied to the running wizard regardless.
+func persistModelList(providerID string, models []string, cacheDir string) {
+	if cacheDir == "" {
+		return
+	}
+	cache := &analyzer.ModelListCache{}
+	_ = cache.Load(cacheDir) // keep other providers' entries
+	cache.Set(providerID, models)
+	_ = cache.Save(cacheDir)
+}
+
+// applyFetchedModels merges a completed probe's result into the model picker.
+// It ignores stale results (a different provider, e.g. after the user navigated
+// back and chose another) but always clears the spinner for the active provider.
+func (m *setupModel) applyFetchedModels(msg modelsFetchedMsg) {
+	if msg.provider != m.answers.provider {
+		return // stale: user moved to a different provider
+	}
+	m.fetchingModels = false
+	if len(msg.models) == 0 {
+		// Probe failed; keep the static/warm list but refresh the title to
+		// drop the "checking…" hint.
+		m.modelList.Title = m.modelStepTitle()
+		return
+	}
+	m.setModelList(mergeModelLists(msg.models, defaultModelsFor(m.answers.provider)))
+}
+
 // defaultModelsFor returns the known-good models for a provider.
 // First entry matches config.DefaultModelFor for that provider.
 // Used by both the setup wizard and the job wizard's model picker.
@@ -992,6 +1222,12 @@ func newCompactList(title string, items []list.Item, width int) list.Model {
 	l.Title = title
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
+	// Disable pagination. These menus are short and always sized to fit every
+	// item, but bubbles' list subtracts the paginator's row from the available
+	// height when pagination is on (list.updatePagination). That makes PerPage
+	// one short of the item count, forcing a phantom second page whose "••"
+	// dots hide the last option even with plenty of screen space.
+	l.SetShowPagination(false)
 	return l
 }
 
@@ -1098,7 +1334,10 @@ func promptExistingConfig(cfgPath string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	m := final.(existingConfigModel)
+	m, ok := final.(existingConfigModel)
+	if !ok {
+		return false, fmt.Errorf("setup: unexpected model %T from existing-config prompt", final)
+	}
 	return m.edit && !m.quit, nil
 }
 
@@ -1121,9 +1360,11 @@ func newSetupCommand() *cobra.Command {
 			}
 			if _, statErr := os.Stat(cfgPath); statErr == nil && !force {
 				// On a terminal, offer an inline edit/cancel choice so the
-				// user need not re-run with --force. Without a TTY (agents,
-				// CI), keep the actionable error pointing at --force.
-				if !term.IsTerminal(os.Stdin.Fd()) {
+				// user need not re-run with --force. Without a TTY on both
+				// stdin and stdout (agents, CI, redirected output), keep the
+				// actionable error pointing at --force. The --non-interactive
+				// path is handled above and never reaches here.
+				if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 					return configExistsError(cmd, cfgPath)
 				}
 				editChosen, err := promptExistingConfig(cfgPath)
@@ -1137,22 +1378,29 @@ func newSetupCommand() *cobra.Command {
 				// User chose to edit: fall through and overwrite, just like --force.
 			}
 
-			// Pre-fill from prior config when re-running with --force.
+			// Pre-fill from prior config when re-running with --force. The
+			// parsed prior also feeds the live model probe (provider block,
+			// output root for the model-list cache); nil on a fresh install.
 			var prefilled setupAnswers
+			var prior *config.App
 			if data, err := os.ReadFile(cfgPath); err == nil {
-				var prior config.App
-				if yaml.Unmarshal(data, &prior) == nil {
-					prefilled = prefillFromConfig(&prior)
+				var parsed config.App
+				if yaml.Unmarshal(data, &parsed) == nil {
+					prior = &parsed
+					prefilled = prefillFromConfig(&parsed)
 				}
 			}
-			initial := newSetupModel(advanced, noStartup, prefilled)
+			initial := newSetupModel(advanced, noStartup, prefilled, prior)
 
 			prog := tea.NewProgram(initial, tea.WithAltScreen())
 			final, err := prog.Run()
 			if err != nil {
 				return err
 			}
-			finalModel := final.(setupModel)
+			finalModel, ok := final.(setupModel)
+			if !ok {
+				return fmt.Errorf("setup: unexpected model %T from wizard", final)
+			}
 			if finalModel.quit || !finalModel.confirmed {
 				fmt.Fprintln(cmd.OutOrStdout(), "setup cancelled; no changes written")
 				return nil

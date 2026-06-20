@@ -55,6 +55,59 @@ func TestDefaultModelsFor_UnknownProviderFallsBackToDefault(t *testing.T) {
 	}
 }
 
+func TestMergeModelLists(t *testing.T) {
+	tests := []struct {
+		name   string
+		live   []string
+		static []string
+		want   []string
+	}{
+		{
+			name:   "live first then static extras, deduped",
+			live:   []string{"b", "c"},
+			static: []string{"a", "b"},
+			want:   []string{"b", "c", "a"},
+		},
+		{
+			name:   "no live falls back to static",
+			live:   nil,
+			static: []string{"a", "b"},
+			want:   []string{"a", "b"},
+		},
+		{
+			name:   "no static keeps live order",
+			live:   []string{"x", "y"},
+			static: nil,
+			want:   []string{"x", "y"},
+		},
+		{
+			name:   "empty strings dropped",
+			live:   []string{"", "a"},
+			static: []string{"", "a", "b"},
+			want:   []string{"a", "b"},
+		},
+		{
+			name:   "both empty yields empty",
+			live:   nil,
+			static: nil,
+			want:   []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeModelLists(tt.live, tt.static)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len = %d (%v), want %d (%v)", len(got), got, len(tt.want), tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func TestBuildConfigYAML_AdvancedFieldsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	pdir := t.TempDir()

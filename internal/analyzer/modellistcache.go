@@ -63,6 +63,21 @@ func (c *ModelListCache) Get(providerID string) []string {
 	return entry.models
 }
 
+// Peek returns the cached list for providerID ignoring the freshness TTL that
+// Get enforces. It is for callers that want any reasonably recent on-disk list
+// (e.g. the setup wizard, which warms from a possibly hours-old cache file)
+// rather than a strictly-fresh one. Entries are still bounded by modelListDiskTTL
+// at Load time. Returns nil when there is no entry.
+func (c *ModelListCache) Peek(providerID string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[providerID]
+	if !ok {
+		return nil
+	}
+	return entry.models
+}
+
 // Set stores models for providerID with the current time as the fetch timestamp.
 // Replaces any existing entry.
 func (c *ModelListCache) Set(providerID string, models []string) {
