@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -22,7 +23,8 @@ import (
 )
 
 const (
-	stepProvider = iota
+	stepProvider  = iota
+	stepTransport // sub-step: shown only for provider families with >1 connection option
 	stepModel
 	stepFrequency
 	stepOutputRoot
@@ -118,7 +120,9 @@ type setupModel struct {
 	advanced         bool
 	skipStartup      bool
 	answers          setupAnswers
+	families         []providerFamily
 	providerList     list.Model
+	transportList    list.Model
 	modelList        list.Model
 	freqInput        textinput.Model
 	outputInput      textinput.Model
@@ -185,19 +189,141 @@ func prefillFromConfig(prior *config.App) setupAnswers {
 	return a
 }
 
-// selectItems builds the setup wizard's provider list from the analyzer
-// registry so it stays in sync when new providers are added.
-func selectItems() []list.Item {
+// transportInfo describes one connection variant within a provider family.
+// id is the full provider id (e.g. "copilot-sdk"); kind is the transport
+// suffix (e.g. "sdk").
+type transportInfo struct {
+	id      string
+	kind    string
+	display string // the provider's registered DisplayName
+}
+
+// providerFamily groups provider variants that share a vendor but differ
+// only in how dreamer connects to it (SDK vs ACP vs CLI vs server). The
+// setup wizard lists families first, then asks which transport to use only
+// when a family offers more than one.
+type providerFamily struct {
+	name       string // family key, e.g. "copilot"
+	display    string // label shown on the provider page
+	desc       string // one-line hint shown next to the label
+	transports []transportInfo
+}
+
+// familyDisplayNames maps a family key to a friendly vendor label. Families
+// not listed fall back to a title-cased key.
+var familyDisplayNames = map[string]string{
+	"copilot":    "GitHub Copilot",
+	"claude":     "Anthropic Claude",
+	"gemini":     "Google Gemini",
+	"codex":      "OpenAI Codex",
+	"opencode":   "OpenCode",
+	"openclaude": "OpenClaude",
+	"kiro":       "Kiro",
+	"codebuff":   "Codebuff",
+}
+
+// transportLabels maps a transport suffix to a display label for the
+// connection sub-page.
+var transportLabels = map[string]string{
+	"sdk":    "SDK",
+	"acp":    "ACP",
+	"cli":    "CLI",
+	"server": "Server",
+}
+
+// transportDescriptions gives a one-line pros/cons hint per transport kind,
+// shown next to each option on the connection sub-page.
+var transportDescriptions = map[string]string{
+	"sdk":    "Native SDK — fastest and most stable; talks to the provider API directly.",
+	"cli":    "Drives the vendor CLI (stream-json) — reuses your existing CLI login.",
+	"acp":    "Agent Client Protocol (JSON-RPC) — standardized, editor-agnostic.",
+	"server": "HTTP server mode — connects to a long-running provider process.",
+}
+
+// familyOf splits a provider id into its family prefix on the last hyphen
+// ("copilot-sdk" -> "copilot"). IDs without a hyphen are their own family.
+func familyOf(id string) string {
+	if i := strings.LastIndex(id, "-"); i >= 0 {
+		return id[:i]
+	}
+	return id
+}
+
+// transportOf returns the transport suffix of a provider id ("copilot-sdk"
+// -> "sdk"), or "" when the id has no hyphen.
+func transportOf(id string) string {
+	if i := strings.LastIndex(id, "-"); i >= 0 {
+		return id[i+1:]
+	}
+	return ""
+}
+
+func familyDisplay(name string) string {
+	if d, ok := familyDisplayNames[name]; ok {
+		return d
+	}
+	if name == "" {
+		return name
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+func transportLabel(kind string) string {
+	if l, ok := transportLabels[kind]; ok {
+		return l
+	}
+	return kind
+}
+
+// providerFamilies groups the registered providers by family, preserving
+// the registry's order so the wizard list stays in sync as providers are
+// added. Single-transport families keep their full DisplayName as the label;
+// multi-transport families get a vendor label plus a count hint.
+func providerFamilies() []providerFamily {
 	meta := analyzer.RegisteredProviderMeta()
-	items := make([]list.Item, 0, len(meta))
+	var order []string
+	byName := map[string]*providerFamily{}
 	for _, m := range meta {
-		items = append(items, selectItem{id: string(m.ID), desc: m.DisplayName})
+		id := string(m.ID)
+		fam := familyOf(id)
+		f, ok := byName[fam]
+		if !ok {
+			f = &providerFamily{name: fam}
+			byName[fam] = f
+			order = append(order, fam)
+		}
+		f.transports = append(f.transports, transportInfo{
+			id:      id,
+			kind:    transportOf(id),
+			display: m.DisplayName,
+		})
+	}
+	out := make([]providerFamily, 0, len(order))
+	for _, name := range order {
+		f := byName[name]
+		if len(f.transports) == 1 {
+			f.display = f.transports[0].display
+		} else {
+			f.display = familyDisplay(name)
+			f.desc = fmt.Sprintf("%d connection options", len(f.transports))
+		}
+		out = append(out, *f)
+	}
+	return out
+}
+
+// familyItems builds the provider page's list from grouped families.
+func familyItems(families []providerFamily) []list.Item {
+	items := make([]list.Item, 0, len(families))
+	for _, f := range families {
+		items = append(items, selectItem{id: f.name, title: f.display, desc: f.desc})
 	}
 	return items
 }
 
 func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel {
-	providers := selectItems()
+	families := providerFamilies()
+	providers := familyItems(families)
 	// Use a sensible initial width; WindowSizeMsg will update it.
 	initialW := 80
 	providerList := newCompactList("1/5 - Provider", providers, initialW-20)
@@ -272,6 +398,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers) setupModel 
 		step:             stepProvider,
 		advanced:         advanced,
 		skipStartup:      skipStartup,
+		families:         families,
 		providerList:     providerList,
 		freqInput:        freq,
 		outputInput:      out,
@@ -362,6 +489,9 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			innerWidth = 90
 		}
 		m.providerList.SetWidth(innerWidth)
+		if m.step == stepTransport {
+			m.transportList.SetWidth(innerWidth)
+		}
 		if m.step == stepModel {
 			m.modelList.SetWidth(innerWidth)
 		}
@@ -373,6 +503,8 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
 		m.providerList, cmd = m.providerList.Update(msg)
+	case stepTransport:
+		m.transportList, cmd = m.transportList.Update(msg)
 	case stepModel:
 		m.modelList, cmd = m.modelList.Update(msg)
 	case stepFrequency:
@@ -404,8 +536,14 @@ func (m setupModel) goBack() (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
 		// First step — nowhere to go.
-	case stepModel:
+	case stepTransport:
 		m.step = stepProvider
+	case stepModel:
+		if m.providerHasTransportChoice() {
+			m.step = stepTransport
+		} else {
+			m.step = stepProvider
+		}
 	case stepFrequency:
 		m.step = stepModel
 	case stepOutputRoot:
@@ -466,6 +604,8 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	switch m.step {
 	case stepProvider:
 		m.advanceProvider()
+	case stepTransport:
+		m.advanceTransport()
 	case stepModel:
 		m.advanceModel()
 	case stepFrequency:
@@ -501,10 +641,59 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// familyByName returns the grouped family with the given key, or nil.
+func (m setupModel) familyByName(name string) *providerFamily {
+	for i := range m.families {
+		if m.families[i].name == name {
+			return &m.families[i]
+		}
+	}
+	return nil
+}
+
+// providerHasTransportChoice reports whether the currently selected
+// provider belongs to a family that offers more than one transport, so the
+// wizard knows whether stepTransport sits between provider and model.
+func (m setupModel) providerHasTransportChoice() bool {
+	f := m.familyByName(familyOf(m.answers.provider))
+	return f != nil && len(f.transports) > 1
+}
+
+// advanceProvider records the chosen family. Families with a single
+// transport skip straight to the model step; families with several show the
+// connection sub-page first.
 func (m *setupModel) advanceProvider() {
-	if sel, ok := m.providerList.SelectedItem().(selectItem); ok {
+	sel, ok := m.providerList.SelectedItem().(selectItem)
+	if !ok {
+		return
+	}
+	fam := m.familyByName(sel.id)
+	if fam == nil || len(fam.transports) == 0 {
+		return
+	}
+	if len(fam.transports) == 1 {
+		m.answers.provider = fam.transports[0].id
+		m.gotoModelStep()
+		return
+	}
+	items := make([]list.Item, len(fam.transports))
+	for i, t := range fam.transports {
+		items[i] = selectItem{id: t.id, title: transportLabel(t.kind), desc: transportDescriptions[t.kind]}
+	}
+	m.transportList = newCompactList("1/5 - "+fam.display+": choose connection", items, m.providerList.Width())
+	m.step = stepTransport
+}
+
+// advanceTransport records the chosen transport variant and moves on.
+func (m *setupModel) advanceTransport() {
+	if sel, ok := m.transportList.SelectedItem().(selectItem); ok {
 		m.answers.provider = sel.id
 	}
+	m.gotoModelStep()
+}
+
+// gotoModelStep builds the model picker for the chosen provider and advances.
+func (m *setupModel) gotoModelStep() {
 	models := defaultModelsFor(m.answers.provider)
 	items := make([]list.Item, len(models))
 	for i, model := range models {
@@ -682,6 +871,8 @@ func (m setupModel) View() string {
 	switch m.step {
 	case stepProvider:
 		body = m.providerList.View()
+	case stepTransport:
+		body = m.transportList.View()
 	case stepModel:
 		body = m.modelList.View()
 	case stepFrequency:
@@ -836,6 +1027,81 @@ func buildConfigYAML(a setupAnswers) []byte {
 	return out
 }
 
+// existingConfigModel is a tiny two-option prompt shown when config.yaml
+// already exists and the user ran `setup` without --force on a terminal. It
+// lets them edit (re-run the wizard, pre-filled) or cancel without retyping
+// the command with --force.
+type existingConfigModel struct {
+	cfgPath string
+	list    list.Model
+	edit    bool
+	quit    bool
+	width   int
+	height  int
+}
+
+func newExistingConfigModel(cfgPath string) existingConfigModel {
+	items := []list.Item{
+		selectItem{id: "edit", title: "Edit existing config", desc: "Re-run the wizard, pre-filled from your current settings"},
+		selectItem{id: "cancel", title: "Cancel", desc: "Leave config.yaml unchanged"},
+	}
+	return existingConfigModel{cfgPath: cfgPath, list: newCompactList("Config already exists", items, 60)}
+}
+
+func (m existingConfigModel) Init() tea.Cmd { return nil }
+
+func (m existingConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch typedMsg := msg.(type) {
+	case tea.KeyMsg:
+		switch typedMsg.String() {
+		case "ctrl+c", "esc", "q":
+			m.quit = true
+			return m, tea.Quit
+		case "enter":
+			if sel, ok := m.list.SelectedItem().(selectItem); ok && sel.id == "edit" {
+				m.edit = true
+			}
+			return m, tea.Quit
+		}
+	case tea.WindowSizeMsg:
+		m.width = typedMsg.Width
+		m.height = typedMsg.Height
+		innerWidth := typedMsg.Width - 12
+		if innerWidth < 40 {
+			innerWidth = 40
+		}
+		if innerWidth > 90 {
+			innerWidth = 90
+		}
+		m.list.SetWidth(innerWidth)
+	}
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m existingConfigModel) View() string {
+	if m.quit {
+		return ""
+	}
+	header := fmt.Sprintf("Config already exists at %s\n\nWhat would you like to do?\n\n", m.cfgPath)
+	navHint := lipgloss.NewStyle().Foreground(colorDim).Render("  ↑/↓: move    enter: select    esc: cancel")
+	return header + m.list.View() + "\n" + navHint
+}
+
+// promptExistingConfig runs the edit/cancel prompt and reports whether the
+// user chose to edit. Returns false on cancel or quit. Rendered inline (no
+// alt screen) so it stays a compact selector in the existing terminal.
+func promptExistingConfig(cfgPath string) (bool, error) {
+	prog := tea.NewProgram(newExistingConfigModel(cfgPath))
+	final, err := prog.Run()
+	if err != nil {
+		return false, err
+	}
+	m := final.(existingConfigModel)
+	return m.edit && !m.quit, nil
+}
+
 func newSetupCommand() *cobra.Command {
 	var (
 		advanced, force, noStartup, nonInteractive bool
@@ -854,7 +1120,21 @@ func newSetupCommand() *cobra.Command {
 				return fmt.Errorf("resolve config path: %w", err)
 			}
 			if _, statErr := os.Stat(cfgPath); statErr == nil && !force {
-				return configExistsError(cmd, cfgPath)
+				// On a terminal, offer an inline edit/cancel choice so the
+				// user need not re-run with --force. Without a TTY (agents,
+				// CI), keep the actionable error pointing at --force.
+				if !term.IsTerminal(os.Stdin.Fd()) {
+					return configExistsError(cmd, cfgPath)
+				}
+				editChosen, err := promptExistingConfig(cfgPath)
+				if err != nil {
+					return err
+				}
+				if !editChosen {
+					fmt.Fprintln(cmd.OutOrStdout(), "setup cancelled; no changes written")
+					return nil
+				}
+				// User chose to edit: fall through and overwrite, just like --force.
 			}
 
 			// Pre-fill from prior config when re-running with --force.
