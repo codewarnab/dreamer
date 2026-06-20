@@ -47,8 +47,17 @@ func TestRuleDefaults_HTTP(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if _, ok := got["test"]; !ok {
-		t.Fatalf("response missing %q category: %+v", "test", got)
+	if len(got) == 0 {
+		t.Fatalf("response has no categories: %+v", got)
+	}
+	// Pick a category dynamically so the test survives category renames/additions.
+	cats := analyzer.AllRuleCategories()
+	if len(cats) == 0 {
+		t.Fatal("AllRuleCategories() returned no categories")
+	}
+	first := string(cats[0])
+	if _, ok := got[first]; !ok {
+		t.Fatalf("response missing %q category: %+v", first, got)
 	}
 
 	rPost := httptest.NewRequest("POST", "/api/rule-defaults", nil)

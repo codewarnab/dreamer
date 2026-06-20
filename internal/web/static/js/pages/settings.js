@@ -205,21 +205,15 @@ window.settingsPage = function () {
         // Graceful degradation: retain hardcoded fallback map.
       }
     },
-    // openPromptModal opens the per-category prompt editor for ruleID and
-    // seeds any blank field with the embedded default text so the user edits
-    // the real prompt rather than typing from an empty box. A field left equal
-    // to its default still serializes to null (see promptOverrideValue), so
-    // seeding never creates a spurious override.
     promptDefault: function (ruleID, field) {
       return (this.ruleDefaults[ruleID] || {})[field] || "";
     },
+    // openPromptModal opens the per-category prompt editor for ruleID. Blank
+    // fields are left blank on purpose: the embedded default shows through as
+    // the textarea placeholder (see the :placeholder bindings in the template),
+    // so an empty model value means "use built-in default". Opening the modal
+    // therefore never mutates values.rules and never marks the section dirty.
     openPromptModal: function (ruleID) {
-      const rule = this.values.rules[ruleID];
-      if (rule) {
-        this.promptFields.forEach(f => {
-          if (!rule[f]) rule[f] = this.promptDefault(ruleID, f);
-        });
-      }
       this.promptFocusedField = null;
       this.promptModalRuleID = ruleID;
     },
@@ -229,10 +223,10 @@ window.settingsPage = function () {
       this.promptModalRuleID = null;
       this.promptFocusedField = null;
     },
-    // resetPromptField restores a field to its embedded default text, which
-    // serializes back to null (no override) on save.
+    // resetPromptField clears the override back to empty, so the embedded
+    // default reapplies (shown as placeholder, serialized as null on save).
     resetPromptField: function (ruleID, field) {
-      this.values.rules[ruleID][field] = this.promptDefault(ruleID, field);
+      this.values.rules[ruleID][field] = "";
     },
     // promptModalRule returns the ruleCatalog entry for the open modal, or an
     // empty object when none is open (guards template access during teardown).
