@@ -28,6 +28,7 @@ const (
 	stepProvider  = iota
 	stepTransport // sub-step: shown only for provider families with >1 connection option
 	stepModel
+	stepCustomModel // sub-step: text input for a model id not in the list
 	stepFrequency
 	stepOutputRoot
 	stepStartupYN
@@ -126,6 +127,8 @@ type setupModel struct {
 	providerList     list.Model
 	transportList    list.Model
 	modelList        list.Model
+	customModelInput textinput.Model
+	customModelErr   string
 	freqInput        textinput.Model
 	outputInput      textinput.Model
 	logLevelList     list.Model
@@ -412,6 +415,10 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers, prior *conf
 		projectNameInput.SetValue(initial.projectName)
 	}
 
+	customModelInput := textinput.New()
+	customModelInput.Placeholder = "e.g. claude-opus-4-7"
+	customModelInput.CharLimit = 128
+
 	sinces := []list.Item{
 		selectItem{id: "24h"},
 		selectItem{id: "7d"},
@@ -439,6 +446,7 @@ func newSetupModel(advanced, skipStartup bool, initial setupAnswers, prior *conf
 		skipStartup:      skipStartup,
 		families:         families,
 		providerList:     providerList,
+		customModelInput: customModelInput,
 		freqInput:        freq,
 		outputInput:      out,
 		logLevelList:     logLevelList,
@@ -552,6 +560,8 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transportList, cmd = m.transportList.Update(msg)
 	case stepModel:
 		m.modelList, cmd = m.modelList.Update(msg)
+	case stepCustomModel:
+		m.customModelInput, cmd = m.customModelInput.Update(msg)
 	case stepFrequency:
 		m.freqInput, cmd = m.freqInput.Update(msg)
 	case stepOutputRoot:
@@ -590,6 +600,8 @@ func (m setupModel) goBack() (tea.Model, tea.Cmd) {
 			m.step = stepProvider
 		}
 	case stepFrequency:
+		m.step = stepModel
+	case stepCustomModel:
 		m.step = stepModel
 	case stepOutputRoot:
 		m.freqInput.Focus()
@@ -653,6 +665,8 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 		return m, m.advanceTransport()
 	case stepModel:
 		m.advanceModel()
+	case stepCustomModel:
+		m.advanceCustomModel()
 	case stepFrequency:
 		m.advanceFrequency()
 	case stepOutputRoot:
@@ -769,17 +783,19 @@ func (m *setupModel) warmModels(provider string) []string {
 
 // setModelList rebuilds the model picker from models, keeping the current
 // selection when that model survives the rebuild and otherwise defaulting to
-// the first entry. answers.model is synced to the resulting selection.
+// the first entry. A trailing "custom…" entry opens a text input for model ids
+// that are not listed. answers.model is synced to the resulting selection.
 func (m *setupModel) setModelList(models []string) {
 	prevSelected := m.answers.model
-	items := make([]list.Item, len(models))
+	items := make([]list.Item, 0, len(models)+1)
 	selectIdx := 0
 	for i, model := range models {
-		items[i] = selectItem{id: model}
+		items = append(items, selectItem{id: model})
 		if model == prevSelected {
 			selectIdx = i
 		}
 	}
+	items = append(items, selectItem{id: customModelOption, desc: "enter a model id"})
 	width := m.providerList.Width()
 	m.modelList = newCompactList(m.modelStepTitle(), items, width)
 	if len(models) > 0 {
@@ -798,12 +814,55 @@ func (m *setupModel) modelStepTitle() string {
 	return title
 }
 
+// customModelOption is the sentinel id of the "enter a model id" entry in the
+// model picker. It must never collide with a real model id.
+const customModelOption = "__custom__"
+
 func (m *setupModel) advanceModel() {
-	if sel, ok := m.modelList.SelectedItem().(selectItem); ok {
-		m.answers.model = sel.id
+	sel, ok := m.modelList.SelectedItem().(selectItem)
+	if !ok {
+		return
 	}
+	if sel.id == customModelOption {
+		m.customModelErr = ""
+		m.customModelInput.Focus()
+		m.step = stepCustomModel
+		return
+	}
+	m.answers.model = sel.id
 	m.freqInput.Focus()
 	m.step = stepFrequency
+}
+
+// advanceCustomModel commits the manually entered model id. Empty input is
+// rejected; ids already present in the picker are accepted as-is (the check
+// result stays visible in the sub-step view).
+func (m *setupModel) advanceCustomModel() {
+	model := strings.TrimSpace(m.customModelInput.Value())
+	if model == "" {
+		m.customModelErr = "model id is required"
+		return
+	}
+	m.customModelErr = ""
+	m.answers.model = model
+	m.freqInput.Focus()
+	m.step = stepFrequency
+}
+
+// customModelExists reports whether the id typed into the custom-model input
+// matches an entry already shown in the model picker (static defaults, warm
+// cache, and any live-fetched models).
+func (m setupModel) customModelExists() bool {
+	id := strings.TrimSpace(m.customModelInput.Value())
+	if id == "" {
+		return false
+	}
+	for _, item := range m.modelList.Items() {
+		if sel, ok := item.(selectItem); ok && sel.id == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *setupModel) advanceFrequency() {
@@ -967,6 +1026,14 @@ func (m setupModel) View() string {
 		body = m.transportList.View()
 	case stepModel:
 		body = m.modelList.View()
+	case stepCustomModel:
+		status := "New model — saved as-is."
+		if m.customModelErr != "" {
+			status = "Error: " + m.customModelErr
+		} else if m.customModelExists() {
+			status = "Already in the list above — Enter selects it."
+		}
+		body = fmt.Sprintf("2/5 - Model id for %s:\n\n%s\n\n%s\n\n(Press Enter to accept)", m.answers.provider, m.customModelInput.View(), status)
 	case stepFrequency:
 		body = fmt.Sprintf("3/5 - How often should dreamer check your projects?\n\nDreamer runs in the background and re-analyzes your\nprojects on a schedule. Enter the gap between runs,\nin minutes (e.g. 60 = hourly, 1440 = once a day).\n\n%s minutes\n\n(Press Enter to accept)", m.freqInput.View())
 	case stepOutputRoot:
