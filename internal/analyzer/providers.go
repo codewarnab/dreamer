@@ -214,6 +214,12 @@ func LookupProviderCapabilities(id ProviderID) ProviderCapabilities {
 	return ProviderCapabilities{}
 }
 
+// JoinProviderIDs renders a sorted provider id list for error messages,
+// e.g. `claude-cli, codex-cli, gemini-cli`.
+func JoinProviderIDs(ids []ProviderID) string {
+	return joinProviderIDs(ids, ", ")
+}
+
 func joinProviderIDs(ids []ProviderID, sep string) string {
 	parts := make([]string, 0, len(ids))
 	for _, id := range ids {

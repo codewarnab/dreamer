@@ -225,6 +225,15 @@ func runDiscovery(opts Options, appConfig *config.App, logger *logging.Logger) (
 	if err != nil {
 		return discovery, err
 	}
+	// Fail fast on missing/invalid project paths instead of "analyzing" an
+	// empty directory and reporting a misleading success.
+	info, err := os.Stat(projectPath)
+	if err != nil {
+		return discovery, fmt.Errorf("project path %q: %w", projectPath, err)
+	}
+	if !info.IsDir() {
+		return discovery, fmt.Errorf("project path %q is not a directory", projectPath)
+	}
 	discovery.projectPath = projectPath
 
 	discovery.projectName = strings.TrimSpace(opts.ProjectName)
@@ -254,6 +263,13 @@ func runDiscovery(opts Options, appConfig *config.App, logger *logging.Logger) (
 	discovery.projectFile = projectFile
 
 	discovery.providerID, discovery.providerBlock = appConfig.ResolveProviderConfig(projectFile, opts.ProviderID)
+	// Validate the resolved provider is actually registered. Without this,
+	// an unknown --provider (or config default) silently skips analysis via
+	// the preflight path and reports success.
+	if _, registered := analyzer.LookupProvider(analyzer.ProviderID(discovery.providerID)); !registered {
+		return discovery, fmt.Errorf("provider %q is not registered (known: %s)",
+			discovery.providerID, analyzer.JoinProviderIDs(analyzer.RegisteredProviders()))
+	}
 	logger.Info("provider resolved", logging.Any("id", discovery.providerID))
 
 	discovery.outputRoot = strings.TrimSpace(opts.OutputDir)

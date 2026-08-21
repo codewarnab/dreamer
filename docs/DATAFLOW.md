@@ -644,6 +644,10 @@ CLI flags / OS scheduler trigger
 config.App  ◄── config.yaml + ui-overrides.yaml + .dreamer.yaml
         │
         ▼
+[Validation]  project path must exist and be a directory;
+              resolved provider id must be registered (fail fast, exit ≠ 0)
+        │
+        ▼
 [Discovery]  chat.DiscoverChats(env, projectPath)
         │          └─ parallel provider scans → []chat.Source
         │
