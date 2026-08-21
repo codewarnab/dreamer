@@ -179,7 +179,7 @@
     role="dialog"
     aria-modal="true"
     :aria-label="'Remove project ' + removeModal.name"
-    x-modal-close="removeModal.open = false"
+    x-modal-close.no-backdrop="removeModal.open = false"
     x-transition:enter="transition ease-out duration-150"
     x-transition:enter-start="opacity-0"
     x-transition:enter-end="opacity-100"

@@ -43,7 +43,7 @@
     <div x-show="chats.length === 0" style="color: var(--text-secondary);">no chat sources discovered.</div>
   </div>
 
-  <div class="modal-backdrop" x-show="pending" x-cloak role="dialog" aria-modal="true" aria-label="Delete chat confirmation" x-modal-close="cancelDelete()">
+  <div class="modal-backdrop" x-show="pending" x-cloak role="dialog" aria-modal="true" aria-label="Delete chat confirmation" x-modal-close.no-backdrop="cancelDelete()">
     <div class="card modal-card">
       <h2 class="headline-md modal-card__title" x-text="pending && pending.bulk ? 'Delete ' + pending.items.length + ' chats?' : 'Delete chat from local storage?'"></h2>
       <template x-if="pending && !pending.bulk">
