@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"dreamer/internal/procutil"
 )
 
 // CommandTimeout bounds local git metadata probes so slow filesystems or
@@ -18,5 +20,8 @@ func Command(parent context.Context, args ...string) (*exec.Cmd, context.CancelF
 	ctx, cancel := context.WithTimeout(parent, CommandTimeout)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	// Git is a console-subsystem binary; without this every probe flashes a
+	// console window when Dreamer runs detached (daemon/background jobs).
+	procutil.SetNoWindow(cmd)
 	return cmd, cancel
 }

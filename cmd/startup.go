@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 
+	"dreamer/internal/procutil"
+
 	"github.com/spf13/cobra"
 )
 
@@ -248,6 +250,9 @@ func quoteSystemdArg(value string) string {
 
 func runExternalCommand(name string, args ...string) ([]byte, error) {
 	command := exec.Command(name, args...)
+	// schtasks.exe is console-subsystem on Windows; hide its window
+	// (no-op on other platforms).
+	procutil.SetNoWindow(command)
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output

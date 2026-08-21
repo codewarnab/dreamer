@@ -20,6 +20,7 @@ import (
 	"dreamer/internal/analyzer"
 	"dreamer/internal/chat"
 	"dreamer/internal/errs"
+	"dreamer/internal/procutil"
 )
 
 const ID = "opencode-server"
@@ -154,6 +155,9 @@ func (p *provider) Start(ctx context.Context) error {
 	// which would SIGKILL the server before any session runs.
 	cmd := exec.Command(p.command[0], args...)
 	cmd.Env = p.buildEnv()
+	// Match acpcore/cliharness: avoid a console flash when the server is
+	// auto-started from a detached daemon or background job on Windows.
+	procutil.SetNoWindow(cmd)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {

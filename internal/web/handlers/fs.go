@@ -14,6 +14,7 @@ import (
 
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
+	"dreamer/internal/procutil"
 )
 
 // FSExists returns an http.HandlerFunc for GET /api/fs/exists.
@@ -187,6 +188,9 @@ $type = Add-Type -MemberDefinition $c2 -Name Win32Utils -PassThru;
 $hwnd = $type::GetForegroundWindow();
 $path = [FolderPicker]::Show($hwnd, "Select Project Folder");
 Write-Output $path`)
+		// PowerShell is console-subsystem; hide its window when the daemon
+		// runs detached, otherwise a console flashes behind the dialog.
+		procutil.SetNoWindow(cmd)
 		out, err := cmd.Output()
 		if err != nil {
 			return "", err

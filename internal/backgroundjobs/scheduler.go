@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dreamer/internal/logging"
+	"dreamer/internal/procutil"
 )
 
 // Scheduler manages per-job OS schedules.
@@ -69,6 +70,9 @@ type ScheduleHealth struct {
 // Shared by all platform scheduler implementations.
 func runExternalCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	// Defensive: console-subsystem children (e.g. schtasks.exe) would flash
+	// a window if this helper is ever reused on Windows. No-op elsewhere.
+	procutil.SetNoWindow(cmd)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf

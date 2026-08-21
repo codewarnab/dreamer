@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+
+	"dreamer/internal/procutil"
 )
 
 // detachedProcessAttr returns SysProcAttr that detaches the child from the
@@ -36,7 +38,9 @@ func suppressConsoleWindow() {
 // child). /F forces termination since console apps don't receive WM_CLOSE.
 // Returns nil if the process is already gone (taskkill exit code 128).
 func killDaemon(pid int) error {
-	out, err := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T", "/F").CombinedOutput()
+	cmd := exec.Command("taskkill", "/PID", fmt.Sprintf("%d", pid), "/T", "/F")
+	procutil.SetNoWindow(cmd)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := string(out)
 		// taskkill exit code 128 = "process not found". Treat as success since
@@ -57,7 +61,9 @@ func killDaemon(pid int) error {
 
 // FindPIDByPort finds the PID of the process listening on the given TCP port.
 func FindPIDByPort(port int) (int, error) {
-	out, err := exec.Command("cmd", "/c", fmt.Sprintf("netstat -ano | findstr LISTENING | findstr :%d", port)).Output()
+	cmd := exec.Command("cmd", "/c", fmt.Sprintf("netstat -ano | findstr LISTENING | findstr :%d", port))
+	procutil.SetNoWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return 0, err
 	}
