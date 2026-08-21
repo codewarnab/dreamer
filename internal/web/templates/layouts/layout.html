@@ -51,10 +51,10 @@
     aria-modal="true"
     aria-label="Add project"
     @open-modal.window="if ($event.detail === 'add-project') openModal()"
-    @keydown.escape.window="isOpen = false"
+    x-modal-close="isOpen = false"
     style="display:none;"
   >
-    <div class="modal-dialog" @click.stop style="max-width: 500px;">
+    <div class="modal-dialog" style="max-width: 500px;">
       <h3 style="margin-bottom: var(--space-3);">add project</h3>
       <p style="margin-bottom: var(--space-4); font-size: 13px; color: var(--text-secondary); line-height: 1.4;">
         Register a codebase project to scan for local AI assistant chat transcripts (Copilot, Claude Code, Gemini CLI, etc.), extract recurring mistakes, and synthesize preventative guardrails.

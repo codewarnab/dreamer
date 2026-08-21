@@ -24,7 +24,7 @@ window.jobsPage = function () {
     showAudit: false,
     auditEvents: [],
     csrf: function () {
-      return document.querySelector('meta[name="csrf-token"]')?.content || '';
+      return window.dreamerAPI.csrf();
     },
     _sseUnsub: [],
     load: async function () {
@@ -81,32 +81,16 @@ window.jobsPage = function () {
         this.auditEvents = data.events || [];
       }
     },
-    buildSchedule: function () {
-      var s = { kind: this.form.schedule_kind, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-      if (this.form.schedule_kind === 'daily') {
-        s.time_of_day = this.form.time_of_day;
-      } else if (this.form.schedule_kind === 'weekly') {
-        s.time_of_day = this.form.time_of_day;
-        s.day_of_week = this.form.day_of_week;
-      } else if (this.form.schedule_kind === 'cron') {
-        s.cron = this.form.cron;
-      }
-      return s;
-    },
     buildPayload: function () {
-      var paths = [];
-      if (this.form.writable_paths) {
-        paths = this.form.writable_paths.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-      }
       return {
         prompt: this.form.prompt,
         project_name: this.form.project_name,
         provider_id: this.form.provider_id,
-        schedule: this.buildSchedule(),
+        schedule: window.dreamerJobs.buildSchedule(this.form),
         name: this.form.name,
         model: this.form.model,
         file_access: this.form.file_access,
-        writable_paths: paths,
+        writable_paths: window.dreamerJobs.parseWritablePaths(this.form.writable_paths),
       };
     },
     previewJob: async function () {

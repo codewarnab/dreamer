@@ -31,7 +31,7 @@ window.jobDetailPage = function (jobID) {
     },
     _sseUnsub: [],
     csrf: function () {
-      return document.querySelector('meta[name="csrf-token"]')?.content || '';
+      return window.dreamerAPI.csrf();
     },
     load: async function () {
       this.loading = true;
@@ -225,29 +225,14 @@ window.jobDetailPage = function (jobID) {
       this.editError = '';
       this.editLoading = true;
       try {
-        var paths = [];
-        if (this.editForm.writable_paths) {
-          paths = this.editForm.writable_paths.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-        }
-        
-        var sched = { kind: this.editForm.schedule_kind, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
-        if (this.editForm.schedule_kind === 'daily') {
-          sched.time_of_day = this.editForm.time_of_day;
-        } else if (this.editForm.schedule_kind === 'weekly') {
-          sched.time_of_day = this.editForm.time_of_day;
-          sched.day_of_week = this.editForm.day_of_week;
-        } else if (this.editForm.schedule_kind === 'cron') {
-          sched.cron = this.editForm.cron;
-        }
-
         var body = {
           name: this.editForm.name,
           prompt: this.editForm.prompt,
           provider_id: this.editForm.provider_id,
           model: this.editForm.model,
           file_access: this.editForm.file_access,
-          writable_paths: paths,
-          schedule: sched,
+          writable_paths: window.dreamerJobs.parseWritablePaths(this.editForm.writable_paths),
+          schedule: window.dreamerJobs.buildSchedule(this.editForm),
         };
 
         var r = await fetch('/api/jobs/' + encodeURIComponent(this.jobID), {

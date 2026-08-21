@@ -147,6 +147,8 @@ The `GET /api/provider-meta` response includes a `model_source` field per provid
 - `"live"` — the models list was served from the in-memory cache (fetched from a running provider at some point since daemon start)
 - `"static"` — no cache entry yet; the static `defaults.AllModels` fallback was returned
 
+The `setup` wizard's model step uses the same hybrid (`cmd/setup.go`): it shows `mergeModelLists(warm, static)` immediately — `warm` being any list read from the on-disk cache via `ModelListCache.Peek` (TTL-free, unlike `Get`) — then fires an async `tea.Cmd` that probes the selected provider via `analyzer.ModelLister`, merges a fresh list in on success (`modelsFetchedMsg`), and persists it back to `<output_root>/model-list-cache.json`. The static `defaults.AllModels` is the floor; the live list (live order preserved, default first) is layered on top. A "(checking for latest models…)" hint shows while the probe is in flight.
+
 ---
 
 ## 5. Shared Helpers & Reusable Functions
@@ -168,4 +170,4 @@ Key packages that own cross-cutting reusable helpers:
 | `internal/logging/` | `Any`, `String`, `ErrAttr` |
 | `internal/errs/` | `NotInstalled`, `RateLimit`, `ProviderUnavailable`, `KindOf`, `Is` |
 | `internal/web/handlers/` | `buildLifecycleCounts`, `buildProviderHealth`, `findProjectByName`, `parseSinceWindow`, `loadFindingsFor`, `buildFindingView`, `buildScheduleSummary` |
-| `internal/analyzer/` | `ModelListCache.Get`, `ModelListCache.Set`, `ModelListCache.Load(dir)`, `ModelListCache.Save(dir)` — disk-persisted provider model list cache |
+| `internal/analyzer/` | `ModelListCache.Get`, `ModelListCache.Peek`, `ModelListCache.Set`, `ModelListCache.Load(dir)`, `ModelListCache.Save(dir)` — disk-persisted provider model list cache (`Peek` is the TTL-free getter used by the setup wizard) |

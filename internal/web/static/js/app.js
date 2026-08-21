@@ -67,6 +67,33 @@ window.dreamerUI = {
   },
 };
 
+// dreamerJobs — shared job-form serialization. Both the jobs list (create) and
+// the job detail (edit) page build the same schedule and writable-paths payload
+// shapes; keeping that knowledge here prevents the two pages from drifting.
+window.dreamerJobs = {
+  // buildSchedule maps a job form's schedule fields to the API schedule object.
+  // Only the fields relevant to the selected kind are included.
+  buildSchedule: function (form) {
+    var s = { kind: form.schedule_kind, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+    if (form.schedule_kind === "daily") {
+      s.time_of_day = form.time_of_day;
+    } else if (form.schedule_kind === "weekly") {
+      s.time_of_day = form.time_of_day;
+      s.day_of_week = form.day_of_week;
+    } else if (form.schedule_kind === "cron") {
+      s.cron = form.cron;
+    }
+    return s;
+  },
+
+  // parseWritablePaths turns the comma-separated writable-paths input into a
+  // trimmed, empty-free array.
+  parseWritablePaths: function (raw) {
+    if (!raw) return [];
+    return raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  },
+};
+
 (function () {
   document.body.addEventListener("htmx:configRequest", function (evt) {
     if (evt.detail && evt.detail.headers) {
@@ -83,6 +110,52 @@ window.dreamerUI = {
 // We use window.addEventListener instead of document.addEventListener to bypass
 // the strict static webcheck regex rule.
 window.addEventListener("alpine:init", function () {
+  // x-modal-close centralizes modal dismissal so every overlay shares one
+  // implementation of "click the backdrop or press Escape to close" instead of
+  // each template re-deriving it (which is how some modals — e.g. add-project —
+  // silently shipped without backdrop-dismiss). Apply it to the `.modal-overlay`
+  // (backdrop) element; the expression is the close action, e.g.
+  //   <div class="modal-overlay" x-modal-close="isOpen = false">
+  // A backdrop click only closes when the click lands on the overlay itself, so
+  // clicks inside the dialog never bubble up to dismiss it — no @click.stop on
+  // the dialog needed. Add the `.no-backdrop` modifier for confirmations that
+  // must not be dismissed by an accidental backdrop click (Escape still works).
+  Alpine.directive("modal-close", function (el, meta, runtime) {
+    var expression = meta.expression;
+    var modifiers = meta.modifiers;
+    var evaluate = runtime.evaluate;
+    var cleanup = runtime.cleanup;
+    var close = function () { if (expression) evaluate(expression); };
+    // The overlay stays in the DOM and is toggled via x-show (display:none),
+    // so guard every handler on actual visibility — otherwise a global Escape
+    // would evaluate the close expression for hidden modals too (resetting
+    // forms / cancelling actions while nothing is open). checkVisibility()
+    // (not offsetParent) is used because these overlays are position:fixed,
+    // for which offsetParent is always null — visible or not.
+    var isVisible = function () {
+      if (typeof el.checkVisibility === "function") return el.checkVisibility();
+      return getComputedStyle(el).display !== "none";
+    };
+    var onClick = function (event) { if (event.target === el && isVisible()) close(); };
+    var onKey = function (event) {
+      if (event.key !== "Escape" || event.defaultPrevented || !isVisible()) return;
+      event.preventDefault();
+      // One Escape closes exactly one visible modal: without stopping
+      // propagation of the sibling window listeners (every overlay registers
+      // its own), a single keypress would dismiss all stacked modals at once.
+      event.stopImmediatePropagation();
+      close();
+    };
+    if (modifiers.indexOf("no-backdrop") === -1) {
+      el.addEventListener("click", onClick);
+    }
+    window.addEventListener("keydown", onKey);
+    cleanup(function () {
+      el.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    });
+  });
+
   Alpine.store("sse", {
     connected: false,
     lastEvent: null,
