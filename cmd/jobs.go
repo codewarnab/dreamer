@@ -320,6 +320,9 @@ func createAndSaveJob(cmd *cobra.Command, outputRoot, configPath string, input c
 	if input.schedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
 		return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
 	}
+	for _, warning := range backgroundjobs.ScheduleWarnings(input.schedule) {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+	}
 
 	// Build job.
 	now := time.Now().UTC()
@@ -1067,6 +1070,9 @@ func newJobsEditCommand() *cobra.Command {
 					}
 					if newSchedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
 						return fmt.Errorf("cron schedules are not supported on Windows; use --schedule daily or --schedule weekly instead")
+					}
+					for _, warning := range backgroundjobs.ScheduleWarnings(newSchedule) {
+						fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 					}
 					job.Schedule = newSchedule
 					scheduleChanged = true

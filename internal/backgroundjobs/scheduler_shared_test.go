@@ -31,8 +31,9 @@ func TestSanitizeScheduleName(t *testing.T) {
 func TestExecutionTimeLimit_Hourly(t *testing.T) {
 	spec := ScheduleSpec{Kind: ScheduleInterval}
 	got := executionTimeLimit(spec)
-	if got != "PT55M" {
-		t.Errorf("executionTimeLimit(hourly) = %q, want PT55M", got)
+	// 1h interval * 80% = 48m.
+	if got != "PT48M" {
+		t.Errorf("executionTimeLimit(hourly) = %q, want PT48M", got)
 	}
 }
 

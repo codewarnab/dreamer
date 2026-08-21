@@ -1,6 +1,7 @@
 package backgroundjobs
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -500,7 +501,15 @@ func TestDurationToISO8601(t *testing.T) {
 		{"45m", 45 * time.Minute, "PT45M"},
 		{"1h", 1 * time.Hour, "PT1H"},
 		{"2h", 2 * time.Hour, "PT2H"},
-		{"90m", 90 * time.Minute, "PT90M"},
+		{"90m", 90 * time.Minute, "PT1H30M"},
+		// Sub-minute components must be preserved, not truncated away.
+		{"90s", 90 * time.Second, "PT1M30S"},
+		{"1h30m30s", 90*time.Minute + 30*time.Second, "PT1H30M30S"},
+		{"59s", 59 * time.Second, "PT59S"},
+		// Sub-second is truncated (never rounds up).
+		{"sub-second", 1500 * time.Millisecond, "PT1S"},
+		{"zero", 0, "PT0S"},
+		{"negative", -time.Minute, "PT0S"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -518,10 +527,12 @@ func TestExecutionTimeLimit_HourlyEvery(t *testing.T) {
 		every string
 		want  string
 	}{
-		{"default", "", "PT55M"},
-		{"5m", "5m", "PT5M"},
-		{"15m", "15m", "PT15M"},
-		{"2h", "2h", "PT2H"},
+		// Limit is 80% of the interval so a hung run can never suppress the
+		// next fire via MultipleInstancesPolicy=IgnoreNew.
+		{"default", "", "PT48M"}, // 1h * 80%
+		{"5m", "5m", "PT5M"},     // 4m floored to minExecutionLimit
+		{"15m", "15m", "PT12M"},  // 15m * 80%
+		{"2h", "2h", "PT1H36M"},  // 2h * 80%
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -581,6 +592,87 @@ func TestDefaultTimeoutFor(t *testing.T) {
 			got := DefaultTimeoutFor(tt.spec)
 			if got != tt.want {
 				t.Errorf("DefaultTimeoutFor(%+v) = %v, want %v", tt.spec, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScheduleWarnings_TimezoneMismatch(t *testing.T) {
+	local := time.Local.String()
+	spec := ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "09:00", Timezone: "UTC"}
+
+	warnings := ScheduleWarnings(spec)
+	if local == "UTC" {
+		if len(warnings) != 0 {
+			t.Errorf("expected no warnings when machine is UTC, got %v", warnings)
+		}
+		return
+	}
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "differs from this machine's timezone") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected timezone-mismatch warning for spec UTC on machine %s, got %v", local, warnings)
+	}
+
+	// Matching the machine timezone must never warn.
+	matched := ScheduleWarnings(ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "09:00", Timezone: local})
+	for _, w := range matched {
+		if strings.Contains(w, "differs from this machine's timezone") {
+			t.Errorf("unexpected timezone-mismatch warning for matching zone %s: %v", local, matched)
+		}
+	}
+}
+
+func TestScheduleWarnings_IntervalSkipsTimezoneChecks(t *testing.T) {
+	// Interval schedules fire relative to install time, not wall clock, so
+	// timezone mismatch/DST are irrelevant and must not warn.
+	warnings := ScheduleWarnings(ScheduleSpec{Kind: ScheduleInterval, Every: "5m", Timezone: "Asia/Tokyo"})
+	if len(warnings) != 0 {
+		t.Errorf("interval schedule should not produce timezone warnings, got %v", warnings)
+	}
+}
+
+func TestScheduleWarnings_DST(t *testing.T) {
+	dstZone := "America/New_York"
+	spec := ScheduleSpec{Kind: ScheduleDaily, TimeOfDay: "02:30", Timezone: dstZone}
+	warnings := ScheduleWarnings(spec)
+	foundDST := false
+	for _, w := range warnings {
+		if strings.Contains(w, "daylight saving time") {
+			foundDST = true
+		}
+	}
+	if !foundDST {
+		t.Errorf("expected DST warning for %s, got %v", dstZone, warnings)
+	}
+}
+
+func TestObservesDST(t *testing.T) {
+	tests := []struct {
+		name string
+		zone string
+		want bool
+	}{
+		{"UTC no DST", "UTC", false},
+		{"New York DST", "America/New_York", true},
+		{"Berlin DST", "Europe/Berlin", true},
+		// Asia/Kolkata has a non-UTC offset but no DST.
+		{"Kolkata fixed offset", "Asia/Kolkata", false},
+		{"Tokyo fixed offset", "Asia/Tokyo", false},
+		{"Sydney DST (southern hemisphere)", "Australia/Sydney", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loc, err := time.LoadLocation(tt.zone)
+			if err != nil {
+				t.Skipf("timezone %q unavailable: %v", tt.zone, err)
+			}
+			if got := observesDST(loc); got != tt.want {
+				t.Errorf("observesDST(%s) = %v, want %v", tt.zone, got, tt.want)
 			}
 		})
 	}

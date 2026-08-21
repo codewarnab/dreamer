@@ -409,6 +409,15 @@ backgroundjobs.AuditWriter  (<storeDir>/audit.jsonl)
 
 **Reconciler:** On daemon startup and on `dreamer jobs reconcile`, the `Reconciler` compares `jobs.json` against the OS scheduler and repairs drift: installs missing tasks, removes orphan tasks, and updates stale schedule hashes.
 
+**Windows scheduling hardening (scheduler_windows.go):**
+- Task definition XML is written UTF-8 without an XML declaration (schtasks requires UTF-16LE if an encoding declaration is present); job paths (`\Dreamer\BackgroundJobs\<id>`) are guarded by `ValidateJobID` on every entry point (Install/Update/Remove/Inspect).
+- Config/run-token paths are quoted in the task `<Arguments>` so spaces don't split the command line; all interpolated text passes through XML escaping.
+- `<ExecutionTimeLimit>` for interval schedules is 80% of the interval (floored at 5m) so a hung run cannot suppress subsequent fires under `MultipleInstancesPolicy=IgnoreNew`.
+- `Inspect` reads enabled state from definition XML, then fetches Next/LastRunTime via `/Query /V /FO CSV` parsed by column index — runtime times never appear in definition XML, and column indexes are stable across locales (unlike localized headers).
+- `ListOwn` propagates real schtasks errors (access denied etc.) instead of treating them as "folder missing", so orphan detection never silently disables.
+- Invalid schedule fields fail loudly at trigger-build time (no silent PT1H fallback); unknown weekdays return errors instead of panicking.
+- Advisory warnings for timezone mismatch vs machine-local time and DST-observing zones are produced by `backgroundjobs.ScheduleWarnings` and surfaced through CLI stderr and web API `warnings` arrays on create/edit.
+
 ---
 
 ## 11. Web UI Data Flows

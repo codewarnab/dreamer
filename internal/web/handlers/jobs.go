@@ -172,6 +172,7 @@ func applyJobEdits(job *backgroundjobs.Job, payload editPayload, lookup func(str
 		}
 		job.Schedule = *payload.Schedule
 		scheduleChanged = true
+		warnings = append(warnings, backgroundjobs.ScheduleWarnings(*payload.Schedule)...)
 	}
 
 	if payload.FileAccess != nil {
@@ -254,6 +255,8 @@ func validateCreatePayload(cfg *config.App, payload createPayload, lookup func(s
 	if payload.Schedule.Kind == backgroundjobs.ScheduleCron && runtime.GOOS == "windows" {
 		return "", nil, fmt.Errorf("cron schedules are not supported on Windows; use daily or weekly instead")
 	}
+	// Advisory warnings (timezone/DST behavior of OS schedulers).
+	warnings = append(warnings, backgroundjobs.ScheduleWarnings(payload.Schedule)...)
 
 	// 3. Validate provider is background-safe.
 	meta := lookup(payload.ProviderID)

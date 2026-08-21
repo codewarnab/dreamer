@@ -5,6 +5,7 @@ package backgroundjobs
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -56,6 +57,12 @@ func (s *windowsScheduler) Install(ctx context.Context, params ScheduleParams) (
 	if err := ctx.Err(); err != nil {
 		return OSScheduleState{}, err
 	}
+	// Defense-in-depth: the job ID is embedded into a Task Scheduler path
+	// (\Dreamer\BackgroundJobs\<id>), so a crafted ID must never escape the
+	// folder. Remove() validates too, but Install is the write path.
+	if err := ValidateJobID(params.JobID); err != nil {
+		return OSScheduleState{}, fmt.Errorf("install: %w", err)
+	}
 	if err := os.MkdirAll(s.cfg.StoreDir, fsutil.DirPerms); err != nil {
 		return OSScheduleState{}, fmt.Errorf("create store dir: %w", err)
 	}
@@ -105,7 +112,16 @@ func (s *windowsScheduler) Remove(ctx context.Context, jobID string) error {
 }
 
 // Inspect returns the OS-level health for a job's schedule.
+//
+// Task definition XML (schtasks /Query /XML) carries only static definition
+// data — NextRunTime/LastRunTime are runtime state and never appear there.
+// Runtime info is fetched separately via /V /FO CSV and parsed by column
+// index: column order is stable across Windows versions and locales even
+// though the header labels are translated (same rationale as B16).
 func (s *windowsScheduler) Inspect(ctx context.Context, jobID string) (ScheduleHealth, error) {
+	if err := ValidateJobID(jobID); err != nil {
+		return ScheduleHealth{Installed: false}, fmt.Errorf("inspect: %w", err)
+	}
 	taskPath := taskFolderPrefix + jobID
 	output, err := s.runCmd(ctx, schtasksExe, "/Query", "/TN", taskPath, "/XML")
 	if err != nil {
@@ -116,28 +132,58 @@ func (s *windowsScheduler) Inspect(ctx context.Context, jobID string) (ScheduleH
 		return ScheduleHealth{Installed: false}, fmt.Errorf("inspect task %q: %w", taskPath, cat)
 	}
 
-	health := ScheduleHealth{Installed: true}
-	outputStr := string(output)
-	if strings.Contains(outputStr, "<Enabled>false</Enabled>") {
-		health.Enabled = false
-	} else {
-		health.Enabled = true
+	health := ScheduleHealth{
+		Installed: true,
+		Enabled:   extractXMLField(string(output), "Enabled") != "false",
 	}
 
-	if nextRun := extractXMLField(outputStr, "NextRunTime"); nextRun != "" {
+	// Best-effort runtime info; failure degrades to Detail, not an error.
+	s.inspectRunTimes(ctx, taskPath, &health)
+
+	return health, nil
+}
+
+// schtasks verbose CSV column indexes. Only labels are localized; the column
+// order has been stable since Vista.
+const (
+	csvColNextRunTime = 2
+	csvColLastRunTime = 5
+)
+
+// inspectRunTimes fills NextRunTime/LastRunTime from `schtasks /Query /V /FO CSV`.
+func (s *windowsScheduler) inspectRunTimes(ctx context.Context, taskPath string, health *ScheduleHealth) {
+	output, err := s.runCmd(ctx, schtasksExe, "/Query", "/TN", taskPath, "/V", "/FO", "CSV")
+	if err != nil {
+		health.Detail = "run-time query failed"
+		return
+	}
+	records, err := csv.NewReader(bytes.NewReader(output)).ReadAll()
+	if err != nil || len(records) < 2 {
+		health.Detail = "run-time query unparseable"
+		return
+	}
+	// Row 0 = (localized) headers, row 1 = data.
+	row := records[len(records)-1]
+	if nextRun := csvField(row, csvColNextRunTime); nextRun != "" {
 		if t, parseErr := parseWindowsTime(nextRun); parseErr == nil {
 			health.NextRunTime = &t
-		} else {
+		} else if health.Detail == "" {
 			health.Detail = "next_run: " + nextRun
 		}
 	}
-	if lastRun := extractXMLField(outputStr, "LastRunTime"); lastRun != "" {
+	if lastRun := csvField(row, csvColLastRunTime); lastRun != "" {
 		if t, parseErr := parseWindowsTime(lastRun); parseErr == nil {
 			health.LastRunTime = &t
 		}
 	}
+}
 
-	return health, nil
+// csvField returns the field at index i, or "" when out of bounds.
+func csvField(row []string, i int) string {
+	if i < 0 || i >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(row[i])
 }
 
 // ListOwn returns job IDs of schedules owned by this Dreamer installation.
@@ -145,7 +191,13 @@ func (s *windowsScheduler) ListOwn(ctx context.Context) ([]string, error) {
 	// Use /XML to avoid localized "TaskName:" field labels on non-English Windows (B16).
 	output, err := s.runCmd(ctx, schtasksExe, "/Query", "/TN", `\Dreamer\BackgroundJobs`, "/XML")
 	if err != nil {
-		return nil, nil // folder doesn't exist
+		// A missing folder is normal (no jobs installed yet). Any other
+		// failure (access denied, timeout) must propagate — swallowing it
+		// would silently disable orphan detection in reconcile and health.
+		if classifyScheduleError(err) == scheduleErrNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query task folder: %w", classifyScheduleError(err))
 	}
 
 	var jobIDs []string
@@ -240,9 +292,12 @@ func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 		Enabled:        enabledStr,
 		TimeLimit:      executionTimeLimit(params.Schedule),
 		ExecutablePath: xmlEscapeText(s.cfg.ExecutablePath),
-		Arguments:      xmlEscapeText(fmt.Sprintf("jobs run %s --config %s --run-token-file %s", params.JobID, s.cfg.ConfigPath, RunTokenPath(s.cfg.StoreDir))),
-		WorkingDir:     xmlEscapeText(s.cfg.StoreDir),
-		TriggerXML:     triggerXML,
+		// Quote paths so spaces in config/store locations don't split the
+		// command line. xmlEscapeText encodes the embedded quotes (&#34;).
+		Arguments: xmlEscapeText(fmt.Sprintf("jobs run %s --config %q --run-token-file %q",
+			params.JobID, s.cfg.ConfigPath, RunTokenPath(s.cfg.StoreDir))),
+		WorkingDir: xmlEscapeText(s.cfg.StoreDir),
+		TriggerXML: triggerXML,
 	}
 
 	tmpl, err := template.New("task").Parse(taskXMLTemplate)
@@ -302,11 +357,16 @@ const taskXMLTemplate = `<Task version="1.2" xmlns="http://schemas.microsoft.com
 func buildTriggerXML(spec ScheduleSpec) (string, error) {
 	switch spec.Kind {
 	case ScheduleInterval:
-		interval := "PT1H"
+		// Fail loudly on an invalid Every instead of silently falling back to
+		// PT1H — a silent fallback would mask store corruption and install a
+		// schedule that fires at a different cadence than the user asked for.
+		interval := durationToISO8601(defaultIntervalDuration)
 		if spec.Every != "" {
-			if d, err := parseEveryDuration(spec.Every); err == nil {
-				interval = durationToISO8601(d)
+			d, err := parseEveryDuration(spec.Every)
+			if err != nil {
+				return "", fmt.Errorf("invalid every %q: %w", spec.Every, err)
 			}
+			interval = durationToISO8601(d)
 		}
 		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>%s</StartBoundary>
@@ -339,7 +399,10 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
 			return "", fmt.Errorf("invalid time_of_day %q: %w", spec.TimeOfDay, err)
 		}
 		startBoundary := time.Now().Format("2006-01-02") + fmt.Sprintf("T%02d:%02d:00", hour, min)
-		dayElement := weekdayToXMLElement(strings.ToLower(spec.DayOfWeek))
+		dayElement, err := weekdayToXMLElement(strings.ToLower(spec.DayOfWeek))
+		if err != nil {
+			return "", err
+		}
 		return fmt.Sprintf(`<CalendarTrigger>
       <StartBoundary>%s</StartBoundary>
       <Enabled>true</Enabled>
@@ -360,25 +423,26 @@ func buildTriggerXML(spec ScheduleSpec) (string, error) {
 }
 
 // weekdayToXMLElement converts a lowercase weekday name to a Task Scheduler XML element name.
-func weekdayToXMLElement(day string) string {
+func weekdayToXMLElement(day string) (string, error) {
 	switch day {
 	case "sunday":
-		return "Sunday"
+		return "Sunday", nil
 	case "monday":
-		return "Monday"
+		return "Monday", nil
 	case "tuesday":
-		return "Tuesday"
+		return "Tuesday", nil
 	case "wednesday":
-		return "Wednesday"
+		return "Wednesday", nil
 	case "thursday":
-		return "Thursday"
+		return "Thursday", nil
 	case "friday":
-		return "Friday"
+		return "Friday", nil
 	case "saturday":
-		return "Saturday"
+		return "Saturday", nil
 	default:
-		// Unreachable: ValidateSchedule rejects unknown days upstream.
-		panic("weekdayToXMLElement: unknown day " + day)
+		// ValidateSchedule rejects unknown days upstream, but a panic here
+		// would crash the daemon — return an error instead.
+		return "", fmt.Errorf("unknown day_of_week %q", day)
 	}
 }
 

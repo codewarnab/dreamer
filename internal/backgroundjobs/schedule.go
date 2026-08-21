@@ -373,16 +373,25 @@ func DefaultTimeoutFor(spec ScheduleSpec) time.Duration {
 
 // executionTimeLimit returns the PT duration string for a schedule's time limit.
 // Shared across platforms — used by Windows Task Scheduler and systemd timeout.
+//
+// For interval schedules the limit is 80% of the interval (floored at
+// minExecutionLimit) rather than the full interval: Task Scheduler's
+// MultipleInstancesPolicy=IgnoreNew silently suppresses a trigger while a
+// previous run is still executing, so a hung run with a full-interval limit
+// would swallow every subsequent fire. An 80% limit guarantees the slot is
+// free before the next repetition.
 func executionTimeLimit(spec ScheduleSpec) string {
 	switch spec.Kind {
 	case ScheduleInterval:
-		if spec.Every != "" {
-			if d, err := parseEveryDuration(spec.Every); err == nil {
-				// Cap at the interval so the job finishes before the next trigger.
-				return durationToISO8601(d)
-			}
+		d := EveryDuration(spec)
+		limit := d * intervalExecLimitPct / 100
+		if limit < minExecutionLimit {
+			limit = minExecutionLimit
 		}
-		return "PT55M"
+		if limit > d {
+			limit = d
+		}
+		return durationToISO8601(limit)
 	case ScheduleDaily, ScheduleWeekly:
 		return "PT2H"
 	case ScheduleCron:
@@ -390,6 +399,57 @@ func executionTimeLimit(spec ScheduleSpec) string {
 	default:
 		return "PT1H"
 	}
+}
+
+const (
+	// intervalExecLimitPct is the fraction of the interval used as the
+	// execution time limit for interval schedules.
+	intervalExecLimitPct = 80
+
+	// minExecutionLimit floors the interval-derived execution limit so very
+	// short intervals don't produce a zero or sub-minute limit.
+	minExecutionLimit = 5 * time.Minute
+)
+
+// ScheduleWarnings returns non-fatal advisory warnings for a schedule spec —
+// conditions that are valid but known to behave differently on OS schedulers.
+// Callers surface these through CLI output and web API responses so users see
+// them at create/edit time instead of discovering silent misfires later.
+func ScheduleWarnings(spec ScheduleSpec) []string {
+	var warnings []string
+
+	// OS schedulers (Windows Task Scheduler CalendarTrigger, systemd
+	// OnCalendar, launchd StartCalendarInterval) all fire in machine-local
+	// wall-clock time. A configured timezone that differs from the machine's
+	// zone will fire at the wrong hour.
+	if spec.Kind != ScheduleInterval && spec.Timezone != "" {
+		if local := time.Local.String(); local != "" && local != spec.Timezone {
+			warnings = append(warnings, fmt.Sprintf(
+				"schedule timezone %q differs from this machine's timezone %q — the OS scheduler fires in machine-local time, so runs will happen at a different hour than requested",
+				spec.Timezone, local))
+		}
+
+		// DST-observing zones shift daily/weekly HH:MM triggers by ±1h across
+		// transitions (a fixed wall-clock trigger skips or repeats a run).
+		if loc, err := time.LoadLocation(spec.Timezone); err == nil && observesDST(loc) {
+			warnings = append(warnings, fmt.Sprintf(
+				"timezone %q observes daylight saving time — fixed-time runs may be skipped or duplicated around DST transitions",
+				spec.Timezone))
+		}
+	}
+
+	return warnings
+}
+
+// observesDST reports whether a location's UTC offset differs between January
+// and July of the current year — the standard heuristic for DST-observing zones.
+func observesDST(loc *time.Location) bool {
+	now := time.Now().In(loc)
+	jan := time.Date(now.Year(), time.January, 15, 12, 0, 0, 0, loc)
+	jul := time.Date(now.Year(), time.July, 15, 12, 0, 0, 0, loc)
+	_, janOff := jan.Zone()
+	_, julOff := jul.Zone()
+	return janOff != julOff
 }
 
 const (
@@ -434,11 +494,38 @@ func EveryDuration(spec ScheduleSpec) time.Duration {
 	return defaultIntervalDuration
 }
 
-// durationToISO8601 converts a Go duration to ISO 8601 format (PT{N}H or PT{N}M).
+// durationToISO8601 converts a Go duration to an exact ISO 8601 duration
+// string (e.g. PT2H, PT1H30M, PT1M30S). Sub-second components are truncated
+// (never rounded up) so callers using the result as a repetition interval or
+// execution limit never exceed the intended duration.
 func durationToISO8601(d time.Duration) string {
-	totalMinutes := int(d.Minutes())
-	if totalMinutes >= 60 && totalMinutes%60 == 0 {
-		return fmt.Sprintf("PT%dH", totalMinutes/60)
+	if d <= 0 {
+		return "PT0S"
 	}
-	return fmt.Sprintf("PT%dM", totalMinutes)
+	totalSec := int(d.Seconds())
+	hours := totalSec / secondsPerHour
+	mins := (totalSec % secondsPerHour) / secondsPerMinute
+	secs := totalSec % secondsPerMinute
+
+	var b strings.Builder
+	b.WriteString("PT")
+	if hours > 0 {
+		fmt.Fprintf(&b, "%dH", hours)
+	}
+	if mins > 0 {
+		fmt.Fprintf(&b, "%dM", mins)
+	}
+	if secs > 0 {
+		fmt.Fprintf(&b, "%dS", secs)
+	}
+	if hours == 0 && mins == 0 && secs == 0 {
+		// Duration was positive but under one second.
+		return "PT0S"
+	}
+	return b.String()
 }
+
+const (
+	secondsPerMinute = 60
+	secondsPerHour   = 3600
+)

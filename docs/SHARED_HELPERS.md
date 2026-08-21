@@ -102,6 +102,21 @@ Checks that `id` is a valid 16-char lowercase hex string that does not collide w
 
 ---
 
+## 3b. Schedule Advisory Warnings (`internal/backgroundjobs/schedule.go`)
+
+### `backgroundjobs.ScheduleWarnings(spec ScheduleSpec) []string`
+
+Returns non-fatal advisory warnings for a schedule spec — conditions that are valid but behave differently on OS schedulers:
+
+- **Timezone mismatch**: OS schedulers (Windows Task Scheduler `CalendarTrigger`, systemd `OnCalendar`, launchd calendar intervals) fire in machine-local wall-clock time. A spec timezone differing from the machine zone fires at the wrong hour.
+- **DST shifts**: fixed HH:MM triggers in DST-observing zones skip or duplicate runs around transitions (detected via the Jan-vs-July UTC offset heuristic in `observesDST`).
+
+Interval schedules are exempt (they fire relative to install time, not wall clock). Call this after `ValidateSchedule` succeeds and surface the results through CLI stderr and web API `warnings` arrays.
+
+**Current callers:** `internal/web/handlers/jobs.go` (`validateCreatePayload`, `applyJobEdits`), `cmd/jobs.go` (`createAndSaveJob`, edit path)
+
+---
+
 ## 4. Lookback / Since Window Parsing (`internal/pipeline/lookback.go`)
 
 ### `pipeline.ParseLookbackDuration(amount int, unit string) (time.Duration, bool)`
@@ -597,6 +612,7 @@ Implementation notes: handlers are gated on actual visibility via `el.checkVisib
 | Compute next run time | `backgroundjobs.NextRun` |
 | Generate a job ID | `backgroundjobs.GenerateJobID` |
 | Validate a job ID | `backgroundjobs.ValidateJobID` |
+| Advisory schedule warnings (timezone/DST) | `backgroundjobs.ScheduleWarnings` |
 | Parse a lookback unit/amount | `pipeline.ParseLookbackDuration` |
 | Parse a `since` string in a handler | `parseSinceWindow` (handlers package) |
 | Count finding lifecycle buckets | `buildLifecycleCounts` (handlers package) |
