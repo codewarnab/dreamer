@@ -57,9 +57,48 @@ func TestBuildBwrapArgs_TmpfsSizeBytesValue(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_VarTmpSymlink(t *testing.T) {
+	// Host /var/tmp is a symlink (standard distros) -> --symlink redirect.
+	symlinkDir := t.TempDir()
+	realTarget := filepath.Join(symlinkDir, "tmp")
+	if err := os.Mkdir(realTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeVarTmp := filepath.Join(symlinkDir, "var", "tmp")
+	if err := os.MkdirAll(filepath.Dir(fakeVarTmp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realTarget, fakeVarTmp); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	prev := varTmpPath
+	varTmpPath = fakeVarTmp
+	defer func() { varTmpPath = prev }()
+
 	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0, true)
 	if !containsContiguousSequence(args, "--symlink", "/tmp", "/var/tmp") {
 		t.Errorf("expected --symlink /tmp /var/tmp in args: %v", args)
+	}
+}
+
+func TestBuildBwrapArgs_VarTmpRealDir(t *testing.T) {
+	// Host /var/tmp is a REAL directory (common in containers) — bwrap
+	// rejects --symlink there, so a tmpfs must be mounted instead.
+	realDir := filepath.Join(t.TempDir(), "var", "tmp")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := varTmpPath
+	varTmpPath = realDir
+	defer func() { varTmpPath = prev }()
+
+	args := buildBwrapArgs(Config{}, "/project", nil, "/bin/ls", nil, 0, true)
+	if !containsContiguousSequence(args, "--tmpfs", "/var/tmp") {
+		t.Errorf("expected --tmpfs /var/tmp for real-directory host: %v", args)
+	}
+	for i, a := range args {
+		if a == "--symlink" && i+2 < len(args) && args[i+1] == "/tmp" && args[i+2] == "/var/tmp" {
+			t.Errorf("unexpected --symlink /tmp /var/tmp for real-directory host: %v", args)
+		}
 	}
 }
 
@@ -125,7 +164,7 @@ func TestBuildBwrapArgs_EmptyWritableDirs(t *testing.T) {
 }
 
 func TestBuildBwrapArgs_DeduplicateWritableDirs(t *testing.T) {
-	dir := t.TempDir()
+	dir := relocateTmpdirOutsideTmpfs(t)
 	// Both entries resolve to the same directory.
 	resolved := []string{dir, dir}
 	args := buildBwrapArgs(Config{}, "/project", resolved, "/bin/ls", nil, 0, true)
@@ -810,9 +849,11 @@ func TestCompileSeccompBPF_MinimalBlocksSyscall(t *testing.T) {
 	if len(raw) == 0 {
 		t.Fatal("expected non-empty BPF program")
 	}
-	// The program should be valid BPF: each instruction is 8 bytes.
-	if len(raw)%8 != 0 {
-		t.Errorf("BPF program length %d is not a multiple of 8", len(raw))
+	// Each RawInstruction encodes to exactly one 8-byte sock_filter, so the
+	// serialized program (what bwrap reads from the memfd) must be a
+	// multiple of 8 bytes.
+	if progBytes := len(raw) * seccompInstrBytes; progBytes%seccompInstrBytes != 0 || progBytes == 0 {
+		t.Errorf("BPF program byte length %d is not a positive multiple of %d", progBytes, seccompInstrBytes)
 	}
 }
 
@@ -824,8 +865,8 @@ func TestCompileSeccompBPF_FullBlocksSyscall(t *testing.T) {
 	if len(raw) == 0 {
 		t.Fatal("expected non-empty BPF program")
 	}
-	if len(raw)%8 != 0 {
-		t.Errorf("BPF program length %d is not a multiple of 8", len(raw))
+	if progBytes := len(raw) * seccompInstrBytes; progBytes%seccompInstrBytes != 0 || progBytes == 0 {
+		t.Errorf("BPF program byte length %d is not a positive multiple of %d", progBytes, seccompInstrBytes)
 	}
 	// Full profile has more rules than minimal.
 	minimalRaw, _ := compileSeccompBPF(profileMinimal)

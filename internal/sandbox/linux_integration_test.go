@@ -21,11 +21,11 @@ func skipIfNoBwrap(t *testing.T) {
 func TestIntegration_ChildRunsToCompletion(t *testing.T) {
 	skipIfNoBwrap(t)
 
-	projectDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
 	cmd := exec.Command("echo", "hello")
 	cfg := Config{
 		ProjectDir:   projectDir,
-		WritableDirs: []string{t.TempDir()},
+		WritableDirs: []string{relocateTmpdirOutsideTmpfs(t)},
 		Mode:         ModeAuto,
 	}
 
@@ -57,12 +57,12 @@ func TestIntegration_ChildRunsToCompletion(t *testing.T) {
 func TestIntegration_WriteToReadOnlyDirFails(t *testing.T) {
 	skipIfNoBwrap(t)
 
-	projectDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
 	target := filepath.Join(projectDir, "forbidden.txt")
 	cmd := exec.Command("touch", target)
 	cfg := Config{
 		ProjectDir:   projectDir,
-		WritableDirs: []string{t.TempDir()},
+		WritableDirs: []string{relocateTmpdirOutsideTmpfs(t)},
 		Mode:         ModeAuto,
 	}
 
@@ -83,8 +83,8 @@ func TestIntegration_WriteToReadOnlyDirFails(t *testing.T) {
 func TestIntegration_WriteToWritableDirSucceeds(t *testing.T) {
 	skipIfNoBwrap(t)
 
-	projectDir := t.TempDir()
-	writableDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
+	writableDir := relocateTmpdirOutsideTmpfs(t)
 	target := filepath.Join(writableDir, "allowed.txt")
 
 	cmd := exec.Command("touch", target)
@@ -110,7 +110,7 @@ func TestIntegration_WriteToWritableDirSucceeds(t *testing.T) {
 func TestIntegration_TmpIsWritable(t *testing.T) {
 	skipIfNoBwrap(t)
 
-	projectDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
 	cmd := exec.Command("touch", "/tmp/sandbox-test-file")
 	cfg := Config{
 		ProjectDir:   projectDir,
@@ -140,7 +140,7 @@ func TestIntegration_DynamicBinary(t *testing.T) {
 		t.Skip("ls not found in PATH")
 	}
 
-	projectDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
 	cmd := exec.Command(lsPath, projectDir)
 	cfg := Config{
 		ProjectDir:   projectDir,
@@ -188,11 +188,11 @@ func TestIntegration_ModeOn_NoBwrap(t *testing.T) {
 func TestIntegration_ModeOn_WrapsCmdWithBwrap(t *testing.T) {
 	skipIfNoBwrap(t)
 
-	projectDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
 	cmd := exec.Command("echo", "hello")
 	cfg := Config{
 		ProjectDir:   projectDir,
-		WritableDirs: []string{t.TempDir()},
+		WritableDirs: []string{relocateTmpdirOutsideTmpfs(t)},
 		Mode:         ModeOn,
 	}
 
@@ -216,7 +216,7 @@ func TestIntegration_ModeOn_WrapsCmdWithBwrap(t *testing.T) {
 func TestIntegration_PostStart_NoOp(t *testing.T) {
 	skipIfNoBwrap(t)
 
-	projectDir := t.TempDir()
+	projectDir := relocateTmpdirOutsideTmpfs(t)
 	cmd := exec.Command("echo", "hello")
 	cfg := Config{
 		ProjectDir:   projectDir,

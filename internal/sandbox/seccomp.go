@@ -36,6 +36,11 @@ func compileSeccompBPF(profile SeccompProfile) ([]bpf.RawInstruction, error) {
 	if len(profile.Rules) > maxRules {
 		return nil, fmt.Errorf("seccomp: too many rules (%d, max %d)", len(profile.Rules), maxRules)
 	}
+	// An empty profile has nothing to block — return an empty program so
+	// createSeccompFD yields fd=0 and buildBwrapArgs omits --seccomp entirely.
+	if len(profile.Rules) == 0 {
+		return nil, nil
+	}
 
 	var insns []bpf.Instruction
 	for _, rule := range profile.Rules {
@@ -88,10 +93,11 @@ func createSeccompFD(raw []bpf.RawInstruction) (uintptr, error) {
 	}
 
 	// Encode raw sock_filter instructions (no sock_fprog header).
-	// Each instruction is 8 bytes: u16 opcode, u8 jt, u8 jf, u32 k.
-	prog := make([]byte, len(raw)*8)
+	// Each instruction is seccompInstrBytes bytes: u16 opcode, u8 jt, u8 jf,
+	// u32 k.
+	prog := make([]byte, len(raw)*seccompInstrBytes)
 	for i, inst := range raw {
-		off := i * 8
+		off := i * seccompInstrBytes
 		binary.NativeEndian.PutUint16(prog[off:off+2], inst.Op)
 		prog[off+2] = inst.Jt
 		prog[off+3] = inst.Jf

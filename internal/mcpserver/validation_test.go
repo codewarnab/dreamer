@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"dreamer/internal/fsutil"
 )
 
 func TestValidateFinding_Valid(t *testing.T) {
@@ -285,12 +287,28 @@ func TestValidateOutputPath_ValidTempPath(t *testing.T) {
 }
 
 func TestValidateOutputPath_SymlinkLeafToOutsideRejected(t *testing.T) {
-	// Create a real target file outside os.TempDir().
-	outside := filepath.Join(string(os.PathSeparator)+"dreamer-validate-symlink-outside", t.Name())
+	// Create a real target file outside os.TempDir() — under the user's
+	// home directory, which is writable without root privileges.
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skipf("no home directory: %v", err)
+	}
+	resolvedHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Skipf("resolve home: %v", err)
+	}
+	resolvedTmp, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Skipf("resolve temp dir: %v", err)
+	}
+	if fsutil.PathWithinRoot(resolvedHome, resolvedTmp) {
+		t.Skipf("home %q lives inside temp %q; cannot create an outside-target file", resolvedHome, resolvedTmp)
+	}
+	outside := filepath.Join(home, ".dreamer-test-symlink-outside", t.Name())
 	if err := os.MkdirAll(outside, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(outside)
+	defer os.RemoveAll(filepath.Join(home, ".dreamer-test-symlink-outside"))
 	target := filepath.Join(outside, "target.jsonl")
 	if err := os.WriteFile(target, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)

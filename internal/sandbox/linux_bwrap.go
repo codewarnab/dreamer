@@ -241,6 +241,12 @@ var readFile = func(path string) ([]byte, error) {
 // paths under /tmp or /var/tmp (which would replace the tmpfs with
 // the host path).
 func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, originalBinary string, originalArgs []string, seccompFD uintptr, supportsRlimit bool) []string {
+	// Normalize empty Network to NetworkOpen so zero-value configs behave
+	// the same as Prepare() (isolation is opt-in — see Prepare in sandbox.go).
+	network := cfg.Network
+	if network == "" {
+		network = NetworkOpen
+	}
 	args := []string{
 		// Prevent TIOCSTI terminal injection.
 		"--new-session",
@@ -298,12 +304,11 @@ func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, origin
 		// Writable temp, size-limited. --size must precede --tmpfs
 		// (bwrap consumes next_size_arg from --size when it hits --tmpfs).
 		"--size", strconv.Itoa(tmpfsSizeBytes), "--tmpfs", "/tmp",
-		// Redirect /var/tmp into sandbox tmpfs.
-		"--symlink", "/tmp", "/var/tmp",
 	}
+	args = appendVarTmpArgs(args)
 
 	// Network isolation: remove network stack when not explicitly open.
-	if cfg.Network != NetworkOpen {
+	if network != NetworkOpen {
 		args = append(args, "--unshare-net")
 	}
 
@@ -351,6 +356,22 @@ func buildBwrapArgs(cfg Config, projectDir string, resolvedDirs []string, origin
 	args = append(args, "--", originalBinary)
 	args = append(args, originalArgs...)
 	return args
+}
+
+// varTmpPath is overridable in tests so the symlink vs real-directory
+// detection can be exercised on any host.
+var varTmpPath = "/var/tmp"
+
+// appendVarTmpArgs redirects /var/tmp into the sandbox. On standard distros
+// /var/tmp is a symlink to /tmp, so a --symlink recreates it inside the
+// sandbox. Some containers ship /var/tmp as a REAL directory, where bwrap
+// fails with "Can't make symlink at /var/tmp: destination exists and is not
+// a symlink" — in that case mount a fresh tmpfs over it instead.
+func appendVarTmpArgs(args []string) []string {
+	if info, err := os.Lstat(varTmpPath); err == nil && info.Mode()&os.ModeSymlink == 0 {
+		return append(args, "--tmpfs", "/var/tmp")
+	}
+	return append(args, "--symlink", "/tmp", "/var/tmp")
 }
 
 // isTmpfsPath reports whether p is a path already covered by the tmpfs

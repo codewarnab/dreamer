@@ -160,7 +160,8 @@ unavailable (WSL1 cannot create user namespaces).
 | `--dev /dev` | Minimal device tree |
 | `--proc /proc` | PID namespace `/proc` |
 | `--size 536870912 --tmpfs /tmp` | 512 MiB in-memory `/tmp` |
-| `--symlink /tmp /var/tmp` | `/var/tmp` → sandbox tmpfs |
+| `--symlink /tmp /var/tmp` | `/var/tmp` → sandbox tmpfs (when host `/var/tmp` is a symlink or missing) |
+| `--tmpfs /var/tmp` | Fresh tmpfs over `/var/tmp` (when host ships it as a real directory, e.g. containers) |
 | `--unshare-net` | Network isolation (only when `cfg.Network == "isolated"`) |
 | `--rlimit RLIMIT_AS ...` | Virtual memory cap (bwrap ≥ 0.12.0 only) |
 | `--rlimit RLIMIT_NPROC ...` | Process count cap |

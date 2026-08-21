@@ -24,6 +24,45 @@ import (
 	"testing"
 )
 
+// sandboxTestTmpfsPaths mirrors the Linux build's tmpPaths (linux_bwrap.go).
+// Keep in sync — it decides whether the default temp location is covered by
+// the in-sandbox tmpfs and therefore unusable as a --bind writable dir.
+var sandboxTestTmpfsPaths = []string{"/tmp", "/var/tmp"}
+
+// relocateTmpdirOutsideTmpfs returns a fresh directory suitable for use as
+// a sandbox writable dir or project dir. When the default temp location is
+// covered by the sandbox tmpfs paths, it points TMPDIR at a new directory
+// under the user's home so BuildConfig's default os.TempDir writable entry
+// no longer overlaps paths under /tmp. Skips when no such location exists.
+func relocateTmpdirOutsideTmpfs(t *testing.T) string {
+	t.Helper()
+	if !underAnyPath(os.TempDir(), sandboxTestTmpfsPaths) {
+		return t.TempDir()
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || underAnyPath(home, sandboxTestTmpfsPaths) {
+		t.Skip("no home directory outside sandbox tmpfs paths; cannot relocate TMPDIR")
+	}
+	base, err := os.MkdirTemp(home, ".dreamer-test-tmp-")
+	if err != nil {
+		t.Skipf("create temp base under home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv("TMPDIR", base)
+	return t.TempDir()
+}
+
+// underAnyPath reports whether p equals or lives under any of prefixes.
+func underAnyPath(p string, prefixes []string) bool {
+	cleaned := filepath.Clean(p)
+	for _, tp := range prefixes {
+		if cleaned == tp || strings.HasPrefix(cleaned, tp+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestParseMode(t *testing.T) {
 	cases := []struct {
 		input string
@@ -93,6 +132,10 @@ func TestPostStart_ModeOff_ReturnsNilOnNilCmd(t *testing.T) {
 }
 
 func TestBuildConfig(t *testing.T) {
+	// Relocate TMPDIR when it covers the sandbox tmpfs paths, otherwise
+	// BuildConfig's default writable dir (os.TempDir) overlaps the
+	// /tmp-prefixed project dir and fails validation.
+	relocateTmpdirOutsideTmpfs(t)
 	cfg, err := BuildConfig("/tmp/project", ".claude", "auto")
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
@@ -218,6 +261,7 @@ func TestParseModeWhitespace(t *testing.T) {
 }
 
 func TestBuildConfigWritableDirs(t *testing.T) {
+	relocateTmpdirOutsideTmpfs(t)
 	cfg, err := BuildConfig("/tmp/project", ".myprovider", "off")
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
@@ -273,6 +317,7 @@ func TestParseModeAliasesDisable(t *testing.T) {
 }
 
 func TestBuildConfigModeAuto(t *testing.T) {
+	relocateTmpdirOutsideTmpfs(t)
 	cfg, err := BuildConfig("/tmp/p", ".test", "auto")
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
@@ -286,6 +331,7 @@ func TestBuildConfigModeAuto(t *testing.T) {
 }
 
 func TestBuildConfigModeOn(t *testing.T) {
+	relocateTmpdirOutsideTmpfs(t)
 	cfg, err := BuildConfig("/tmp/p", ".test", "true")
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)
@@ -296,6 +342,7 @@ func TestBuildConfigModeOn(t *testing.T) {
 }
 
 func TestBuildConfigSecondWritableDirContainsProviderHome(t *testing.T) {
+	relocateTmpdirOutsideTmpfs(t)
 	cfg, err := BuildConfig("/tmp/p", ".my-sandbox-provider", "off")
 	if err != nil {
 		t.Fatalf("BuildConfig: %v", err)

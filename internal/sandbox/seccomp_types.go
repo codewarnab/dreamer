@@ -14,6 +14,12 @@ const (
 	sysSetns       = 308 // SYS_SETNS (x86_64)
 )
 
+// seccompInstrBytes is the size of one struct sock_filter BPF instruction
+// on the wire: u16 opcode + u8 jt + u8 jf + u32 k. bwrap derives the
+// instruction count from fd size / 8, so the serialized program must be a
+// multiple of this.
+const seccompInstrBytes = 8
+
 // SeccompProfile is a named set of syscall rules.
 type SeccompProfile struct {
 	Name  string
