@@ -119,7 +119,9 @@ Highest precedence first:
 
 - Linux: `$XDG_CONFIG_HOME/dreamer/` (fallback `~/.config/dreamer/`).
 - macOS: `~/Library/Application Support/dreamer/`.
-- Windows: `%AppData%\dreamer\`.
+- Windows: `%AppData%\dreamer\` — `XDG_CONFIG_HOME` is intentionally ignored on
+  Windows so the config location cannot depend on which shell (Git Bash,
+  PowerShell, cmd) launched dreamer.
 
 ### 3.2 Global config schema
 

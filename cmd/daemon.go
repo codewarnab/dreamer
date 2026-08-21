@@ -80,6 +80,13 @@ func newDaemonCommand() *cobra.Command {
 			defer stop()
 			defer releaseLock()
 
+			// Stop-file watcher: the only reliable graceful-shutdown trigger
+			// on Windows, where a detached daemon cannot receive SIGTERM and
+			// taskkill /F skips cleanup. Harmless no-op overhead elsewhere.
+			stopFilePath := daemonStopFilePath(cfg.Daemon.OutputRoot)
+			go watchDaemonStopFile(ctx, logger, stopFilePath, stopFilePollInterval, stop)
+			defer func() { _ = os.Remove(stopFilePath) }()
+
 			// Sweep leftover Phase 2 findings temp files from prior runs
 			// that crashed or were killed before their defer fired. The
 			// files only live one analysis run, so any that survived from

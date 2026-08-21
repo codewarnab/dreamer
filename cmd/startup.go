@@ -138,9 +138,34 @@ func buildStartupTaskCommand(executablePath string, configPath string) string {
 	return strings.Join(parts, " ")
 }
 
+// quoteWindowsCommandArgument quotes value for embedding in a Windows
+// command line parsed by CommandLineToArgvW rules (what schtasks /TR and
+// CreateProcess consumers use). Backslash runs are doubled only when they
+// precede a quote, so a path ending in a backslash (e.g. C:\cfg\) does not
+// have its trailing backslash swallow the closing quote.
 func quoteWindowsCommandArgument(value string) string {
-	escaped := strings.ReplaceAll(value, `"`, `\"`)
-	return `"` + escaped + `"`
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('"')
+	backslashes := 0
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		switch c {
+		case '\\':
+			backslashes++
+		case '"':
+			b.WriteString(strings.Repeat(`\`, backslashes*2+1))
+			b.WriteByte('"')
+			backslashes = 0
+		default:
+			b.WriteString(strings.Repeat(`\`, backslashes))
+			b.WriteByte(c)
+			backslashes = 0
+		}
+	}
+	b.WriteString(strings.Repeat(`\`, backslashes*2))
+	b.WriteByte('"')
+	return b.String()
 }
 
 // --- Linux ---

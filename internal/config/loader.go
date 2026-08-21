@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -236,9 +237,16 @@ func GlobalConfigPath() (string, error) {
 
 // ConfigDirBase returns the platform config directory (XDG_CONFIG_HOME
 // or os.UserConfigDir) without the "dreamer" subdirectory appended.
+//
+// XDG_CONFIG_HOME is ignored on Windows: shells like Git Bash commonly export
+// it in .bashrc, which would make the config location depend on which shell
+// launched dreamer (a Task Scheduler daemon would read a different config
+// than a Git Bash session). Windows users should use AppData.
 func ConfigDirBase() (string, error) {
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return xdg, nil
+	if runtime.GOOS != "windows" {
+		if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+			return xdg, nil
+		}
 	}
 	return os.UserConfigDir()
 }

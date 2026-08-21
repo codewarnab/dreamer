@@ -73,11 +73,15 @@ dreamer start [--config <path>] [--parallel] [--jobs <n>] [--chunk-size <bytes>]
 
 ### `dreamer stop`
 
-Stop the running daemon by reading its PID from the lockfile and sending a termination signal.
+Stop the running daemon by reading its PID from the lockfile and requesting shutdown.
 
 ```bash
 dreamer stop [--config <path>]
 ```
+
+- Preferred path: writes the sentinel file `<output_root>/dreamer.daemon.stop`; the daemon polls for it, cancels its context, and shuts down with full state flushing. This works from every shell (Git Bash `kill`, PowerShell, cmd) and is the **only graceful** mechanism on Windows, where a detached daemon cannot receive SIGTERM.
+- Fallback: if the daemon does not exit within 20s (wedged or pre-stop-file version), it is force-terminated via `taskkill /T /F` on Windows or a process-group signal on Unix.
+- The daemon also removes any leftover sentinel on exit so a future start is not immediately stopped.
 
 ### `dreamer status`
 

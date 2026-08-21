@@ -117,7 +117,7 @@ func pickDirectory(ctx context.Context) (string, error) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
 
-		cmd := exec.CommandContext(timeoutCtx, "powershell", "-NoProfile", "-Command",
+		cmd := exec.CommandContext(timeoutCtx, windowsPowerShell(), "-NoProfile", "-Command",
 			`Add-Type -AssemblyName System.Windows.Forms;
 $c1 = @'
 using System;
@@ -251,4 +251,18 @@ Write-Output $path`)
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
+}
+
+// windowsPowerShell returns the PowerShell executable to use for the Windows
+// folder picker. Prefers the built-in "powershell" (Windows PowerShell 5.1)
+// and falls back to "pwsh" (PowerShell 7+) on systems where only pwsh is
+// installed or powershell is not on PATH.
+func windowsPowerShell() string {
+	if _, err := exec.LookPath("powershell"); err == nil {
+		return "powershell"
+	}
+	if pwsh, err := exec.LookPath("pwsh"); err == nil {
+		return pwsh
+	}
+	return "powershell"
 }

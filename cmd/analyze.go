@@ -68,6 +68,7 @@ func newAnalyzeCommand() *cobra.Command {
 
 			logger.Info("analyze command started", logging.Any("config", resolvedConfigPath), logging.Any("path", projectPath), logging.Any("provider", providerID))
 			logDefaultedSinceNotices(logger, appConfig)
+			warnIfWSLInteropWorkspace(cmd, logger, projectPath)
 
 			// --force bypasses the conflict guard so an operator can re-run
 			// even while a daemon-scheduled job is in flight.

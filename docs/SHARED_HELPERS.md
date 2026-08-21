@@ -597,6 +597,27 @@ Implementation notes: handlers are gated on actual visibility via `el.checkVisib
 
 ---
 
+## 22. Host Platform Introspection (`internal/sysinfo/wsl.go`)
+
+### `sysinfo.IsWSL() bool`
+
+Reports whether the process runs under WSL (v1 or v2) by checking `/proc/version`
+for the Microsoft kernel marker. Cached via `sync.Once`; always false on
+non-Linux GOOS.
+
+**Current callers:** `cliharness.LookPath` (Windows-interop provider warning), `cmd.warnIfWSLInteropWorkspace`, `backgroundjobs` runner (run warning).
+
+### `sysinfo.IsWindowsInteropPath(p string) bool`
+
+True when an absolute POSIX path targets a WSL interop drive mount
+(`/mnt/<letter>/...`). Kernel mounts like `/mnt/wsl` are excluded. Use this —
+never a raw `strings.HasPrefix(p, "/mnt/")` — so `/mnt/wsl` and friends are not
+misclassified.
+
+**Current callers:** same as `IsWSL()`.
+
+---
+
 ## Quick Reference Table
 
 | What you need | Use |
@@ -630,6 +651,7 @@ Implementation notes: handlers are gated on actual visibility via `el.checkVisib
 | Read history.json (with cache) | `deps.StateCache.GetHistory` |
 | Compute a chat cache key | `state.ChatCacheKey` |
 | Check auto-apply eligibility | `categories.ApplyEligible` |
+| Detect WSL / interop paths | `sysinfo.IsWSL` / `sysinfo.IsWindowsInteropPath` |
 | Build structured log field | `logging.Any` / `logging.String` |
 | Build error log fields | `logging.ErrAttr` |
 | Run bounded non-interactive git | `gitutil.Command` |

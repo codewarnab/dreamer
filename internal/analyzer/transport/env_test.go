@@ -2,6 +2,7 @@ package transport
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -152,5 +153,50 @@ func TestMergeWithProcessEnv_EmptyValueSemantics(t *testing.T) {
 	}
 	if resultMap["NEW_VAR"] != "new" {
 		t.Error("NEW_VAR should be added")
+	}
+}
+
+func TestMergeWithProcessEnv_OverrideLeavesSingleDefinition(t *testing.T) {
+	origEnv := os.Environ()
+	defer func() {
+		os.Clearenv()
+		for _, kv := range origEnv {
+			parts := strings.SplitN(kv, "=", 2)
+			if len(parts) == 2 {
+				os.Setenv(parts[0], parts[1])
+			}
+		}
+	}()
+
+	os.Clearenv()
+	os.Setenv("ANTHROPIC_BASE_URL", "https://default.example")
+
+	mergedEnv := MergeWithProcessEnv(map[string]string{
+		"ANTHROPIC_BASE_URL": "https://override.example",
+	})
+
+	count := 0
+	for _, kv := range mergedEnv {
+		if strings.HasPrefix(kv, "ANTHROPIC_BASE_URL=") {
+			count++
+			if kv != "ANTHROPIC_BASE_URL=https://override.example" {
+				t.Errorf("got %q, want override value", kv)
+			}
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 ANTHROPIC_BASE_URL definition, got %d", count)
+	}
+}
+
+func TestNormalizeEnvKey(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		if normalizeEnvKey("ClaudeCode") != "CLAUDECODE" {
+			t.Error("expected case folding to upper on windows")
+		}
+		return
+	}
+	if normalizeEnvKey("ClaudeCode") != "ClaudeCode" {
+		t.Error("expected keys to be preserved verbatim on non-windows")
 	}
 }

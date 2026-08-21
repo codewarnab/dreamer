@@ -28,6 +28,7 @@ func newStopCommand() *cobra.Command {
 			}
 
 			lockPath := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.daemon.lock")
+			stopFilePath := daemonStopFilePath(cfg.Daemon.OutputRoot)
 			pid, lockExec, readErr := fsutil.ReadLockMetadata(lockPath)
 			daemonStopped := false
 
@@ -45,13 +46,26 @@ func newStopCommand() *cobra.Command {
 						return ok && fsutil.ExecPathsMatch(lockExec, liveExec)
 					})() {
 						cmd.Printf("stopping daemon (PID %d)...\n", pid)
-						if killErr := killDaemon(pid); killErr == nil {
-							// Wait for lockfile removal (daemon cleans up via signal handler).
-							_ = waitForLockfileRemoval(lockPath, lockfileWaitTimeoutLong)
+						// Prefer the graceful stop-file handshake: on Windows
+						// a detached daemon cannot receive SIGTERM and
+						// taskkill /F skips state flushing and cleanup.
+						if requestGracefulStop(stopFilePath, lockPath, gracefulStopTimeout) {
 							if !fsutil.IsProcessAlive(pid) {
 								_ = os.Remove(lockPath)
-								cmd.Printf("daemon stopped (PID %d)\n", pid)
+								cmd.Printf("daemon stopped gracefully (PID %d)\n", pid)
 								daemonStopped = true
+							}
+						}
+						if !daemonStopped {
+							cmd.Printf("graceful stop did not complete in %s; forcing termination\n", gracefulStopTimeout)
+							if killErr := killDaemon(pid); killErr == nil {
+								// Wait for lockfile removal (daemon cleans up via signal handler).
+								_ = waitForLockfileRemoval(lockPath, lockfileWaitTimeoutLong)
+								if !fsutil.IsProcessAlive(pid) {
+									_ = os.Remove(lockPath)
+									cmd.Printf("daemon stopped (PID %d)\n", pid)
+									daemonStopped = true
+								}
 							}
 						}
 					} else {

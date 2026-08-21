@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,7 +25,9 @@ import (
 	"dreamer/internal/chat"
 	"dreamer/internal/config"
 	"dreamer/internal/errs"
+	"dreamer/internal/logging"
 	"dreamer/internal/sandbox"
+	"dreamer/internal/sysinfo"
 )
 
 // Spec captures the provider-specific configuration that drives the shared
@@ -132,10 +135,23 @@ func (s *Session) Command() []string { return s.command }
 // SandboxConfig returns the sandbox configuration for testing.
 func (s *Session) SandboxConfig() sandbox.Config { return s.sandboxCfg }
 
-// LookPath checks that the binary is on PATH.
+// LookPath checks that the binary is on PATH. Under WSL it also warns when
+// the binary resolves to a Windows installation through the interop mounts
+// (/mnt/<drive>/...): the Windows CLI will then operate on Windows paths, not
+// the WSL workspace, producing silently wrong analyses.
 func LookPath(command []string) error {
-	_, err := exec.LookPath(command[0])
-	return err
+	resolved, err := exec.LookPath(command[0])
+	if err != nil {
+		return err
+	}
+	if sysinfo.IsWSL() && sysinfo.IsWindowsInteropPath(resolved) {
+		slog.Warn("provider CLI resolves to a Windows installation via WSL interop; "+
+			"it may not see the WSL workspace — install the provider inside WSL",
+			logging.String("binary", command[0]),
+			logging.String("resolved", resolved),
+		)
+	}
+	return nil
 }
 
 // CommandForMode returns the command for the current sandbox state.

@@ -20,6 +20,7 @@ import (
 
 	"dreamer/internal/config"
 	"dreamer/internal/pipeline"
+	"dreamer/internal/procutil"
 	"dreamer/internal/state"
 	"dreamer/internal/web"
 )
@@ -255,11 +256,17 @@ func probeHealth(url string, timeout time.Duration) error {
 func openBrowser(url string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		cmd := exec.Command("open", url)
+		procutil.SetNoWindow(cmd)
+		return cmd.Start()
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		procutil.SetNoWindow(cmd)
+		return cmd.Start()
 	default:
-		return exec.Command("xdg-open", url).Start()
+		cmd := exec.Command("xdg-open", url)
+		procutil.SetNoWindow(cmd)
+		return cmd.Start()
 	}
 }
 

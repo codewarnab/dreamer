@@ -241,3 +241,45 @@ func assertNotContainsArgument(t *testing.T, args []string, banned string) {
 		}
 	}
 }
+
+func TestQuoteWindowsCommandArgument(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "plain path",
+			value: `C:\Program Files\dreamer.exe`,
+			want:  `"C:\Program Files\dreamer.exe"`,
+		},
+		{
+			name:  "trailing backslash does not swallow closing quote",
+			value: `C:\cfg\`,
+			want:  `"C:\cfg\\"`,
+		},
+		{
+			name:  "embedded quotes double backslashes first",
+			value: `C:\we"ird\path`,
+			want:  `"C:\we\"ird\path"`,
+		},
+		{
+			name:  "backslashes before quote are doubled",
+			value: `C:\dir\`,
+			want:  `"C:\dir\\"`,
+		},
+		{
+			name:  "empty value",
+			value: "",
+			want:  `""`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := quoteWindowsCommandArgument(tt.value); got != tt.want {
+				t.Errorf("quoteWindowsCommandArgument(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}

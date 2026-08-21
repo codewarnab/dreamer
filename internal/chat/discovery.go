@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -45,7 +46,13 @@ func DefaultDiscoveryEnvironment() (DiscoveryEnvironment, error) {
 		appDataDir = filepath.Join(homeDir, "AppData", "Roaming")
 	}
 
-	dataHomeDir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	dataHomeDir := ""
+	// XDG_DATA_HOME is ignored on Windows for the same reason as
+	// XDG_CONFIG_HOME in config.ConfigDirBase: Git Bash exports it in
+	// .bashrc, making discovery results depend on the launching shell.
+	if runtime.GOOS != "windows" {
+		dataHomeDir = strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	}
 	if dataHomeDir == "" {
 		dataHomeDir = filepath.Join(homeDir, ".local", "share")
 	}

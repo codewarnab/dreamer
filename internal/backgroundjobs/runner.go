@@ -18,6 +18,7 @@ import (
 	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/sandbox"
+	"dreamer/internal/sysinfo"
 )
 
 // SelfRepairConfig holds the fields needed for OS schedule self-repair.
@@ -185,6 +186,19 @@ func (e *Executor) Run(ctx context.Context, jobID string) (RunResult, error) {
 			logging.String("job_id", jobID),
 			logging.String("provider", job.ProviderID),
 			logging.String("platform", runtime.GOOS+"/"+runtime.GOARCH),
+		)
+	}
+
+	// Warn when a WSL daemon targets a workspace on the Windows filesystem:
+	// slow 9P I/O and provider CLIs installed on the Windows side cannot
+	// operate on /mnt/<drive> paths.
+	if sysinfo.IsWSL() && sysinfo.IsWindowsInteropPath(job.ProjectPath) {
+		warn := "Workspace is on the Windows filesystem via WSL interop (/mnt/...); " +
+			"runs will be slow and Windows-side provider CLIs cannot access this path"
+		run.Warnings = append(run.Warnings, warn)
+		e.Logger.Warn("wsl interop workspace for background job",
+			logging.String("job_id", jobID),
+			logging.String("path", job.ProjectPath),
 		)
 	}
 

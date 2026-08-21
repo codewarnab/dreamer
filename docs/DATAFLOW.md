@@ -11,7 +11,7 @@ This document traces how data moves through `dreamer` end-to-end — from user i
 | Entry Point | Path |
 | :--- | :--- |
 | **CLI `analyze`** | User → `cmd/analyze.go` → `pipeline.Run` |
-| **Daemon loop** | Timer/signal → `cmd/daemon.go` → `jobqueue.Queue` → worker → `pipeline.Run` |
+| **Daemon loop** | Timer/signal/stop-file → `cmd/daemon.go` → `jobqueue.Queue` → worker → `pipeline.Run` |
 | **Background jobs** | OS scheduler → `dreamer jobs run` → `backgroundjobs.Executor.Run` → provider subprocess |
 
 The common currency is:

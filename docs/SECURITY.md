@@ -221,7 +221,49 @@ executing the job.  This prevents:
 
 ---
 
-## 9. Known Gaps and Planned Mitigations
+## 8. Daemon Stop-File Handshake
+
+Windows cannot deliver SIGTERM to a detached daemon, and `taskkill /F`
+terminates without state flushing. `dreamer stop` therefore writes the
+sentinel file `<output_root>/dreamer.daemon.stop`; the daemon polls for it
+(500ms), cancels its context, and runs the normal graceful shutdown path.
+
+Security properties:
+
+- The sentinel lives next to `dreamer.daemon.lock` inside `<output_root>`
+  and requires the same local access level: any process that could write it
+  could equally write or delete the lockfile, so **no new trust boundary** is
+  introduced. A cross-user attack would already imply output-root compromise.
+- The daemon removes the sentinel before triggering shutdown so an interrupted
+  stop cannot poison a future daemon instance.
+- Identity verification (PID + live executable image match) still gates the
+  whole flow; the handshake is never sent to a PID we cannot attribute to
+  dreamer.
+
+---
+
+## 9. Daemon Stop-File Handshake
+
+Windows cannot deliver SIGTERM to a detached daemon, and `taskkill /F`
+terminates without state flushing. `dreamer stop` therefore writes the
+sentinel file `<output_root>/dreamer.daemon.stop`; the daemon polls for it
+(500ms), cancels its context, and runs the normal graceful shutdown path.
+
+Security properties:
+
+- The sentinel lives next to `dreamer.daemon.lock` inside `<output_root>`
+  and requires the same local access level: any process that could write it
+  could equally write or delete the lockfile, so **no new trust boundary** is
+  introduced. A cross-user attack would already imply output-root compromise.
+- The daemon removes the sentinel before triggering shutdown so an interrupted
+  stop cannot poison a future daemon instance.
+- Identity verification (PID + live executable image match) still gates the
+  whole flow; the handshake is never sent to a PID we cannot attribute to
+  dreamer.
+
+---
+
+## 10. Known Gaps and Planned Mitigations
 
 | Gap | Affected platforms | Planned mitigation |
 |-----|-------------------|-------------------|
@@ -235,7 +277,7 @@ executing the job.  This prevents:
 
 ---
 
-## 10. Security-Sensitive Files Reference
+## 11. Security-Sensitive Files Reference
 
 | File | What it protects |
 |------|-----------------|
