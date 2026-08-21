@@ -16,7 +16,10 @@ func seedLog(t *testing.T, root, contents string) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "dreamer.log"), []byte(contents), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "logging"), 0o755); err != nil {
+		t.Fatalf("mkdir logging dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "logging", "dreamer.log"), []byte(contents), 0o644); err != nil {
 		t.Fatalf("write log: %v", err)
 	}
 }

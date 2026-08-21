@@ -32,7 +32,7 @@ func LogsTail(deps Deps) http.HandlerFunc {
 			kb = config.DefaultLogTailKB
 		}
 		maxBytes := int64(kb) * 1024
-		path := filepath.Join(cfg.Daemon.OutputRoot, "dreamer.log")
+		path := filepath.Join(cfg.Daemon.OutputRoot, "logging", "dreamer.log")
 
 		text, err := readTail(path, maxBytes)
 		if err != nil {

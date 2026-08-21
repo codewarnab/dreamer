@@ -149,6 +149,14 @@ func newRootCommand() *cobra.Command {
 	updateCmd.GroupID = groupSetup
 	root.AddCommand(updateCmd)
 
+	doctorCmd := newDoctorCommand()
+	doctorCmd.GroupID = groupSetup
+	root.AddCommand(doctorCmd)
+
+	bugCmd := newBugCommand()
+	bugCmd.GroupID = groupSetup
+	root.AddCommand(bugCmd)
+
 	// Inspect commands.
 	lsCmd := newListChatsCommand()
 	lsCmd.GroupID = groupInspect
