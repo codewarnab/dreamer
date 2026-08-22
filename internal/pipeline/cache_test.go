@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,6 +136,98 @@ func TestComputeCacheKeysDropsHashFailureWithNoPrior(t *testing.T) {
 	}
 	if _, ok := out[badPath]; ok {
 		t.Fatalf("hash-failed source with no prior must be dropped, got key %q", out[badPath])
+	}
+}
+
+// seedOpenCodeDB creates a real opencode-shaped SQLite database with two
+// sessions so the cache-key path can be exercised end to end. The default
+// "sqlite" driver (modernc.org/sqlite) is linked transitively via
+// internal/chat/readers.
+func seedOpenCodeDB(t *testing.T) string {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "opencode.db")
+	database, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer database.Close()
+
+	const schema = `
+		CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, title TEXT, time_updated INTEGER, parent_id TEXT);
+		CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_created INTEGER);
+		CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT, time_created INTEGER);`
+	if _, err := database.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	const seed = `
+		INSERT INTO session VALUES ('s1', '/proj', 'alpha', 1700000000, '');
+		INSERT INTO session VALUES ('s2', '/proj', 'beta', 1700000005, '');
+		INSERT INTO message VALUES ('m1', 's1', '{"role":"user"}', 1700000000);
+		INSERT INTO message VALUES ('m2', 's2', '{"role":"user"}', 1700000005);
+		INSERT INTO part VALUES ('p1', 'm1', '{"type":"text","text":"hello"}', 1700000000);`
+	if _, err := database.Exec(seed); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+	return dbPath
+}
+
+// Issue #97: Source.Path for SQLite-backed providers is the encoded
+// `<dbFile>#<sessionID>` form. computeCacheKeys must hash each session via
+// the provider's per-session fingerprint — never by opening the encoded
+// path as a file — and a write to one session must not invalidate others.
+func TestComputeCacheKeysHitsForSQLiteBackedSources(t *testing.T) {
+	dbPath := seedOpenCodeDB(t)
+	sources := []chat.Source{
+		{Path: dbPath + "#s1", Tool: chat.SourceTypeOpenCodeSession},
+		{Path: dbPath + "#s2", Tool: chat.SourceTypeOpenCodeSession},
+	}
+
+	first, stats := computeCacheKeys(sources, nil, "head1", nil)
+	if stats.Fresh != 2 || stats.HashFailedDropped != 0 || stats.HashFailedKept != 0 {
+		t.Fatalf("first run stats=%+v, want both sources Fresh with no hash failures", stats)
+	}
+
+	second, stats := computeCacheKeys(sources, first, "head1", nil)
+	if stats.Cached != 2 {
+		t.Fatalf("second run stats=%+v, want Cached=2; incremental cache did not hit for SQLite-backed sources", stats)
+	}
+	for _, src := range sources {
+		if second[src.Path] != first[src.Path] {
+			t.Fatalf("unchanged session %q changed key across runs", src.Path)
+		}
+	}
+}
+
+func TestComputeCacheKeysIsolatesChangedSQLiteSession(t *testing.T) {
+	dbPath := seedOpenCodeDB(t)
+	sources := []chat.Source{
+		{Path: dbPath + "#s1", Tool: chat.SourceTypeOpenCodeSession},
+		{Path: dbPath + "#s2", Tool: chat.SourceTypeOpenCodeSession},
+	}
+	prior, _ := computeCacheKeys(sources, nil, "head1", nil)
+
+	// Append one message to s2 only.
+	database, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen sqlite: %v", err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`UPDATE session SET time_updated = 1700000099 WHERE id = 's2'`); err != nil {
+		t.Fatalf("bump session stamp: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO message VALUES ('m3', 's2', '{"role":"assistant"}', 1700000099)`); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	out, stats := computeCacheKeys(sources, prior, "head1", nil)
+	if stats.Changed != 1 || stats.Cached != 1 {
+		t.Fatalf("stats=%+v, want exactly one Changed and one Cached after an isolated session write", stats)
+	}
+	if out[dbPath+"#s2"] == prior[dbPath+"#s2"] {
+		t.Fatal("changed session must produce a new key")
+	}
+	if out[dbPath+"#s1"] != prior[dbPath+"#s1"] {
+		t.Fatal("unrelated session sharing the same database file must keep its key")
 	}
 }
 

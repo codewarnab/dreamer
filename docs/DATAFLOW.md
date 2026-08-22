@@ -106,7 +106,11 @@ Before any LLM calls, the pipeline checks two caches to avoid redundant work.
 []chat.Source
         │
         ▼
-state.HashFile(source.Path)            per-source SHA-256
+sourceContentHash(src)                 per-source SHA-256
+  ├─ SQLite-backed (opencode, kiro):   provider SourceHash digest of that
+  │    session's row content only      (`<db>#<session>` path is split via
+  │                                    SplitSQLiteSourcePath; never opened)
+  └─ all other sources:                state.HashFile(source.Path)
         +
 state.RepoHeadSHA(projectPath)         git HEAD commit hash
         │
@@ -126,7 +130,9 @@ Compare with state.ChatHashes           (map[sourcePath]cacheKey from state.json
   return early
 ```
 
-**Discovery cache (daemon only):** `pipeline.DiscoveryCache` is a coarser mtime-based cache. Before even hashing files, the daemon checks whether any source mtime has changed since the last run. A cache hit skips the full `HashFile` loop entirely.
+SQLite-backed providers store every session as a row inside one shared database file, so `Source.Path` encodes `<dbFile>#<sessionID>`. Hashing that literal path would always fail and any write to the shared file would invalidate every session at once. Instead, providers implement `chat.SourceHasher`: opencode fingerprints message/part aggregates plus `session.time_updated` (`readers.OpenCodeReader.SessionFingerprint`), and kiro-cli fingerprints the row's value length plus `updated_at` (`readers.KiroReader.ConversationFingerprint`). A change to one session therefore re-analyzes only that session.
+
+**Discovery cache (daemon only):** `pipeline.DiscoveryCache` is a coarser mtime-based cache. Before even hashing files, the daemon checks whether any source mtime has changed since the last run. A cache hit skips the full content-hash loop entirely.
 
 ---
 

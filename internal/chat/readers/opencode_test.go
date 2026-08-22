@@ -110,6 +110,124 @@ func TestReadOpenCodeMessagesRequiresSessionID(t *testing.T) {
 	}
 }
 
+func TestSessionFingerprintStableAndDistinctPerSession(t *testing.T) {
+	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{
+		Sessions: []fixtureOpenCodeSession{
+			{ID: "s1", Directory: "/p", Title: "alpha", TimeUpdated: 1_700_000_000},
+			{ID: "s2", Directory: "/p", Title: "beta", TimeUpdated: 1_700_000_005},
+		},
+		Messages: []fixtureOpenCodeMessage{
+			{ID: "m1", SessionID: "s1", Data: `{"role":"user"}`, TimeCreated: 1_700_000_000},
+			{ID: "m2", SessionID: "s2", Data: `{"role":"user"}`, TimeCreated: 1_700_000_005},
+		},
+	})
+
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+	first, err := reader.SessionFingerprint(dbPath, "s1")
+	if err != nil {
+		t.Fatalf("SessionFingerprint(s1) returned error: %v", err)
+	}
+	second, err := reader.SessionFingerprint(dbPath, "s1")
+	if err != nil {
+		t.Fatalf("SessionFingerprint(s1) second call returned error: %v", err)
+	}
+	if first == "" {
+		t.Fatal("fingerprint must not be empty")
+	}
+	if first != second {
+		t.Fatalf("fingerprint unstable across calls: %q vs %q", first, second)
+	}
+
+	other, err := reader.SessionFingerprint(dbPath, "s2")
+	if err != nil {
+		t.Fatalf("SessionFingerprint(s2) returned error: %v", err)
+	}
+	if other == first {
+		t.Fatal("distinct sessions sharing one database must get distinct fingerprints")
+	}
+}
+
+func TestSessionFingerprintChangesWhenSessionContentChanges(t *testing.T) {
+	base := fixtureOpenCodeDataset{
+		Sessions: []fixtureOpenCodeSession{{ID: "s1", Directory: "/p", Title: "t", TimeUpdated: 1_700_000_000}},
+		Messages: []fixtureOpenCodeMessage{
+			{ID: "m1", SessionID: "s1", Data: `{"role":"user"}`, TimeCreated: 1_700_000_000},
+		},
+	}
+
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+
+	before, err := reader.SessionFingerprint(registerFixtureOpenCodeDataset(t, base), "s1")
+	if err != nil {
+		t.Fatalf("baseline SessionFingerprint returned error: %v", err)
+	}
+
+	appended := base
+	appended.Messages = append(append([]fixtureOpenCodeMessage{}, base.Messages...),
+		fixtureOpenCodeMessage{ID: "m2", SessionID: "s1", Data: `{"role":"assistant"}`, TimeCreated: 1_700_000_010})
+	afterAppend, err := reader.SessionFingerprint(registerFixtureOpenCodeDataset(t, appended), "s1")
+	if err != nil {
+		t.Fatalf("post-append SessionFingerprint returned error: %v", err)
+	}
+	if afterAppend == before {
+		t.Fatal("appending a message must change the fingerprint")
+	}
+
+	edited := base
+	edited.Sessions = []fixtureOpenCodeSession{{ID: "s1", Directory: "/p", Title: "t", TimeUpdated: 1_700_050_000}}
+	afterEdit, err := reader.SessionFingerprint(registerFixtureOpenCodeDataset(t, edited), "s1")
+	if err != nil {
+		t.Fatalf("post-edit SessionFingerprint returned error: %v", err)
+	}
+	if afterEdit == before {
+		t.Fatal("bumping time_updated must change the fingerprint")
+	}
+}
+
+func TestSessionFingerprintIncludesParts(t *testing.T) {
+	base := fixtureOpenCodeDataset{
+		Sessions: []fixtureOpenCodeSession{{ID: "s1", Directory: "/p", Title: "t", TimeUpdated: 1}},
+		Messages: []fixtureOpenCodeMessage{
+			{ID: "m1", SessionID: "s1", Data: `{"role":"user"}`, TimeCreated: 1},
+		},
+	}
+
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+
+	before, err := reader.SessionFingerprint(registerFixtureOpenCodeDataset(t, base), "s1")
+	if err != nil {
+		t.Fatalf("baseline SessionFingerprint returned error: %v", err)
+	}
+
+	withPart := base
+	withPart.Parts = []fixtureOpenCodePart{
+		{ID: "p1", MessageID: "m1", Data: `{"type":"text","text":"hello"}`, TimeCreated: 1},
+	}
+	after, err := reader.SessionFingerprint(registerFixtureOpenCodeDataset(t, withPart), "s1")
+	if err != nil {
+		t.Fatalf("post-part SessionFingerprint returned error: %v", err)
+	}
+	if after == before {
+		t.Fatal("adding a part must change the fingerprint")
+	}
+}
+
+func TestSessionFingerprintRequiresSessionID(t *testing.T) {
+	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{})
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+	if _, err := reader.SessionFingerprint(dbPath, ""); err == nil {
+		t.Fatalf("SessionFingerprint expected error for empty session id")
+	}
+}
+
+func TestSessionFingerprintMissingSession(t *testing.T) {
+	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{})
+	reader := OpenCodeReader{DriverName: fixtureOpenCodeDriverName}
+	if _, err := reader.SessionFingerprint(dbPath, "ghost"); err == nil {
+		t.Fatalf("SessionFingerprint expected error for missing session row")
+	}
+}
+
 func TestReadOpenCodeMessagesToolWithResult(t *testing.T) {
 	dbPath := registerFixtureOpenCodeDataset(t, fixtureOpenCodeDataset{
 		Sessions: []fixtureOpenCodeSession{{ID: "s1", Directory: "/p", Title: "t", TimeUpdated: 1}},
@@ -239,6 +357,51 @@ func (connection *fixtureOpenCodeConn) QueryContext(_ context.Context, query str
 func (connection *fixtureOpenCodeConn) runQuery(query string, args []driver.Value) (driver.Rows, error) {
 	lowered := strings.ToLower(strings.TrimSpace(query))
 	switch {
+	// SessionFingerprint queries must be matched before the generic
+	// table-shaped cases below: they select aggregates, not raw rows.
+	case strings.Contains(lowered, "select time_updated from session"):
+		filter, _ := args[0].(string)
+		rows := make([][]driver.Value, 0)
+		for _, session := range connection.dataset.Sessions {
+			if session.ID == filter {
+				rows = append(rows, []driver.Value{session.TimeUpdated})
+			}
+		}
+		return &fixtureOpenCodeRows{columns: []string{"time_updated"}, rows: rows}, nil
+	case strings.Contains(lowered, "sum(length(cast(p.data as blob))"):
+		filter, _ := args[0].(string)
+		messageIDs := map[string]struct{}{}
+		for _, message := range connection.dataset.Messages {
+			if message.SessionID == filter {
+				messageIDs[message.ID] = struct{}{}
+			}
+		}
+		var count, total int64
+		for _, part := range connection.dataset.Parts {
+			if _, ok := messageIDs[part.MessageID]; !ok {
+				continue
+			}
+			count++
+			total += int64(len(part.Data))
+		}
+		rows := [][]driver.Value{{count, total}}
+		return &fixtureOpenCodeRows{columns: []string{"count", "total"}, rows: rows}, nil
+	case strings.Contains(lowered, "sum(length(cast(data as blob))") && strings.Contains(lowered, "from message"):
+		filter, _ := args[0].(string)
+		var count, total int64
+		var lastID driver.Value
+		for _, message := range connection.dataset.Messages {
+			if message.SessionID != filter {
+				continue
+			}
+			count++
+			total += int64(len(message.Data))
+			if id, ok := lastID.(string); !ok || message.ID > id {
+				lastID = message.ID
+			}
+		}
+		rows := [][]driver.Value{{count, total, lastID}}
+		return &fixtureOpenCodeRows{columns: []string{"count", "total", "last"}, rows: rows}, nil
 	case strings.Contains(lowered, "from session"):
 		filter := ""
 		if len(args) > 0 {

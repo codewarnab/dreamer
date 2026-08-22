@@ -78,6 +78,17 @@ func (openCodeProvider) SizeBytes(source Source) (int64, error) {
 	return readers.OpenCodeReader{}.SessionSize(dbPath, sessionID)
 }
 
+// SourceHash returns the per-session content digest for the incremental
+// cache. The shared database file is never hashed directly.
+func (openCodeProvider) SourceHash(source Source) (string, error) {
+	dbPath, sessionID := SplitSQLiteSourcePath(source.Path)
+	fingerprint, err := readers.OpenCodeReader{}.SessionFingerprint(dbPath, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("hash opencode chat source %q: %w", source.Path, err)
+	}
+	return fingerprint, nil
+}
+
 // SizeBytesBatch groups sources by underlying database path and issues one
 // query per DB instead of one per session. Errors per DB are swallowed so a
 // single broken file does not blank out the entire chats list.

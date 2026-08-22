@@ -107,6 +107,36 @@ func (reader KiroReader) ReadConversation(dbPath string, conversationID string) 
 	return messages, nil
 }
 
+// ConversationFingerprint returns a stable hex digest of one conversation's
+// stored content. All conversations share one database file, so the
+// incremental cache needs a per-row digest instead of hashing the file
+// itself. The digest combines the row's value length with its update stamp:
+// any rewrite of this conversation changes it, while writes to unrelated
+// conversations do not.
+func (reader KiroReader) ConversationFingerprint(dbPath string, conversationID string) (string, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return "", fmt.Errorf("kiro conversation id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return "", err
+	}
+	defer database.Close()
+
+	var valueBytes sql.NullInt64
+	var updated any
+	if err := database.QueryRow("SELECT length(CAST(value AS BLOB)), updated_at FROM conversations_v2 WHERE conversation_id = ?", conversationID).Scan(&valueBytes, &updated); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("kiro conversation %q not found", conversationID)
+		}
+		return "", fmt.Errorf("fingerprint kiro conversation %q: %w", conversationID, err)
+	}
+
+	canonical := fmt.Sprintf("v1|bytes=%d|updated=%d", valueBytes.Int64, fingerprintTimestamp(updated))
+	return sqliteContentDigest(canonical), nil
+}
+
 func (reader KiroReader) openDatabase(dbPath string) (*sql.DB, error) {
 	return openSQLDatabase(reader.DriverName, reader.Open, dbPath, "kiro")
 }

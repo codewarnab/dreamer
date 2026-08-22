@@ -77,6 +77,17 @@ func (kiroProvider) SizeBytes(source Source) (int64, error) {
 	return readers.KiroReader{}.ConversationSize(dbPath, conversationID)
 }
 
+// SourceHash returns the per-conversation content digest for the incremental
+// cache. The shared database file is never hashed directly.
+func (kiroProvider) SourceHash(source Source) (string, error) {
+	dbPath, conversationID := SplitSQLiteSourcePath(source.Path)
+	fingerprint, err := readers.KiroReader{}.ConversationFingerprint(dbPath, conversationID)
+	if err != nil {
+		return "", fmt.Errorf("hash kiro chat source %q: %w", source.Path, err)
+	}
+	return fingerprint, nil
+}
+
 func (kiroProvider) SizeBytesBatch(sources []Source) map[string]int64 {
 	type conversationKey struct {
 		dbPath string

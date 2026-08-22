@@ -1,7 +1,9 @@
 package readers
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -29,4 +31,20 @@ func openSQLDatabase(driverName string, openFunc func(string, string) (*sql.DB, 
 		return nil, fmt.Errorf("open %s database %q with driver %q: %w", label, path, resolvedDriver, err)
 	}
 	return database, nil
+}
+
+// sqliteContentDigest returns the hex sha256 of a canonical fingerprint
+// string. Shared by the SQLite-backed readers' per-session fingerprint
+// functions so every provider produces digests in the same form.
+func sqliteContentDigest(canonical string) string {
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
+}
+
+// fingerprintTimestamp normalizes any-typed SQLite timestamp columns to Unix
+// nanoseconds so fingerprint input stays stable regardless of how a provider
+// stores its timestamps (unix seconds, RFC3339 text, and so on).
+func fingerprintTimestamp(raw any) int64 {
+	parsed, _ := parseTimestamp(raw)
+	return parsed.UnixNano()
 }

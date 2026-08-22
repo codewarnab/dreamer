@@ -44,6 +44,16 @@ type BatchSizer interface {
 	SizeBytesBatch(sources []Source) map[string]int64
 }
 
+// SourceHasher is an optional provider extension for computing the per-source
+// content digest that feeds the incremental cache key. SQLite-backed providers
+// implement it because their Source.Path encodes `<dbFile>#<sessionID>`:
+// hashing that literal path as a file always fails and would key every session
+// on the whole shared database. Providers without it fall back to hashing the
+// source path as a plain file.
+type SourceHasher interface {
+	SourceHash(source Source) (string, error)
+}
+
 // fileBackedProvider is a mixin for providers whose chat sources are
 // plain files on disk. It provides Type(), DeleteSource(), and SizeBytes()
 // so each concrete provider only needs Discover() and ReadMessages().

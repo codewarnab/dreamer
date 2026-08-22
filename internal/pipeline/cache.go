@@ -29,14 +29,14 @@ type cacheKeyStats struct {
 }
 
 // computeCacheKeys builds the per-source cache-key map for this run. When a
-// source is present but its file hash fails, the prior key is preserved so
+// source is present but its content hash fails, the prior key is preserved so
 // state.ChatHashes is not clobbered on assignment (B1). Sources absent from
 // `sources` are intentionally dropped, pruning stale entries (B26).
 func computeCacheKeys(sources []chat.Source, prior map[string]string, repoHeadSHA string, logger *logging.Logger) (map[string]string, cacheKeyStats) {
 	out := make(map[string]string, len(sources))
 	stats := cacheKeyStats{}
 	for _, src := range sources {
-		fileHash, err := state.HashFile(src.Path)
+		fileHash, err := sourceContentHash(src)
 		if err != nil {
 			if logger != nil {
 				logger.Warn("hash chat source failed", logging.Any("path", src.Path), logging.Any("err", err))
@@ -62,6 +62,21 @@ func computeCacheKeys(sources []chat.Source, prior map[string]string, repoHeadSH
 		}
 	}
 	return out, stats
+}
+
+// sourceContentHash returns the content digest feeding the cache key for one
+// source. SQLite-backed providers (opencode, kiro-cli) encode
+// `<dbFile>#<sessionID>` in Source.Path, so their digest comes from the
+// provider's per-session fingerprint instead of hashing the encoded path as
+// a file — opening that literal path always fails and would key every
+// session on the whole shared database.
+func sourceContentHash(src chat.Source) (string, error) {
+	if provider, ok := chat.ProviderFor(src.Tool); ok {
+		if hasher, ok := provider.(chat.SourceHasher); ok {
+			return hasher.SourceHash(src)
+		}
+	}
+	return state.HashFile(src.Path)
 }
 
 // cacheUnchanged: prior successful run covered the exact same source set + repo head.

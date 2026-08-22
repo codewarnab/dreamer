@@ -434,6 +434,22 @@ state.FindingStatusResolved   // "resolved"
 
 ---
 
+## 16b. SQLite Chat Source Fingerprints (`internal/chat/`, `internal/chat/readers/`)
+
+SQLite-backed providers (opencode, kiro-cli) store every session as a row inside one shared database file, and `Source.Path` encodes `<dbFile>#<sessionID>`. The incremental cache must never hash that encoded path as a file — use these instead.
+
+| Symbol | Purpose |
+|---|---|
+| `chat.SourceHasher` (interface, `provider.go`) | Optional provider extension: `SourceHash(source Source) (string, error)` returns a stable per-source content digest. Implemented by the opencode and kiro providers. |
+| `readers.OpenCodeReader.SessionFingerprint(dbPath, sessionID string) (string, error)` | Hex digest of one session's message/part aggregates plus `session.time_updated`. Errors when the session row is missing. |
+| `readers.KiroReader.ConversationFingerprint(dbPath, conversationID string) (string, error)` | Hex digest of one conversation's value length plus `updated_at`. Errors when the row is missing. |
+
+**Dispatch:** `pipeline.sourceContentHash(src)` prefers `SourceHasher` via `chat.ProviderFor` and falls back to `state.HashFile` for plain-file sources. Do not call `state.HashFile` directly on `chat.Source.Path` in new code.
+
+**Current callers:** `internal/pipeline/cache.go` (`computeCacheKeys`)
+
+---
+
 ## 17. Categories (`internal/categories/`)
 
 ### `categories.ApplyEligible(c Category) bool`

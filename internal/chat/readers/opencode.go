@@ -357,6 +357,63 @@ func (reader OpenCodeReader) DeleteSession(dbPath string, sessionID string) erro
 	return nil
 }
 
+// SessionFingerprint returns a stable hex digest of one session's stored
+// content. Every session in an opencode database shares one file, so the
+// incremental cache needs a per-row digest instead of hashing the file
+// itself. The digest mixes message/part aggregates with the session row's
+// update stamp: any append, delete, or edit to this session changes it,
+// while writes to unrelated sessions do not.
+func (reader OpenCodeReader) SessionFingerprint(dbPath string, sessionID string) (string, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return "", fmt.Errorf("opencode session id is required")
+	}
+	database, err := reader.openDatabase(dbPath)
+	if err != nil {
+		return "", err
+	}
+	defer database.Close()
+
+	// length(CAST(x AS BLOB)) counts bytes, so multi-byte characters cannot
+	// skew the aggregate the way a plain text length() would.
+	const messageQuery = `
+		SELECT COUNT(*),
+		       COALESCE(SUM(length(CAST(data AS BLOB))), 0),
+		       COALESCE(CAST(MAX(id) AS TEXT), '')
+		  FROM message
+		 WHERE session_id = ?`
+	var messageCount int64
+	var messageBytes int64
+	var lastMessageID sql.NullString
+	if err := database.QueryRow(messageQuery, sessionID).Scan(&messageCount, &messageBytes, &lastMessageID); err != nil {
+		return "", fmt.Errorf("fingerprint opencode messages for %q: %w", sessionID, err)
+	}
+
+	const partQuery = `
+		SELECT COUNT(*),
+		       COALESCE(SUM(length(CAST(p.data AS BLOB))), 0)
+		  FROM part p
+		  JOIN message m ON p.message_id = m.id
+		 WHERE m.session_id = ?`
+	var partCount int64
+	var partBytes int64
+	if err := database.QueryRow(partQuery, sessionID).Scan(&partCount, &partBytes); err != nil {
+		return "", fmt.Errorf("fingerprint opencode parts for %q: %w", sessionID, err)
+	}
+
+	var updated any
+	if err := database.QueryRow("SELECT time_updated FROM session WHERE id = ?", sessionID).Scan(&updated); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("opencode session %q not found", sessionID)
+		}
+		return "", fmt.Errorf("fingerprint opencode session %q: %w", sessionID, err)
+	}
+
+	canonical := fmt.Sprintf("v1|messages=%d|message_bytes=%d|last_message=%s|parts=%d|part_bytes=%d|updated=%d",
+		messageCount, messageBytes, lastMessageID.String, partCount, partBytes, fingerprintTimestamp(updated))
+	return sqliteContentDigest(canonical), nil
+}
+
 func openCodeRoleFromMessageData(messageDataJSON string) string {
 	trimmed := strings.TrimSpace(messageDataJSON)
 	if trimmed == "" {

@@ -97,6 +97,85 @@ func TestReadKiroConversationRequiresID(t *testing.T) {
 	}
 }
 
+func TestConversationFingerprintStableAndDistinctPerConversation(t *testing.T) {
+	dbPath := registerFixtureKiroDataset(t, fixtureKiroDataset{
+		Conversations: []fixtureKiroConversation{
+			{Key: "/p", ConversationID: "c1", Value: `{"history":[1]}`, UpdatedAt: 1_700_000_000},
+			{Key: "/p", ConversationID: "c2", Value: `{"history":[2]}`, UpdatedAt: 1_700_000_005},
+		},
+	})
+
+	reader := KiroReader{DriverName: fixtureKiroDriverName}
+	first, err := reader.ConversationFingerprint(dbPath, "c1")
+	if err != nil {
+		t.Fatalf("ConversationFingerprint(c1) returned error: %v", err)
+	}
+	second, err := reader.ConversationFingerprint(dbPath, "c1")
+	if err != nil {
+		t.Fatalf("ConversationFingerprint(c1) second call returned error: %v", err)
+	}
+	if first == "" {
+		t.Fatal("fingerprint must not be empty")
+	}
+	if first != second {
+		t.Fatalf("fingerprint unstable across calls: %q vs %q", first, second)
+	}
+
+	other, err := reader.ConversationFingerprint(dbPath, "c2")
+	if err != nil {
+		t.Fatalf("ConversationFingerprint(c2) returned error: %v", err)
+	}
+	if other == first {
+		t.Fatal("distinct conversations sharing one database must get distinct fingerprints")
+	}
+}
+
+func TestConversationFingerprintChangesWhenContentChanges(t *testing.T) {
+	base := fixtureKiroConversation{Key: "/p", ConversationID: "c1", Value: `{"history":[1]}`, UpdatedAt: 1_700_000_000}
+	reader := KiroReader{DriverName: fixtureKiroDriverName}
+
+	before, err := reader.ConversationFingerprint(registerFixtureKiroDataset(t, fixtureKiroDataset{Conversations: []fixtureKiroConversation{base}}), "c1")
+	if err != nil {
+		t.Fatalf("baseline ConversationFingerprint returned error: %v", err)
+	}
+
+	longerValue := base
+	longerValue.Value = `{"history":[1,2]}`
+	afterValue, err := reader.ConversationFingerprint(registerFixtureKiroDataset(t, fixtureKiroDataset{Conversations: []fixtureKiroConversation{longerValue}}), "c1")
+	if err != nil {
+		t.Fatalf("post-value ConversationFingerprint returned error: %v", err)
+	}
+	if afterValue == before {
+		t.Fatal("changing the conversation value must change the fingerprint")
+	}
+
+	bumpedStamp := base
+	bumpedStamp.UpdatedAt = 1_700_050_000
+	afterStamp, err := reader.ConversationFingerprint(registerFixtureKiroDataset(t, fixtureKiroDataset{Conversations: []fixtureKiroConversation{bumpedStamp}}), "c1")
+	if err != nil {
+		t.Fatalf("post-stamp ConversationFingerprint returned error: %v", err)
+	}
+	if afterStamp == before {
+		t.Fatal("bumping updated_at must change the fingerprint even at equal value length")
+	}
+}
+
+func TestConversationFingerprintRequiresID(t *testing.T) {
+	dbPath := registerFixtureKiroDataset(t, fixtureKiroDataset{})
+	reader := KiroReader{DriverName: fixtureKiroDriverName}
+	if _, err := reader.ConversationFingerprint(dbPath, ""); err == nil {
+		t.Fatalf("ConversationFingerprint expected error for empty id")
+	}
+}
+
+func TestConversationFingerprintMissingConversation(t *testing.T) {
+	dbPath := registerFixtureKiroDataset(t, fixtureKiroDataset{})
+	reader := KiroReader{DriverName: fixtureKiroDriverName}
+	if _, err := reader.ConversationFingerprint(dbPath, "ghost"); err == nil {
+		t.Fatalf("ConversationFingerprint expected error for missing conversation row")
+	}
+}
+
 func TestReadKiroConversationReturnsParseError(t *testing.T) {
 	dbPath := registerFixtureKiroDataset(t, fixtureKiroDataset{
 		Conversations: []fixtureKiroConversation{
@@ -149,6 +228,18 @@ func (connection *fixtureKiroConn) QueryContext(_ context.Context, query string,
 func (connection *fixtureKiroConn) runQuery(query string, args []driver.Value) (driver.Rows, error) {
 	lowered := strings.ToLower(strings.TrimSpace(query))
 	switch {
+	// ConversationFingerprint must be matched before the generic
+	// conversations_v2 case below: it selects aggregates for one row.
+	case strings.Contains(lowered, "length(cast(value as blob))"):
+		filter, _ := args[0].(string)
+		rows := make([][]driver.Value, 0)
+		for _, conversation := range connection.dataset.Conversations {
+			if conversation.ConversationID == filter {
+				rows = append(rows, []driver.Value{int64(len(conversation.Value)), conversation.UpdatedAt})
+				break
+			}
+		}
+		return &fixtureRows{columns: []string{"bytes", "updated_at"}, rows: rows}, nil
 	case strings.Contains(lowered, "select value"):
 		filter, _ := args[0].(string)
 		rows := make([][]driver.Value, 0)
