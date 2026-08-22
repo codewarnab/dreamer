@@ -1,5 +1,9 @@
 package analyzer
 
+import (
+	"time"
+)
+
 // Chunk is one phase-1 prompt's transcript payload. Sources in SourceLabels
 // appear in Transcript in the same order. Split is true when this chunk
 // holds part of a single provider that was hard-split for size.
@@ -9,6 +13,34 @@ type Chunk struct {
 	Transcript   string
 	Bytes        int
 	Split        bool
+}
+
+// Phase names used by CapturedCall.Phase.
+const (
+	PhasePhase1 = "phase1"
+	PhasePhase2 = "phase2"
+)
+
+// CapturedCall is one LLM exchange observed by the orchestrator: the exact
+// prompt sent, the raw response received, and how each side failed.
+type CapturedCall struct {
+	Phase      string
+	ChunkIndex int // 0-based; -1 for phase-2 calls
+	ChunkCount int // total chunks in the run; 0 for phase-2 calls
+	Prompt     string
+	Response   string
+	RunError   error // transport/session failure; nil on success
+	ParseError error // decode failure; nil when parsed cleanly or not reached
+	Elapsed    time.Duration
+}
+
+// CallCapture receives every LLM exchange made by the orchestrator so the
+// caller can persist prompts and raw responses (capture/replay). The
+// orchestrator never inspects the implementation and treats it as
+// best-effort. Implementations must be safe for concurrent use — parallel
+// phase-1 dispatch shares one instance.
+type CallCapture interface {
+	CaptureCall(CapturedCall)
 }
 
 // ExecutionMode picks the per-chunk dispatch strategy in RunConfig.
@@ -49,6 +81,11 @@ type RunConfig struct {
 	Phase2SessionFactory SessionFactory
 	Mode                 ExecutionMode
 	MaxConcurrency       int
+
+	// Capture, when non-nil, receives every phase-1 and phase-2 LLM call
+	// with its raw prompt/response — including calls whose response failed
+	// to parse. Nil disables capture.
+	Capture CallCapture
 }
 
 // Phase1Factory returns the Phase 1 factory, panicking if unset — callers

@@ -220,6 +220,36 @@ map[RuleCategory][]Mistake  (merged across all chunks)
 
 **Phase 1 cache:** If Phase 1 succeeds but Phase 2 subsequently fails, the mistakes are serialized into `state.CachedPhase1` (with a cache key derived from transcript + rule pack hash). On the next run, if the cache key still matches, Phase 1 is skipped and mistakes are replayed directly into Phase 2.
 
+### LLM Call Capture (`internal/capture/`, enabled by default)
+
+Every phase-1 and phase-2 call is persisted **before any parse result is
+consumed**, so a malformed response like `invalid phase-1 JSON` keeps its raw
+body instead of being dropped with only a warning string.
+
+```
+orchestrator.RunConfig.Capture  (analyzer.CallCapture hook)
+        │  one CapturedCall per LLM exchange: prompt, raw response,
+        │  run error, parse error, elapsed, chunk index/count
+        ▼
+pipeline.callRecorder  (internal/pipeline/capture.go)
+        • maps errors → status: ok | parse_failed | error
+        • redacts secret-shaped text from the response
+        • truncates fields to analyzer.capture.max_record_kb
+        ▼
+<outputRoot>/<projectName>/runs/<runID>/
+├── meta.json     RunMeta: provider, model, sandbox, system message,
+│                 project path, since window, replay lineage
+└── calls.jsonl   append-only Record per call (index assigned by Writer)
+```
+
+Retention: `analyzer.capture.retain_runs` prunes oldest run dirs after each
+run (default 20; -1 keeps everything). Disable entirely with
+`analyzer.capture.enabled: false`. Replay reads this directory back:
+`internal/replay` re-parses a stored response with the current rule packs
+(`reparse`) or resends the stored prompt through a new session with an
+optional provider/model override (`resend`), writing resend results as a new
+run tagged `kind=replay` with `parent_run_id` + `parent_call_index` lineage.
+
 ### Phase 2 — Finding Synthesis
 
 ```
@@ -635,7 +665,11 @@ All persisted data is rooted at `<outputRoot>` (configured via `daemon.output_ro
 ├── <projectName>/                one directory per registered project
 │   ├── state.json                per-project run cache and finding lifecycle
 │   ├── history.json              per-day run summaries (90-day rolling)
-│   └── todos.md                  finding output (append-merged each run)
+│   ├── todos.md                  finding output (append-merged each run)
+│   └── runs/<runID>/             LLM call capture (see §6)
+│       ├── meta.json             session metadata (provider, model, sandbox,
+│       │                         system message, replay lineage)
+│       └── calls.jsonl           one captured prompt/response per line
 │
 └── background-jobs/              background job engine store
     ├── store.lock                cross-process lock for jobs.json mutations

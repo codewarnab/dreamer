@@ -64,7 +64,7 @@ func (o *Orchestrator) RunChunks(ctx context.Context, rc RunConfig, chunkInputs 
 	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
 	defer phase2Pool.Close()
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakesByCategory, chunkInputs.RuleTimeoutSecs, req)
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, rc, phase2Pool, builder, mistakesByCategory, chunkInputs.RuleTimeoutSecs, req)
 	analysisResult.Warnings = append(analysisResult.Warnings, p2Warnings...)
 	if err != nil {
 		return analysisResult, err
@@ -108,7 +108,7 @@ func (o *Orchestrator) RunPhase2Only(ctx context.Context, rc RunConfig, mistakes
 	phase2Pool := NewSessionPool(1, rc.Phase2Factory())
 	defer phase2Pool.Close()
 
-	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, phase2Pool, builder, mistakes, ruleTimeoutSecs, req)
+	findingsByCategory, p2Warnings, err := o.runPhase2(ctx, rc, phase2Pool, builder, mistakes, ruleTimeoutSecs, req)
 	analysisResult.Warnings = p2Warnings
 	if err != nil {
 		return analysisResult, err
@@ -136,12 +136,12 @@ type chunkResult struct {
 // runPhase1 dispatches per-chunk calls; returns the union, count of clean chunks, warnings.
 func (o *Orchestrator) runPhase1(ctx context.Context, rc RunConfig, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
 	if rc.Mode == ModeParallel && len(chunkInputs.Chunks) > 1 {
-		return o.runPhase1Parallel(ctx, pool, builder, chunkInputs, req)
+		return o.runPhase1Parallel(ctx, rc, pool, builder, chunkInputs, req)
 	}
-	return o.runPhase1Sequential(ctx, pool, builder, chunkInputs, req)
+	return o.runPhase1Sequential(ctx, rc, pool, builder, chunkInputs, req)
 }
 
-func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
+func (o *Orchestrator) runPhase1Sequential(ctx context.Context, rc RunConfig, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
 	mistakes := map[RuleCategory][]Mistake{}
 	warnings := []string{}
 	priorSummary := ""
@@ -150,8 +150,11 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 
 	for i, chunk := range chunkInputs.Chunks {
 		prompt := builder.BuildPhase1(chunk, req, priorSummary, len(chunkInputs.Chunks))
+		start := time.Now()
 		raw, runErr := runWithPool(ctx, pool, prompt, timeout)
+		elapsed := time.Since(start)
 		if runErr != nil {
+			emitCapture(rc.Capture, CapturedCall{Phase: PhasePhase1, ChunkIndex: i, ChunkCount: len(chunkInputs.Chunks), Prompt: prompt, Response: raw, RunError: runErr, Elapsed: elapsed})
 			if errs.Is(runErr, errs.KindRateLimit) {
 				return mistakes, completed, warnings, fmt.Errorf("phase-1 chunk %d hit provider rate limit: %w", i, runErr)
 			}
@@ -159,6 +162,7 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 			return mistakes, completed, warnings, runErr
 		}
 		parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
+		emitCapture(rc.Capture, CapturedCall{Phase: PhasePhase1, ChunkIndex: i, ChunkCount: len(chunkInputs.Chunks), Prompt: prompt, Response: raw, ParseError: parseErr, Elapsed: elapsed})
 		warnings = append(warnings, parseWarns...)
 		if parseErr != nil {
 			warnings = append(warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
@@ -177,7 +181,7 @@ func (o *Orchestrator) runPhase1Sequential(ctx context.Context, pool *SessionPoo
 	return mistakes, completed, warnings, nil
 }
 
-func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
+func (o *Orchestrator) runPhase1Parallel(ctx context.Context, rc RunConfig, pool *SessionPool, builder *PromptBuilder, chunkInputs ChunkInputs, req PhaseRequest) (map[RuleCategory][]Mistake, int, []string, error) {
 	results := make([]chunkResult, len(chunkInputs.Chunks))
 	timeout := chunkTimeout(chunkInputs.RuleTimeoutSecs)
 
@@ -186,8 +190,11 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 		i, chunk := i, chunk
 		g.Go(func() error {
 			prompt := builder.BuildPhase1(chunk, req, "", len(chunkInputs.Chunks))
+			start := time.Now()
 			raw, runErr := runWithPool(gctx, pool, prompt, timeout)
+			elapsed := time.Since(start)
 			if runErr != nil {
+				emitCapture(rc.Capture, CapturedCall{Phase: PhasePhase1, ChunkIndex: i, ChunkCount: len(chunkInputs.Chunks), Prompt: prompt, Response: raw, RunError: runErr, Elapsed: elapsed})
 				results[i] = chunkResult{index: i, err: runErr}
 				if errs.Is(runErr, errs.KindRateLimit) {
 					return runErr
@@ -195,6 +202,7 @@ func (o *Orchestrator) runPhase1Parallel(ctx context.Context, pool *SessionPool,
 				return nil
 			}
 			parsed, summary, parseWarns, parseErr := parsePhase1Response(raw, o.Packs)
+			emitCapture(rc.Capture, CapturedCall{Phase: PhasePhase1, ChunkIndex: i, ChunkCount: len(chunkInputs.Chunks), Prompt: prompt, Response: raw, ParseError: parseErr, Elapsed: elapsed})
 			chunkRes := chunkResult{index: i, mistakesByCategory: parsed, summary: summary, warnings: parseWarns, parseErr: parseErr}
 			if parseErr != nil {
 				chunkRes.warnings = append(chunkRes.warnings, fmt.Sprintf("phase-1 chunk %d parse failed (%v); dropping its mistakes", i, parseErr))
@@ -237,11 +245,14 @@ const phase2ToolMultiplier = 3
 // runPhase2 dispatches to the transport's decoder. The decoder owns the
 // "where do findings come from" question — inline JSON for the legacy
 // transport, or the JSONL file the recording transport wrote.
-func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder *PromptBuilder, mistakes map[RuleCategory][]Mistake, ruleTimeoutSecs int, req PhaseRequest) (map[RuleCategory][]Finding, []string, error) {
+func (o *Orchestrator) runPhase2(ctx context.Context, rc RunConfig, pool *SessionPool, builder *PromptBuilder, mistakes map[RuleCategory][]Mistake, ruleTimeoutSecs int, req PhaseRequest) (map[RuleCategory][]Finding, []string, error) {
 	prompt, promptWarnings := builder.BuildPhase2(mistakes, req)
 	timeout := chunkTimeout(ruleTimeoutSecs) * phase2ToolMultiplier
+	start := time.Now()
 	raw, err := runWithPool(ctx, pool, prompt, timeout)
+	elapsed := time.Since(start)
 	if err != nil {
+		emitCapture(rc.Capture, CapturedCall{Phase: PhasePhase2, ChunkIndex: -1, Prompt: prompt, Response: raw, RunError: err, Elapsed: elapsed})
 		if errs.Is(err, errs.KindRateLimit) {
 			return nil, promptWarnings, fmt.Errorf("phase-2 hit provider rate limit: %w", err)
 		}
@@ -250,6 +261,7 @@ func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder
 
 	decoder := lookupPhase2Decoder(req.Phase2Mode)
 	findingsByCategory, decoderWarnings, decodeErr := decoder.decode(raw, req, o.Packs)
+	emitCapture(rc.Capture, CapturedCall{Phase: PhasePhase2, ChunkIndex: -1, Prompt: prompt, Response: raw, ParseError: decodeErr, Elapsed: elapsed})
 	warnings := append(promptWarnings, decoderWarnings...)
 	if decodeErr != nil {
 		return nil, append(warnings, fmt.Sprintf("phase-2 decode failed (%v)", decodeErr)), decodeErr
@@ -258,6 +270,15 @@ func (o *Orchestrator) runPhase2(ctx context.Context, pool *SessionPool, builder
 		findingsByCategory = map[RuleCategory][]Finding{}
 	}
 	return findingsByCategory, warnings, nil
+}
+
+// emitCapture forwards one LLM exchange to the caller's capture sink.
+// Nil sinks are a no-op so existing RunConfig users keep working unchanged.
+func emitCapture(c CallCapture, cc CapturedCall) {
+	if c == nil {
+		return
+	}
+	c.CaptureCall(cc)
 }
 
 // runWithPool acquires a session, runs the prompt once, releases.

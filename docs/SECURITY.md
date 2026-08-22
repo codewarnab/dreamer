@@ -289,6 +289,7 @@ Security properties:
 | [`internal/analyzer/redaction.go`](../internal/analyzer/redaction.go) | Secret regex patterns, redaction result counting |
 | [`internal/analyzer/permission.go`](../internal/analyzer/permission.go) | Tool call policy, URL SSRF protection, shell write idiom detection |
 | [`internal/web/csrf.go`](../internal/web/csrf.go) | CSRF token mint, `CSRFMiddleware` (Layer 1: Host, Layer 2: token+Origin) |
+| [`internal/capture/writer.go`](../internal/capture/writer.go) | LLM call capture at rest. Stores post-redaction prompts (transcripts are scrubbed before packing) and secret-redacted responses under `<outputRoot>/<project>/runs/`. Treat these files as sensitive: they contain chat-derived content. Retention is bounded by `analyzer.capture.retain_runs`. Replay endpoints validate run IDs against `^[0-9a-f]{8}$` before any path join, so capture paths cannot be traversed. |
 
 For the full sandbox threat model, platform strategies, and testing
 requirements see **[docs/SANDBOX.md](SANDBOX.md)**.

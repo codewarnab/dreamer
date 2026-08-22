@@ -169,6 +169,14 @@ func newRootCommand() *cobra.Command {
 	lsCmd.GroupID = groupInspect
 	root.AddCommand(lsCmd)
 
+	runsCmd := newRunsCommand()
+	runsCmd.GroupID = groupInspect
+	root.AddCommand(runsCmd)
+
+	replayCmd := newReplayCommand()
+	replayCmd.GroupID = groupInspect
+	root.AddCommand(replayCmd)
+
 	webCmd := newWebCommand()
 	webCmd.GroupID = groupInspect
 	root.AddCommand(webCmd)

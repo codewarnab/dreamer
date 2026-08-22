@@ -517,8 +517,7 @@ func setupPhase2Transport(ctx context.Context, opts Options, providerID string, 
 // buildSessionFactories creates the Phase 1 and Phase 2 session factory
 // functions. Phase 1 sessions never see MCP/CLI tool wiring so a rogue
 // Phase 1 model cannot pollute the findings file.
-func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, sandboxMode string, runID string, logger *logging.Logger, redactor *analyzer.Redactor) (phase1, phase2 func() (analyzer.Session, error)) {
-	systemMsg := analyzer.BuildReadOnlySystemMessage(discovery.projectPath, runID)
+func buildSessionFactories(ctx context.Context, provider analyzer.Provider, discovery discoveryResult, phase2Cfg *analyzer.Phase2Config, systemMsg string, sandboxMode string, runID string, logger *logging.Logger, redactor *analyzer.Redactor) (phase1, phase2 func() (analyzer.Session, error)) {
 	phase1 = func() (analyzer.Session, error) {
 		raw, err := provider.NewSession(ctx, analyzer.SessionConfig{
 			WorkingDirectory: discovery.projectPath,
@@ -611,7 +610,18 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	p2, p2Cleanup := setupPhase2Transport(ctx, opts, discovery.providerID, opts.Events, logger)
 	defer p2Cleanup()
 
-	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, providerCfg.Sandbox, runID, logger, transcript.redactor)
+	systemMsg := analyzer.BuildReadOnlySystemMessage(discovery.projectPath, runID)
+	phase1Factory, phase2Factory := buildSessionFactories(ctx, provider, discovery, p2.config, systemMsg, providerCfg.Sandbox, runID, logger, transcript.redactor)
+
+	// Capture every LLM exchange (prompt + raw response) so failures like
+	// a malformed phase-1 JSON body are preserved for replay instead of
+	// being dropped with only a warning string. Best-effort: capture
+	// problems never fail the analysis.
+	var callCapture analyzer.CallCapture
+	if capWriter := openCaptureWriter(discovery, opts, runID, systemMsg, providerCfg.Sandbox, logger); capWriter != nil {
+		defer func() { _ = capWriter.Close() }()
+		callCapture = &callRecorder{w: capWriter, redactor: transcript.redactor, logger: logger}
+	}
 
 	existingFindingHashes := collectDismissedHashes(currentState)
 	phaseReq := analyzer.PhaseRequest{
@@ -638,6 +648,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 		Phase2SessionFactory: phase2Factory,
 		Mode:                 mode,
 		MaxConcurrency:       resolveMaxConcurrency(discovery.appConfig, opts),
+		Capture:              callCapture,
 	}
 	ruleTimeoutSecs := discovery.appConfig.Analyzer.RuleTimeoutSeconds
 

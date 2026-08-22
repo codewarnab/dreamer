@@ -1,0 +1,229 @@
+{{define "content"}}
+<section x-data="projectRunsPage()" x-init="load()" data-project="{{.Extra.ProjectName}}">
+  <header style="margin-bottom: var(--space-5);">
+    <span class="kicker">project</span>
+    <h1 class="headline-lg" x-text="name + ' / runs'"></h1>
+    <nav class="kicker" style="margin-top: var(--space-3);">
+      <a :href="'/projects/' + name">overview</a>
+      <a :href="'/projects/' + name + '/findings'" style="margin-left: var(--space-3);">findings</a>
+      <a :href="'/projects/' + name + '/chats'" style="margin-left: var(--space-3);">chats</a>
+      <a :href="'/projects/' + name + '/history'" style="margin-left: var(--space-3);">history</a>
+      <a :href="'/projects/' + name + '/runs'" style="margin-left: var(--space-3);">runs</a>
+    </nav>
+  </header>
+
+  <p class="body" style="color: var(--text-secondary); max-width: 720px;">
+    Every analyze run captures its exact prompts and raw model responses here — including calls whose
+    response failed to parse. Re-parse any captured response for free, or re-send it to another model to compare.
+  </p>
+
+  <!-- Runs list -->
+  <div class="card" x-show="!activeRun" x-cloak style="margin-top: var(--space-4);">
+    <table class="table">
+      <thead><tr><th>run</th><th>kind</th><th>started</th><th>provider / model</th><th>calls</th><th>status</th></tr></thead>
+      <tbody>
+        <template x-for="r in runs" :key="r.run_id">
+          <tr @click="openRun(r.run_id)" style="cursor: pointer;">
+            <td class="label-mono" x-text="r.run_id"></td>
+            <td x-text="r.kind || 'analysis'"></td>
+            <td x-text="(r.started_at || '').replace('T', ' ').slice(0, 16)"></td>
+            <td class="label-mono" x-text="(r.provider_id || '?') + ' / ' + (r.model || '?')"></td>
+            <td x-text="r.calls"></td>
+            <td><span class="pill" :class="statusPill(r.status)" x-text="r.status || 'ok'"></span></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <div x-show="runs.length === 0" style="color: var(--text-secondary);">no captured runs yet.</div>
+  </div>
+
+  <!-- Run detail: captured calls -->
+  <div x-show="activeRun" x-cloak style="margin-top: var(--space-4);">
+    <div style="display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-3);">
+      <button class="btn btn--ghost" @click="closeRun()">&larr; all runs</button>
+      <span class="label-mono" x-text="activeRun?.run_id"></span>
+      <span class="label-mono" style="color: var(--text-secondary);" x-text="(activeRun?.provider_id || '') + ' / ' + (activeRun?.model || '')"></span>
+      <span x-show="activeRun?.parent_run_id" class="label-mono" x-text="'replay of ' + activeRun?.parent_run_id + ' #' + activeRun?.parent_call_index"></span>
+    </div>
+    <div class="card">
+      <table class="table">
+        <thead><tr><th>#</th><th>phase</th><th>chunk</th><th>status</th><th>seconds</th><th>sizes</th><th>error</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="c in calls" :key="c.index">
+            <tr @click="openCall(c.index)" style="cursor: pointer;">
+              <td class="label-mono" x-text="c.index"></td>
+              <td x-text="c.phase"></td>
+              <td x-text="c.chunk_index >= 0 ? c.chunk_index + '/' + c.chunk_count : '-'"></td>
+              <td><span class="pill" :class="statusPill(c.status)" x-text="c.status"></span></td>
+              <td x-text="(c.duration_ms / 1000).toFixed(1)"></td>
+              <td class="label-mono" x-text="fmtBytes(c.prompt_bytes) + ' \u2192 ' + fmtBytes(c.response_bytes)"></td>
+              <td class="label-mono" style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" x-text="c.error || ''"></td>
+              <td><button class="btn btn--ghost" @click.stop="openCall(c.index)">inspect &amp; replay</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Call inspector + replay modal -->
+  <div x-show="activeCall" x-cloak class="modal" role="dialog" aria-modal="true" aria-label="Captured call inspector" x-modal-close="activeCall=null" style="position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:100;">
+    <div class="card" style="max-width: 880px; width: 92%; max-height: 88vh; overflow-y: auto;">
+      <div class="kicker">captured call #<span x-text="activeCall?.index"></span> &middot; <span x-text="activeCall?.phase"></span></div>
+
+      <div style="display:flex; gap: var(--space-4); margin-top: var(--space-2);" class="label-mono">
+        <span x-text="'prompt ' + fmtBytes(activeCall?.prompt_bytes || 0)"></span>
+        <span x-text="'response ' + fmtBytes(activeCall?.response_bytes || 0)"></span>
+        <span x-text="(activeCall?.duration_ms / 1000).toFixed(1) + 's'"></span>
+        <span class="pill" :class="statusPill(activeCall?.status)" x-text="activeCall?.status"></span>
+      </div>
+      <p class="label-mono" x-show="activeCall?.error" style="color: var(--danger, #b00); margin-top: var(--space-2);" x-text="activeCall?.error"></p>
+
+      <details style="margin-top: var(--space-3);">
+        <summary class="kicker" style="cursor: pointer;">response body</summary>
+        <pre style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; max-height: 260px; overflow-y: auto;" x-text="activeCall?.response"></pre>
+      </details>
+      <details style="margin-top: var(--space-2);">
+        <summary class="kicker" style="cursor: pointer;">prompt body</summary>
+        <pre style="white-space: pre-wrap; background: var(--canvas-black); padding: var(--space-3); border-radius: 4px; font-family: var(--font-mono); font-size: 12px; max-height: 260px; overflow-y: auto;" x-text="activeCall?.prompt"></pre>
+      </details>
+
+      <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3); align-items: end; flex-wrap: wrap;">
+        <div>
+          <label class="label-mono" for="replay-provider">provider (resend)</label><br>
+          <select id="replay-provider" class="input" x-model="replayProvider" style="min-width: 200px;">
+            <option value="">keep captured</option>
+            <template x-for="p in providers" :key="p.id">
+              <option :value="p.id" x-text="p.display_name || p.id"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="label-mono" for="replay-model">model (resend)</label><br>
+          <input id="replay-model" class="input" type="text" x-model="replayModel" placeholder="keep captured" list="replay-model-options" style="min-width: 220px;">
+          <datalist id="replay-model-options">
+            <template x-for="m in modelsFor(replayProvider)" :key="m"><option :value="m"></option></template>
+          </datalist>
+        </div>
+        <button class="btn btn--ghost" @click="doReplay('reparse')" :disabled="busy">re-parse (free)</button>
+        <button class="btn btn--primary" @click="doReplay('resend')" :disabled="busy" x-text="busy ? 'resending…' : 're-send'"></button>
+        <button class="btn btn--ghost" @click="activeCall=null">close</button>
+      </div>
+
+      <!-- Replay result -->
+      <div x-show="result" x-cloak style="margin-top: var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3);">
+        <div class="kicker">replay result &middot; <span x-text="result?.mode"></span></div>
+        <p class="label-mono" x-show="result?.parse_error" style="color: var(--danger, #b00);" x-text="result?.parse_error"></p>
+        <p class="body" x-show="result?.summary" x-text="'summary: ' + (result?.summary || '')"></p>
+        <p class="label-mono" x-show="result?.replay_run_id" x-text="'captured as replay run ' + (result?.replay_run_id || '')"></p>
+        <ul class="body" style="margin-top: var(--space-2);">
+          <template x-for="(m, i) in (result?.mistakes || [])" :key="i">
+            <li>
+              <span class="label-mono">[<span x-text="m.category"></span> <span x-text="(m.confidence * 100).toFixed(0) + '%'"></span>]</span>
+              <span x-text="' ' + m.summary"></span>
+            </li>
+          </template>
+        </ul>
+        <p class="body" x-show="result && !(result?.mistakes || []).length && !result?.parse_error">no mistakes decoded from this response.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+window.projectRunsPage = function () {
+  return {
+    name: "",
+    runs: [],
+    activeRun: null,
+    calls: [],
+    activeCall: null,
+    providers: [],
+    replayProvider: "",
+    replayModel: "",
+    result: null,
+    busy: false,
+    load: async function () {
+      const el = document.querySelector("[data-project]");
+      this.name = el ? el.dataset.project : "";
+      if (!this.name) return;
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/runs");
+      if (!r.ok) return;
+      const data = await r.json();
+      this.runs = data.runs || [];
+      this.loadProviders();
+    },
+    loadProviders: async function () {
+      try {
+        const r = await fetch("/api/provider-meta");
+        if (r.ok) this.providers = await r.json();
+      } catch (e) { /* picker stays empty; manual input still works */ }
+    },
+    modelsFor: function (providerID) {
+      if (!providerID) return [];
+      const p = this.providers.find(function (x) { return x.id === providerID; });
+      return p ? (p.models || []) : [];
+    },
+    openRun: async function (runID) {
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/runs/" + encodeURIComponent(runID));
+      if (!r.ok) return;
+      const data = await r.json();
+      this.activeRun = data.meta;
+      this.calls = data.calls || [];
+    },
+    closeRun: function () {
+      this.activeRun = null;
+      this.calls = [];
+      this.load();
+    },
+    openCall: async function (idx) {
+      const r = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/runs/" +
+        encodeURIComponent(this.activeRun.run_id) + "?call=" + idx);
+      if (!r.ok) return;
+      const data = await r.json();
+      this.activeCall = data.call;
+      this.result = null;
+      this.replayProvider = "";
+      this.replayModel = "";
+    },
+    doReplay: async function (mode) {
+      if (!this.activeCall || this.busy) return;
+      this.busy = true;
+      this.result = null;
+      try {
+        const tok = document.querySelector('meta[name=csrf-token]')?.content || "";
+        const payload = { mode: mode, call_index: this.activeCall.index };
+        if (mode === "resend") {
+          if (this.replayProvider) payload.provider = this.replayProvider;
+          if (this.replayModel) payload.model = this.replayModel;
+        }
+        const res = await fetch("/api/projects/" + encodeURIComponent(this.name) + "/runs/" +
+          encodeURIComponent(this.activeRun.run_id) + "/replay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Dreamer-CSRF": tok },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json();
+        if (res.ok) {
+          this.result = body;
+        } else {
+          this.result = { mode: mode, parse_error: body.error || ("request failed (" + res.status + ")"), mistakes: [] };
+        }
+      } finally {
+        this.busy = false;
+      }
+    },
+    statusPill: function (status) {
+      if (status === "error") return "pill--failed";
+      if (status === "parse_failed") return "pill--warn";
+      return "pill--healthy";
+    },
+    fmtBytes: function (n) {
+      if (n == null) return "";
+      if (n < 1024) return n + " B";
+      return (n / 1024).toFixed(1) + " KiB";
+    },
+  };
+};
+</script>
+{{end}}

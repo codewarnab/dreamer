@@ -144,6 +144,15 @@ func mergeAnalyzer(base, overlay *AnalyzerConfig) {
 	if overlay.Chunking.ProviderBoundaryHeadroom != nil {
 		base.Chunking.ProviderBoundaryHeadroom = overlay.Chunking.ProviderBoundaryHeadroom
 	}
+	if overlay.Capture.Enabled != nil {
+		base.Capture.Enabled = overlay.Capture.Enabled
+	}
+	if overlay.Capture.RetainRuns != 0 {
+		base.Capture.RetainRuns = overlay.Capture.RetainRuns
+	}
+	if overlay.Capture.MaxRecordKB != 0 {
+		base.Capture.MaxRecordKB = overlay.Capture.MaxRecordKB
+	}
 	if len(overlay.Rules) > 0 {
 		if base.Rules == nil {
 			base.Rules = map[string]RuleConfig{}

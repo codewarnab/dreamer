@@ -194,6 +194,14 @@ func categoryLookup(packs []RulePack) map[string]RulePack {
 	return out
 }
 
+// ParsePhase1Response is the exported entry point for replay tooling: it
+// decodes a stored raw model response into mistakes without an LLM call.
+// Applies the same code-fence stripping, category allow-list, confidence
+// threshold, and normalization as the live orchestrator path.
+func ParsePhase1Response(raw string, packs []RulePack) (map[RuleCategory][]Mistake, string, []string, error) {
+	return parsePhase1Response(raw, packs)
+}
+
 // parsePhase1Response parses {"summary": "...", "mistakes": {cat: [...]}}.
 // Returns mistakes-by-category, the summary string, and a list of per-pack warnings.
 func parsePhase1Response(raw string, packs []RulePack) (map[RuleCategory][]Mistake, string, []string, error) {

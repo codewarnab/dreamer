@@ -169,6 +169,34 @@ type AnalyzerConfig struct {
 	Rules                      map[string]RuleConfig `yaml:"rules,omitempty" json:"rules,omitempty"`
 	Execution                  ExecutionConfig       `yaml:"execution,omitempty" json:"execution,omitempty"`
 	Chunking                   ChunkingConfig        `yaml:"chunking,omitempty" json:"chunking,omitempty"`
+	Capture                    CaptureConfig         `yaml:"capture,omitempty" json:"capture,omitempty"`
+}
+
+// Defaults for AnalyzerConfig.Capture when the fields are unset.
+const (
+	// DefaultCaptureRetainRuns keeps the newest 20 run directories.
+	DefaultCaptureRetainRuns = 20
+	// DefaultCaptureMaxRecordKB caps each stored prompt/response at 2 MiB.
+	DefaultCaptureMaxRecordKB = 2048
+)
+
+// CaptureConfig controls the per-call LLM capture that persists prompts
+// and raw responses under <outputRoot>/<project>/runs/<runID>/.
+type CaptureConfig struct {
+	// Enabled is nil-by-default = on. Set false to disable capture and
+	// restore the old behavior of discarding raw LLM traffic.
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// RetainRuns is how many run directories to keep per project (oldest
+	// pruned first). 0 = DefaultCaptureRetainRuns; -1 keeps everything.
+	RetainRuns int `yaml:"retain_runs,omitempty" json:"retain_runs,omitempty"`
+	// MaxRecordKB caps each stored prompt and response field.
+	// 0 = DefaultCaptureMaxRecordKB; -1 stores payloads unclipped.
+	MaxRecordKB int `yaml:"max_record_kb,omitempty" json:"max_record_kb,omitempty"`
+}
+
+// CaptureEnabled reports whether capture is enabled (default true).
+func (c CaptureConfig) CaptureEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // ExecutionConfig: how the orchestrator dispatches per-chunk provider calls.

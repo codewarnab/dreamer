@@ -18,6 +18,7 @@ The daemon embeds an HTTP server bound to `127.0.0.1:7777` (configurable via the
 | `/projects/{name}/findings` | Project findings | Full list of issues, guardrails, and statuses. |
 | `/projects/{name}/chats` | Project chats | Discovered chat logs scoped to the project directory. |
 | `/projects/{name}/history` | Project history | Chronological pipeline run history for this project. |
+| `/projects/{name}/runs` | Project runs | Captured LLM calls per run; inspect and replay them. |
 | `/jobs` | Jobs dashboard | Scheduler dashboard to configure periodic background analysis. |
 | `/jobs/{id}` | Job details and logs | Job definition, schedule, last 10 execution logs, and run history. |
 
@@ -44,6 +45,12 @@ The daemon embeds an HTTP server bound to `127.0.0.1:7777` (configurable via the
 - `DELETE /api/projects/{name}/chats` — Dismiss/remove a specific discovered chat source file from tracking.
 - `POST /api/projects/{name}/chats:bulk-delete` — Batch remove multiple chat sources.
 - `GET /api/projects/{name}/history` — Retrieve run history logs for a project.
+
+### Captured Runs & Replay
+Every analyze run persists its LLM exchanges (prompts + raw responses, secret-redacted) under `<outputRoot>/<project>/runs/<runID>/`.
+- `GET /api/projects/{name}/runs` — List captured runs for a project (newest first; derived worst-status per run).
+- `GET /api/projects/{name}/runs/{runID}` — Run metadata plus per-call summaries (sizes and status, no bodies). Add `?call=N` to fetch that single call with full prompt/response bodies.
+- `POST /api/projects/{name}/runs/{runID}/replay` — Replay one captured call. Body: `{"mode":"reparse"|"resend","call_index":N,"provider":"","model":""}`. `reparse` (default) decodes the stored response with the current rule packs — free, no LLM call. `resend` sends the stored prompt again through a provider session (optionally overriding provider/model) synchronously and captures the result as a new run tagged `kind=replay`. Emits an SSE `replay.done` event. Phase-2 calls cannot be replayed.
 
 ### Findings & Remediation
 - `GET /api/projects/{name}/findings` — Retrieve findings for a project (supports category & state filters).

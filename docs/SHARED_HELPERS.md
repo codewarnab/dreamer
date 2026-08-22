@@ -650,6 +650,29 @@ Returns `RegisteredProviders()` as plain strings, sorted, for error messages and
 
 ---
 
+## 24. LLM Call Capture & Replay (`internal/capture/`, `internal/replay/`)
+
+| Symbol | Purpose |
+|---|---|
+| `capture.RunsRoot(outputRoot, projectName string) string` | Directory holding every captured run for a project (`<root>/<project>/runs`). |
+| `capture.RunDir(outputRoot, projectName, runID string) string` | One run's directory. Do not hand-roll this join elsewhere. |
+| `capture.Open(dir string, meta RunMeta) (*Writer, error)` | Creates the run dir, writes `meta.json`, opens `calls.jsonl`. |
+| `(*capture.Writer).Append(Record) error` | Assigns sequence index, applies `max_field_kb` truncation, appends one JSONL line. Concurrency-safe. |
+| `capture.ListRuns(runsRoot string) ([]RunSummary, error)` | Newest-first summaries with derived worst-status. |
+| `capture.LoadRun(runsRoot, runID string) (RunMeta, []Record, error)` | Full read of one run; returns sentinel `capture.ErrRunNotFound`. |
+| `capture.Prune(runsRoot string, keep int) error` | Removes oldest run dirs beyond `keep` (invalid-meta dirs sort oldest). |
+| `capture.NewRunID() (string, error)` | Random 8-hex run ID. Pipeline keeps its own generator; new callers use this one. |
+| `analyzer.ParsePhase1Response(raw string, packs []RulePack) (...)` | Exported phase-1 decoder used by replay tooling; same behavior as the live path. |
+| `pipeline.BuildRulePacks(cfg *config.App, projectPath string) ([]analyzer.RulePack, error)` | Effective packs (defaults + project packs + toggles + timeout) for CLI/web replay decoding. |
+| `replay.Reparse(outputRoot, project, runID string, callIndex int, packs)` | Re-decode a stored response. Pure computation. |
+| `replay.Resend(ctx, Options) (Result, error)` | Resend a stored prompt via registry provider with optional overrides; persists a `kind=replay` run. |
+
+**Do not** re-implement status mapping (`ok`/`parse_failed`/`error`) outside `pipeline.callRecorder`, and never build capture paths with `filepath.Join` by hand — use `RunsRoot`/`RunDir` so the layout stays uniform.
+
+**Current callers:** `internal/pipeline/capture.go` (writer wiring), `cmd/runs.go` + `cmd/replay.go` (CLI), `internal/web/handlers/runs.go` (HTTP surface).
+
+---
+
 ## Quick Reference Table
 
 | What you need | Use |

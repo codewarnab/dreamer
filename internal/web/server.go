@@ -166,6 +166,7 @@ func (s *Server) initTemplates() {
 		"projects/findings",
 		"projects/chats",
 		"projects/history",
+		"projects/runs",
 	} {
 		tmpl, err := parsePageTemplate(assets, page)
 		if err != nil {
@@ -450,6 +451,7 @@ var projectTabTemplates = map[string]string{
 	"findings": "projects/findings.html",
 	"chats":    "projects/chats.html",
 	"history":  "projects/history.html",
+	"runs":     "projects/runs.html",
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -687,6 +689,12 @@ func (s *Server) routeProject(deps handlers.Deps) http.HandlerFunc {
 			handlers.ProjectChatsBulkDelete(deps)(w, r)
 		case len(parts) == 2 && parts[1] == "history":
 			handlers.ProjectHistory(deps)(w, r)
+		case len(parts) == 2 && parts[1] == "runs":
+			handlers.ProjectRuns(deps)(w, r)
+		case len(parts) == 3 && parts[1] == "runs":
+			handlers.RunDetail(deps)(w, r)
+		case len(parts) == 4 && parts[1] == "runs" && parts[3] == "replay":
+			handlers.RunReplay(deps)(w, r)
 		case len(parts) == 3 && parts[1] == "findings":
 			handlers.FindingDetail(deps)(w, r)
 		case len(parts) == 4 && parts[1] == "findings":

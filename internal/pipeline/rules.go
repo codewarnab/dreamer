@@ -18,6 +18,18 @@ func anyEnabled(packs []analyzer.RulePack) bool {
 	return false
 }
 
+// BuildRulePacks assembles the effective rule packs for a project: embedded
+// defaults, extra project-defined packs, global + project toggles, and the
+// configured rule timeout. Exported for replay tooling so CLI and web
+// replays decode responses with exactly the packs a live run would use.
+func BuildRulePacks(cfg *config.App, projectPath string) ([]analyzer.RulePack, error) {
+	projectFile, err := config.LoadProjectFileConfig(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("load project config: %w", err)
+	}
+	return mergeRulePacks(cfg, projectFile, projectPath)
+}
+
 func mergeRulePacks(cfg *config.App, project *config.ProjectFileConfig, projectPath string) ([]analyzer.RulePack, error) {
 	packs, err := analyzer.LoadDefaultRulePacks()
 	if err != nil {

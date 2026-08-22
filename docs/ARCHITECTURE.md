@@ -90,6 +90,8 @@ graph TD
 | `internal/backgroundjobs/`| OS scheduler integrations, jobs JSON stores | `internal/analyzer/`, `internal/jobqueue/` | Manages OS system schedules and locks. |
 | `internal/jobqueue/` | Concurrent job queues and SQLite/file tracking | `internal/logging/` | Worker pool concurrency management. |
 | `internal/mcpserver/` | MCP validation rules and tool execution | `internal/categories/`, `internal/fsutil/` | Handles record-finding protocol and validation caps. |
+| `internal/capture/` | Per-run LLM call persistence (`meta.json` + `calls.jsonl`), pruning, run listing/loading | `internal/fsutil/` | Pure storage edge for `analyzer.CallCapture`; no provider or pipeline imports. |
+| `internal/replay/` | Re-parse / re-send captured calls with optional model+provider overrides | `internal/analyzer/`, `internal/capture/`, `internal/config/`, `internal/state/` | Resend writes new capture runs tagged `kind=replay`; phase-2 replay unsupported. |
 | `internal/migrate/` | Schema migration framework for persisted JSON | None | **Must be completely pure**. Pure transformations (`[]byte` to `[]byte`). |
 
 ---

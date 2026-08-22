@@ -186,6 +186,36 @@ List discovered chat sources for a working directory.
 dreamer ls-chats [--project-path <dir>]
 ```
 
+### `dreamer runs <project>`
+
+List captured analysis runs (every LLM prompt/response pair dreamer stored, including calls that failed to parse).
+
+```bash
+dreamer runs <project> [--run <run-id>] [-o <output-root>]
+```
+
+- Without `--run`: one row per run — id, kind (`analysis`/`replay`), started time, provider/model, call count, worst status.
+- With `--run <id>`: every captured call of that run — index, phase, chunk, status (`ok` / `parse_failed` / `error`), duration, error head.
+- Pair with `dreamer replay` to recover dropped mistakes or compare models.
+
+### `dreamer replay <project> <run-id>`
+
+Re-run one captured call. Two modes:
+
+```bash
+# Re-parse: decode the stored raw response again with the current rule packs.
+# Free — no LLM call. Recovers mistakes that were dropped on a parse failure.
+dreamer replay <project> <run-id> --call <index> [--json]
+
+# Re-send: send the exact stored prompt back through the provider.
+# Optionally override provider/model to compare models on identical input.
+# The exchange is captured as a new run tagged as a replay of the parent.
+dreamer replay <project> <run-id> --call <index> --resend [-P <provider>] [--model <model>] [--json]
+```
+
+- Phase-1 calls only; phase-2 (finding synthesis) calls cannot be replayed.
+- `--resend` performs a live LLM call and can take minutes; results land under `<outputRoot>/<project>/runs/<newRunID>/` with `parent_run_id` lineage.
+
 ### `dreamer web`
 
 Open the dreamer web dashboard. By default it discovers a running daemon's web server and prints (or, with `--open`, launches) the URL.
