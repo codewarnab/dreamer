@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,11 @@ const (
 	// to log its listen address before giving up and killing the process.
 	portDetectTimeout = 10 * time.Second
 
+	// maxCapturedServerOutput bounds how much auto-start server output
+	// (stdout + stderr) is retained while detecting the listen port. The
+	// retained tail is quoted in detection-failure errors for diagnostics.
+	maxCapturedServerOutput = 4096
+
 	// modelListTimeout caps the GET /api/providers request used to enumerate
 	// available models. Short because this is called in the UI hot path.
 	modelListTimeout = 3 * time.Second
@@ -44,11 +50,6 @@ const (
 	// magnitude above any real model list.
 	modelListBodyCap = 512 * 1024
 )
-
-// closerFunc adapts a function into an io.Closer.
-type closerFunc func() error
-
-func (f closerFunc) Close() error { return f() }
 
 func init() {
 	analyzer.RegisterProvider(analyzer.ProviderOpenCodeServer, func(providerConfig analyzer.ProviderConfig) (analyzer.Provider, error) {
@@ -116,11 +117,11 @@ type provider struct {
 	model    string
 	password string
 
-	mu            sync.Mutex
-	started       bool
-	closed        bool
-	cmd           *exec.Cmd // non-nil when auto-started
-	stderrDrainer io.Closer // non-nil: signals background drainer to exit
+	mu          sync.Mutex
+	started     bool
+	closed      bool
+	cmd         *exec.Cmd // non-nil when auto-started
+	stopStreams func()    // non-nil when auto-started; closes output pipes, reaps drainers
 }
 
 func (p *provider) ID() string { return ID }
@@ -144,23 +145,37 @@ func (p *provider) Start(ctx context.Context) error {
 	}
 
 	// Auto-start: spawn `opencode serve` on a random port.
-	if _, err := exec.LookPath(p.command[0]); err != nil {
+	exePath, err := exec.LookPath(p.command[0])
+	if err != nil {
 		return errs.NotInstalled("opencode-server", "start",
 			"Install OpenCode (see https://opencode.ai) and ensure `opencode` is in PATH.", err)
 	}
 
 	args := append([]string(nil), p.command[1:]...)
 	args = append(args, "--port", "0") // random port
+	// On Windows, npm installs put .cmd/.ps1 shims on PATH instead of a
+	// native exe; resolve those to the real binary before spawning.
+	spawnExe := exePath
+	if runtime.GOOS == "windows" {
+		if real, ok := shimReplacement(exePath); ok {
+			spawnExe = real
+		}
+	}
 	// Detach from Start ctx: pipeline cancels startCtx after Start returns,
 	// which would SIGKILL the server before any session runs.
-	cmd := exec.Command(p.command[0], args...)
+	cmd := exec.Command(spawnExe, args...)
 	cmd.Env = p.buildEnv()
 	// Match acpcore/cliharness: avoid a console flash when the server is
 	// auto-started from a detached daemon or background job on Windows.
 	procutil.SetNoWindow(cmd)
 
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("opencode-server: stdout pipe: %w", err)
+	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdout.Close()
 		return fmt.Errorf("opencode-server: stderr pipe: %w", err)
 	}
 
@@ -169,35 +184,26 @@ func (p *provider) Start(ctx context.Context) error {
 	}
 	p.cmd = cmd
 
-	// Read stderr to find the port.
-	port, err := detectPort(stderr, portDetectTimeout)
+	// Scan stdout and stderr for the listen address. Current OpenCode
+	// versions log it on stdout; older builds used stderr.
+	port, stopStreams, err := detectPort(stdout, stderr, portDetectTimeout)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return fmt.Errorf("opencode-server: detect port: %w", err)
 	}
-	// Start a background drainer for the remaining server lifetime.
-	// The server keeps running and writing to stderr; closing the pipe
-	// now would cause EPIPE/SIGPIPE on the next stderr write, killing
-	// the server. The drainer copies to io.Discard until the pipe is
-	// closed from provider.Close() after cmd.Process.Kill().
-	drainerDone := make(chan struct{})
-	go func() {
-		defer close(drainerDone)
-		io.Copy(io.Discard, stderr)
-	}()
-	p.stderrDrainer = closerFunc(func() error {
-		_ = stderr.Close() // unblocks the drainer's Read
-		<-drainerDone      // wait for drainer goroutine to exit
-		return nil
-	})
+	// stopStreams keeps draining both streams for the server's lifetime.
+	// The server keeps running after detection; closing the pipes now
+	// would cause EPIPE on the next write, killing it. The drainers run
+	// until provider.Close() calls stopStreams after killing the process.
+	p.stopStreams = stopStreams
 	p.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// Health-check the newly started server.
 	if err := p.healthCheck(ctx); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		_ = p.stderrDrainer.Close() // clean up drainer goroutine
+		stopStreams() // clean up drainer goroutines
 		return fmt.Errorf("opencode-server: health check after start: %w", err)
 	}
 	p.started = true
@@ -238,9 +244,9 @@ func (p *provider) Close() error {
 		_ = p.cmd.Process.Kill()
 		_ = p.cmd.Wait()
 	}
-	// Close the stderr pipe and wait for the drainer goroutine to exit.
-	if p.stderrDrainer != nil {
-		_ = p.stderrDrainer.Close()
+	// Close the output pipes and wait for the drainer goroutines to exit.
+	if p.stopStreams != nil {
+		p.stopStreams()
 	}
 	return nil
 }
@@ -296,52 +302,124 @@ func (p *provider) buildEnv() []string {
 	return env
 }
 
-// detectPort reads stderr lines looking for the server's listen address.
-// OpenCode logs "Listening on http://127.0.0.1:<port>" or similar.
-// detectPort reads from r until it finds a port number or times out.
-//
-// Ownership: the caller owns r. On timeout, detectPort closes r to unblock
-// the background reader goroutine; after a timeout return the caller must
-// not close r again (os/exec also closes the pipe from cmd.Wait, but
-// double-Close on *os.File is harmless). On the normal (non-timeout) path
-// the reader goroutine exits naturally and r remains open — the caller's
-// background drainer is responsible for r's lifecycle.
-func detectPort(r io.ReadCloser, timeout time.Duration) (int, error) {
-	type result struct {
-		port int
-		err  error
+// serverOutput keeps a bounded tail of combined child-process output so
+// startup failures can quote what the server actually printed. Safe for
+// concurrent use.
+type serverOutput struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+// write appends p, discarding oldest bytes beyond maxCapturedServerOutput.
+func (o *serverOutput) write(p []byte) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.buf = append(o.buf, p...)
+	if excess := len(o.buf) - maxCapturedServerOutput; excess > 0 {
+		o.buf = append(o.buf[:0], o.buf[excess:]...)
 	}
-	ch := make(chan result, 1)
-	go func() {
-		buf := make([]byte, 4096)
-		var accumulated string
-		for {
-			n, err := r.Read(buf)
-			if n > 0 {
-				accumulated += string(buf[:n])
-				// Look for port patterns.
-				lines := strings.Split(accumulated, "\n")
-				for _, line := range lines {
-					line = strings.TrimSpace(line)
-					if port := extractPort(line); port > 0 {
-						ch <- result{port: port}
-						return
+}
+
+// tail returns everything currently captured.
+func (o *serverOutput) tail() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return string(o.buf)
+}
+
+// detectPort concurrently scans the server's stdout and stderr streams for
+// its listen address ("listening on http://127.0.0.1:<port>" or similar).
+// Current OpenCode versions log the address on stdout; older builds logged
+// on stderr, so both streams are scanned and the first match wins.
+//
+// While scanning, all output is captured into a bounded buffer. On failure,
+// the returned error includes a truncated tail of that output so log-format
+// drift stays diagnosable from the error alone.
+//
+// Ownership: on success, detectPort returns a non-nil stop function owning
+// both readers — the scanner goroutines keep draining their streams (which
+// prevents EPIPE kills on later server writes) until stop is called, e.g.
+// from provider.Close(). On failure, both streams are already closed and
+// reaped; callers must not reuse them (double-Close on *os.File is
+// harmless).
+func detectPort(stdout, stderr io.ReadCloser, timeout time.Duration) (int, func(), error) {
+	readers := []io.ReadCloser{stdout, stderr}
+	found := make(chan int, len(readers)) // one slot per scanner; sends never block
+	allEnded := make(chan struct{})       // closed when every stream ended without a port
+
+	var (
+		wg        sync.WaitGroup
+		endMu     sync.Mutex
+		remaining = len(readers)
+	)
+	streamEnded := func() {
+		endMu.Lock()
+		defer endMu.Unlock()
+		remaining--
+		if remaining == 0 {
+			close(allEnded)
+		}
+	}
+
+	capture := &serverOutput{}
+	for _, r := range readers {
+		wg.Add(1)
+		go func(r io.ReadCloser) {
+			defer wg.Done()
+			buf := make([]byte, 4096)
+			var pending []byte // line fragment carried over from the last read
+			portSent := false  // once matched, this goroutine only drains
+			for {
+				n, readErr := r.Read(buf)
+				if !portSent && n > 0 {
+					capture.write(buf[:n])
+					pending = append(pending, buf[:n]...)
+					for {
+						nl := bytes.IndexByte(pending, '\n')
+						if nl < 0 {
+							break
+						}
+						line := strings.TrimSpace(string(pending[:nl]))
+						pending = pending[nl+1:]
+						if port := extractPort(line); port > 0 {
+							found <- port
+							portSent = true
+							break
+						}
 					}
 				}
+				if readErr != nil {
+					streamEnded()
+					return
+				}
 			}
-			if err != nil {
-				ch <- result{err: fmt.Errorf("server exited without reporting port: %w", err)}
-				return
-			}
-		}
-	}()
+		}(r)
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 
 	select {
-	case r := <-ch:
-		return r.port, r.err
-	case <-time.After(timeout):
-		_ = r.Close() // unblocks the Read, goroutine exits
-		return 0, fmt.Errorf("timeout waiting for server port")
+	case port := <-found:
+		var stopOnce sync.Once
+		stop := func() {
+			stopOnce.Do(func() {
+				for _, r := range readers {
+					_ = r.Close() // unblocks pending Reads
+				}
+				wg.Wait()
+			})
+		}
+		return port, stop, nil
+	case <-allEnded:
+		return 0, nil, fmt.Errorf("server exited without reporting port; server output: %q", capture.tail())
+	case <-timer.C:
+		for _, r := range readers {
+			_ = r.Close() // unblocks pending Reads so scanners exit
+		}
+		wg.Wait()
+		return 0, nil, fmt.Errorf("timeout waiting for server port after %s; server output: %q",
+			timeout, capture.tail())
 	}
 }
 

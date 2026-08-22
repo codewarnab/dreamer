@@ -138,6 +138,7 @@ func TestExtractPort(t *testing.T) {
 		{"Listening on http://127.0.0.1:4096", 4096},
 		{"listening on http://[::]:8080", 8080},
 		{"Serving on http://127.0.0.1:3000.", 3000},
+		{"opencode server listening on http://127.0.0.1:51139", 51139},
 		{"some random log line", 0},
 		{"", 0},
 	}
@@ -176,35 +177,95 @@ func TestBasicAuth(t *testing.T) {
 
 // --- detectPort tests ---
 
-func TestDetectPortImmediateSuccess(t *testing.T) {
-	r := io.NopCloser(strings.NewReader("Listening on http://127.0.0.1:4096\n"))
-	port, err := detectPort(r, 5*time.Second)
+// TestDetectPortStdoutCarriesListenLine reproduces issue #96: current
+// OpenCode versions log the listen address on stdout, not stderr.
+func TestDetectPortStdoutCarriesListenLine(t *testing.T) {
+	stdout := io.NopCloser(strings.NewReader(
+		"Warning: OPENCODE_SERVER_PASSWORD is not set; server is unsecured.\n" +
+			"opencode server listening on http://127.0.0.1:51139\n"))
+	stderr := io.NopCloser(strings.NewReader(""))
+
+	port, stop, err := detectPort(stdout, stderr, 2*time.Second)
 	if err != nil {
 		t.Fatalf("detectPort: %v", err)
 	}
+	defer stop()
+	if port != 51139 {
+		t.Fatalf("port = %d, want 51139", port)
+	}
+}
+
+func TestDetectPortStderrFallback(t *testing.T) {
+	stdout := io.NopCloser(strings.NewReader(""))
+	stderr := io.NopCloser(strings.NewReader("Listening on http://127.0.0.1:4096\n"))
+
+	port, stop, err := detectPort(stdout, stderr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("detectPort: %v", err)
+	}
+	defer stop()
 	if port != 4096 {
 		t.Fatalf("port = %d, want 4096", port)
 	}
 }
 
-func TestDetectPortTimeout(t *testing.T) {
-	// Reader that blocks forever (no data, no EOF).
-	r, w := io.Pipe()
-	defer w.Close()
-	defer r.Close()
+func TestDetectPortFirstMatchWins(t *testing.T) {
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
 
-	_, err := detectPort(r, 50*time.Millisecond)
+	go func() {
+		fmt.Fprint(stderrW, "Serving on http://127.0.0.1:2222\n")
+	}()
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		fmt.Fprint(stdoutW, "listening on http://127.0.0.1:1111\n")
+	}()
+
+	port, stop, err := detectPort(stdoutR, stderrR, 5*time.Second)
+	if err != nil {
+		t.Fatalf("detectPort: %v", err)
+	}
+	stop()
+	stdoutW.Close()
+	stderrW.Close()
+
+	if port != 2222 {
+		t.Fatalf("port = %d, want 2222 (first match)", port)
+	}
+}
+
+func TestDetectPortTimeout(t *testing.T) {
+	// Readers that block forever (no data, no EOF).
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+	go func() {
+		fmt.Fprint(stderrW, "starting up\n")
+	}()
+
+	_, _, err := detectPort(stdoutR, stderrR, 250*time.Millisecond)
+
+	stdoutW.Close()
+	stderrW.Close()
+
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
 	if !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("error = %q, want timeout", err.Error())
 	}
+	// The captured server output must be included for diagnosability.
+	if !strings.Contains(err.Error(), "server output") || !strings.Contains(err.Error(), "starting up") {
+		t.Fatalf("timeout error should quote captured output, got: %q", err.Error())
+	}
 }
 
 func TestDetectPortReaderEOF(t *testing.T) {
-	r := io.NopCloser(strings.NewReader("some log line without port\n"))
-	_, err := detectPort(r, 5*time.Second)
+	stdout := io.NopCloser(strings.NewReader("some log line without port\n"))
+	stderr := io.NopCloser(strings.NewReader(""))
+	_, stop, err := detectPort(stdout, stderr, 5*time.Second)
+	if stop != nil {
+		t.Fatal("expected nil stop on failure")
+	}
 	if err == nil {
 		t.Fatal("expected error on EOF without port")
 	}
@@ -220,32 +281,54 @@ func TestDetectPortPartialWrite(t *testing.T) {
 		defer w.Close()
 		fmt.Fprintf(w, "Starting server...\n")
 		time.Sleep(20 * time.Millisecond)
-		fmt.Fprintf(w, "Listening on http://127.0.0.1:9090\n")
+		fmt.Fprintf(w, "Listening on http://127.0.0.1:")
+		time.Sleep(20 * time.Millisecond)
+		fmt.Fprintf(w, "9090\n")
 	}()
 
-	port, err := detectPort(r, 5*time.Second)
+	empty := io.NopCloser(strings.NewReader(""))
+	port, stop, err := detectPort(r, empty, 5*time.Second)
 	if err != nil {
 		t.Fatalf("detectPort: %v", err)
 	}
+	stop()
 	if port != 9090 {
 		t.Fatalf("port = %d, want 9090", port)
 	}
 }
 
-func TestDetectPortIPv6(t *testing.T) {
-	r := io.NopCloser(strings.NewReader("listening on http://[::]:8080\n"))
-	port, err := detectPort(r, 5*time.Second)
+func TestDetectPortOneStreamEndsEarly(t *testing.T) {
+	// One stream closes immediately; the other delivers the port later.
+	// Detection must not fail just because one stream reached EOF.
+	r, w := io.Pipe()
+	go func() {
+		w.Close() // EOF right away
+	}()
+
+	slow, slowW := io.Pipe()
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		fmt.Fprint(slowW, "listening on http://[::]:8080\n")
+	}()
+
+	port, stop, err := detectPort(r, slow, 5*time.Second)
 	if err != nil {
 		t.Fatalf("detectPort: %v", err)
 	}
+	stop()
+	slowW.Close()
 	if port != 8080 {
 		t.Fatalf("port = %d, want 8080", port)
 	}
 }
 
 func TestDetectPortEmptyReader(t *testing.T) {
-	r := io.NopCloser(strings.NewReader(""))
-	_, err := detectPort(r, 50*time.Millisecond)
+	stdout := io.NopCloser(strings.NewReader(""))
+	stderr := io.NopCloser(strings.NewReader(""))
+	_, stop, err := detectPort(stdout, stderr, 50*time.Millisecond)
+	if stop != nil {
+		t.Fatal("expected nil stop on failure")
+	}
 	if err == nil {
 		t.Fatal("expected error on empty reader")
 	}

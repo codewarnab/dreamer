@@ -375,6 +375,12 @@ All 16 provider subdirectories follow one of two base patterns:
 | `acpcore` | (shared base) | — | — | ACP transport and permission handler |
 | `cliharness` | (shared base) | — | — | CLI lifecycle and sandbox wiring |
 
+> **Note (`opencodehttp`):** the auto-start path scans both child stdout and stderr for
+> the listen address (first match wins), keeps draining both streams until the provider
+> closes, and on Windows resolves npm `.cmd`/`.ps1` shims to the real binary under
+> `node_modules/` before spawning. Detection failures quote a truncated tail of the
+> captured server output. See `internal/analyzer/providers/opencodehttp/`.
+
 ---
 
 ## 7. Required Tests for a New Provider
