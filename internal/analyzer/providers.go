@@ -126,6 +126,26 @@ func RegisteredProviders() []ProviderID {
 	return ids
 }
 
+// IsRegisteredProvider reports whether id names a registered provider.
+// Accepts a plain string so CLI flag values can be validated without casting.
+func IsRegisteredProvider(id string) bool {
+	providerRegistryMutex.RLock()
+	defer providerRegistryMutex.RUnlock()
+	_, ok := providerRegistry[ProviderID(id)]
+	return ok
+}
+
+// RegisteredProviderIDStrings returns RegisteredProviders as plain strings,
+// ready for error messages and flag help text.
+func RegisteredProviderIDStrings() []string {
+	ids := RegisteredProviders()
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = string(id)
+	}
+	return out
+}
+
 // NewProvider builds a Provider for the given id using the registered factory.
 func NewProvider(id ProviderID, providerConfig ProviderConfig) (Provider, error) {
 	factory, ok := LookupProvider(id)

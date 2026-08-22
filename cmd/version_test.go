@@ -14,6 +14,18 @@ func TestVersionReturnsBuildVariable(t *testing.T) {
 	}
 }
 
+// TestRootCommandVersionFlag ensures `dreamer --version` works via the
+// built-in cobra flag and matches the `version` subcommand's plain output.
+func TestRootCommandVersionFlag(t *testing.T) {
+	stdout, _, err := executeRootCommand("--version")
+	if err != nil {
+		t.Fatalf("--version: %v", err)
+	}
+	if got, want := strings.TrimSpace(stdout), "dreamer "+version; got != want {
+		t.Errorf("--version output = %q, want %q", got, want)
+	}
+}
+
 func TestVersionCommandOutput(t *testing.T) {
 	cmd := newVersionCommand()
 	var buf bytes.Buffer

@@ -51,7 +51,7 @@ Flag semantics:
 | Flag           | Effect                                                                                          |
 |----------------|-------------------------------------------------------------------------------------------------|
 | `--path`       | Required for `analyze`. Must be absolute; symlinks resolved before discovery comparisons.       |
-| `--provider`   | Runtime override. Beats project config beats global config. Values: `copilot-sdk`, `copilot-acp`, `claude-cli`, `claude-acp`, `codex-cli`, `codex-acp`, `gemini-cli`, `gemini-acp`, `kiro-acp`, `openclaude-cli`, `openclaude-acp`, `opencode-acp`, `opencode-http`, `codebuff-sdk`. |
+| `--provider`   | Runtime override. Beats project config beats global config. Values: `copilot-sdk`, `copilot-acp`, `claude-cli`, `claude-acp`, `codex-cli`, `codex-acp`, `gemini-cli`, `gemini-acp`, `kiro-acp`, `openclaude-cli`, `opencode-acp`, `opencode-server`, `codebuff-sdk`. |
 | `--force`      | Skip the incremental cache; re-analyze every discovered chat.                                   |
 | `--dry-run`    | Run phase 1 only (mistake extraction). Skip guardrail synthesis. Print mistake list; no write to `todos.md`. |
 | `--permissive` | Disable strict lint-rule allow-list. Emit unrecognised rule ids tagged `[unverified]`.          |
@@ -178,7 +178,7 @@ providers:
     command: ["openclaude", "-p", "--output-format=stream-json", "--permission-mode", "plan", "--bare", "--tools", "Read,Grep,Glob"]
     env: {}
   opencode-acp:
-    command: ["opencode", "--acp"]
+    command: ["opencode", "acp"]
     env: {}
   codebuff-sdk:
     # Codebuff HTTP API — text-only, no tools
@@ -269,7 +269,7 @@ Design constraint **[locked]**:
 | Codex       | `codex-cli`              | `codex-acp`                |
 | Gemini      | `gemini-cli`             | `gemini-acp`               |
 | Kiro        | `kiro-acp` (only path)   | n/a (ACP is native)        |
-| OpenCode    | `opencode-acp`/`opencode-http` | n/a                   |
+| OpenCode    | `opencode-acp`/`opencode-server` | n/a                   |
 | Codebuff    | `codebuff-sdk` (HTTP)    | n/a                        |
 
 Rule: never scrape; never use third-party reverse-engineered clients. ACP is the legal fallback when a native SDK is missing or unstable.

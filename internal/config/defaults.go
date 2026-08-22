@@ -159,6 +159,11 @@ func init() {
 		DefaultSandbox: "auto",
 		Remediation:    "Install OpenClaude (`npm i -g @gitlawb/openclaude`) and run `openclaude`, then `/provider` for guided provider setup.",
 	})
+	// OpenCode model catalogs are intentionally minimal: both transports
+	// support live listing (opencode-acp via ACP availableModels,
+	// opencode-server via GET /api/providers) which overrides these
+	// fallbacks in the TUI pickers and web UI once a reachable instance
+	// answers. Freshness tiers: see docs/plans/model-list-freshness.md.
 	RegisterProviderDefaults(ProviderOpenCodeACP, ProviderDefaults{
 		DefaultModel:   "deepseek-v4-flash",
 		AllModels:      []string{"deepseek-v4-flash"},
@@ -166,9 +171,14 @@ func init() {
 		Remediation:    "Install OpenCode (see https://opencode.ai) and ensure `opencode acp` starts cleanly.",
 	})
 	RegisterProviderDefaults(ProviderOpenCodeServer, ProviderDefaults{
-		DefaultModel:   "deepseek-v4-flash",
-		AllModels:      []string{"deepseek-v4-flash"},
-		DefaultSandbox: "false",
+		DefaultModel: "deepseek-v4-flash",
+		AllModels:    []string{"deepseek-v4-flash"},
+		// "auto", not "false": when base_url is empty this transport
+		// auto-starts a local `opencode serve` subprocess — same threat
+		// surface as the stdio ACP transport above, so it gets the same
+		// default. The setting is inert when pointing at an external
+		// server, since no local process is spawned.
+		DefaultSandbox: "auto",
 		Remediation:    "Start OpenCode server (`opencode serve`) or configure `providers.opencode-server.base_url` to point at a running instance.",
 	})
 	RegisterProviderDefaults(ProviderCodebuffSDK, ProviderDefaults{

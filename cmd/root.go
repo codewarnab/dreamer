@@ -78,6 +78,9 @@ func newRootCommand() *cobra.Command {
 			"engineering patterns, and generating actionable project todos.",
 		SilenceUsage:  true,
 		SilenceErrors: true, // We print styled errors ourselves.
+		// Enables the built-in --version flag; version is stamped via
+		// -ldflags (see Makefile), "dev" for local builds.
+		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if skill, _ := cmd.Flags().GetBool("skill"); skill {
 				cmd.Print(skillContent)
@@ -95,6 +98,10 @@ func newRootCommand() *cobra.Command {
 
 	// Suggest corrections for typos in commands and flags.
 	root.SetFlagErrorFunc(styledFlagError)
+
+	// --version prints "dreamer <version>" via the default cobra template.
+	// Keep it aligned with the `version` subcommand's plain output.
+	root.SetVersionTemplate("dreamer {{.Version}}\n")
 
 	// Command groups for styled help output.
 	root.AddGroup(commandGroups...)

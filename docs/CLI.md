@@ -115,7 +115,7 @@ dreamer setup [--advanced] [--force] [--no-startup] [--non-interactive --provide
 | `--force`            |       | Overwrite existing config.yaml.                                                      |
 | `--no-startup`       |       | Skip the startup-install step.                                                       |
 | `--non-interactive`  |       | Bypasses the TUI wizard to write config directly from CLI flags.                      |
-| `--provider`         |       | Provider ID (required for `--non-interactive`).                                      |
+| `--provider`         |       | Provider ID (required for `--non-interactive`). Must be a registered id; unknown ids fail at setup time. |
 | `--output-root`      |       | Root directory to write analysis findings and logs (required for `--non-interactive`).|
 | `--model`            |       | Custom model name override.                                                          |
 | `--frequency`        |       | Sleep duration in seconds between daemon runs.                                        |
@@ -283,6 +283,8 @@ dreamer version [--verbose]
 ```
 
 - `-v, --verbose`: Show full detailed compiler and commit information instead of just the tag version.
+
+`dreamer --version` is also accepted as a shorthand and prints the same plain one-liner (`dreamer <version>`).
 
 ### `dreamer update`
 

@@ -618,10 +618,27 @@ misclassified.
 
 ---
 
+## 23. Provider Registry Predicates (`internal/analyzer/providers.go`)
+
+### `analyzer.IsRegisteredProvider(id string) bool`
+
+Reports whether a plain-string provider id (e.g. from a CLI flag) names a registered provider. Use this instead of hand-rolling registry lookups when validating user input.
+
+**Current callers:** `cmd/setup.go` (non-interactive `--provider` validation).
+
+### `analyzer.RegisteredProviderIDStrings() []string`
+
+Returns `RegisteredProviders()` as plain strings, sorted, for error messages and flag help text.
+
+**Current callers:** `cmd/setup.go` (unknown-provider error listing).
+
+---
+
 ## Quick Reference Table
 
 | What you need | Use |
 |---|---|
+| Check a provider id is valid | `analyzer.IsRegisteredProvider` |
 | Crash-safe file write | `fsutil.WriteFileAtomic` |
 | Expand `~` in a path | `fsutil.ExpandUserHome` |
 | Validate + resolve a user-supplied project path | `fsutil.NormalizeRootPath` |

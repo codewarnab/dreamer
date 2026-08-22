@@ -157,6 +157,28 @@ providers:
       CLAUDE_CODE_USE_OPENAI: "1"
     # max_turns: 200   # Agentic loop iteration cap per session. 0 = default (200). -1 = no cap.
 
+  opencode-acp:
+    # OpenCode via Agent Client Protocol stdio transport.
+    # sandbox: auto              # Native sandbox is currently enforced on Windows only; other platforms keep agent policy checks.
+    model: {{provModel "opencode-acp" .UserProvider .UserModel}}   # default. Live listing overrides when "opencode acp" is reachable.
+    command: ["opencode", "acp"]
+    # env: {}
+
+  opencode-server:
+    # OpenCode via its HTTP server transport (spec §4.1). Connects to a running
+    # "opencode serve" instance, or auto-starts one when base_url is empty.
+    # sandbox: auto              # A local server subprocess is spawned when base_url is empty, so the native sandbox applies to it just like stdio providers.
+    model: {{provModel "opencode-server" .UserProvider .UserModel}}   # default. Live listing via GET /api/providers when the server is reachable.
+    # base_url: ""              # e.g. "http://127.0.0.1:4096". Empty = auto-start "opencode serve".
+    # password: ""              # basic-auth password for a protected server instance.
+
+  codebuff-sdk:
+    # Codebuff via its native SDK. Auth comes from an env var you name here.
+    # sandbox: false             # SDK runs in-process; no subprocess to sandbox.
+    model: {{provModel "codebuff-sdk" .UserProvider .UserModel}}   # default
+    # api_key_env: ""           # env var holding the Codebuff API key. Mutually exclusive with password.
+    # password: ""              # inline API key alternative to api_key_env.
+
 # Analyzer settings.
 # rule_timeout_seconds: global timeout for every provider call (phase-1 + phase-2).
 #                       Applied to all rule packs; overrides per-pack defaults.

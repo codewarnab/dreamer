@@ -1316,6 +1316,8 @@ func buildConfigYAML(a setupAnswers) []byte {
 		// Template parse/execute failures are programmer errors; fall back
 		// to a minimal struct-marshalled config so the wizard still writes
 		// something valid rather than silently producing an empty file.
+		fmt.Fprintf(os.Stderr,
+			"warning: config template render failed (%v); writing minimal fallback config\n", err)
 		cfg := config.App{
 			DefaultProvider: a.provider,
 			Daemon: config.DaemonConfig{
@@ -1474,6 +1476,9 @@ func newSetupCommand() *cobra.Command {
 			}
 
 			out := buildConfigYAML(finalModel.answers)
+			if err := ensureGlobalConfigDir(cfgPath); err != nil {
+				return err
+			}
 			if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.SecretPerms); err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
@@ -1496,6 +1501,16 @@ func newSetupCommand() *cobra.Command {
 	return cmd
 }
 
+// ensureGlobalConfigDir creates <UserConfigDir>/dreamer if missing.
+// fsutil.WriteFileAtomic requires an existing parent directory, and a
+// first-run `setup` is the very first thing that touches this path.
+func ensureGlobalConfigDir(cfgPath string) error {
+	if err := os.MkdirAll(filepath.Dir(cfgPath), fsutil.DirPerms); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	return nil
+}
+
 // runSetupNonInteractive writes config.yaml directly from flag values,
 // bypassing the bubbletea TUI. This enables agents and CI to configure
 // dreamer without an interactive terminal.
@@ -1509,6 +1524,10 @@ func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model stri
 		return missingFlagError(cmd, "output-root",
 			"The directory where dreamer saves results, logs, and state.",
 			"dreamer setup --non-interactive --provider claude --output-root /path/to/output")
+	}
+	if !analyzer.IsRegisteredProvider(provider) {
+		return fmt.Errorf("unknown provider %q (known providers: %s)",
+			provider, strings.Join(analyzer.RegisteredProviderIDStrings(), ", "))
 	}
 
 	cfgPath, err := config.GlobalConfigPath()
@@ -1531,6 +1550,9 @@ func runSetupNonInteractive(cmd *cobra.Command, force bool, provider, model stri
 		outputRoot: outputRoot,
 	}
 	out := buildConfigYAML(answers)
+	if err := ensureGlobalConfigDir(cfgPath); err != nil {
+		return err
+	}
 	if err := fsutil.WriteFileAtomic(cfgPath, out, fsutil.SecretPerms); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
