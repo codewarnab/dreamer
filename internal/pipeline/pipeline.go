@@ -324,16 +324,9 @@ func resolveOutputInProjectRoot(appConfig *config.App, projectFile *config.Proje
 	if appConfig == nil {
 		return false
 	}
-	cleanTarget, err := filepath.Abs(filepath.Clean(projectPath))
-	if err != nil {
-		cleanTarget = filepath.Clean(projectPath)
-	}
+	canonTarget := fsutil.CanonicalPath(projectPath)
 	for _, p := range appConfig.Projects {
-		pClean, err := filepath.Abs(filepath.Clean(p.Path))
-		if err != nil {
-			pClean = filepath.Clean(p.Path)
-		}
-		if pClean == cleanTarget {
+		if fsutil.CanonicalPath(p.Path) == canonTarget {
 			if p.OutputInProjectRoot {
 				return true
 			}

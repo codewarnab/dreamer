@@ -157,3 +157,24 @@ func TestResolveOutputInProjectRoot(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveProjectSince_TildeExpansion(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+
+	projDir := filepath.Join(home, "myrepo")
+	appConfig := &config.App{
+		Projects: []config.ProjectConfig{
+			{
+				Name:  "myrepo",
+				Path:  "~/myrepo",
+				Since: "14d",
+			},
+		},
+	}
+
+	got := resolveProjectSince(appConfig, projDir, "24h")
+	if got != "14d" {
+		t.Fatalf("resolveProjectSince with tilde path = %q, want 14d", got)
+	}
+}

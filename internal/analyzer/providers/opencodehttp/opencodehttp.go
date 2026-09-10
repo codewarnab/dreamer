@@ -610,19 +610,14 @@ func (s *session) autoApprovePermissions(ctx context.Context, sessionID string) 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.approvePendingPermissions(ctx, sessionID)
-		}
-	}
-}
-
-func (s *session) approvePendingPermissions(ctx context.Context, sessionID string) {
-	requests := s.fetchPendingPermissions(ctx)
-	for _, req := range requests {
-		if req.ID == "" {
-			continue
-		}
-		if req.SessionID == "" || req.SessionID == sessionID {
-			s.replyPermission(ctx, req.SessionID, req.ID, "allow")
+			pending := s.fetchPendingPermissions(ctx, sessionID)
+			for _, req := range pending {
+				targetSessionID := req.SessionID
+				if targetSessionID == "" {
+					targetSessionID = sessionID
+				}
+				s.replyPermission(ctx, targetSessionID, req.ID, "always")
+			}
 		}
 	}
 }
@@ -636,8 +631,38 @@ type permissionRequestListResponse struct {
 	Data []permissionRequestItem `json:"data"`
 }
 
-func (s *session) fetchPendingPermissions(ctx context.Context) []permissionRequestItem {
-	// 1. Try v1 GET /permission
+func (s *session) fetchPendingPermissions(ctx context.Context, sessionID string) []permissionRequestItem {
+	// 1. Try session-scoped routes: /api/session/:id/permission and /session/:id/permission
+	if sessionID != "" {
+		for _, u := range []string{
+			s.provider.baseURL + "/api/session/" + sessionID + "/permission",
+			s.provider.baseURL + "/session/" + sessionID + "/permission",
+		} {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				continue
+			}
+			s.provider.setBasicAuthHeader(req)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				var items []permissionRequestItem
+				if err := json.Unmarshal(body, &items); err == nil && len(items) > 0 {
+					return items
+				}
+				var listResp permissionRequestListResponse
+				if err := json.Unmarshal(body, &listResp); err == nil && len(listResp.Data) > 0 {
+					return listResp.Data
+				}
+			}
+		}
+	}
+
+	// 2. Try v1 GET /permission
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.provider.baseURL+"/permission", nil)
 	if err == nil {
 		s.provider.setBasicAuthHeader(req)
@@ -653,7 +678,7 @@ func (s *session) fetchPendingPermissions(ctx context.Context) []permissionReque
 		}
 	}
 
-	// 2. Try v2 GET /api/permission/request
+	// 3. Try v2 GET /api/permission/request
 	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, s.provider.baseURL+"/api/permission/request", nil)
 	if err != nil {
 		return nil
@@ -676,35 +701,51 @@ func (s *session) fetchPendingPermissions(ctx context.Context) []permissionReque
 }
 
 func (s *session) replyPermission(ctx context.Context, sessionID, requestID, reply string) {
-	payload, err := json.Marshal(map[string]string{"reply": reply})
-	if err != nil {
-		return
+	candidates := []string{reply}
+	if reply != "always" {
+		candidates = append(candidates, "always")
+	}
+	if reply != "once" {
+		candidates = append(candidates, "once")
+	}
+	if reply != "allow" {
+		candidates = append(candidates, "allow")
 	}
 
-	// Try v2 route: /api/session/:sessionID/permission/:requestID/reply
-	v2URL := fmt.Sprintf("%s/api/session/%s/permission/%s/reply", s.provider.baseURL, sessionID, requestID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v2URL, bytes.NewReader(payload))
-	if err == nil {
-		req.Header.Set("Content-Type", "application/json")
-		s.provider.setBasicAuthHeader(req)
-		if resp, err := http.DefaultClient.Do(req); err == nil {
+	for _, cand := range candidates {
+		payload, err := json.Marshal(map[string]string{"reply": cand})
+		if err != nil {
+			continue
+		}
+
+		// Try v2 route: /api/session/:sessionID/permission/:requestID/reply
+		v2URL := fmt.Sprintf("%s/api/session/%s/permission/%s/reply", s.provider.baseURL, sessionID, requestID)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, v2URL, bytes.NewReader(payload))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			s.provider.setBasicAuthHeader(req)
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					return
+				}
+			}
+		}
+
+		// Fallback to v1 route without /api: /session/:sessionID/permission/:requestID/reply
+		v1URL := fmt.Sprintf("%s/session/%s/permission/%s/reply", s.provider.baseURL, sessionID, requestID)
+		req1, err := http.NewRequestWithContext(ctx, http.MethodPost, v1URL, bytes.NewReader(payload))
+		if err != nil {
+			continue
+		}
+		req1.Header.Set("Content-Type", "application/json")
+		s.provider.setBasicAuthHeader(req1)
+		if resp, err := http.DefaultClient.Do(req1); err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				return
 			}
 		}
-	}
-
-	// Fallback to v1 route without /api: /session/:sessionID/permission/:requestID/reply
-	v1URL := fmt.Sprintf("%s/session/%s/permission/%s/reply", s.provider.baseURL, sessionID, requestID)
-	req1, err := http.NewRequestWithContext(ctx, http.MethodPost, v1URL, bytes.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req1.Header.Set("Content-Type", "application/json")
-	s.provider.setBasicAuthHeader(req1)
-	if resp, err := http.DefaultClient.Do(req1); err == nil {
-		_ = resp.Body.Close()
 	}
 }
 

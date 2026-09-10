@@ -69,8 +69,9 @@ func newExportCommand() *cobra.Command {
 
 			// Match project in config if possible
 			if resolvedName == "" && resolvedPath != "" {
+				canonResolved := fsutil.CanonicalPath(resolvedPath)
 				for _, p := range appConfig.Projects {
-					if pClean, err := filepath.Abs(filepath.Clean(p.Path)); err == nil && pClean == resolvedPath {
+					if fsutil.CanonicalPath(p.Path) == canonResolved {
 						resolvedName = p.Name
 						break
 					}

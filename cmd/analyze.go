@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/jobqueue"
 	"dreamer/internal/logging"
 	"dreamer/internal/pipeline"
@@ -213,22 +214,14 @@ func checkJobConflict(cmd *cobra.Command, appConfig *config.App, projectPath str
 	// `~` first, then Abs+Clean. Without ExpandUserHome, `dreamer analyze
 	// --path ~/foo` would compare a literal "~" against the canonicalised
 	// project paths and silently bypass the guard.
-	expanded, err := config.ExpandUserHome(projectPath)
-	if err != nil {
-		return nil
-	}
-	absPath, err := filepath.Abs(expanded)
-	if err != nil {
-		return nil
-	}
-	absPath = filepath.Clean(absPath)
+	canonTarget := fsutil.CanonicalPath(projectPath)
 
 	// Note: this is a snapshot read. With max_concurrent_jobs > 1 the daemon
 	// may dequeue or enqueue between this check and pipeline.Run, so the
 	// guard is best-effort dedup, not a hard lock. A per-project lockfile
 	// would close the window if it ever becomes a problem in practice.
 	for _, p := range appConfig.Projects {
-		if filepath.Clean(p.Path) == absPath {
+		if fsutil.CanonicalPath(p.Path) == canonTarget {
 			status := queue.Status()
 			for _, j := range status.Jobs {
 				if j.Project == p.Name && !j.Status.IsTerminal() {
@@ -244,16 +237,9 @@ func resolveProjectSince(appConfig *config.App, projectPath, defaultSince string
 	if appConfig == nil {
 		return defaultSince
 	}
-	cleanTarget, err := filepath.Abs(filepath.Clean(projectPath))
-	if err != nil {
-		cleanTarget = filepath.Clean(projectPath)
-	}
+	canonTarget := fsutil.CanonicalPath(projectPath)
 	for _, p := range appConfig.Projects {
-		pClean, err := filepath.Abs(filepath.Clean(p.Path))
-		if err != nil {
-			pClean = filepath.Clean(p.Path)
-		}
-		if pClean == cleanTarget && strings.TrimSpace(p.Since) != "" {
+		if fsutil.CanonicalPath(p.Path) == canonTarget && strings.TrimSpace(p.Since) != "" {
 			return strings.TrimSpace(p.Since)
 		}
 	}
@@ -264,16 +250,9 @@ func resolveOutputInProjectRoot(appConfig *config.App, projectPath string) bool 
 	if appConfig == nil {
 		return false
 	}
-	cleanTarget, err := filepath.Abs(filepath.Clean(projectPath))
-	if err != nil {
-		cleanTarget = filepath.Clean(projectPath)
-	}
+	canonTarget := fsutil.CanonicalPath(projectPath)
 	for _, p := range appConfig.Projects {
-		pClean, err := filepath.Abs(filepath.Clean(p.Path))
-		if err != nil {
-			pClean = filepath.Clean(p.Path)
-		}
-		if pClean == cleanTarget {
+		if fsutil.CanonicalPath(p.Path) == canonTarget {
 			return p.OutputInProjectRoot || appConfig.OutputInProjectRoot
 		}
 	}

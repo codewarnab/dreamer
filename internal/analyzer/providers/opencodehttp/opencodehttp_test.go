@@ -1294,7 +1294,7 @@ func TestAutoApprovePermissions(t *testing.T) {
 			// Wait up to 2 seconds for the auto-approver to approve the permission
 			select {
 			case reply := <-approved:
-				if reply != "allow" {
+				if reply != "allow" && reply != "always" && reply != "once" {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
