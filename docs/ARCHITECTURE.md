@@ -107,7 +107,7 @@ graph TD
 6. **Redaction & Decryption:** Read messages from the source via format decoders, run the stream through regex and list redactors to strip secrets.
 7. **Session Setup:** Initialize the LLM provider session inside the OS sandbox wrapper (read-only project mount, isolated networks, system resource caps).
 8. **Orchestration:** Run multi-phase prompt extraction (Mistakes -> Guardrails). Deduplicate against `state.FindingHashes` (dismissed hashes are pre-filtered so they are never re-synthesized).
-9. **Todos Output:** Append new finding markdown blocks to `<output_root>/<project>/todos.md` with explicit `<!-- dreamer:finding:<hash> -->` HTML hashes.
+9. **Todos Output:** Append new finding markdown blocks to `<output_root>/<project>/todos.md` with explicit `<!-- dreamer:finding:<hash> -->` HTML hashes. If `output_in_project_root` is enabled (via CLI flag `--output-in-project-root` or in `config.yaml`), also atomically writes `todos.md` directly to the project repository root. The `dreamer export` command can also be run anytime to copy synthesized todos to the project repo.
 10. **State Update:** Save absolute run counts, cumulative usage counters, and updated state cache arrays to `state.json`.
 
 ### Config Overlay Mutexes (`internal/config/overlay.go`)

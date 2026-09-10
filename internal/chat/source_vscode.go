@@ -125,4 +125,3 @@ func readVSCodeWorkspaceEvidence(workspaceJSONPath string) (string, bool) {
 func decodeVSCodePath(raw string) (string, bool) {
 	return decodeFileURI(raw)
 }
-

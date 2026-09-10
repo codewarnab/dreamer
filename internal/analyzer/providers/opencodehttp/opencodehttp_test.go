@@ -264,7 +264,7 @@ func TestDetectPortReaderEOF(t *testing.T) {
 	stderr := io.NopCloser(strings.NewReader(""))
 	_, stop, err := detectPort(stdout, stderr, 5*time.Second)
 	if stop != nil {
-		t.Fatal("expected nil stop on failure")
+		stop() // non-nil no-op cleanup func from nilcleanup rule must not panic
 	}
 	if err == nil {
 		t.Fatal("expected error on EOF without port")
@@ -327,7 +327,7 @@ func TestDetectPortEmptyReader(t *testing.T) {
 	stderr := io.NopCloser(strings.NewReader(""))
 	_, stop, err := detectPort(stdout, stderr, 50*time.Millisecond)
 	if stop != nil {
-		t.Fatal("expected nil stop on failure")
+		stop() // non-nil no-op cleanup func from nilcleanup rule must not panic
 	}
 	if err == nil {
 		t.Fatal("expected error on empty reader")
@@ -1267,5 +1267,110 @@ func TestParseProviderModels_DeduplicatesAcrossProviders(t *testing.T) {
 	}
 	if len(models) != 3 {
 		t.Errorf("expected 3 unique models, got %d: %v", len(models), models)
+	}
+}
+
+func TestAutoApprovePermissions(t *testing.T) {
+	approved := make(chan string, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/global/health":
+			json.NewEncoder(w).Encode(map[string]any{"healthy": true})
+		case r.URL.Path == "/session" && r.Method == http.MethodPost:
+			json.NewEncoder(w).Encode(map[string]any{"id": "sess-perm-test"})
+		case r.URL.Path == "/session/sess-perm-test" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/permission" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"id": "per-999", "sessionID": "sess-perm-test"},
+			})
+		case r.URL.Path == "/api/session/sess-perm-test/permission/per-999/reply" && r.Method == http.MethodPost:
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			approved <- body["reply"]
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/session/sess-perm-test/message" && r.Method == http.MethodPost:
+			// Wait up to 2 seconds for the auto-approver to approve the permission
+			select {
+			case reply := <-approved:
+				if reply != "allow" {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]any{
+					"parts": []map[string]any{
+						{"type": "text", "text": "permission approved and completed"},
+					},
+				})
+			case <-time.After(2 * time.Second):
+				w.WriteHeader(http.StatusRequestTimeout)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	prov, err := New(Options{
+		BaseURL:          srv.URL,
+		WorkingDirectory: "/tmp/project",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := prov.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer prov.Close()
+
+	sess, err := prov.NewSession(context.Background(), analyzer.SessionConfig{
+		WorkingDirectory: "/tmp/project",
+		Model:            "opencode/muse-spark-1.3-contributor-free",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer sess.Close()
+
+	resp, err := sess.Run(context.Background(), "test prompt", 5*time.Second)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if !strings.Contains(resp, "permission approved and completed") {
+		t.Fatalf("unexpected response: %q", resp)
+	}
+}
+
+func TestProviderWorkingDirectory(t *testing.T) {
+	prov, err := New(Options{
+		BaseURL:          "http://127.0.0.1:9999",
+		WorkingDirectory: "/path/to/project-a",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	p := prov.(*provider)
+	if p.workingDir != "/path/to/project-a" {
+		t.Errorf("p.workingDir = %q, want /path/to/project-a", p.workingDir)
+	}
+
+	// Test sync from NewSession when initially empty
+	prov2, err := New(Options{
+		BaseURL: "http://127.0.0.1:9999",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	p2 := prov2.(*provider)
+	p2.started = true // pretend started
+	_, err = prov2.NewSession(context.Background(), analyzer.SessionConfig{
+		WorkingDirectory: "/path/to/project-b",
+	})
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if p2.workingDir != "/path/to/project-b" {
+		t.Errorf("p2.workingDir = %q, want /path/to/project-b", p2.workingDir)
 	}
 }

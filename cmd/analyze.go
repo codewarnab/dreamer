@@ -16,15 +16,16 @@ import (
 
 func newAnalyzeCommand() *cobra.Command {
 	var (
-		projectPath   string
-		providerID    string
-		force         bool
-		dryRun        bool
-		permissive    bool
-		jsonOutput    bool
-		outputDir     string
-		since         string
-		analyzerFlags analyzerFlagVars
+		projectPath         string
+		providerID          string
+		force               bool
+		dryRun              bool
+		permissive          bool
+		jsonOutput          bool
+		outputDir           string
+		since               string
+		outputInProjectRoot bool
+		analyzerFlags       analyzerFlagVars
 	)
 
 	command := &cobra.Command{
@@ -78,6 +79,15 @@ func newAnalyzeCommand() *cobra.Command {
 				}
 			}
 
+			resolvedSince := since
+			if !cmd.Flags().Changed("since") {
+				resolvedSince = resolveProjectSince(appConfig, projectPath, since)
+			}
+			effectiveOutputInProjectRoot := outputInProjectRoot
+			if !cmd.Flags().Changed("output-in-project-root") {
+				effectiveOutputInProjectRoot = resolveOutputInProjectRoot(appConfig, projectPath)
+			}
+
 			opts := pipeline.Options{
 				Config:                 appConfig,
 				ProjectPath:            projectPath,
@@ -86,7 +96,8 @@ func newAnalyzeCommand() *cobra.Command {
 				DryRun:                 dryRun,
 				Permissive:             permissive,
 				OutputDir:              outputDir,
-				Since:                  since,
+				Since:                  resolvedSince,
+				OutputInProjectRoot:    effectiveOutputInProjectRoot,
 				ParallelOverride:       analyzerFlags.parallel,
 				MaxConcurrencyOverride: analyzerFlags.jobs,
 			}
@@ -142,6 +153,7 @@ func newAnalyzeCommand() *cobra.Command {
 	command.Flags().BoolVar(&permissive, "permissive", false, "Disable strict lint-rule allow-list; emit unrecognised rule ids tagged [unverified]")
 	command.Flags().StringVarP(&outputDir, "output-dir", "o", "", "Override the per-project output directory")
 	command.Flags().StringVarP(&since, "since", "s", config.DefaultSince, "Lookback window for chat history (e.g. 30m, 1h, 1d, 1w, 1mo, lifetime)")
+	command.Flags().BoolVar(&outputInProjectRoot, "output-in-project-root", false, "Write todos.md directly into the target project directory")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "Machine-readable JSON output")
 	registerAnalyzerFlags(command.Flags(), &analyzerFlags)
 	return command
@@ -226,4 +238,44 @@ func checkJobConflict(cmd *cobra.Command, appConfig *config.App, projectPath str
 		}
 	}
 	return nil
+}
+
+func resolveProjectSince(appConfig *config.App, projectPath, defaultSince string) string {
+	if appConfig == nil {
+		return defaultSince
+	}
+	cleanTarget, err := filepath.Abs(filepath.Clean(projectPath))
+	if err != nil {
+		cleanTarget = filepath.Clean(projectPath)
+	}
+	for _, p := range appConfig.Projects {
+		pClean, err := filepath.Abs(filepath.Clean(p.Path))
+		if err != nil {
+			pClean = filepath.Clean(p.Path)
+		}
+		if pClean == cleanTarget && strings.TrimSpace(p.Since) != "" {
+			return strings.TrimSpace(p.Since)
+		}
+	}
+	return defaultSince
+}
+
+func resolveOutputInProjectRoot(appConfig *config.App, projectPath string) bool {
+	if appConfig == nil {
+		return false
+	}
+	cleanTarget, err := filepath.Abs(filepath.Clean(projectPath))
+	if err != nil {
+		cleanTarget = filepath.Clean(projectPath)
+	}
+	for _, p := range appConfig.Projects {
+		pClean, err := filepath.Abs(filepath.Clean(p.Path))
+		if err != nil {
+			pClean = filepath.Clean(p.Path)
+		}
+		if pClean == cleanTarget {
+			return p.OutputInProjectRoot || appConfig.OutputInProjectRoot
+		}
+	}
+	return appConfig.OutputInProjectRoot
 }

@@ -693,10 +693,28 @@ Normalizes any-typed timestamp representations (`time.Time`, `json.Number`, `str
 
 ---
 
+### `output.TodosFileName` — `const = "todos.md"`
+
+Canonical filename for generated project action plans / todos.
+
+**Current callers:** `internal/output/generator.go`, `internal/pipeline/pipeline.go`, `cmd/export.go`.
+
+---
+
+### `output.TodosPath(outputRoot, projectName string) (string, error)`
+
+Resolves the absolute path to a project's `todos.md` in the designated output directory (or user config root if `outputRoot` is empty).
+
+**Current callers:** `cmd/export.go`, `cmd/analyze.go`.
+
+---
+
 ## Quick Reference Table
 
 | What you need | Use |
 |---|---|
+| Standard todos filename | `output.TodosFileName` |
+| Resolve project todos path | `output.TodosPath` |
 | Check a provider id is valid | `analyzer.IsRegisteredProvider` |
 | Crash-safe file write | `fsutil.WriteFileAtomic` |
 | Expand `~` in a path | `fsutil.ExpandUserHome` |

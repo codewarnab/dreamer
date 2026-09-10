@@ -58,11 +58,12 @@ func init() {
 			model = providerConfig.DefaultModel
 		}
 		return New(Options{
-			BaseURL:  providerConfig.BaseURL,
-			Command:  providerConfig.Command,
-			Env:      providerConfig.Env,
-			Model:    model,
-			Password: providerConfig.Password,
+			BaseURL:          providerConfig.BaseURL,
+			Command:          providerConfig.Command,
+			Env:              providerConfig.Env,
+			Model:            model,
+			Password:         providerConfig.Password,
+			WorkingDirectory: providerConfig.WorkingDirectory,
 		})
 	})
 	analyzer.RegisterProviderMeta(analyzer.ProviderMeta{
@@ -92,6 +93,10 @@ type Options struct {
 
 	// Password for HTTP basic auth (OPENCODE_SERVER_PASSWORD).
 	Password string
+
+	// WorkingDirectory sets the working directory for auto-started `opencode serve`.
+	// Setting this ensures tools run with the target project as their root directory.
+	WorkingDirectory string
 }
 
 // New builds an opencode-server Provider.
@@ -102,20 +107,22 @@ func New(options Options) (analyzer.Provider, error) {
 	}
 	model := strings.TrimSpace(options.Model)
 	return &provider{
-		baseURL:  strings.TrimRight(strings.TrimSpace(options.BaseURL), "/"),
-		command:  cmd,
-		env:      options.Env,
-		model:    model,
-		password: options.Password,
+		baseURL:    strings.TrimRight(strings.TrimSpace(options.BaseURL), "/"),
+		command:    cmd,
+		env:        options.Env,
+		model:      model,
+		password:   options.Password,
+		workingDir: strings.TrimSpace(options.WorkingDirectory),
 	}, nil
 }
 
 type provider struct {
-	baseURL  string
-	command  []string
-	env      map[string]string
-	model    string
-	password string
+	baseURL    string
+	command    []string
+	env        map[string]string
+	model      string
+	password   string
+	workingDir string
 
 	mu          sync.Mutex
 	started     bool
@@ -165,6 +172,9 @@ func (p *provider) Start(ctx context.Context) error {
 	// which would SIGKILL the server before any session runs.
 	cmd := exec.Command(spawnExe, args...)
 	cmd.Env = p.buildEnv()
+	if p.workingDir != "" {
+		cmd.Dir = p.workingDir
+	}
 	// Match acpcore/cliharness: avoid a console flash when the server is
 	// auto-started from a detached daemon or background job on Windows.
 	procutil.SetNoWindow(cmd)
@@ -213,6 +223,10 @@ func (p *provider) Start(ctx context.Context) error {
 func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.SessionConfig) (analyzer.Session, error) {
 	p.mu.Lock()
 	started := p.started
+	workingDir := strings.TrimSpace(sessionConfig.WorkingDirectory)
+	if p.workingDir == "" && workingDir != "" {
+		p.workingDir = workingDir
+	}
 	p.mu.Unlock()
 	if !started {
 		return nil, errors.New("opencode-server: provider not started")
@@ -225,7 +239,7 @@ func (p *provider) NewSession(ctx context.Context, sessionConfig analyzer.Sessio
 
 	return &session{
 		provider:   p,
-		workingDir: sessionConfig.WorkingDirectory,
+		workingDir: workingDir,
 		model:      model,
 		sysMessage: sessionConfig.SystemMessage,
 		runID:      sessionConfig.RunID,
@@ -412,13 +426,13 @@ func detectPort(stdout, stderr io.ReadCloser, timeout time.Duration) (int, func(
 		}
 		return port, stop, nil
 	case <-allEnded:
-		return 0, nil, fmt.Errorf("server exited without reporting port; server output: %q", capture.tail())
+		return 0, func() {}, fmt.Errorf("server exited without reporting port; server output: %q", capture.tail())
 	case <-timer.C:
 		for _, r := range readers {
 			_ = r.Close() // unblocks pending Reads so scanners exit
 		}
 		wg.Wait()
-		return 0, nil, fmt.Errorf("timeout waiting for server port after %s; server output: %q",
+		return 0, func() {}, fmt.Errorf("timeout waiting for server port after %s; server output: %q",
 			timeout, capture.tail())
 	}
 }
@@ -529,6 +543,10 @@ func (s *session) sendMessage(ctx context.Context, sessionID, text string, timeo
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// Launch background permission auto-approver so tool executions (read/grep/glob)
+	// never hang on interactive approval prompts during headless analysis.
+	go s.autoApprovePermissions(reqCtx, sessionID)
+
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -578,6 +596,116 @@ func (s *session) deleteSession(ctx context.Context, sessionID string) {
 		return
 	}
 	resp.Body.Close()
+}
+
+// autoApprovePermissions polls the OpenCode server for pending permission
+// requests during a session run and automatically approves them so headless
+// analysis runs never hang on interactive approval prompts.
+func (s *session) autoApprovePermissions(ctx context.Context, sessionID string) {
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.approvePendingPermissions(ctx, sessionID)
+		}
+	}
+}
+
+func (s *session) approvePendingPermissions(ctx context.Context, sessionID string) {
+	requests := s.fetchPendingPermissions(ctx)
+	for _, req := range requests {
+		if req.ID == "" {
+			continue
+		}
+		if req.SessionID == "" || req.SessionID == sessionID {
+			s.replyPermission(ctx, req.SessionID, req.ID, "allow")
+		}
+	}
+}
+
+type permissionRequestItem struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionID"`
+}
+
+type permissionRequestListResponse struct {
+	Data []permissionRequestItem `json:"data"`
+}
+
+func (s *session) fetchPendingPermissions(ctx context.Context) []permissionRequestItem {
+	// 1. Try v1 GET /permission
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.provider.baseURL+"/permission", nil)
+	if err == nil {
+		s.provider.setBasicAuthHeader(req)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var items []permissionRequestItem
+				if err := json.NewDecoder(resp.Body).Decode(&items); err == nil && len(items) > 0 {
+					return items
+				}
+			}
+		}
+	}
+
+	// 2. Try v2 GET /api/permission/request
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, s.provider.baseURL+"/api/permission/request", nil)
+	if err != nil {
+		return nil
+	}
+	s.provider.setBasicAuthHeader(req2)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		return nil
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var listResp permissionRequestListResponse
+	if err := json.NewDecoder(resp2.Body).Decode(&listResp); err == nil {
+		return listResp.Data
+	}
+	return nil
+}
+
+func (s *session) replyPermission(ctx context.Context, sessionID, requestID, reply string) {
+	payload, err := json.Marshal(map[string]string{"reply": reply})
+	if err != nil {
+		return
+	}
+
+	// Try v2 route: /api/session/:sessionID/permission/:requestID/reply
+	v2URL := fmt.Sprintf("%s/api/session/%s/permission/%s/reply", s.provider.baseURL, sessionID, requestID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v2URL, bytes.NewReader(payload))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		s.provider.setBasicAuthHeader(req)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return
+			}
+		}
+	}
+
+	// Fallback to v1 route without /api: /session/:sessionID/permission/:requestID/reply
+	v1URL := fmt.Sprintf("%s/session/%s/permission/%s/reply", s.provider.baseURL, sessionID, requestID)
+	req1, err := http.NewRequestWithContext(ctx, http.MethodPost, v1URL, bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req1.Header.Set("Content-Type", "application/json")
+	s.provider.setBasicAuthHeader(req1)
+	if resp, err := http.DefaultClient.Do(req1); err == nil {
+		_ = resp.Body.Close()
+	}
 }
 
 // --- API types ---

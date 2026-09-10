@@ -17,6 +17,7 @@ import (
 	"dreamer/internal/analyzer/toolchain"
 	"dreamer/internal/chat"
 	"dreamer/internal/config"
+	"dreamer/internal/fsutil"
 	"dreamer/internal/logging"
 	"dreamer/internal/mcpserver"
 	"dreamer/internal/output"
@@ -61,6 +62,10 @@ type Options struct {
 	Permissive  bool
 	OutputDir   string
 	Since       string
+
+	// OutputInProjectRoot, when true, mirrors the generated todos.md directly
+	// into the root of the analyzed project directory (projectPath/todos.md).
+	OutputInProjectRoot bool
 
 	// ParallelOverride: force analyzer.execution.mode=parallel when true.
 	ParallelOverride bool
@@ -205,14 +210,15 @@ func (rc *runCtx) savePrunedState() error {
 
 // discoveryResult holds the output of the discovery stage.
 type discoveryResult struct {
-	projectPath   string
-	projectName   string
-	outputRoot    string
-	providerID    string
-	providerBlock config.ProviderBlock
-	projectFile   *config.ProjectFileConfig
-	appConfig     *config.App
-	sources       []chat.Source
+	projectPath         string
+	projectName         string
+	outputRoot          string
+	providerID          string
+	providerBlock       config.ProviderBlock
+	projectFile         *config.ProjectFileConfig
+	appConfig           *config.App
+	sources             []chat.Source
+	outputInProjectRoot bool
 }
 
 // runDiscovery resolves paths, loads project config, discovers chat sources,
@@ -302,7 +308,39 @@ func runDiscovery(opts Options, appConfig *config.App, logger *logging.Logger) (
 		logger.Info("lookback filter", logging.Any("since", opts.Since), logging.Any("kept", len(sources)), logging.Any("total", before))
 	}
 	discovery.sources = sources
+
+	discovery.outputInProjectRoot = opts.OutputInProjectRoot
+	if !discovery.outputInProjectRoot {
+		discovery.outputInProjectRoot = resolveOutputInProjectRoot(appConfig, projectFile, projectPath)
+	}
+
 	return discovery, nil
+}
+
+func resolveOutputInProjectRoot(appConfig *config.App, projectFile *config.ProjectFileConfig, projectPath string) bool {
+	if projectFile != nil && projectFile.OutputInProjectRoot != nil {
+		return *projectFile.OutputInProjectRoot
+	}
+	if appConfig == nil {
+		return false
+	}
+	cleanTarget, err := filepath.Abs(filepath.Clean(projectPath))
+	if err != nil {
+		cleanTarget = filepath.Clean(projectPath)
+	}
+	for _, p := range appConfig.Projects {
+		pClean, err := filepath.Abs(filepath.Clean(p.Path))
+		if err != nil {
+			pClean = filepath.Clean(p.Path)
+		}
+		if pClean == cleanTarget {
+			if p.OutputInProjectRoot {
+				return true
+			}
+			break
+		}
+	}
+	return appConfig.OutputInProjectRoot
 }
 
 // cachingResult holds the output of the caching stage.
@@ -579,6 +617,7 @@ func runAnalysis(ctx context.Context, opts Options, discovery discoveryResult, t
 	var analysis analysisResult
 
 	providerCfg := analyzer.ProviderConfigFromBlock(discovery.providerID, discovery.providerBlock, opts.Config.Sandbox)
+	providerCfg.WorkingDirectory = discovery.projectPath
 	provider, err := analyzer.NewProvider(analyzer.ProviderID(discovery.providerID), providerCfg)
 	if err != nil {
 		return analysis, fmt.Errorf("instantiate provider %q: %w (%s)", discovery.providerID, err, config.RemediationMessage(discovery.providerID))
@@ -729,6 +768,9 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 
 	if opts.DryRun {
 		pipelineResult.TodosPath = todosOutputPath(discovery.outputRoot, discovery.projectName)
+		if opts.OutputInProjectRoot || discovery.outputInProjectRoot {
+			pipelineResult.TodosPath = filepath.Join(discovery.projectPath, output.TodosFileName)
+		}
 		publishRunDone(opts.Events, discovery.projectName, runID, pipelineResult.Findings, pipelineResult.SourcesAnalyzed, pipelineResult.MessagesRead)
 		return pipelineResult, nil
 	}
@@ -749,6 +791,22 @@ func runOutputAndPersist(opts Options, discovery discoveryResult, analysis analy
 	}
 	pipelineResult.TodosPath = generateResult.Path
 	pipelineResult.Findings = generateResult.AddedFindings
+
+	if opts.OutputInProjectRoot || discovery.outputInProjectRoot {
+		projectTodosPath := filepath.Join(discovery.projectPath, output.TodosFileName)
+		if content, readErr := os.ReadFile(generateResult.Path); readErr == nil {
+			if writeErr := fsutil.WriteFileAtomic(projectTodosPath, content, fsutil.FilePerms); writeErr != nil {
+				if logger != nil {
+					logger.Warn("write todos to project root failed", logging.Any("err", writeErr), logging.Any("path", projectTodosPath))
+				}
+			} else {
+				if logger != nil {
+					logger.Info("wrote todos to project root", logging.Any("path", projectTodosPath))
+				}
+				pipelineResult.TodosPath = projectTodosPath
+			}
+		}
+	}
 
 	now := time.Now().UTC()
 	currentState.LastRunUTC = now

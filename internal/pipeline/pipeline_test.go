@@ -395,3 +395,30 @@ func TestPipelineRun_DismissedFindingsFilteredFromPhase2(t *testing.T) {
 		t.Fatalf("resolved finding 'baadf00d' must not be in ExistingHashes (recurrence detection)")
 	}
 }
+
+func TestRunWritesTodosToProjectRoot(t *testing.T) {
+	projectDir, outputRoot, cfg := newPipelineFixture(t)
+	writeCodexChatFixture(t, projectDir)
+	setFakeProviderMode(t, "happy")
+
+	logger := newTestLogger(t, outputRoot)
+	result, err := Run(context.Background(), Options{
+		Config:              cfg,
+		ProjectPath:         projectDir,
+		OutputInProjectRoot: true,
+	}, logger)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	expectedProjectTodos := filepath.Join(projectDir, "todos.md")
+	if result.TodosPath != expectedProjectTodos {
+		t.Fatalf("TodosPath = %q, want %q", result.TodosPath, expectedProjectTodos)
+	}
+
+	if _, err := os.Stat(expectedProjectTodos); err != nil {
+		t.Fatalf("project root todos.md not found: %v", err)
+	}
+	todos := readFileString(t, expectedProjectTodos)
+	assertContains(t, todos, "Add a regression test for empty chat payloads")
+}

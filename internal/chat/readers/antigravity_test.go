@@ -555,4 +555,3 @@ Settings changed.
 		t.Errorf("normalizeAntigravityContent = %q, want %q", got, want)
 	}
 }
-

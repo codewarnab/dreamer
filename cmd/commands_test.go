@@ -70,6 +70,7 @@ func TestRootCommandRegistersExpectedSubcommands(t *testing.T) {
 		"setup":    false,
 		"web":      false,
 		"add":      false,
+		"export":   false,
 	}
 
 	for _, subcommand := range command.Commands() {
