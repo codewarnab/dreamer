@@ -3,7 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,23 +121,8 @@ func readVSCodeWorkspaceEvidence(workspaceJSONPath string) (string, bool) {
 	return decoded, true
 }
 
-// decodeVSCodePath strips the file:// scheme and applies URL-decoding
-// so percent-encoded characters (e.g. %20 for space, %3A for colon on
-// Windows) round-trip correctly. On Windows, file:///C:/... has a
-// leading slash before the drive letter — strip it. Returns ("", false)
-// if percent-decoding fails, so the caller can skip the entry.
+// decodeVSCodePath delegates to the shared decodeFileURI helper.
 func decodeVSCodePath(raw string) (string, bool) {
-	stripped := strings.TrimPrefix(raw, "file://")
-	decoded, err := url.PathUnescape(stripped)
-	if err != nil {
-		return "", false
-	}
-	// Windows: file:///C:/... -> /C:/... -> C:/...
-	// Only strip when the second char is a drive letter (a-z or A-Z),
-	// not for network paths like //server/share or Unix paths.
-	if len(decoded) >= 3 && decoded[0] == '/' && decoded[2] == ':' &&
-		((decoded[1] >= 'a' && decoded[1] <= 'z') || (decoded[1] >= 'A' && decoded[1] <= 'Z')) {
-		decoded = decoded[1:]
-	}
-	return decoded, true
+	return decodeFileURI(raw)
 }
+

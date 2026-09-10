@@ -517,7 +517,7 @@ func (s *session) createSession(ctx context.Context) (string, error) {
 func (s *session) sendMessage(ctx context.Context, sessionID, text string, timeout time.Duration) (string, error) {
 	msgReq := messageRequest{
 		Parts: []messagePart{{Type: "text", Text: text}},
-		Model: s.model,
+		Model: parseModelSpec(s.model),
 	}
 	body, err := json.Marshal(msgReq)
 	if err != nil {
@@ -587,9 +587,32 @@ type messagePart struct {
 	Text string `json:"text,omitempty"`
 }
 
+type modelSpec struct {
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
+}
+
 type messageRequest struct {
 	Parts []messagePart `json:"parts"`
-	Model string        `json:"model,omitempty"`
+	Model any           `json:"model,omitempty"`
+}
+
+func parseModelSpec(raw string) any {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.SplitN(trimmed, "/", 2)
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return modelSpec{
+			ProviderID: parts[0],
+			ModelID:    parts[1],
+		}
+	}
+	return modelSpec{
+		ProviderID: "opencode",
+		ModelID:    trimmed,
+	}
 }
 
 type messageResponse struct {

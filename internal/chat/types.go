@@ -44,6 +44,7 @@ type DiscoveryEnvironment struct {
 	DataHomeDir       string
 	ClaudeConfigDir   string
 	GeminiHomeDir     string
+	GeminiCLIHomeDir  string
 	CopilotHome       string
 	OpenCodeDBPath    string
 	KiroCLIDBPath     string

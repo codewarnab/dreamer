@@ -80,7 +80,7 @@ chat.DefaultDiscoveryEnvironment()     (DiscoveryEnvironment struct)
 │  opencode      → SQLite DB rows  (<dbPath>#<sessionID>)│
 │  kiro-cli      → SQLite DB rows  (<dbPath>#<sessionID>)│
 │  codebuff      → JSON session files                    │
-│  antigravity   → Gemini session files                  │
+│  antigravity   → IDE & CLI session files (index & scan)│
 └────────────────────────────────────────────────────────┘
         │
         ▼
@@ -92,7 +92,7 @@ chat.DefaultDiscoveryEnvironment()     (DiscoveryEnvironment struct)
 
 **`chat.Source` fields:** `Path`, `Tool` (SourceType), `ModifiedTime`, `ParentID` (subagent sessions)
 
-For SQLite-backed providers (opencode, kiro-cli), `Source.Path` is encoded as `<dbFile>#<sessionID>` and split at read time by `SplitSQLiteSourcePath`.
+For SQLite-backed providers (opencode, kiro-cli), `Source.Path` is encoded as `<dbFile>#<sessionID>` and split at read time by `SplitSQLiteSourcePath`. For Antigravity CLI, `conversation_summaries.db` indexes `workspace_uris` to map UUIDs directly to disk transcripts (`brain/<uuid>/.system_generated/logs/transcript.jsonl`), with a fallback CWD probe across unindexed transcripts.
 
 ---
 

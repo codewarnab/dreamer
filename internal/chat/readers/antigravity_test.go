@@ -496,3 +496,63 @@ func TestAntigravityDeduplication(t *testing.T) {
 		t.Errorf("expected 2 after dedup, got %d", len(result))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Antigravity CLI transcript.jsonl parsing
+// ---------------------------------------------------------------------------
+
+func TestReadAntigravityGeminiCLIJSONL(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "transcript.jsonl")
+	lines := []string{
+		`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-10T10:35:27Z","content":"<USER_REQUEST>\ncan you chekc the open prs ?\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: 2026-09-10T10:35:27Z.\n</ADDITIONAL_METADATA>\n<USER_SETTINGS_CHANGE>\nThe user changed setting Model Selection.\n</USER_SETTINGS_CHANGE>"}`,
+		`{"step_index":1,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-09-10T10:35:27Z","content":"<SYSTEM_MESSAGE>Server restarted</SYSTEM_MESSAGE>"}`,
+		`{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-10T10:35:27Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"gh pr list"}}]}`,
+		`{"step_index":3,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-09-10T10:35:29Z","content":"Created At: 2026-09-10T10:35:29Z\nCompleted At: 2026-09-10T10:35:52Z\n\nThe command exited with code 0.\nOutput:\nShowing 2 of 2 open PRs"}`,
+		`{"step_index":4,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-10T10:35:52Z","content":"There are 2 open pull requests in this repository."}`,
+	}
+	if err := os.WriteFile(filePath, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	messages, err := ReadAntigravityGemini(filePath)
+	if err != nil {
+		t.Fatalf("ReadAntigravityGemini returned error: %v", err)
+	}
+
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 dialogue messages, got %d: %+v", len(messages), messages)
+	}
+
+	if messages[0].Role != "user" {
+		t.Errorf("expected role 'user', got %q", messages[0].Role)
+	}
+	if messages[0].Content != "can you chekc the open prs ?" {
+		t.Errorf("expected prompt 'can you chekc the open prs ?', got %q", messages[0].Content)
+	}
+
+	if messages[1].Role != "assistant" {
+		t.Errorf("expected role 'assistant', got %q", messages[1].Role)
+	}
+	if messages[1].Content != "There are 2 open pull requests in this repository." {
+		t.Errorf("expected assistant content, got %q", messages[1].Content)
+	}
+}
+
+func TestNormalizeAntigravityContentStripsUserRequest(t *testing.T) {
+	input := `<USER_REQUEST>
+Please fix the typo in main.go
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-10T10:35:27Z.
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+Settings changed.
+</USER_SETTINGS_CHANGE>`
+
+	got := normalizeAntigravityContent(input)
+	want := "Please fix the typo in main.go"
+	if got != want {
+		t.Errorf("normalizeAntigravityContent = %q, want %q", got, want)
+	}
+}
+

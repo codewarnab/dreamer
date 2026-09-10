@@ -673,6 +673,26 @@ Returns `RegisteredProviders()` as plain strings, sorted, for error messages and
 
 ---
 
+## 26. URI Decoding & Timestamp Parsing (`internal/chat/paths.go`, `internal/chat/readers/jsonl.go`)
+
+### `chat.decodeFileURI(raw string) (string, bool)`
+
+Strips the `file://` scheme and applies URL-decoding (`url.PathUnescape`) so percent-encoded characters (spaces, colons) round-trip correctly. On Windows, handles leading slashes before drive letters (`/C:/...` -> `C:/...`). Returns `("", false)` if unescaping fails.
+
+**Do not write a local `file://` strip or custom unescape block.** Call this shared helper instead.
+
+**Current callers:** `internal/chat/source_vscode.go` (`decodeVSCodePath`), `internal/chat/source_antigravity.go` (`discoverAntigravitySourcesFromDB`).
+
+---
+
+### `readers.ParseTimestamp(value any) (time.Time, bool)`
+
+Normalizes any-typed timestamp representations (`time.Time`, `json.Number`, `string`, `int64`, `float64`, `[]byte`) to a UTC `time.Time`. Supports RFC3339Nano, RFC3339, SQLite datetime formats with timezone offsets (`2006-01-02 15:04:05.999999999-07:00`, `2006-01-02 15:04:05-07:00`), and epoch formats (nanos, micros, millis, seconds).
+
+**Current callers:** `internal/chat/readers/jsonl.go`, `internal/chat/readers/sqlite_common.go`, `internal/chat/source_antigravity.go`.
+
+---
+
 ## Quick Reference Table
 
 | What you need | Use |
@@ -682,6 +702,8 @@ Returns `RegisteredProviders()` as plain strings, sorted, for error messages and
 | Expand `~` in a path | `fsutil.ExpandUserHome` |
 | Validate + resolve a user-supplied project path | `fsutil.NormalizeRootPath` |
 | Check path containment | `fsutil.PathWithinRoot` |
+| Decode a file:// URI to path | `chat.decodeFileURI` |
+| Flexible timestamp parse | `readers.ParseTimestamp` |
 | Validate a job prompt size | `backgroundjobs.MaxPromptSize` |
 | Parse `file_access` string | `backgroundjobs.ParseFileAccess` |
 | Validate writable paths | `backgroundjobs.ValidateWritablePaths` |
@@ -717,3 +739,4 @@ Returns `RegisteredProviders()` as plain strings, sorted, for error messages and
 | Serialize a job schedule / writable paths (frontend) | `window.dreamerJobs.buildSchedule` / `parseWritablePaths` |
 | Close a modal on backdrop click + Escape (frontend) | `x-modal-close` Alpine directive |
 | Persist model list to disk | `(*ModelListCache).Save(dir)` |
+

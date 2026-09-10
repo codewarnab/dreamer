@@ -1,11 +1,32 @@
 package chat
 
 import (
+	"net/url"
 	"path/filepath"
 	"strings"
 
 	"dreamer/internal/fsutil"
 )
+
+// decodeFileURI strips the file:// scheme and applies URL-decoding so
+// percent-encoded characters round-trip correctly. On Windows, file:///C:/...
+// has a leading slash before the drive letter — strip it. Returns ("", false)
+// if percent-decoding fails.
+func decodeFileURI(raw string) (string, bool) {
+	stripped := strings.TrimPrefix(raw, "file://")
+	decoded, err := url.PathUnescape(stripped)
+	if err != nil {
+		return "", false
+	}
+	// Windows: file:///C:/... -> /C:/... -> C:/...
+	// Only strip when the second char is a drive letter (a-z or A-Z),
+	// not for network paths like //server/share or Unix paths.
+	if len(decoded) >= 3 && decoded[0] == '/' && decoded[2] == ':' &&
+		((decoded[1] >= 'a' && decoded[1] <= 'z') || (decoded[1] >= 'A' && decoded[1] <= 'Z')) {
+		decoded = decoded[1:]
+	}
+	return decoded, true
+}
 
 func normalizeDiscoveryPath(raw string) (string, bool) {
 	return normalizeDiscoveryPathWithOptions(raw, false)
