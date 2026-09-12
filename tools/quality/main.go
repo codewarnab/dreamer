@@ -71,6 +71,24 @@ func run() error {
 		result.Findings = append(result.Findings, converted...)
 	}
 
+	// Run build-tag overlap sweep: redeclarations that only collide on some
+	// GOOS/GOARCH pair (invisible to go/packages on the host platform).
+	// Wired like webcheck — filesystem-wide, with baseline subtraction.
+	overlapFindings, err := astcheck.CheckBuildTagOverlaps(".")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "quality: buildtagoverlap: %v\n", err)
+	} else {
+		converted := filterOverlapFindings(overlapFindings, cfg.MinSeverity)
+		if !cfg.WriteBaseline && cfg.BaselinePath != "" {
+			baselineKeys, err := astcheck.ReadBaseline(cfg.BaselinePath)
+			if err != nil {
+				return err
+			}
+			converted = astcheck.SubtractBaseline(converted, baselineKeys)
+		}
+		result.Findings = append(result.Findings, converted...)
+	}
+
 	if cfg.WriteBaseline {
 		if err := astcheck.WriteBaseline(cfg.BaselinePath, result.Findings); err != nil {
 			return err
@@ -182,6 +200,20 @@ func convertWebFindings(webFindings []webcheck.Finding, minSev astcheck.Severity
 			Severity: sev,
 			Message:  wf.Message,
 		})
+	}
+	return out
+}
+
+// filterOverlapFindings drops build-tag overlap findings below the minimum
+// severity. All overlap findings are errors today; the filter keeps the
+// wiring symmetric with convertWebFindings if that ever changes.
+func filterOverlapFindings(findings []astcheck.Finding, minSev astcheck.Severity) []astcheck.Finding {
+	var out []astcheck.Finding
+	for _, finding := range findings {
+		if finding.Severity > minSev {
+			continue
+		}
+		out = append(out, finding)
 	}
 	return out
 }

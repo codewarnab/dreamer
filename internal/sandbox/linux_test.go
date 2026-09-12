@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -842,6 +843,11 @@ func TestPrepare_RejectsAncestorWritableDir(t *testing.T) {
 // --- seccomp BPF tests ---
 
 func TestCompileSeccompBPF_MinimalBlocksSyscall(t *testing.T) {
+	// The BPF compiler is amd64-only; seccomp_stub.go no-ops on other
+	// architectures (filesystem isolation still applies via bwrap).
+	if runtime.GOARCH != "amd64" {
+		t.Skipf("seccomp BPF requires amd64, running on %s", runtime.GOARCH)
+	}
 	raw, err := compileSeccompBPF(profileMinimal)
 	if err != nil {
 		t.Fatalf("compileSeccompBPF: %v", err)
@@ -858,6 +864,10 @@ func TestCompileSeccompBPF_MinimalBlocksSyscall(t *testing.T) {
 }
 
 func TestCompileSeccompBPF_FullBlocksSyscall(t *testing.T) {
+	// Same amd64-only scope as TestCompileSeccompBPF_MinimalBlocksSyscall.
+	if runtime.GOARCH != "amd64" {
+		t.Skipf("seccomp BPF requires amd64, running on %s", runtime.GOARCH)
+	}
 	raw, err := compileSeccompBPF(profileFull)
 	if err != nil {
 		t.Fatalf("compileSeccompBPF: %v", err)
