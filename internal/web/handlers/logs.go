@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"dreamer/internal/config"
+	"dreamer/internal/logging"
 )
 
 // LogsTail returns an http.HandlerFunc for GET /api/logs/tail.
@@ -66,7 +67,7 @@ func LogsTail(deps Deps) http.HandlerFunc {
 
 // readTail returns the last maxBytes of path, dropping the partial first line.
 func readTail(path string, maxBytes int64) (string, error) {
-	f, err := os.Open(path)
+	f, err := logging.OpenRead(path)
 	if err != nil {
 		return "", err
 	}

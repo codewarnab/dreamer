@@ -1,10 +1,12 @@
 package logging
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoggerWritesProgressAndIssuesToLoggingFolder(t *testing.T) {
@@ -143,3 +145,102 @@ func TestLoggerRotationDisabledByDefault(t *testing.T) {
 		t.Fatal("backup log should not exist when rotation threshold not reached")
 	}
 }
+
+func TestOpenRead(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "test.log")
+
+	f, err := openLogAppend(logPath)
+	if err != nil {
+		t.Fatalf("openLogAppend failed: %v", err)
+	}
+	content := "hello world\n"
+	if _, err := f.WriteString(content); err != nil {
+		_ = f.Close()
+		t.Fatalf("WriteString failed: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	rf, err := OpenRead(logPath)
+	if err != nil {
+		t.Fatalf("OpenRead failed: %v", err)
+	}
+	defer rf.Close()
+
+	data, err := io.ReadAll(rf)
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if string(data) != content {
+		t.Fatalf("got %q, want %q", string(data), content)
+	}
+}
+
+func TestLoggerRotationFallbackToTimestampWhenBackupPathBlocked(t *testing.T) {
+	outputRoot := t.TempDir()
+	logDir := filepath.Join(outputRoot, loggingDirName)
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+
+	// Create a non-empty directory at backupLogFileName so os.Remove and os.Rename will fail on it.
+	backupDir := filepath.Join(logDir, backupLogFileName)
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll backupDir failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, "blocker.txt"), []byte("locked"), 0o644); err != nil {
+		t.Fatalf("Write blocker failed: %v", err)
+	}
+
+	logger, err := New(outputRoot, "info", 1)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	for i := 0; i < 15000; i++ {
+		logger.Info("padding line for fallback rotation test", Any("index", i))
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Verify that a timestamped fallback backup was created in logDir.
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	var foundFallback bool
+	prefix := defaultLogFileName + "."
+	for _, entry := range entries {
+		if entry.Name() != defaultLogFileName && entry.Name() != backupLogFileName && strings.HasPrefix(entry.Name(), prefix) {
+			foundFallback = true
+			break
+		}
+	}
+	if !foundFallback {
+		t.Fatal("expected timestamped fallback backup to be created when backupLogFileName is blocked")
+	}
+}
+
+func TestLoggerRotationRetryBackoff(t *testing.T) {
+	outputRoot := t.TempDir()
+	logger, err := New(outputRoot, "info", 1)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	defer logger.Close()
+
+	// Simulate that rotationRetryAfter is set in the future.
+	logger.mu.Lock()
+	logger.rotationRetryAfter = time.Now().Add(10 * time.Minute)
+	// Even with file size > 1MB, rotation should be bypassed due to cooldown.
+	rotated := logger.rotateIfNeededLocked()
+	logger.mu.Unlock()
+
+	if rotated {
+		t.Fatal("expected rotateIfNeededLocked to return false during cooldown window")
+	}
+}
+

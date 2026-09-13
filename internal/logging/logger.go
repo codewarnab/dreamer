@@ -10,16 +10,18 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"dreamer/internal/errs"
 )
 
 const (
-	defaultLogFileName = "dreamer.log"
-	backupLogFileName  = "dreamer.log.1"
-	loggingDirName     = "logging"
-	defaultMaxSizeMB   = 5
-	bytesPerMB         = 1024 * 1024
+	defaultLogFileName    = "dreamer.log"
+	backupLogFileName     = "dreamer.log.1"
+	loggingDirName        = "logging"
+	defaultMaxSizeMB      = 5
+	bytesPerMB            = 1024 * 1024
+	rotationRetryInterval = 30 * time.Second
 )
 
 // Logger writes progress and issue details to a project-local Dreamer log file.
@@ -30,12 +32,13 @@ const (
 // currently needs durable progress/error breadcrumbs more than a full logging
 // framework.
 type Logger struct {
-	mu        sync.Mutex
-	file      *os.File
-	handler   *slog.Logger
-	level     slog.Level
-	path      string
-	maxSizeMB int
+	mu                 sync.Mutex
+	file               *os.File
+	handler            *slog.Logger
+	level              slog.Level
+	path               string
+	maxSizeMB          int
+	rotationRetryAfter time.Time
 }
 
 // Attr is one structured logging field.
@@ -86,7 +89,7 @@ func New(outputRoot string, level string, maxSizeMB int) (*Logger, error) {
 	}
 
 	logPath := filepath.Join(logDir, defaultLogFileName)
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, err := openLogAppend(logPath)
 	if err != nil {
 		return nil, fmt.Errorf("open log file %q: %w", logPath, err)
 	}
@@ -126,6 +129,7 @@ func (l *Logger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.handler = nil
+	l.rotationRetryAfter = time.Time{}
 	if l.file == nil {
 		return nil
 	}
@@ -172,9 +176,15 @@ func (l *Logger) write(level slog.Level, message string, attrs ...Attr) {
 
 // rotateIfNeededLocked checks whether the log file exceeds the configured size
 // limit and rotates it by renaming the current file to .1 and opening a fresh
-// one. Returns true if rotation happened. Caller must hold l.mu.
+// one. If rename fails (e.g. on Windows due to an external viewer locking the
+// file), it falls back to a timestamped backup name, and if that also fails,
+// it applies a retry cooldown to prevent log thrashing and stderr spam.
+// Returns true if rotation happened or the file handle was refreshed. Caller must hold l.mu.
 func (l *Logger) rotateIfNeededLocked() bool {
 	if l.maxSizeMB <= 0 || l.file == nil {
+		return false
+	}
+	if !l.rotationRetryAfter.IsZero() && time.Now().Before(l.rotationRetryAfter) {
 		return false
 	}
 	fileInfo, err := l.file.Stat()
@@ -186,12 +196,25 @@ func (l *Logger) rotateIfNeededLocked() bool {
 	if err := l.file.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "log rotation: close current log failed: %v\n", err)
 	}
-	_ = os.Remove(backupPath) // ignore "not exist"; permission errors are non-fatal
-	if err := os.Rename(l.path, backupPath); err != nil {
-		fmt.Fprintf(os.Stderr, "log rotation: rename %s -> %s failed: %v\n", l.path, backupPath, err)
+	if rmErr := os.Remove(backupPath); rmErr != nil && !os.IsNotExist(rmErr) {
+		// Non-fatal; if backupPath is locked, fallback timestamped rename will be attempted.
+	}
+	renameErr := os.Rename(l.path, backupPath)
+	if renameErr != nil {
+		// If the primary backup path is locked by another process, try a unique timestamped backup.
+		timestampedBackup := fmt.Sprintf("%s.%s", l.path, time.Now().UTC().Format("20060102-150405"))
+		if fallbackErr := os.Rename(l.path, timestampedBackup); fallbackErr == nil {
+			renameErr = nil
+		}
+	}
+	if renameErr != nil {
+		fmt.Fprintf(os.Stderr, "log rotation: rename %s -> %s failed: %v\n", l.path, backupPath, renameErr)
+		l.rotationRetryAfter = time.Now().Add(rotationRetryInterval)
+	} else {
+		l.rotationRetryAfter = time.Time{}
 	}
 
-	file, openErr := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	file, openErr := openLogAppend(l.path)
 	if openErr != nil {
 		l.file = nil
 		return true

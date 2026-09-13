@@ -492,6 +492,22 @@ deps.Logger.Error("job run executor", logging.ErrAttr(err)...)
 
 ---
 
+### `logging.OpenRead(path string) (*os.File, error)`
+
+Opens a log file for reading with `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE` on Windows (and standard `os.Open` on other operating systems). This ensures that concurrent readers (such as the web dashboard log tail handler or diagnostic bundle collector) do not lock active log files against size-based rotation.
+
+```go
+f, err := logging.OpenRead(path)
+if err != nil {
+    return "", err
+}
+defer f.Close()
+```
+
+**Current callers:** `internal/web/handlers/logs.go` (`readTail`), `internal/diagnostics/bundle.go` (`tailFile`)
+
+---
+
 ## 19. Git Subprocesses (`internal/gitutil/command.go`)
 
 ### `gitutil.Command(parent context.Context, args ...string) (*exec.Cmd, context.CancelFunc)`
@@ -710,6 +726,7 @@ Returns `RegisteredProviders()` as plain strings, sorted, for error messages and
 | Detect WSL / interop paths | `sysinfo.IsWSL` / `sysinfo.IsWindowsInteropPath` |
 | Build structured log field | `logging.Any` / `logging.String` |
 | Build error log fields | `logging.ErrAttr` |
+| Open log file for non-blocking read | `logging.OpenRead` |
 | Run bounded non-interactive git | `gitutil.Command` |
 | Create a tagged provider error | `errs.NotInstalled` / `errs.RateLimit` / `errs.ProviderUnavailable` |
 | Warm model list from disk | `(*ModelListCache).Load(dir)` |

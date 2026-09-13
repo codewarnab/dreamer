@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/fsutil"
+	"dreamer/internal/logging"
 )
 
 const (
@@ -124,7 +126,12 @@ func redact(r *analyzer.Redactor, content string) string {
 // tailFile returns at most maxBytes from the end of path, starting on a
 // complete line. Returns an error when the file cannot be read.
 func tailFile(path string, maxBytes int64) (string, error) {
-	data, err := os.ReadFile(path)
+	f, err := logging.OpenRead(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return "", err
 	}
