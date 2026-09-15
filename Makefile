@@ -64,7 +64,7 @@ fmt:
 	gofmt -w .
 
 # Lint: run golangci-lint (auto-installs if missing)
-GOLANGCI_LINT_VERSION := v2.1.6
+GOLANGCI_LINT_VERSION := v2.13.2
 GOPATH_BIN := $(shell go env GOPATH)/bin
 # `config verify` first: v2 silently ignores some invalid keys, so a schema
 # check catches config drift before a run that quietly skips linters (PR #60).

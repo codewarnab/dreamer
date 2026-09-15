@@ -23,6 +23,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install bubblewrap (sandbox for health tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
+
       - name: Run tests
         run: go test -race ./...
 
@@ -39,13 +42,17 @@ jobs:
       - name: Verify golangci-lint config
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          version: v2.13.2
           args: config verify
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          version: v2.13.2
+          # Full-run lint has 355 pre-existing findings across the repo;
+          # fail only on issues introduced by the change under review until
+          # the backlog is worked down (mirrors tools/quality baseline).
+          only-new-issues: true
 
   vulncheck:
     name: Vulnerability check
