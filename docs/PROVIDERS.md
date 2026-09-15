@@ -378,7 +378,11 @@ All 16 provider subdirectories follow one of two base patterns:
 > **Note (`opencodehttp`):** the auto-start path scans both child stdout and stderr for
 > the listen address (first match wins), keeps draining both streams until the provider
 > closes, and on Windows resolves npm `.cmd`/`.ps1` shims to the real binary under
-> `node_modules/` before spawning. Detection failures quote a truncated tail of the
+> `node_modules/` before spawning. When spawning `opencode serve`, the child process working
+> directory is explicitly set to `WorkingDirectory` (`discovery.projectPath`). Additionally,
+> an auto-approval background handler continuously polls and approves pending tool permissions
+> (`POST /api/session/:sessionID/permission/:requestID/reply` with `{"reply":"allow"}`) so headless runs
+> never stall on tool permissions. Detection failures quote a truncated tail of the
 > captured server output. See `internal/analyzer/providers/opencodehttp/`.
 
 ---

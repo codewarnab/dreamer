@@ -17,6 +17,7 @@ dreamer analyze --path /abs/project
                 [--dry-run]
                 [--permissive]
                 [--output-dir <dir>]
+                [--output-in-project-root]
                 [--config <path>]
                 [--since <window>]
                 [--parallel]
@@ -27,22 +28,23 @@ dreamer analyze --path /abs/project
                 [--quiet]
 ```
 
-| Flag           | Short | Effect                                                                       |
-|----------------|-------|------------------------------------------------------------------------------|
-| `--path`       |       | **Required.** Absolute project directory (symlinks resolved).                |
-| `--provider`   | `-P`  | Runtime override. Beats per-project config beats global default.             |
-| `--force`      | `-f`  | Skip the incremental cache and re-analyze every discovered chat.             |
-| `--dry-run`    | `-n`  | Phase 1 only (mistake extraction). Skip guardrail synthesis.                 |
-| `--permissive` |       | Disable strict lint-rule allow-list; emit unrecognised rule ids.             |
-| `--output-dir` | `-o`  | Override the per-project output directory.                                   |
-| `--config`     | `-c`  | Override the global config path.                                             |
-| `--since`      | `-s`  | Lookback window (e.g. `30m`, `1h`, `1d`, `1w`, `1mo`, `lifetime`). Default: `24h`. |
-| `--parallel`   | `-p`  | Force parallel chunk execution (provider must support it).                   |
-| `--jobs`       | `-j`  | Cap parallel session count. `0` = len(chunks).                               |
-| `--chunk-size` |       | Override `analyzer.chunking.max_chunk_bytes`. `0` disables chunking.         |
-| `--json`       |       | Machine-readable JSON output.                                                |
-| `--no-color`   |       | Disable colored output (also respects NO_COLOR env var).                      |
-| `--quiet`      | `-q`  | Suppress decorative output for machine/agent use.                            |
+| Flag                     | Short | Effect                                                                       |
+|--------------------------|-------|------------------------------------------------------------------------------|
+| `--path`                 |       | **Required.** Absolute project directory (symlinks resolved).                |
+| `--provider`             | `-P`  | Runtime override. Beats per-project config beats global default.             |
+| `--force`                | `-f`  | Skip the incremental cache and re-analyze every discovered chat.             |
+| `--dry-run`              | `-n`  | Phase 1 only (mistake extraction). Skip guardrail synthesis.                 |
+| `--permissive`           |       | Disable strict lint-rule allow-list; emit unrecognised rule ids.             |
+| `--output-dir`           | `-o`  | Override the per-project output directory.                                   |
+| `--output-in-project-root` |     | Write todos.md directly to the target project directory.                     |
+| `--config`               | `-c`  | Override the global config path.                                             |
+| `--since`                | `-s`  | Lookback window (e.g. `30m`, `1h`, `1d`, `1w`, `1mo`, `lifetime`). Default: project's configured `since` if present, otherwise `24h`. |
+| `--parallel`             | `-p`  | Force parallel chunk execution (provider must support it).                   |
+| `--jobs`                 | `-j`  | Cap parallel session count. `0` = len(chunks).                               |
+| `--chunk-size`           |       | Override `analyzer.chunking.max_chunk_bytes`. `0` disables chunking.         |
+| `--json`                 |       | Machine-readable JSON output.                                                |
+| `--no-color`             |       | Disable colored output (also respects NO_COLOR env var).                      |
+| `--quiet`                | `-q`  | Suppress decorative output for machine/agent use.                            |
 
 ### `dreamer daemon`
 
@@ -96,6 +98,21 @@ dreamer status [--json] [--all] [--project <name>]
 | `--json`    | `-j`  | Machine-readable JSON output.               |
 | `--all`     | `-a`  | Show all history (not just last 24h).       |
 | `--project` | `-P`  | Filter to one project.                      |
+
+### `dreamer export`
+
+Export synthesized `todos.md` directly into the target project repository (or a custom output path).
+
+```bash
+dreamer export [--path <dir>] [--project <name>] [--output <path>] [--config <path>]
+```
+
+| Flag        | Short | Effect                                                                  |
+|-------------|-------|-------------------------------------------------------------------------|
+| `--path`    |       | Target project directory (defaults to current working directory).       |
+| `--project` |       | Target project name from config (resolves path automatically).          |
+| `--output`  | `-o`  | Destination file path (default: `<project-path>/todos.md`).             |
+| `--config`  | `-c`  | Override the global config path.                                        |
 
 ---
 

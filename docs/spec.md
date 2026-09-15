@@ -357,7 +357,7 @@ Implemented in `internal/chat/discovery.go`:
 - Codex sessions: `~/.codex/sessions/**/*.jsonl` + `~/.codex/archived_sessions/**/*.jsonl` (filtered by `session_meta.payload.cwd`)
 - VS Code Copilot Chat: `%APPDATA%/Code/User/workspaceStorage/*/chatSessions/*.{json,jsonl}` filtered by `workspace.json` evidence.
 - Claude Code: `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR/projects/**`) filtered by `cwd` probe.
-- Antigravity/Gemini: `~/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,json,jsonl}` (or `$GEMINI_HOME/antigravity/...`), plus `<project>/.gemini/antigravity/...`.
+- Antigravity/Gemini: IDE sessions at `~/.gemini/antigravity/{conversations,inbox}/**/*.{pb,pbtxt,jsonl}` (or `$GEMINI_HOME/antigravity/...`), `<project>/.gemini/antigravity/...`, plus Antigravity CLI (`agy`) sessions at `${GEMINI_CLI_HOME:-~/.gemini/antigravity-cli}` (`conversation_summaries.db` index scan and fallback `brain/**/transcript.jsonl` scan).
 - Gemini CLI (non-Antigravity): `${GEMINI_HOME:-~/.gemini}/tmp/*/chats/*.jsonl` — cwd-probe analogous to Claude Code.
 - Kiro CLI: SQLite-backed sessions — rows filtered by stored `Directory` column inside `projectPath`.
 - OpenCode: SQLite-backed sessions at `${OPENCODE_DB:-<DataHomeDir>/opencode/opencode.db}` — rows filtered by stored `Directory` column inside `projectPath`.

@@ -62,7 +62,7 @@ Discovered sources:
 | Codex CLI sessions         | `codex-session-jsonl`             | `~/.codex/{sessions,archived_sessions}/**/*.jsonl`               | `session_meta.payload.cwd` inside project path            |
 | VS Code Copilot chat       | `vscode-chat-session`             | `%APPDATA%/Code/User/workspaceStorage/*/chatSessions/*.{json,jsonl}` | sibling `workspace.json`                             |
 | Claude Code                | `claude-code-session-jsonl`       | `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/**/*.jsonl`            | `cwd` / `workingDirectory` probes                        |
-| Antigravity / Gemini       | `antigravity-gemini-session`      | `${GEMINI_HOME:-~/.gemini}/antigravity/{conversations,inbox}/**` | cwd probe (home root); implicit (project-local root)      |
+| Antigravity IDE & CLI (agy)| `antigravity-gemini-session`      | `${GEMINI_HOME:-~/.gemini}/antigravity/{conversations,inbox}/**`, `${GEMINI_CLI_HOME:-~/.gemini/antigravity-cli}/brain/**` | workspace_uris index & cwd probe |
 | Gemini CLI                 | `gemini-cli-session-jsonl`        | `${GEMINI_HOME:-~/.gemini}/tmp/*/chats/*.jsonl`                  | cwd probe                                                 |
 | Kiro CLI                   | `kiro-cli-session-sqlite`         | `~/.kiro/sessions/**` (SQLite)                                   | cwd probe                                                 |
 | OpenCode                   | `opencode-session-sqlite`         | `~/.opencode/**` (SQLite)                                        | session metadata                                          |

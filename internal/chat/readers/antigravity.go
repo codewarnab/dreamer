@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -22,14 +23,27 @@ type antigravityDropRule struct {
 	normalizedPrefixes []string
 }
 
+var (
+	userRequestPattern        = regexp.MustCompile(`(?is)<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>`)
+	userRequestTagPattern     = regexp.MustCompile(`(?i)</?USER_REQUEST>`)
+	additionalMetadataPattern = regexp.MustCompile(`(?is)<ADDITIONAL_METADATA>.*?</ADDITIONAL_METADATA>`)
+	userSettingsPattern       = regexp.MustCompile(`(?is)<USER_SETTINGS_CHANGE>.*?</USER_SETTINGS_CHANGE>`)
+	systemMessagePattern      = regexp.MustCompile(`(?is)<SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>`)
+)
+
 var antigravityDropRules = []antigravityDropRule{
 	{
-		name:             "tool-records",
-		normalizedTokens: []string{"tool_call", "toolcalls", "tool call", "tool_result", "tool result", "function_call", "function response", "command output", "stdout:", "stderr:"},
+		name: "tool-records",
+		normalizedTokens: []string{
+			"tool_call", "toolcalls", "tool call", "tool_result", "tool result",
+			"function_call", "function response", "command output", "stdout:", "stderr:",
+			"the command exited with code", "tool is running as a background task",
+		},
+		normalizedPrefixes: []string{"created at:"},
 	},
 	{
 		name:             "runtime-debug-state",
-		normalizedTokens: []string{"runtime state", "debug payload", "stack trace id", "trace metadata", "serialized internal", "internal state", "checkpoint"},
+		normalizedTokens: []string{"runtime state", "debug payload", "stack trace id", "trace metadata", "serialized internal", "internal state", "checkpoint", "<system_message>"},
 	},
 	{
 		name:             "model-config-metadata",
@@ -184,7 +198,27 @@ func isAntigravityTextKey(key string) bool {
 }
 
 func normalizeAntigravityContent(content string) string {
-	normalized := ANSIEscapePattern.ReplaceAllString(content, "")
+	cleaned := additionalMetadataPattern.ReplaceAllString(content, "")
+	cleaned = userSettingsPattern.ReplaceAllString(cleaned, "")
+	cleaned = systemMessagePattern.ReplaceAllString(cleaned, "")
+
+	if matches := userRequestPattern.FindAllStringSubmatch(cleaned, -1); len(matches) > 0 {
+		var parts []string
+		for _, match := range matches {
+			if len(match) > 1 && strings.TrimSpace(match[1]) != "" {
+				parts = append(parts, strings.TrimSpace(match[1]))
+			}
+		}
+		if len(parts) > 0 {
+			cleaned = strings.Join(parts, "\n")
+		} else {
+			cleaned = userRequestTagPattern.ReplaceAllString(cleaned, "")
+		}
+	} else {
+		cleaned = userRequestTagPattern.ReplaceAllString(cleaned, "")
+	}
+
+	normalized := ANSIEscapePattern.ReplaceAllString(cleaned, "")
 	normalized = WhitespaceBurstRegex.ReplaceAllString(normalized, " ")
 	normalized = strings.TrimSpace(normalized)
 	if normalized == "" {

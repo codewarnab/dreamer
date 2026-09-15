@@ -131,6 +131,10 @@ func newRootCommand() *cobra.Command {
 	jobsCmd.GroupID = groupCore
 	root.AddCommand(jobsCmd)
 
+	exportCmd := newExportCommand()
+	exportCmd.GroupID = groupCore
+	root.AddCommand(exportCmd)
+
 	// Setup & Config commands.
 	setupCmd := newSetupCommand()
 	setupCmd.GroupID = groupSetup

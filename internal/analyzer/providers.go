@@ -59,8 +59,9 @@ type ProviderConfig struct {
 	APIKeyEnv string
 
 	// HTTP server providers
-	BaseURL  string
-	Password string
+	BaseURL          string
+	Password         string
+	WorkingDirectory string
 
 	// Sandbox is the raw "sandbox" config value ("auto", "true", "false",
 	// or empty for default). Parsed by the sandbox package.

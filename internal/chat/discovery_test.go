@@ -542,6 +542,135 @@ func TestDiscoverAntigravityGeminiExtensionsMatchRuntimeSupport(t *testing.T) {
 	}
 }
 
+func TestDiscoverAntigravityCLISessionsFromDB(t *testing.T) {
+	cliHome := t.TempDir()
+	projectDir := t.TempDir()
+
+	dbPath := filepath.Join(cliHome, "conversation_summaries.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	createTableSQL := `CREATE TABLE conversation_summaries (
+		conversation_id text PRIMARY KEY,
+		workspace_uris text NOT NULL,
+		last_modified_time datetime NOT NULL
+	);`
+	if _, err := db.Exec(createTableSQL); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	convID := "conv-cli-1234"
+	workspaceURIsJSON := fmt.Sprintf(`["file://%s"]`, filepath.ToSlash(projectDir))
+	lastModifiedStr := "2026-09-10 10:15:30+00:00"
+	insertSQL := `INSERT INTO conversation_summaries (conversation_id, workspace_uris, last_modified_time) VALUES (?, ?, ?);`
+	if _, err := db.Exec(insertSQL, convID, workspaceURIsJSON, lastModifiedStr); err != nil {
+		t.Fatalf("insert conversation summary: %v", err)
+	}
+
+	transcriptPath := filepath.Join(cliHome, "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+	transcriptContent := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_REQUEST>test prompt</USER_REQUEST>"}`
+	writeFixtureFile(t, transcriptPath, transcriptContent)
+
+	sources, err := discoverAntigravityGeminiSessions(t.TempDir(), projectDir, t.TempDir(), cliHome)
+	if err != nil {
+		t.Fatalf("discoverAntigravityGeminiSessions failed: %v", err)
+	}
+
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 discovered CLI source, got %d", len(sources))
+	}
+	if sources[0].Path != transcriptPath {
+		t.Errorf("sources[0].Path = %q, want %q", sources[0].Path, transcriptPath)
+	}
+	if sources[0].Tool != SourceTypeAntigravityGemini {
+		t.Errorf("sources[0].Tool = %q, want %q", sources[0].Tool, SourceTypeAntigravityGemini)
+	}
+}
+
+func TestDiscoverAntigravityCLISessionsFromCWDFallback(t *testing.T) {
+	cliHome := t.TempDir()
+	projectDir := t.TempDir()
+
+	convID := "conv-cli-fallback-5678"
+	transcriptPath := filepath.Join(cliHome, "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+	transcriptContent := fmt.Sprintf(`{"step_index":0,"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"run_command","args":{"Cwd":%q}}]}`, filepath.ToSlash(projectDir))
+	writeFixtureFile(t, transcriptPath, transcriptContent)
+
+	sources, err := discoverAntigravityGeminiSessions(t.TempDir(), projectDir, t.TempDir(), cliHome)
+	if err != nil {
+		t.Fatalf("discoverAntigravityGeminiSessions failed: %v", err)
+	}
+
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 discovered CLI source via CWD fallback, got %d", len(sources))
+	}
+	if sources[0].Path != transcriptPath {
+		t.Errorf("sources[0].Path = %q, want %q", sources[0].Path, transcriptPath)
+	}
+}
+
+func TestDiscoverAntigravityCLISessionsPathIsolation(t *testing.T) {
+	cliHome := t.TempDir()
+	projectA := filepath.Join(t.TempDir(), "project-a")
+	projectB := filepath.Join(t.TempDir(), "project-b")
+	if err := os.MkdirAll(projectA, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.MkdirAll(projectB, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	dbPath := filepath.Join(cliHome, "conversation_summaries.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	createTableSQL := `CREATE TABLE conversation_summaries (
+		conversation_id text PRIMARY KEY,
+		workspace_uris text NOT NULL,
+		last_modified_time datetime NOT NULL
+	);`
+	if _, err := db.Exec(createTableSQL); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	convA := "conv-project-a"
+	convB := "conv-project-b"
+	insertSQL := `INSERT INTO conversation_summaries (conversation_id, workspace_uris, last_modified_time) VALUES (?, ?, ?);`
+	if _, err := db.Exec(insertSQL, convA, fmt.Sprintf(`["file://%s"]`, filepath.ToSlash(projectA)), "2026-09-10 10:00:00+00:00"); err != nil {
+		t.Fatalf("insert A: %v", err)
+	}
+	if _, err := db.Exec(insertSQL, convB, fmt.Sprintf(`["file://%s"]`, filepath.ToSlash(projectB)), "2026-09-10 10:00:00+00:00"); err != nil {
+		t.Fatalf("insert B: %v", err)
+	}
+
+	transcriptA := filepath.Join(cliHome, "brain", convA, ".system_generated", "logs", "transcript.jsonl")
+	transcriptB := filepath.Join(cliHome, "brain", convB, ".system_generated", "logs", "transcript.jsonl")
+	writeFixtureFile(t, transcriptA, `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"project A prompt"}`)
+	writeFixtureFile(t, transcriptB, `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"project B prompt"}`)
+
+	sourcesA, err := discoverAntigravityGeminiSessions(t.TempDir(), projectA, t.TempDir(), cliHome)
+	if err != nil {
+		t.Fatalf("discover for project A: %v", err)
+	}
+	if len(sourcesA) != 1 || sourcesA[0].Path != transcriptA {
+		t.Fatalf("project A discovery expected transcriptA, got %+v", sourcesA)
+	}
+
+	sourcesB, err := discoverAntigravityGeminiSessions(t.TempDir(), projectB, t.TempDir(), cliHome)
+	if err != nil {
+		t.Fatalf("discover for project B: %v", err)
+	}
+	if len(sourcesB) != 1 || sourcesB[0].Path != transcriptB {
+		t.Fatalf("project B discovery expected transcriptB, got %+v", sourcesB)
+	}
+}
+
 func TestDiscoverClaudeCodeSessionsSetsParentIDForSubagent(t *testing.T) {
 	claudeConfigDir := t.TempDir()
 	projectDir := t.TempDir()

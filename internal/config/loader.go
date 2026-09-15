@@ -59,15 +59,16 @@ const (
 
 // App is the v1 global configuration document.
 type App struct {
-	DefaultProvider string                   `yaml:"default_provider" json:"default_provider"`
-	Projects        []ProjectConfig          `yaml:"projects" json:"projects"`
-	Daemon          DaemonConfig             `yaml:"daemon" json:"daemon"`
-	Logging         LoggingConfig            `yaml:"logging" json:"logging"`
-	Redaction       RedactionConfig          `yaml:"redaction" json:"redaction"`
-	Providers       map[string]ProviderBlock `yaml:"providers" json:"providers"`
-	Analyzer        AnalyzerConfig           `yaml:"analyzer" json:"analyzer"`
-	Web             WebConfig                `yaml:"web,omitempty" json:"web,omitempty"`
-	Sandbox         SandboxConfig            `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+	DefaultProvider     string                   `yaml:"default_provider" json:"default_provider"`
+	Projects            []ProjectConfig          `yaml:"projects" json:"projects"`
+	Daemon              DaemonConfig             `yaml:"daemon" json:"daemon"`
+	Logging             LoggingConfig            `yaml:"logging" json:"logging"`
+	Redaction           RedactionConfig          `yaml:"redaction" json:"redaction"`
+	Providers           map[string]ProviderBlock `yaml:"providers" json:"providers"`
+	Analyzer            AnalyzerConfig           `yaml:"analyzer" json:"analyzer"`
+	Web                 WebConfig                `yaml:"web,omitempty" json:"web,omitempty"`
+	Sandbox             SandboxConfig            `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+	OutputInProjectRoot bool                     `yaml:"output_in_project_root,omitempty" json:"output_in_project_root,omitempty"`
 
 	// Notices collects soft signals discovered during config load. Not
 	// serialized; callers (cmd/analyze.go, cmd/daemon.go) log them at
@@ -91,6 +92,7 @@ type ProjectConfig struct {
 	Path                string `yaml:"path" json:"path"`
 	Since               string `yaml:"since,omitempty" json:"since,omitempty"`
 	MaxAnalysisDuration string `yaml:"max_analysis_duration,omitempty" json:"max_analysis_duration,omitempty"`
+	OutputInProjectRoot bool   `yaml:"output_in_project_root,omitempty" json:"output_in_project_root,omitempty"`
 }
 
 // DaemonConfig governs daemon mode runtime.
@@ -248,10 +250,11 @@ type RuleConfig struct {
 
 // ProjectFileConfig is the per-project `<project>/.dreamer/config.yaml`.
 type ProjectFileConfig struct {
-	Provider  string                   `yaml:"provider,omitempty" json:"provider,omitempty"`
-	Providers map[string]ProviderBlock `yaml:"providers,omitempty" json:"providers,omitempty"`
-	Rules     map[string]RuleConfig    `yaml:"rules,omitempty" json:"rules,omitempty"`
-	Redaction RedactionConfig          `yaml:"redaction,omitempty" json:"redaction,omitempty"`
+	Provider            string                   `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Providers           map[string]ProviderBlock `yaml:"providers,omitempty" json:"providers,omitempty"`
+	Rules               map[string]RuleConfig    `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Redaction           RedactionConfig          `yaml:"redaction,omitempty" json:"redaction,omitempty"`
+	OutputInProjectRoot *bool                    `yaml:"output_in_project_root,omitempty" json:"output_in_project_root,omitempty"`
 }
 
 // GlobalConfigPath returns the canonical global config path.

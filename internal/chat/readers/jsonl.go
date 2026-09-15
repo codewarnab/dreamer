@@ -268,6 +268,20 @@ func messageFromMap(record map[string]any, root map[string]any) (ChatMessage, bo
 }
 
 func roleFromRecord(record map[string]any) string {
+	if src := rawRole(record["source"]); src != "" {
+		if role := normalizeRole(src); role != "" {
+			if strings.EqualFold(role, "assistant") {
+				if tp, ok := record["type"].(string); ok && strings.TrimSpace(tp) != "" {
+					if !strings.EqualFold(strings.TrimSpace(tp), "planner_response") {
+						return ""
+					}
+				}
+			}
+			return role
+		}
+		return ""
+	}
+
 	for _, key := range []string{"role", "sender", "author"} {
 		if role := normalizeRole(rawRole(record[key])); role != "" {
 			return role
@@ -301,7 +315,7 @@ func rawRole(roleCandidate any) string {
 
 func normalizeRole(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "user", "human", "prompt":
+	case "user", "human", "prompt", "user_explicit":
 		return "user"
 	case "assistant", "model", "ai", "copilot", "bot":
 		return "assistant"
@@ -377,7 +391,7 @@ func timestampFromRecord(record map[string]any) time.Time {
 	return time.Time{}
 }
 
-func parseTimestamp(value any) (time.Time, bool) {
+func ParseTimestamp(value any) (time.Time, bool) {
 	switch typed := value.(type) {
 	case time.Time:
 		return typed.UTC(), true
@@ -404,6 +418,9 @@ func parseTimestamp(value any) (time.Time, bool) {
 		for _, layout := range []string{
 			time.RFC3339Nano,
 			time.RFC3339,
+			"2006-01-02 15:04:05.999999999-07:00",
+			"2006-01-02 15:04:05-07:00",
+			"2006-01-02 15:04:05.999999999",
 			"2006-01-02 15:04:05",
 			"2006-01-02T15:04:05",
 		} {
@@ -424,10 +441,14 @@ func parseTimestamp(value any) (time.Time, bool) {
 		}
 		return unixTimestamp(int64(typed)), true
 	case []byte:
-		return parseTimestamp(string(typed))
+		return ParseTimestamp(string(typed))
 	}
 
 	return time.Time{}, false
+}
+
+func parseTimestamp(value any) (time.Time, bool) {
+	return ParseTimestamp(value)
 }
 
 func unixTimestamp(raw int64) time.Time {
