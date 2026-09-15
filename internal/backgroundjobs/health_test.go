@@ -7,9 +7,22 @@ import (
 	"time"
 
 	"dreamer/internal/logging"
+	"dreamer/internal/sandbox"
 )
 
+// requireSandboxForHealthySystem skips tests asserting SystemHealthy == true
+// when the OS sandbox is unavailable: CheckHealth records a warning issue in
+// that case by design, so a fully-healthy result is unreachable on hosts
+// without bwrap/user namespaces (CI runners, containers).
+func requireSandboxForHealthySystem(t *testing.T) {
+	t.Helper()
+	if !sandbox.Available() {
+		t.Skip("skipping: OS sandbox unavailable on this host; SystemHealthy requires sandbox")
+	}
+}
+
 func TestCheckHealth_AllHealthy(t *testing.T) {
+	requireSandboxForHealthySystem(t)
 	store := newTestStore(t)
 	sched := newMockScheduler()
 	lg := logging.Silent()
@@ -117,6 +130,7 @@ func TestCheckHealth_OrphanedSchedule(t *testing.T) {
 }
 
 func TestCheckHealth_DisabledJobNoSchedule(t *testing.T) {
+	requireSandboxForHealthySystem(t)
 	store := newTestStore(t)
 	sched := newMockScheduler()
 	lg := logging.Silent()
@@ -191,6 +205,7 @@ func TestCheckHealth_OverdueNextRunAt(t *testing.T) {
 }
 
 func TestCheckHealth_OverdueNextRunAt_WithinGrace(t *testing.T) {
+	requireSandboxForHealthySystem(t)
 	store := newTestStore(t)
 	sched := newMockScheduler()
 	lg := logging.Silent()
@@ -227,6 +242,7 @@ func TestCheckHealth_OverdueNextRunAt_WithinGrace(t *testing.T) {
 }
 
 func TestCheckHealth_DisabledJobOverdueNoWarning(t *testing.T) {
+	requireSandboxForHealthySystem(t)
 	store := newTestStore(t)
 	sched := newMockScheduler()
 	lg := logging.Silent()

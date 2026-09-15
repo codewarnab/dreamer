@@ -111,7 +111,7 @@ func TestComputeReconcileActions_Install(t *testing.T) {
 		t.Fatalf("got %d actions, want 1", len(actions))
 	}
 	if actions[0].Kind != ReconcileInstall {
-		t.Errorf("kind = %q, want ReconcileInstall", actions[0].Kind)
+		t.Errorf("kind = %v, want ReconcileInstall", actions[0].Kind)
 	}
 }
 
@@ -146,7 +146,7 @@ func TestComputeReconcileActions_RemoveDisabled(t *testing.T) {
 		t.Fatalf("got %d actions, want 1", len(actions))
 	}
 	if actions[0].Kind != ReconcileRemoveDisabled {
-		t.Errorf("kind = %q, want ReconcileRemoveDisabled", actions[0].Kind)
+		t.Errorf("kind = %v, want ReconcileRemoveDisabled", actions[0].Kind)
 	}
 }
 
@@ -423,6 +423,6 @@ func TestComputeReconcileActions_ValidOrphanRemoved(t *testing.T) {
 		t.Fatalf("got %d actions, want 1", len(actions))
 	}
 	if actions[0].Kind != ReconcileRemove {
-		t.Errorf("kind = %q, want ReconcileRemove", actions[0].Kind)
+		t.Errorf("kind = %v, want ReconcileRemove", actions[0].Kind)
 	}
 }

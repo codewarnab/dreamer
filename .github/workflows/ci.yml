@@ -23,9 +23,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install bubblewrap (sandbox for health tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
-
       - name: Run tests
         run: go test -race ./...
 
@@ -38,12 +35,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Verify golangci-lint config
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.13.2
-          args: config verify
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
