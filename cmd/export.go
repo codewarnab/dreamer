@@ -26,7 +26,8 @@ func newExportCommand() *cobra.Command {
 		Short: "Export project todos.md directly to the target project directory.",
 		Long: "export copies the synthesized todos.md for a project into the target\n" +
 			"project repository (or an explicit destination path). Useful for committing\n" +
-			"prevention guardrails directly into version control.",
+			"prevention guardrails directly into version control.\n" +
+			"Overwrites the destination todos.md if it already exists.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedConfigPath, err := resolveConfigPath(configPath)
 			if err != nil {
@@ -64,6 +65,15 @@ func newExportCommand() *cobra.Command {
 				absPath, err := filepath.Abs(resolvedPath)
 				if err == nil {
 					resolvedPath = absPath
+				}
+				// Fail fast when the user explicitly passed --path pointing at a
+				// non-existent directory. Without this, the command falls through
+				// to DeriveProjectName and reports a misleading "no todos found"
+				// error for a derived name instead of the real problem.
+				if strings.TrimSpace(projectPath) != "" {
+					if info, err := os.Stat(resolvedPath); err != nil || !info.IsDir() {
+						return fmt.Errorf("project directory does not exist: %q; specify a valid --path or --project", resolvedPath)
+					}
 				}
 			}
 
