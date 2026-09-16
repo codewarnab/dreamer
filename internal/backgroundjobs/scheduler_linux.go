@@ -14,7 +14,25 @@ import (
 	"dreamer/internal/logging"
 )
 
-const systemdUnitDir = ".config/systemd/user"
+// unitDirBase returns the base directory that contains systemd user units:
+// $XDG_CONFIG_HOME when it holds an absolute path, otherwise ~/.config.
+//
+// The XDG Base Directory spec requires XDG_CONFIG_HOME to be absolute and
+// systemd itself ignores relative values, so empty, whitespace-only, or
+// relative values fall back to ~/.config. This mirrors the XDG handling in
+// internal/config.ConfigDirBase (trim, XDG first) and adds the absolute-path
+// rule the unit directory depends on: units written under a relative XDG
+// path would land where systemd never looks.
+func unitDirBase() (string, error) {
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" && filepath.IsAbs(xdg) {
+		return filepath.Clean(xdg), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".config"), nil
+}
 
 type linuxScheduler struct {
 	cfg    SchedulerConfig
@@ -332,11 +350,11 @@ func durationToSystemdSpan(d time.Duration) string {
 
 // ensureUnitDir creates the systemd user unit directory if it doesn't exist.
 func (s *linuxScheduler) ensureUnitDir() (string, error) {
-	home, err := os.UserHomeDir()
+	base, err := unitDirBase()
 	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
+		return "", err
 	}
-	dir := filepath.Join(home, systemdUnitDir)
+	dir := filepath.Join(base, "systemd", "user")
 	if err := os.MkdirAll(dir, fsutil.DirPerms); err != nil {
 		return "", fmt.Errorf("create unit dir: %w", err)
 	}
@@ -345,11 +363,11 @@ func (s *linuxScheduler) ensureUnitDir() (string, error) {
 
 // unitDir returns the systemd user unit directory path.
 func (s *linuxScheduler) unitDir() (string, error) {
-	home, err := os.UserHomeDir()
+	base, err := unitDirBase()
 	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, systemdUnitDir), nil
+	return filepath.Join(base, "systemd", "user"), nil
 }
 
 // reloadDaemon runs systemctl --user daemon-reload.
