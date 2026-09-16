@@ -1,6 +1,6 @@
 # Dreamer Architecture
 
-This document describes the design principles, CLI commands, and component architecture of the `dreamer` system. It is kept up-to-date with the codebase.
+This document describes the current high-level design, CLI commands, and components of `dreamer`. The CLI reference and shipped help output are the command-level source of truth.
 
 > For a full end-to-end trace of how data moves through every subsystem — from chat discovery through LLM analysis to `todos.md` output and the web UI — see **[docs/DATAFLOW.md](DATAFLOW.md)**.
 
