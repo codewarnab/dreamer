@@ -64,6 +64,7 @@ Every analyze run persists its LLM exchanges (prompts + raw responses, secret-re
 
 ### Configuration & Systems
 - `GET /api/providers` — List supported and active provider plugins.
+- `POST /api/providers/{id}/test` — Run a one-turn provider reachability/authentication smoke test. A completed test returns HTTP `200` with `{"ok": true, "latency_ms": ...}` or `{"ok": false, "error": ..., "category": ..., "latency_ms": ...}`. Unknown IDs, wrong methods, and other request-level errors use non-2xx responses.
 - `GET /api/provider-meta` — Static per-provider metadata (display name, model list, default model, sandbox default, remediation hint). For providers that implement `analyzer.ModelLister` and are running, the `models` field is replaced with the live list from the provider (cached 5 min); all others fall back to `defaults.go AllModels`.
 - `GET /api/settings` — Get the current merged config (base `config.yaml` + UI override config).
 - `PUT /api/settings` — Update preferences (writes exclusively to `ui-overrides.yaml`). Rule entries under `analyzer.rules.<category>` accept the per-category prompt overrides `mistake_prompt_template`, `guardrail_prompt_template`, and `phase1_category_description` (in addition to `enabled` and `severity`); a `null` value clears the override so the embedded default applies again.
@@ -104,3 +105,4 @@ Findings with an `apply` block (categories: `doc`, `lint-rule`, `ci-check`, `con
 - Every apply action stores a state reversal entry under `<output_root>/<project>/state.json`.
 - The entry preserves the original pre-image file bytes, content hashes (SHA-256) before the action, and target offsets.
 - **Collision Protection**: If the target file is edited or drifts after the finding is applied (causing the current SHA-256 to mismatch the post-apply SHA-256), the UI refuses to undo and returns a `409 Conflict` to prevent accidental loss of developer edits.
+
