@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly vulncheck — catches new CVEs in dependencies
+    # Weekly vulncheck - catches new CVEs in dependencies
     - cron: "23 8 * * 1"
 
 permissions:
@@ -14,8 +14,12 @@ permissions:
 
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +28,63 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests
+        run: go test ./...
+
+      - name: Run race detector
+        if: runner.os == 'Linux'
         run: go test -race ./...
+
+  cross-compile:
+    name: Compile ${{ matrix.goos }}/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Compile
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -trimpath ./...
+
+  release-smoke:
+    name: Release configuration smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
+      - name: Build release snapshot and checksums
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Verify release outputs
+        shell: bash
+        run: |
+          test -s dist/checksums.txt
+          test "$(find dist -type f \( -name dreamer -o -name dreamer.exe \) | wc -l)" -eq 6
 
   lint:
     name: Lint

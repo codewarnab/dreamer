@@ -105,7 +105,10 @@ func TestSetupNonInteractiveWritesSelectedModel(t *testing.T) {
 		t.Fatalf("setup non-interactive: %v\nstdout: %s", err, stdout)
 	}
 
-	cfgPath := filepath.Join(home, ".config", "dreamer", "config.yaml")
+	cfgPath, err := config.GlobalConfigPath()
+	if err != nil {
+		t.Fatalf("GlobalConfigPath: %v", err)
+	}
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("read written config: %v", err)
@@ -133,7 +136,10 @@ func TestSetupNonInteractiveCreatesMissingConfigDir(t *testing.T) {
 	); err != nil {
 		t.Fatalf("setup non-interactive on fresh machine: %v", err)
 	}
-	cfgPath := filepath.Join(home, ".config", "dreamer", "config.yaml")
+	cfgPath, err := config.GlobalConfigPath()
+	if err != nil {
+		t.Fatalf("GlobalConfigPath: %v", err)
+	}
 	if _, err := os.Stat(cfgPath); err != nil {
 		t.Fatalf("config not written to %s: %v", cfgPath, err)
 	}

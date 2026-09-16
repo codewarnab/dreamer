@@ -136,12 +136,16 @@ func TestAppendProjectToYAML_RejectsDuplicatePath_TildeExpanded(t *testing.T) {
 func TestAddCommand_AppendsProjectToExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
-	cfgDir := filepath.Join(home, ".config", "dreamer")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+	cfgPath, err := config.GlobalConfigPath()
+	if err != nil {
+		t.Fatalf("GlobalConfigPath: %v", err)
+	}
+	err = os.MkdirAll(filepath.Dir(cfgPath), 0o755)
+	if err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte(minimalSeedConfig), 0o644); err != nil {
+	err = os.WriteFile(cfgPath, []byte(minimalSeedConfig), 0o644)
+	if err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 	projectDir := t.TempDir()

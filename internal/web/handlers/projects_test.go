@@ -349,7 +349,14 @@ func TestProjectsPost_HomeExpanded(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(out)
-	expectedPath := filepath.ToSlash(projDir)
+	// The handler canonicalizes the path (symlinks resolved) before storing;
+	// t.TempDir() may traverse /var -> /private/var (macOS) or use 8.3 short
+	// names (Windows).
+	resolvedProjDir, err := filepath.EvalSymlinks(projDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	expectedPath := filepath.ToSlash(resolvedProjDir)
 	if !strings.Contains(filepath.ToSlash(got), expectedPath) {
 		t.Fatalf("config path not expanded in file:\n%s\nExpected to contain: %s", got, expectedPath)
 	}

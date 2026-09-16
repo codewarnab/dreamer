@@ -331,8 +331,14 @@ func TestResolveWritableDirs_SymlinkDedup(t *testing.T) {
 	if len(dirs) != 1 {
 		t.Fatalf("expected 1 dir after symlink dedup, got %d", len(dirs))
 	}
-	if dirs[0] != real {
-		t.Fatalf("expected resolved dir %q, got %q", real, dirs[0])
+	// t.TempDir() itself may traverse a symlink (/var -> /private/var on
+	// macOS); resolveWritableDirs returns fully resolved paths.
+	wantReal, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	if dirs[0] != wantReal {
+		t.Fatalf("expected resolved dir %q, got %q", wantReal, dirs[0])
 	}
 }
 

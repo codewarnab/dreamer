@@ -42,6 +42,13 @@ func CanonicalPath(p string) string {
 		}
 	}
 	resolved = filepath.Clean(resolved)
+	// Best-effort symlink resolution so equality comparisons match on the
+	// real path: macOS temp dirs traverse /var -> /private/var and Windows
+	// temp paths may use 8.3 short names. Paths that do not exist keep
+	// their cleaned form.
+	if canonical, err := filepath.EvalSymlinks(resolved); err == nil {
+		resolved = canonical
+	}
 	if runtime.GOOS == "windows" {
 		return strings.ToLower(resolved)
 	}
@@ -111,7 +118,11 @@ func ResolveSymlinks(abs string) (string, error) {
 }
 
 // PathWithinRoot reports whether path is within root (or equal to it).
-// Case-insensitive on Windows via strings.EqualFold.
+// Both sides are canonicalized first: cleaned, made absolute, and resolved
+// through symlinks (deepest existing ancestor for paths that do not exist
+// yet), so a symlinked prefix on either side (macOS /var -> /private/var,
+// Windows 8.3 short names, user symlinks inside a project root) cannot
+// defeat or break containment. Case-insensitive on Windows.
 // Returns false if either path or root is empty. Callers that intend
 // "no restriction" when root is unset should branch before calling.
 func PathWithinRoot(path, root string) bool {
@@ -119,10 +130,23 @@ func PathWithinRoot(path, root string) bool {
 		return false
 	}
 	sep := string(filepath.Separator)
-	if runtime.GOOS == "windows" {
-		lowerPath := strings.ToLower(path)
-		lowerRoot := strings.ToLower(root)
-		return lowerPath == lowerRoot || strings.HasPrefix(lowerPath, lowerRoot+sep)
+	canonical := func(p string) string {
+		if !filepath.IsAbs(p) {
+			if abs, err := filepath.Abs(p); err == nil {
+				p = abs
+			}
+		}
+		if resolved, err := ResolveSymlinks(p); err == nil {
+			p = resolved
+		} else {
+			p = filepath.Clean(p)
+		}
+		if runtime.GOOS == "windows" {
+			p = strings.ToLower(p)
+		}
+		return p
 	}
-	return path == root || strings.HasPrefix(path, root+sep)
+	canonicalPath := canonical(path)
+	canonicalRoot := canonical(root)
+	return canonicalPath == canonicalRoot || strings.HasPrefix(canonicalPath, canonicalRoot+sep)
 }

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"dreamer/internal/config"
 )
 
 func TestBuildStartupTaskCommandQuotesExecutableAndConfig(t *testing.T) {
@@ -53,7 +55,11 @@ func TestStartupInstallCreatesLogonTask(t *testing.T) {
 	assertNotContainsArgument(t, commandArgs, "/DU")
 	assertContainsArgument(t, commandArgs, "/TN")
 	assertContainsArgument(t, commandArgs, startupTaskName)
-	assertContainsArgument(t, commandArgs, filepath.Join(homeDir, ".config", "dreamer", defaultConfigFileName))
+	configRoot, configErr := config.UserConfigRoot()
+	if configErr != nil {
+		t.Fatalf("resolve user config root: %v", configErr)
+	}
+	assertContainsArgument(t, commandArgs, filepath.Join(configRoot, defaultConfigFileName))
 	if !strings.Contains(stdout, "startup task installed") {
 		t.Fatalf("stdout missing install confirmation: %s", stdout)
 	}
@@ -99,7 +105,7 @@ func TestBuildSystemdUnitQuotesPathsWithSpaces(t *testing.T) {
 }
 
 func TestStartupInstallCreatesSystemdUnit(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		t.Skip("systemd startup is Linux-specific")
 	}
 
@@ -156,7 +162,7 @@ func TestStartupInstallCreatesSystemdUnit(t *testing.T) {
 }
 
 func TestStartupUninstallRemovesSystemdUnit(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		t.Skip("systemd startup is Linux-specific")
 	}
 

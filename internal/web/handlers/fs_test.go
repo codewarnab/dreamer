@@ -52,8 +52,14 @@ func TestFSExists_ExistingDir(t *testing.T) {
 	if body["is_dir"] != true {
 		t.Errorf("is_dir = %v, want true", body["is_dir"])
 	}
-	if body["absolute"] != filepath.Clean(dir) {
-		t.Errorf("absolute = %v, want %s", body["absolute"], filepath.Clean(dir))
+	// The handler resolves symlinks; t.TempDir() may traverse
+	// /var -> /private/var (macOS) or use 8.3 short names (Windows).
+	wantAbs, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	if body["absolute"] != wantAbs {
+		t.Errorf("absolute = %v, want %s", body["absolute"], wantAbs)
 	}
 }
 

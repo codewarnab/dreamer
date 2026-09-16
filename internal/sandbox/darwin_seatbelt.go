@@ -58,7 +58,8 @@ func buildSeatbeltProfile(cfg Config, writableDirs []string) string {
 	// THREAT MODEL: This sandbox provides write-protection only, not
 	// full containment. Under (allow default), processes can read any
 	// file on the system (including secrets) and execute any binary.
-	// Network isolation is applied when cfg.Network != NetworkOpen.
+	// Network isolation is applied when cfg.Network is set to a non-open
+	// mode. Empty means open: isolation is opt-in (see ParseNetwork).
 	//
 	// KNOWN LIMITATION — OS scheduler manipulation (persistence) is NOT blocked.
 	//
@@ -99,7 +100,7 @@ func buildSeatbeltProfile(cfg Config, writableDirs []string) string {
 
 ;; Network isolation: deny all network operations when not explicitly open.
 `)
-	if cfg.Network != NetworkOpen {
+	if cfg.Network != "" && cfg.Network != NetworkOpen {
 		b.WriteString(`(deny network*)
 (deny network-outbound)
 (deny network-inbound)

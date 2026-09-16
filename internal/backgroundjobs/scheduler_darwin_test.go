@@ -161,7 +161,7 @@ func TestDarwinScheduler_Install_UsesGetuid(t *testing.T) {
 		},
 		logger: logging.Silent(),
 		runCmd: func(_ context.Context, name string, args ...string) ([]byte, error) {
-			capturedArgs = append([]string{name}, args...)
+			capturedArgs = append(capturedArgs, append([]string{name}, args...)...)
 			return nil, nil
 		},
 	}
