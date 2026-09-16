@@ -16,7 +16,7 @@ Run a one-shot analysis. This is the primary command for agents.
 
 ```
 dreamer analyze --path /path/to/project --json
-dreamer analyze --path /path/to/project --json --provider copilot
+dreamer analyze --path /path/to/project --json --provider copilot-sdk
 dreamer analyze --path /path/to/project --json --force
 ```
 
@@ -66,8 +66,8 @@ Discover available chat sources for a project. Output is TSV.
 Write config without TUI (agent-safe).
 
 ```
-dreamer setup --non-interactive --provider copilot --output-root /path/to/output
-dreamer setup --non-interactive --provider claude --model claude-sonnet-4-5-20250929 --output-root /tmp/dreamer --force
+dreamer setup --non-interactive --provider copilot-sdk --output-root /path/to/output
+dreamer setup --non-interactive --provider claude-cli --model claude-haiku-4-5-20251001 --output-root /tmp/dreamer --force
 ```
 
 **Required flags:** `--provider`, `--output-root`
@@ -91,7 +91,7 @@ dreamer setup --non-interactive --provider claude --model claude-sonnet-4-5-2025
 
 ### First-time setup
 ```bash
-dreamer setup --non-interactive --provider copilot --output-root ~/.dreamer/output
+dreamer setup --non-interactive --provider copilot-sdk --output-root ~/.dreamer/output
 ```
 
 ### Analyze a project
@@ -117,3 +117,4 @@ dreamer ls-chats --project-path /path/to/project
 - Config lives at `<UserConfigDir>/dreamer/config.yaml`
 - Todos are written to `<output_root>/<project>/todos.md`
 - State (cache) is at `<output_root>/<project>/state.json`
+
