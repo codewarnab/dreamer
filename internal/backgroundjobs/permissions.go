@@ -47,6 +47,13 @@ var protectedSuffixes = []string{
 // Dreamer/provider/scheduler paths.
 func ValidateWritablePaths(projectRoot string, writablePaths []string) error {
 	cleanRoot := filepath.Clean(projectRoot)
+	// Canonicalize the root the same way candidate paths are resolved below.
+	// On macOS, t.TempDir()-style roots under /var are symlinks to
+	// /private/var; without this, a resolved candidate never carries the
+	// unresolved root's prefix and every containment check fails.
+	if resolvedRoot, err := resolveAncestorSymlink(cleanRoot); err == nil {
+		cleanRoot = resolvedRoot
+	}
 	for _, p := range writablePaths {
 		if err := validateSingleWritablePath(cleanRoot, p); err != nil {
 			return err

@@ -19,7 +19,7 @@ builds:
       - arm64
 
 archives:
-  - format: binary
+  - formats: [binary]
     name_template: "dreamer_{{ .Os }}_{{ .Arch }}"
 
 checksum:
@@ -32,3 +32,4 @@ changelog:
       - "^docs:"
       - "^test:"
       - "^chore:"
+

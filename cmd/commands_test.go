@@ -289,6 +289,11 @@ func setTestHome(t *testing.T, home string) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// On Windows the config loader ignores XDG_CONFIG_HOME and resolves the
+	// config root from APPDATA (os.UserConfigDir). Isolate both AppData roots
+	// so command tests never read or write the runner's real config.
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 	// Clear chat-discovery env vars so tests don't pick up the developer's
 	// real chat sources. discovery_test.go:setTestHome mirrors this list.
 	t.Setenv("CLAUDE_CONFIG_DIR", "")

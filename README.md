@@ -22,7 +22,7 @@ Dreamer is under active development and has not published a stable release. See 
 
 ## Install
 
-Release binaries are published for Linux, macOS, and Windows on `amd64` and
+Release binaries are intended for Linux, macOS, and Windows on `amd64` and
 `arm64`. Download the matching `dreamer_<os>_<arch>` file and
 `checksums.txt` from [GitHub Releases](https://github.com/codewarnab/dreamer/releases), verify its SHA-256 checksum, then put
 the binary on your `PATH` (for example `/usr/local/bin/dreamer` on Unix or a
@@ -269,3 +269,4 @@ spelling checks, and duplicate-heading detection.
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [docs/TESTING.md](docs/TESTING.md) before opening a pull request.
 
 Dreamer is licensed under the [MIT License](LICENSE).
+
