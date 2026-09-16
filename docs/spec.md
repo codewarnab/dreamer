@@ -1,6 +1,11 @@
+> **Status: historical design document.** This file records the v1 design and
+> projected repository layout. It is not the current command or runtime
+> contract. Use [CLI.md](CLI.md), [API.md](API.md), [ARCHITECTURE.md](ARCHITECTURE.md),
+> and shipped `dreamer --help` output for current behavior.
+
 # dreamer v1 — System Specification
 
-Authoritative spec for the v1 system. Derived from `vision.md` and `discussion.md`. When this document conflicts with `discussion.md`, this document wins.
+Historical v1 design specification, derived from `vision.md` and `discussion.md`. References to authority in this file apply only to that design snapshot, not to current shipped behavior.
 
 Status legend: **[locked]** = finalized specification; **[provisional]** = recommendation adopted here as the v1 default.
 
@@ -64,7 +69,7 @@ Flag semantics:
 | `-j, --jobs`   | Cap parallel session count. `0` = len(chunks).                                                   |
 | `--chunk-size` | Override `analyzer.chunking.max_chunk_bytes`. `0` disables chunking.                             |
 
-Exit codes: `0` success, `1` fatal (config missing, auth failure, all providers unreachable), `2` partial (some projects analyzed, some skipped — daemon only).
+Current agent-facing exit codes are `0` success, `1` general failure, `2` usage/configuration failure, and `3` provider failure. This historical design used a different mapping; use `dreamer --help` and [CLI.md](CLI.md) for current behavior.
 
 > **Note:** `config init` was replaced by `dreamer setup` in v1.5. The hidden `mcp-server` and `record-finding` commands are internal/debug tools not listed here.
 
@@ -79,7 +84,7 @@ Flags:
 - `-v, --verbose`: Enables verbose formatting to print build commit SHA, build timestamp, target Go version, and local OS/arch.
 
 #### `dreamer update`
-Queries GitHub Release metadata (`codexwarnab/dreamer`) for newer version tags. Automatically downloads and validates checksums before replacing the running binary.
+Queries GitHub Release metadata (`codewarnab/dreamer`) for newer version tags. Automatically downloads and validates checksums before replacing the running binary.
 Flags:
 - `--check`: Disables binary downloads, only displaying a local vs remote version comparison.
 - `--force`: Triggers full update flow, overwriting the local binary even if it matches the remote version.
@@ -518,7 +523,7 @@ Algorithm:
 3. **Permissive mode (`--permissive`)**: keep the finding, prefix the rendered todo line with `[unverified]`, and add a `<!-- dreamer:lintrule:unverified -->` marker for telemetry.
 4. Tools not in the allow-list table: treated as permissive automatically.
 
-Allow-list update process is documented in `CONTRIBUTING.md`.
+Allow-list updates must be reviewed with the rule implementation and its tests; this repository does not currently ship a separate contributor guide.
 
 ---
 
@@ -647,9 +652,9 @@ The existing daemon is kept and rewired to use `Provider`:
 - Loop over `config.projects`.
 - Per project: resolve provider, run the analyze pipeline, update state, sleep `daemon.frequency_seconds`.
 - Signal handling: `SIGTERM` → finish current session, save state, exit `0`.
-- PID file at `<UserConfigDir>/dreamer/daemon.pid` with `flock` on Unix and `os.Rename` lock on Windows.
+- Daemon lock at `<output_root>/dreamer.daemon.lock` with PID and executable metadata with `flock` on Unix and `os.Rename` lock on Windows.
 
-Windows-only `startup install` continues to point at the daemon binary.
+`startup install` integrates the daemon with Windows Task Scheduler or Linux systemd. macOS is not supported by this daemon-startup command.
 
 ---
 
@@ -667,7 +672,7 @@ Default sink: `<output_root>/dreamer.log`. Rotation: single backup file (`dreame
 
 ## 16. Directory & file layout
 
-Repo structure after v1 lands:
+Historical projected repository structure from the v1 design (not the current tree):
 
 ```
 main.go
@@ -850,3 +855,4 @@ A v1 build is acceptable when, on this repository:
 - **Finding** — validated, hashed, deduplicated `{mistake, guardrail, evidence, confidence}` record written to `todos.md`.
 - **Working directory** — absolute, symlink-resolved project root. All provider read/search calls are scope-locked to this directory.
 - **`<UserConfigDir>`** — `os.UserConfigDir()` result. Linux: `~/.config`. macOS: `~/Library/Application Support`. Windows: `%AppData%`.
+

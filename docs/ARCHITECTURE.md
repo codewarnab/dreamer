@@ -1,6 +1,6 @@
 # Dreamer Architecture
 
-This document describes the design principles, CLI commands, and component architecture of the `dreamer` system. It is kept up-to-date with the codebase.
+This document describes the current high-level design, CLI commands, and components of `dreamer`. The CLI reference and shipped help output are the command-level source of truth.
 
 > For a full end-to-end trace of how data moves through every subsystem — from chat discovery through LLM analysis to `todos.md` output and the web UI — see **[docs/DATAFLOW.md](DATAFLOW.md)**.
 
@@ -27,7 +27,7 @@ The Cobra command tree defined in `cmd/root.go` maps directly to CLI features. S
 - `daemon` — Run the background daemon to periodically analyze all configured projects. Spawns the embedded web dashboard and the background job execution loop.
 - `start` — Start the daemon running in the background as a detached process or service.
 - `stop` — Gracefully stop the running background daemon.
-- `status` — Report the current running status and health of the daemon process.
+- `status` — Report analysis job queue status, optionally filtered by age or project.
 - `jobs` — Manage and view background job schedules.
   - *Interactive Dashboard:* Running `dreamer jobs` without subcommands launches an interactive Bubble Tea terminal dashboard.
   - `list` — List all configured background jobs (supports `--json`, `--verbose`, `--since`).
@@ -46,15 +46,17 @@ The Cobra command tree defined in `cmd/root.go` maps directly to CLI features. S
 - `setup` — Interactive terminal setup wizard that initializes or overwrites `config.yaml`.
 - `add [path]` — Add a new project path to `config.yaml` using comment-preserving YAML node parsing.
 - `remove` — Safely remove a project from `config.yaml` and clean up shadowing keys from the overlay.
-- `startup install|uninstall|status` — Platform-specific OS integration (Windows Task Scheduler, Linux systemd, macOS launchd) to run the daemon on system boot.
+- `startup install|uninstall|status` — Daemon auto-start through Windows Task Scheduler or Linux systemd. This daemon command does not support macOS; per-job schedulers separately provide a Darwin launchd backend.
 - `version` — Display build version, commit hash, and Go version.
 - `update` — Check for updates and download/install the latest version safely.
 
 ### Inspect & Internal Commands
 - `ls-chats` — Discovery debug command to list all discovered chat log sources for a path.
 - `web` — Command to open the running daemon's web dashboard in the default browser.
-- `mcpserver` (Hidden) — Spawns the Model Context Protocol (MCP) server over `stdio` transport. Used to bridge sandboxed LLM providers back to dreamer tools.
-- `recordfinding` (Hidden) — Internal CLI wrapper used to append validated findings from isolated shells.
+- `doctor` / `bug` — Read-only diagnostics, redacted bundles, and issue reporting.
+- `runs` / `replay` / `export` — Inspect captured runs, replay one run, or export findings.
+- `mcp-server` (Hidden) — Spawns the Model Context Protocol (MCP) server over `stdio` transport. Used to bridge sandboxed LLM providers back to dreamer tools.
+- `record-finding` (Hidden) — Internal CLI wrapper used to append validated findings from isolated shells.
 
 ---
 
@@ -173,3 +175,4 @@ Key packages that own cross-cutting reusable helpers:
 | `internal/errs/` | `NotInstalled`, `RateLimit`, `ProviderUnavailable`, `KindOf`, `Is` |
 | `internal/web/handlers/` | `buildLifecycleCounts`, `buildProviderHealth`, `findProjectByName`, `parseSinceWindow`, `loadFindingsFor`, `buildFindingView`, `buildScheduleSummary` |
 | `internal/analyzer/` | `ModelListCache.Get`, `ModelListCache.Peek`, `ModelListCache.Set`, `ModelListCache.Load(dir)`, `ModelListCache.Save(dir)` — disk-persisted provider model list cache (`Peek` is the TTL-free getter used by the setup wizard) |
+

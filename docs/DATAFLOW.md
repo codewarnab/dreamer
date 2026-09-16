@@ -264,11 +264,11 @@ PromptBuilder.BuildPhase2Prompt(mistakes, rulePack, phaseReq)
 │   inline JSON in prompt response                           │
 │                                                            │
 │ Phase2ModeCLI (CLI providers: claude-code, codex, etc.):   │
-│   dreamer recordfinding --output <temp.jsonl>              │
+│   dreamer record-finding --output <temp.jsonl>              │
 │   provider calls the tool; findings written to temp file   │
 │                                                            │
 │ Phase2ModeMCP (MCP-capable providers):                     │
-│   mcpserver spawned on stdio                               │
+│   mcp-server spawned on stdio                               │
 │   provider calls record_finding MCP tool                   │
 │   findings validated + written to temp JSONL file          │
 └────────────────────────────────────────────────────────────┘
@@ -581,7 +581,7 @@ SSE stream to browser  (slow subscribers drop events; no back-pressure)
 
 ---
 
-## 12. MCP Server & `recordfinding` Tool
+## 12. MCP Server & `record-finding` Tool
 
 **Package:** `internal/mcpserver/`
 
@@ -592,14 +592,14 @@ analyzer: spawn provider subprocess with Phase2Config
         │
 Phase2ModeCLI:
   provider subprocess calls:
-    dreamer recordfinding --output <tempFile.jsonl> [finding JSON flags]
+    dreamer record-finding --output <tempFile.jsonl> [finding JSON flags]
         │
         ▼
   cmd/recordfinding.go → mcpserver.FindingRecorder.Record(input)
   validation → append finding to tempFile.jsonl
         │
 Phase2ModeMCP:
-  analyzer: spawn  dreamer mcpserver --output <tempFile.jsonl>
+  analyzer: spawn  dreamer mcp-server --output <tempFile.jsonl>
         │
   provider subprocess calls MCP tool: record_finding(input)
         │
@@ -729,3 +729,4 @@ config.App  ◄── config.yaml + ui-overrides.yaml + .dreamer.yaml
         ▼
 [Events]  EventBus.Publish(run.done)  → SSE → web browser clients
 ```
+

@@ -41,7 +41,7 @@ Discovers chat history from AI coding tools (Copilot, Claude, Codex, Gemini, etc
 ```bash
 # 1. Configure (one-time)
 dreamer setup --non-interactive \
-  --provider copilot \
+  --provider copilot-sdk \
   --output-root ~/.dreamer/output \
   --force
 
@@ -52,7 +52,7 @@ dreamer analyze --path /path/to/project --json
 dreamer status --json
 
 # 4. Read findings
-cat ~/.dreamer/output/project-<name>/todos.md
+cat <output-root>/<project-name>/todos.md
 ```
 
 ## Exit codes
@@ -70,13 +70,13 @@ cat ~/.dreamer/output/project-<name>/todos.md
 ```json
 {
   "todos_path": "/path/to/todos.md",
-  "findings": 3,
+  "findings_added": 3,
   "mistakes": 5,
   "warnings": 0,
   "sources_analyzed": 2,
   "messages_read": 147,
   "cache_hit": false,
-  "provider": "copilot",
+  "provider": "copilot-sdk",
   "mistakes_found": true
 }
 ```
@@ -97,3 +97,4 @@ cat ~/.dreamer/output/project-<name>/todos.md
 - `jobs run` validates a per-install token via `--run-token-file`; use `--force` to bypass.
 - Config path defaults to `<UserConfigDir>/dreamer/config.yaml`.
 - Output root must be an absolute path.
+
