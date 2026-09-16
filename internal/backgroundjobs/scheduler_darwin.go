@@ -277,13 +277,29 @@ type calendarInterval struct {
 
 // writePlistKey writes a <key> element to the plist encoder.
 func writePlistKey(e *xml.Encoder, key string) error {
-	if err := e.EncodeElement(xml.Name{Local: "key"}, xml.StartElement{Name: xml.Name{Local: "key"}}); err != nil {
+	if err := e.EncodeToken(xml.StartElement{Name: xml.Name{Local: "key"}}); err != nil {
 		return err
 	}
 	if err := e.EncodeToken(xml.CharData([]byte(key))); err != nil {
 		return err
 	}
 	return e.EncodeToken(xml.EndElement{Name: xml.Name{Local: "key"}})
+}
+
+
+// nextContentToken returns the next token, skipping whitespace-only CharData
+// that pretty-printed plist XML contains between elements.
+func nextContentToken(d *xml.Decoder) (xml.Token, error) {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return nil, err
+		}
+		if cd, ok := tok.(xml.CharData); ok && strings.TrimSpace(string(cd)) == "" {
+			continue
+		}
+		return tok, nil
+	}
 }
 
 // writePlistString writes a key-string pair.
@@ -299,10 +315,14 @@ func writePlistBool(e *xml.Encoder, key string, value bool) error {
 	if err := writePlistKey(e, key); err != nil {
 		return err
 	}
+	name := "false"
 	if value {
-		return e.EncodeElement(nil, xml.StartElement{Name: xml.Name{Local: "true"}})
+		name = "true"
 	}
-	return e.EncodeElement(nil, xml.StartElement{Name: xml.Name{Local: "false"}})
+	if err := e.EncodeToken(xml.StartElement{Name: xml.Name{Local: name}}); err != nil {
+		return err
+	}
+	return e.EncodeToken(xml.EndElement{Name: xml.Name{Local: name}})
 }
 
 // writePlistInt writes a key-integer pair.
@@ -382,7 +402,20 @@ func (p *launchAgentPlist) UnmarshalXML(d *xml.Decoder, start xml.StartElement) 
 			return err
 		}
 		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "dict" {
-			return p.unmarshalDict(d, se)
+			if err := p.unmarshalDict(d, se); err != nil {
+				return err
+			}
+			// Consume the remainder of the <plist> element; the xml package
+			// requires UnmarshalXML to consume the entire start element.
+			for {
+				t, err := d.Token()
+				if err != nil {
+					return err
+				}
+				if ee, ok := t.(xml.EndElement); ok && ee.Name.Local == "plist" {
+					return nil
+				}
+			}
 		}
 	}
 }
@@ -419,7 +452,7 @@ func (p *launchAgentPlist) unmarshalDict(d *xml.Decoder, _ xml.StartElement) err
 		}
 
 		// Read the value.
-		valTok, err := d.Token()
+		valTok, err := nextContentToken(d)
 		if err != nil {
 			return err
 		}
@@ -459,7 +492,7 @@ func (p *launchAgentPlist) unmarshalDict(d *xml.Decoder, _ xml.StartElement) err
 
 // readPlistInt reads an <integer> value.
 func readPlistInt(d *xml.Decoder, _ xml.StartElement) (int, error) {
-	tok, err := d.Token()
+	tok, err := nextContentToken(d)
 	if err != nil {
 		return 0, err
 	}
@@ -481,16 +514,19 @@ func readPlistInt(d *xml.Decoder, _ xml.StartElement) (int, error) {
 
 // readPlistString reads a <string> value.
 func readPlistString(d *xml.Decoder, _ xml.StartElement) (string, error) {
-	tok, err := d.Token()
+	tok, err := nextContentToken(d)
 	if err != nil {
 		return "", err
 	}
 	if cd, ok := tok.(xml.CharData); ok {
+		// Copy the character data before reading further tokens: the
+		// decoder may reuse its underlying buffer.
+		s := string(cd)
 		// Skip end element.
 		if _, err := d.Token(); err != nil {
 			return "", err
 		}
-		return string(cd), nil
+		return s, nil
 	}
 	// Empty string or end element.
 	if _, ok := tok.(xml.EndElement); ok {
@@ -595,25 +631,32 @@ func readPlistCalendarDict(d *xml.Decoder, _ xml.StartElement) (calendarInterval
 			if _, err := d.Token(); err != nil { // skip </key>
 				return cal, err
 			}
-			// Read integer value.
-			valTok, err := d.Token()
+			// Read the value element (e.g. <integer>9</integer>).
+			valTok, err := nextContentToken(d)
 			if err != nil {
 				return cal, err
 			}
-			if cd, ok := valTok.(xml.CharData); ok {
-				n := 0
-				fmt.Sscanf(string(cd), "%d", &n)
-				switch key {
-				case "Hour":
-					cal.Hour = n
-				case "Minute":
-					cal.Minute = n
-				case "Weekday":
-					cal.Weekday = n
+			if _, ok := valTok.(xml.StartElement); ok {
+				numTok, err := nextContentToken(d)
+				if err != nil {
+					return cal, err
 				}
-			}
-			if _, err := d.Token(); err != nil { // skip end element
-				return cal, err
+				if cd, ok := numTok.(xml.CharData); ok {
+					s := string(cd)
+					n := 0
+					fmt.Sscanf(s, "%d", &n)
+					switch key {
+					case "Hour":
+						cal.Hour = n
+					case "Minute":
+						cal.Minute = n
+					case "Weekday":
+						cal.Weekday = n
+					}
+				}
+				if _, err := d.Token(); err != nil { // skip end element
+					return cal, err
+				}
 			}
 		}
 	}
@@ -743,3 +786,4 @@ func computeNextCalendarRun(now time.Time, hour, minute, weekday int) time.Time 
 
 	return candidate
 }
+
