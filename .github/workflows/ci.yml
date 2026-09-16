@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           test -s dist/checksums.txt
-          test "$(find dist -maxdepth 1 -type f -name 'dreamer_*' | wc -l)" -eq 6
+          test "$(find dist -type f \( -name dreamer -o -name dreamer.exe \) | wc -l)" -eq 6
 
   lint:
     name: Lint
