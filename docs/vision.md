@@ -1,3 +1,5 @@
+> **Status:** Product vision. It describes goals as well as shipped behavior; it is not a command or API contract.
+
 # dreamer — Vision
 
 ## One-line
