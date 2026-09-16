@@ -58,15 +58,18 @@ func newStopCommand() *cobra.Command {
 						}
 						if !daemonStopped {
 							cmd.Printf("graceful stop did not complete in %s; forcing termination\n", gracefulStopTimeout)
-							if killErr := killDaemon(pid); killErr == nil {
-								// Wait for lockfile removal (daemon cleans up via signal handler).
-								_ = waitForLockfileRemoval(lockPath, lockfileWaitTimeoutLong)
-								if !fsutil.IsProcessAlive(pid) {
-									_ = os.Remove(lockPath)
-									cmd.Printf("daemon stopped (PID %d)\n", pid)
-									daemonStopped = true
-								}
+							if killErr := killDaemon(pid); killErr != nil {
+								return fmt.Errorf("stop daemon process (PID %d): %w", pid, killErr)
 							}
+							// Wait for lockfile removal (daemon cleans up via signal handler),
+							// but success ultimately depends on the process exiting.
+							_ = waitForLockfileRemoval(lockPath, lockfileWaitTimeoutLong)
+							if waitErr := waitForProcessExit(pid, lockfileWaitTimeoutLong); waitErr != nil {
+								return fmt.Errorf("daemon process (PID %d) survived termination: %w", pid, waitErr)
+							}
+							_ = os.Remove(lockPath)
+							cmd.Printf("daemon stopped (PID %d)\n", pid)
+							daemonStopped = true
 						}
 					} else {
 						// lockExec is empty (legacy lock) and the process is alive:
@@ -95,18 +98,36 @@ func newStopCommand() *cobra.Command {
 			url := fmt.Sprintf("http://127.0.0.1:%d", port)
 			if probeHealth(url+"/api/health", 200*time.Millisecond) == nil {
 				cmd.Printf("active server detected on port %d\n", port)
-				if p, err := FindPIDByPort(port); err == nil && p > 0 {
-					cmd.Printf("stopping active server process (PID %d)...\n", p)
-					if killErr := killDaemon(p); killErr == nil {
-						cmd.Printf("server stopped (PID %d)\n", p)
-						return nil
-					} else {
-						return fmt.Errorf("stop process (PID %d): %w", p, killErr)
-					}
-				} else {
-					cmd.Printf("found active server on port %d, but could not determine its PID. Please kill it manually.\n", port)
-					return nil
+				p, findErr := FindPIDByPort(port)
+				if findErr != nil || p <= 0 {
+					return fmt.Errorf("active server on port %d could not be identified; refusing to signal it: %w", port, findErr)
 				}
+
+				// A health response proves only that some HTTP server owns the port.
+				// Before signaling a PID discovered from the socket table, require its
+				// live process image to match this Dreamer executable. This protects
+				// unrelated services and closes stale-PID/reuse races at the fallback.
+				expectedExec, execErr := os.Executable()
+				if execErr != nil {
+					return fmt.Errorf("resolve Dreamer executable before stopping PID %d: %w", p, execErr)
+				}
+				if verifyErr := verifyDreamerProcess(p, expectedExec); verifyErr != nil {
+					return fmt.Errorf("active server on port %d is not a verified Dreamer process: %w", port, verifyErr)
+				}
+
+				cmd.Printf("stopping verified Dreamer server process (PID %d)...\n", p)
+				// Re-check immediately before a potentially process-group-wide signal.
+				if verifyErr := verifyDreamerProcess(p, expectedExec); verifyErr != nil {
+					return fmt.Errorf("Dreamer process identity changed before termination (PID %d): %w", p, verifyErr)
+				}
+				if killErr := killDaemon(p); killErr != nil {
+					return fmt.Errorf("stop verified Dreamer process (PID %d): %w", p, killErr)
+				}
+				if waitErr := waitForProcessExit(p, lockfileWaitTimeoutLong); waitErr != nil {
+					return fmt.Errorf("verified Dreamer process (PID %d) survived termination: %w", p, waitErr)
+				}
+				cmd.Printf("server stopped (PID %d)\n", p)
+				return nil
 			}
 
 			if daemonStopped {
@@ -135,4 +156,31 @@ func waitForLockfileRemoval(lockPath string, timeout time.Duration) error {
 		time.Sleep(lockfilePollIntervalSlow)
 	}
 	return fmt.Errorf("timeout waiting for lockfile removal")
+}
+
+// verifyDreamerProcess requires a readable live executable and an exact
+// canonical-path match. A PID or HTTP response alone is never process identity.
+func verifyDreamerProcess(pid int, expectedExec string) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid PID %d", pid)
+	}
+	liveExec, ok := fsutil.ProcessExecutable(pid)
+	if !ok {
+		return fmt.Errorf("cannot read executable identity for PID %d", pid)
+	}
+	if !fsutil.ExecPathsMatch(expectedExec, liveExec) {
+		return fmt.Errorf("PID %d executable %q does not match Dreamer executable %q", pid, liveExec, expectedExec)
+	}
+	return nil
+}
+
+func waitForProcessExit(pid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !fsutil.IsProcessAlive(pid) {
+			return nil
+		}
+		time.Sleep(lockfilePollIntervalSlow)
+	}
+	return fmt.Errorf("timeout waiting for PID %d to exit", pid)
 }
