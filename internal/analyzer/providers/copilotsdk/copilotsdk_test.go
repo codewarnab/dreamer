@@ -10,6 +10,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 
 	"dreamer/internal/analyzer"
 )
@@ -354,8 +355,7 @@ func TestSetSDKClientFactoryRestore(t *testing.T) {
 // --- translateCopilotRequest ---
 
 func TestTranslateCopilotRequestRead(t *testing.T) {
-	path := "/foo/bar"
-	req := copilot.PermissionRequest{Kind: copilot.PermissionRequestKindRead, Path: &path}
+	req := &rpc.PermissionRequestRead{Path: "/foo/bar"}
 	out := translateCopilotRequest(req)
 	if out.Kind != analyzer.PermissionKindRead {
 		t.Fatalf("Kind = %q, want read", out.Kind)
@@ -366,31 +366,49 @@ func TestTranslateCopilotRequestRead(t *testing.T) {
 }
 
 func TestTranslateCopilotRequestURL(t *testing.T) {
-	req := copilot.PermissionRequest{Kind: copilot.PermissionRequestKindURL}
+	req := &rpc.PermissionRequestURL{URL: "https://example.com/data"}
 	out := translateCopilotRequest(req)
 	if out.Kind != analyzer.PermissionKindURL {
 		t.Fatalf("Kind = %q, want url", out.Kind)
 	}
+	// The URL must be carried through so analyzer.validateURL can check it.
+	if out.Path == nil || *out.Path != "https://example.com/data" {
+		t.Fatalf("Path = %v, want the request URL", out.Path)
+	}
 }
 
 func TestTranslateCopilotRequestShell(t *testing.T) {
-	req := copilot.PermissionRequest{Kind: copilot.PermissionRequestKindShell}
+	req := &rpc.PermissionRequestShell{}
 	out := translateCopilotRequest(req)
 	if out.Kind != analyzer.PermissionKindShell {
 		t.Fatalf("Kind = %q, want shell", out.Kind)
 	}
 }
 
+func TestTranslateCopilotRequestShellFullCommandText(t *testing.T) {
+	req := &rpc.PermissionRequestShell{FullCommandText: "git status", HasWriteFileRedirection: true}
+	out := translateCopilotRequest(req)
+	if out.FullCommandText == nil || *out.FullCommandText != "git status" {
+		t.Fatalf("FullCommandText = %v, want git status", out.FullCommandText)
+	}
+	if out.HasWriteFileRedirection == nil || !*out.HasWriteFileRedirection {
+		t.Fatalf("HasWriteFileRedirection = %v, want true", out.HasWriteFileRedirection)
+	}
+}
+
 func TestTranslateCopilotRequestMcp(t *testing.T) {
-	req := copilot.PermissionRequest{Kind: copilot.PermissionRequestKindMcp}
+	req := &rpc.PermissionRequestMCP{ReadOnly: true}
 	out := translateCopilotRequest(req)
 	if out.Kind != analyzer.PermissionKindMCPTool {
 		t.Fatalf("Kind = %q, want mcp", out.Kind)
 	}
+	if out.ReadOnly == nil || !*out.ReadOnly {
+		t.Fatalf("ReadOnly = %v, want true", out.ReadOnly)
+	}
 }
 
 func TestTranslateCopilotRequestCustomTool(t *testing.T) {
-	req := copilot.PermissionRequest{Kind: copilot.PermissionRequestKindCustomTool}
+	req := &rpc.PermissionRequestCustomTool{}
 	out := translateCopilotRequest(req)
 	if out.Kind != analyzer.PermissionKindCustomTool {
 		t.Fatalf("Kind = %q, want custom-tool", out.Kind)
@@ -398,7 +416,7 @@ func TestTranslateCopilotRequestCustomTool(t *testing.T) {
 }
 
 func TestTranslateCopilotRequestUnknownKind(t *testing.T) {
-	req := copilot.PermissionRequest{Kind: copilot.PermissionRequestKind("future")}
+	req := &rpc.RawPermissionRequest{Discriminator: rpc.PermissionRequestKind("future")}
 	out := translateCopilotRequest(req)
 	if string(out.Kind) != "future" {
 		t.Fatalf("Kind = %q, want future", out.Kind)
@@ -406,8 +424,8 @@ func TestTranslateCopilotRequestUnknownKind(t *testing.T) {
 }
 
 func TestTranslateCopilotRequestCommands(t *testing.T) {
-	req := copilot.PermissionRequest{
-		Commands: []copilot.PermissionRequestShellCommand{
+	req := &rpc.PermissionRequestShell{
+		Commands: []rpc.PermissionRequestShellCommand{
 			{Identifier: "git", ReadOnly: true},
 			{Identifier: "rm", ReadOnly: false},
 		},
@@ -422,7 +440,7 @@ func TestTranslateCopilotRequestCommands(t *testing.T) {
 }
 
 func TestTranslateCopilotRequestPossiblePaths(t *testing.T) {
-	req := copilot.PermissionRequest{PossiblePaths: []string{"/a", "/b"}}
+	req := &rpc.PermissionRequestShell{PossiblePaths: []string{"/a", "/b"}}
 	out := translateCopilotRequest(req)
 	if len(out.PossiblePaths) != 2 {
 		t.Fatalf("PossiblePaths len = %d, want 2", len(out.PossiblePaths))
@@ -433,25 +451,33 @@ func TestTranslateCopilotRequestPossiblePaths(t *testing.T) {
 
 func TestPermissionApproved(t *testing.T) {
 	r := permissionApproved()
-	if r.Kind != copilot.PermissionRequestResultKindApproved {
-		t.Fatalf("Kind = %q, want approved", r.Kind)
+	if r.Kind() != rpc.PermissionDecisionKindApproveOnce {
+		t.Fatalf("Kind = %q, want approve-once", r.Kind())
 	}
 }
 
 func TestPermissionRejected(t *testing.T) {
 	r := permissionRejected("outside root")
-	if r.Kind != copilot.PermissionRequestResultKindRejected {
-		t.Fatalf("Kind = %q, want rejected", r.Kind)
+	if r.Kind() != rpc.PermissionDecisionKindReject {
+		t.Fatalf("Kind = %q, want reject", r.Kind())
 	}
-	if len(r.Rules) != 1 {
-		t.Fatalf("Rules len = %d, want 1", len(r.Rules))
+	reject, ok := r.(*rpc.PermissionDecisionReject)
+	if !ok {
+		t.Fatalf("type = %T, want *rpc.PermissionDecisionReject", r)
+	}
+	if reject.Feedback == nil || *reject.Feedback != "outside root" {
+		t.Fatalf("Feedback = %v, want the rejection reason", reject.Feedback)
 	}
 }
 
 func TestPermissionRejectedEmptyReason(t *testing.T) {
 	r := permissionRejected("")
-	if len(r.Rules) != 0 {
-		t.Fatalf("Rules len = %d, want 0 for empty reason", len(r.Rules))
+	reject, ok := r.(*rpc.PermissionDecisionReject)
+	if !ok {
+		t.Fatalf("type = %T, want *rpc.PermissionDecisionReject", r)
+	}
+	if reject.Feedback != nil {
+		t.Fatalf("Feedback = %v, want nil for empty reason", *reject.Feedback)
 	}
 }
 
@@ -517,8 +543,12 @@ func TestBuildSDKClientOptionsCLIURLNoConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSDKClientOptions: %v", err)
 	}
-	if opts.CLIUrl != "http://localhost:8080" {
-		t.Fatalf("CLIUrl = %q", opts.CLIUrl)
+	conn, ok := opts.Connection.(copilot.URIConnection)
+	if !ok {
+		t.Fatalf("Connection = %T, want copilot.URIConnection", opts.Connection)
+	}
+	if conn.URL != "http://localhost:8080" {
+		t.Fatalf("Connection.URL = %q", conn.URL)
 	}
 }
 
@@ -919,17 +949,14 @@ func TestBuildPermissionHandlerApproved(t *testing.T) {
 	handler := buildPermissionHandler(dir)
 
 	path := dir + "/somefile.txt"
-	readOnly := true
-	result, err := handler(copilot.PermissionRequest{
-		Kind:     copilot.PermissionRequestKindRead,
-		Path:     &path,
-		ReadOnly: &readOnly,
+	result, err := handler(&rpc.PermissionRequestRead{
+		Path: path,
 	}, copilot.PermissionInvocation{})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	if result.Kind != copilot.PermissionRequestResultKindApproved {
-		t.Fatalf("expected approved, got %q", result.Kind)
+	if result.Kind() != rpc.PermissionDecisionKindApproveOnce {
+		t.Fatalf("expected approved, got %q", result.Kind())
 	}
 }
 
@@ -937,32 +964,56 @@ func TestBuildPermissionHandlerRejected(t *testing.T) {
 	dir := t.TempDir()
 	handler := buildPermissionHandler(dir)
 
-	outsidePath := "/outside/project/file.txt"
-	result, err := handler(copilot.PermissionRequest{
-		Kind: copilot.PermissionRequestKindRead,
-		Path: &outsidePath,
+	result, err := handler(&rpc.PermissionRequestRead{
+		Path: "/outside/project/file.txt",
 	}, copilot.PermissionInvocation{})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	if result.Kind != copilot.PermissionRequestResultKindRejected {
-		t.Fatalf("expected rejected, got %q", result.Kind)
+	if result.Kind() != rpc.PermissionDecisionKindReject {
+		t.Fatalf("expected rejected, got %q", result.Kind())
 	}
-	if len(result.Rules) == 0 {
-		t.Fatal("expected rejection rules to be set")
+	reject, ok := result.(*rpc.PermissionDecisionReject)
+	if !ok {
+		t.Fatalf("type = %T, want *rpc.PermissionDecisionReject", result)
+	}
+	if reject.Feedback == nil || *reject.Feedback == "" {
+		t.Fatal("expected rejection feedback to be set")
 	}
 }
 
-func TestBuildPermissionHandlerInvalidRoot(t *testing.T) {
-	// Empty string causes NormalizeRootPath error.
+func TestBuildPermissionHandlerUnknownKindRejected(t *testing.T) {
+	// A future/unknown kind must be denied by DecidePermission's default
+	// case, and the handler must surface that as a reject decision.
 	handler := buildPermissionHandler("")
 
-	result, err := handler(copilot.PermissionRequest{}, copilot.PermissionInvocation{})
+	result, err := handler(&rpc.RawPermissionRequest{
+		Discriminator: rpc.PermissionRequestKind("future"),
+		Raw:           []byte(`{"kind":"future"}`),
+	}, copilot.PermissionInvocation{})
 	if err != nil {
 		t.Fatalf("handler should not return error, got: %v", err)
 	}
-	if result.Kind != copilot.PermissionRequestResultKindRejected {
-		t.Fatalf("expected rejected for invalid root, got %q", result.Kind)
+	if result.Kind() != rpc.PermissionDecisionKindReject {
+		t.Fatalf("expected rejected for unknown kind, got %q", result.Kind())
+	}
+}
+
+func TestBuildPermissionHandlerManagedApprovalRequired(t *testing.T) {
+	// Managed policy requests require an explicit user decision; the
+	// headless analyzer must decline to answer rather than auto-approve.
+	dir := t.TempDir()
+	handler := buildPermissionHandler(dir)
+
+	result, err := handler(&rpc.PermissionRequestRead{
+		Path:                    dir + "/somefile.txt",
+		ManagedApprovalRequired: copilot.Bool(true),
+	}, copilot.PermissionInvocation{})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if _, ok := result.(*rpc.PermissionDecisionNoResult); !ok {
+		t.Fatalf("expected *rpc.PermissionDecisionNoResult for managed approval, got %T (%q)", result, result.Kind())
 	}
 }
 

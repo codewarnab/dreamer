@@ -9,6 +9,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 
 	"dreamer/internal/analyzer"
 	"dreamer/internal/chat"
@@ -201,18 +202,21 @@ func buildSDKClientOptions(options Options) (*copilot.ClientOptions, error) {
 	cliURL := strings.TrimSpace(options.CLIURL)
 
 	sdkOptions := &copilot.ClientOptions{
-		CLIUrl:    cliURL,
-		AutoStart: copilot.Bool(true),
-		LogLevel:  "error",
-	}
-	if copilotHome != "" {
-		sdkOptions.Env = upsertEnvVar(os.Environ(), "COPILOT_HOME", copilotHome)
+		LogLevel: "error",
 	}
 	if cliURL != "" {
 		if options.UseLoggedInUserSet && options.UseLoggedInUser {
 			return nil, fmt.Errorf("configure copilot-sdk provider: UseLoggedInUser cannot be enabled when CLIURL is set; authenticate the external Copilot CLI server instead")
 		}
+		// v1: an externally managed runtime is reached through a
+		// URIConnection. The remote runtime owns its environment, so
+		// COPILOT_HOME/Env do not apply (the SDK rejects Env on URI
+		// connections).
+		sdkOptions.Connection = copilot.URIConnection{URL: cliURL}
 		return sdkOptions, nil
+	}
+	if copilotHome != "" {
+		sdkOptions.Env = upsertEnvVar(os.Environ(), "COPILOT_HOME", copilotHome)
 	}
 	useLoggedInUser := true
 	if options.UseLoggedInUserSet {
@@ -241,7 +245,13 @@ func buildSessionConfig(model string, sessionConfig analyzer.SessionConfig) *cop
 
 func buildPermissionHandler(workingDirectory string) copilot.PermissionHandlerFunc {
 	normalizedRoot, rootErr := fsutil.NormalizeRootPath(workingDirectory)
-	return func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
+	return func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+		if request.RequiresManagedApproval() {
+			// Managed policy requires an explicit user decision; a headless
+			// read-only analyzer must never auto-approve these. Returning no
+			// result lets another client answer instead.
+			return &rpc.PermissionDecisionNoResult{}, nil
+		}
 		if rootErr != nil {
 			return permissionRejected(fmt.Sprintf("invalid project root %q: %v", workingDirectory, rootErr)), nil
 		}
@@ -253,36 +263,42 @@ func buildPermissionHandler(workingDirectory string) copilot.PermissionHandlerFu
 	}
 }
 
+// translateCopilotRequest maps the SDK v1 discriminated permission-request
+// union onto dreamer's provider-agnostic request. The runtime delivers
+// pointer variants (see rpc.unmarshalPermissionRequest); unknown or future
+// kinds keep their discriminator string and are denied by DecidePermission's
+// default case, preserving fail-closed behavior.
 func translateCopilotRequest(request copilot.PermissionRequest) analyzer.PermissionRequest {
-	out := analyzer.PermissionRequest{
-		Path:                    request.Path,
-		PossiblePaths:           request.PossiblePaths,
-		ReadOnly:                request.ReadOnly,
-		HasWriteFileRedirection: request.HasWriteFileRedirection,
-		FullCommandText:         request.FullCommandText,
-	}
-	if len(request.Commands) > 0 {
-		out.Commands = make([]analyzer.ShellCommand, 0, len(request.Commands))
-		for _, command := range request.Commands {
-			out.Commands = append(out.Commands, analyzer.ShellCommand{
-				Identifier: command.Identifier,
-				ReadOnly:   command.ReadOnly,
-			})
-		}
-	}
-	switch request.Kind {
-	case copilot.PermissionRequestKindRead:
+	var out analyzer.PermissionRequest
+	switch r := request.(type) {
+	case *rpc.PermissionRequestRead:
 		out.Kind = analyzer.PermissionKindRead
-	case copilot.PermissionRequestKindURL:
-		out.Kind = analyzer.PermissionKindURL
-	case copilot.PermissionRequestKindShell:
+		out.Path = copilot.String(r.Path)
+	case *rpc.PermissionRequestShell:
 		out.Kind = analyzer.PermissionKindShell
-	case copilot.PermissionRequestKindMcp:
+		out.FullCommandText = copilot.String(r.FullCommandText)
+		out.PossiblePaths = r.PossiblePaths
+		out.HasWriteFileRedirection = copilot.Bool(r.HasWriteFileRedirection)
+		if len(r.Commands) > 0 {
+			out.Commands = make([]analyzer.ShellCommand, 0, len(r.Commands))
+			for _, command := range r.Commands {
+				out.Commands = append(out.Commands, analyzer.ShellCommand{
+					Identifier: command.Identifier,
+					ReadOnly:   command.ReadOnly,
+				})
+			}
+		}
+	case *rpc.PermissionRequestURL:
+		out.Kind = analyzer.PermissionKindURL
+		// analyzer.validateURL reads the target from Path.
+		out.Path = copilot.String(r.URL)
+	case *rpc.PermissionRequestMCP:
 		out.Kind = analyzer.PermissionKindMCPTool
-	case copilot.PermissionRequestKindCustomTool:
+		out.ReadOnly = copilot.Bool(r.ReadOnly)
+	case *rpc.PermissionRequestCustomTool:
 		out.Kind = analyzer.PermissionKindCustomTool
 	default:
-		out.Kind = PermissionKind(string(request.Kind))
+		out.Kind = PermissionKind(string(request.Kind()))
 	}
 	return out
 }
@@ -290,18 +306,16 @@ func translateCopilotRequest(request copilot.PermissionRequest) analyzer.Permiss
 // PermissionKind alias used only to widen unknown kinds to the analyzer's type.
 type PermissionKind = analyzer.PermissionKind
 
-func permissionApproved() copilot.PermissionRequestResult {
-	return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindApproved}
+func permissionApproved() rpc.PermissionDecision {
+	return &rpc.PermissionDecisionApproveOnce{}
 }
 
-func permissionRejected(reason string) copilot.PermissionRequestResult {
-	denial := copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindRejected}
-	if trimmed := strings.TrimSpace(reason); trimmed != "" {
-		denial.Rules = []any{
-			map[string]any{"decision": "deny", "reason": trimmed},
-		}
+func permissionRejected(reason string) rpc.PermissionDecision {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return &rpc.PermissionDecisionReject{}
 	}
-	return denial
+	return &rpc.PermissionDecisionReject{Feedback: copilot.String(trimmed)}
 }
 
 func upsertEnvVar(env []string, key string, value string) []string {
