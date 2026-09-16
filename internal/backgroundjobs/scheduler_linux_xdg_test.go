@@ -15,18 +15,18 @@ import (
 	"dreamer/internal/logging"
 )
 
-// unsetEnv removes key for the duration of the test.
+// unsetEnv removes key for the duration of the test, restoring any prior
+// value afterwards. t.Setenv alone cannot express "unset", so when a value
+// exists it is re-set to itself first, registering restoration, and the key
+// is then unset for the test body.
 func unsetEnv(t *testing.T, key string) {
 	t.Helper()
-	orig, had := os.LookupEnv(key)
+	if orig, had := os.LookupEnv(key); had {
+		t.Setenv(key, orig)
+	}
 	if err := os.Unsetenv(key); err != nil {
 		t.Fatalf("unsetenv %s: %v", key, err)
 	}
-	t.Cleanup(func() {
-		if had {
-			_ = os.Setenv(key, orig)
-		}
-	})
 }
 
 // The systemd user unit directory must honor XDG_CONFIG_HOME: systemd reads
