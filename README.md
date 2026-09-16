@@ -12,14 +12,33 @@ The product is a **prevention engine**, not a code reviewer. Output answers:
 *"what rule / test / doc would have stopped the agent making mistake M
 against this repo last week?"*
 
-Spec: [System Specification](docs/spec.md)
+Historical design background: [v1 system specification](docs/spec.md). Current behavior is documented in the CLI, API, architecture, and security references.
 
 ---
+
+## Install
+
+Release binaries are published for Linux, macOS, and Windows on `amd64` and
+`arm64`. Download the matching `dreamer_<os>_<arch>` file and
+`checksums.txt` from the GitHub release, verify its SHA-256 checksum, then put
+the binary on your `PATH` (for example `/usr/local/bin/dreamer` on Unix or a
+directory listed in `%PATH%` on Windows). On Unix, mark it executable first:
+
+```bash
+sha256sum -c checksums.txt --ignore-missing
+chmod +x dreamer_<os>_<arch>
+sudo install -m 0755 dreamer_<os>_<arch> /usr/local/bin/dreamer
+```
+
+Alternatively, build from source with `make build`. The release archives are
+raw binaries, and `dreamer update` must be able to replace the installed file;
+use an installation directory writable by your account or run the update with
+the permissions required for that directory.
 
 ## Quick start
 
 ```bash
-# 1. build
+# 1. build only when installing from source
 make build                     # release build (~18MB, stripped, -trimpath)
 
 # 2. interactive setup (writes config.yaml)
@@ -79,11 +98,11 @@ dreamer supports a fast primary + ACP fallback per platform:
 | Copilot   | `copilot-sdk`       | `copilot-acp`      | `auto`                         |
 | Claude    | `claude-cli`        | `claude-acp`       | `claude-haiku-4-5-20251001`   |
 | Gemini    | `gemini-cli`        | `gemini-acp`       | `gemini-3-flash-preview`      |
-| Kiro      | `kiro-acp`          | n/a                | `claude-sonnet-4-5-20250929`  |
+| Kiro      | `kiro-acp`          | n/a                | `claude-sonnet-4.5`           |
 | Codex     | `codex-cli`         | `codex-acp`        | `gpt-5.4-mini`                |
 | OpenClaude| `openclaude-cli`    | n/a                | `mimo-v2.5-pro`               |
 | OpenCode  | `opencode-server`   | `opencode-acp`     | `deepseek-v4-flash`           |
-| Codebuff  | `codebuff-sdk`      | n/a                | `claude-opus-4-7`             |
+| Codebuff  | `codebuff-sdk`      | n/a                | `claude-opus-4-6`             |
 
 Configure each provider under `providers.<id>` in the global config. See
 the inline comments produced by `dreamer setup` for valid options per
@@ -161,7 +180,35 @@ non-empty.
   (default 480KB per chunk). Chunks run sequentially by default; opt-in
   parallel execution via `--parallel` or config.
 
-See [docs/spec.md](docs/spec.md) for the canonical contract.
+On Linux, application config lives under `$XDG_CONFIG_HOME/dreamer/` (or
+`~/.config/dreamer/`). Daemon startup and background-job systemd units live
+under `$XDG_CONFIG_HOME/systemd/user/` (or `~/.config/systemd/user/`). For
+systemd compatibility, an empty, whitespace-only, or relative
+`XDG_CONFIG_HOME` is ignored and the `~/.config` fallback is used.
+
+See [docs/CLI.md](docs/CLI.md) for the current command contract and
+[docs/spec.md](docs/spec.md) for historical v1 design context.
+
+
+Minimal non-interactive setup example:
+
+```bash
+dreamer setup --non-interactive \
+  --provider openclaude-cli \
+  --output-root "$HOME/.local/share/dreamer"
+```
+
+Linux daemon auto-start example:
+
+```bash
+# With an absolute XDG path, the unit is written below this directory.
+XDG_CONFIG_HOME="$HOME/.config" dreamer startup install
+systemctl --user status dreamer.service
+```
+
+Windows uses `dreamer startup install` with Task Scheduler. The daemon startup
+command does not install launchd on macOS; the background-job scheduler has a
+separate Darwin launchd backend.
 
 ---
 
@@ -188,3 +235,11 @@ built without it. Use `-tags notrimpath` to suppress (e.g. CI fast-builds).
 
 SQLite uses `modernc.org/sqlite` (pure Go, no CGo) for zero-cgo
 cross-compilation.
+
+## Documentation maintenance
+
+When commands, provider defaults, API routes, or internal command names change,
+update their references in the same pull request. Useful automated drift checks
+include Cobra command/flag inventory comparison, provider-table generation,
+internal-link validation, API route inventory comparison, obsolete-command
+spelling checks, and duplicate-heading detection.
