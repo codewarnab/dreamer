@@ -140,10 +140,12 @@ func TestAddCommand_AppendsProjectToExistingConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GlobalConfigPath: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+	err = os.MkdirAll(filepath.Dir(cfgPath), 0o755)
+	if err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(cfgPath, []byte(minimalSeedConfig), 0o644); err != nil {
+	err = os.WriteFile(cfgPath, []byte(minimalSeedConfig), 0o644)
+	if err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 	projectDir := t.TempDir()
