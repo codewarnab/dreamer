@@ -143,4 +143,3 @@ func PathWithinRoot(path, root string) bool {
 	canonicalRoot := canonical(root)
 	return canonicalPath == canonicalRoot || strings.HasPrefix(canonicalPath, canonicalRoot+sep)
 }
-
