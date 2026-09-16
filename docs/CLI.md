@@ -189,7 +189,7 @@ dreamer startup uninstall
 | Platform | Mechanism                                        |
 |----------|--------------------------------------------------|
 | Windows  | Task Scheduler (`schtasks.exe`, ONLOGON trigger) |
-| Linux    | systemd user service (`~/.config/systemd/user/`) |
+| Linux    | systemd user service (`$XDG_CONFIG_HOME/systemd/user/`, fallback `~/.config/systemd/user/`) |
 
 ---
 
@@ -343,3 +343,4 @@ dreamer update [--check] [--force]
 
 - `--check`: Perform a dry-run checking for updates and comparing local vs latest versions without downloading.
 - `--force`: Forcefully re-download and overwrite the current binary even if already up to date.
+
