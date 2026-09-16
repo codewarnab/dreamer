@@ -16,24 +16,43 @@ Historical design background: [v1 system specification](docs/spec.md). Current b
 
 ---
 
+## Project status and support
+
+Dreamer is under active development and has not published a stable release. See [SUPPORT.md](SUPPORT.md) for the tested-platform matrix and current sandbox and service-management limits. Use [GitHub Issues](https://github.com/codewarnab/dreamer/issues) for public bug reports and focused feature requests. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
 ## Install
 
 Release binaries are published for Linux, macOS, and Windows on `amd64` and
 `arm64`. Download the matching `dreamer_<os>_<arch>` file and
-`checksums.txt` from the GitHub release, verify its SHA-256 checksum, then put
+`checksums.txt` from [GitHub Releases](https://github.com/codewarnab/dreamer/releases), verify its SHA-256 checksum, then put
 the binary on your `PATH` (for example `/usr/local/bin/dreamer` on Unix or a
 directory listed in `%PATH%` on Windows). On Unix, mark it executable first:
 
 ```bash
+# Linux
 sha256sum -c checksums.txt --ignore-missing
 chmod +x dreamer_<os>_<arch>
 sudo install -m 0755 dreamer_<os>_<arch> /usr/local/bin/dreamer
+
+# macOS
+shasum -a 256 dreamer_darwin_<arch>
+grep 'dreamer_darwin_<arch>' checksums.txt
+
+# Windows PowerShell
+Get-FileHash .\dreamer_windows_<arch>.exe -Algorithm SHA256
+Select-String -Path .\checksums.txt -Pattern 'dreamer_windows_<arch>.exe'
 ```
+
+To build from source, install Go 1.26.8 (or the version declared in `go.mod`), Git, and Make, then run `go mod download` and `make build`. Provider-backed analysis also requires the selected provider CLI and its normal authentication, except where the provider documentation says otherwise. On Linux, sandboxed provider execution requires `bwrap` and enabled unprivileged user namespaces; see [docs/SANDBOX.md](docs/SANDBOX.md).
 
 Alternatively, build from source with `make build`. The release archives are
 raw binaries, and `dreamer update` must be able to replace the installed file;
 use an installation directory writable by your account or run the update with
-the permissions required for that directory.
+the permissions required for that directory. To upgrade manually, verify a new
+release and replace the binary. To roll back, repeat that process with a previous
+release. To uninstall, stop Dreamer, remove any installed startup integration with
+`dreamer startup uninstall`, then remove the binary. Configuration and analysis
+output are retained unless you remove their directories yourself.
 
 ## Quick start
 
@@ -243,3 +262,10 @@ update their references in the same pull request. Useful automated drift checks
 include Cobra command/flag inventory comparison, provider-table generation,
 internal-link validation, API route inventory comparison, obsolete-command
 spelling checks, and duplicate-heading detection.
+
+
+## Contributing and license
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [docs/TESTING.md](docs/TESTING.md) before opening a pull request.
+
+Dreamer is licensed under the [MIT License](LICENSE).
