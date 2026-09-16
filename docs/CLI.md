@@ -84,6 +84,8 @@ dreamer stop [--config <path>]
 - Preferred path: writes the sentinel file `<output_root>/dreamer.daemon.stop`; the daemon polls for it, cancels its context, and shuts down with full state flushing. This works from every shell (Git Bash `kill`, PowerShell, cmd) and is the **only graceful** mechanism on Windows, where a detached daemon cannot receive SIGTERM.
 - Fallback: if the daemon does not exit within 20s (wedged or pre-stop-file version), it is force-terminated via `taskkill /T /F` on Windows or a process-group signal on Unix.
 - The daemon also removes any leftover sentinel on exit so a future start is not immediately stopped.
+- Before any signal, Dreamer verifies that a lockfile PID or socket-discovered PID belongs to the expected Dreamer executable. Legacy lockfiles without executable metadata and processes whose identity cannot be read are left untouched.
+- Dreamer rechecks process identity immediately before forced termination and waits for confirmed process exit before reporting success, preventing stale or reused PIDs from terminating unrelated processes.
 
 ### `dreamer status`
 
@@ -189,7 +191,7 @@ dreamer startup uninstall
 | Platform | Mechanism                                        |
 |----------|--------------------------------------------------|
 | Windows  | Task Scheduler (`schtasks.exe`, ONLOGON trigger) |
-| Linux    | systemd user service (`$XDG_CONFIG_HOME/systemd/user/`, fallback `~/.config/systemd/user/`) |
+| Linux    | systemd user service (`$XDG_CONFIG_HOME/systemd/user/`, fallback `~/.config/systemd/user/`; empty, whitespace-only, and relative values fall back because systemd requires an absolute path) |
 
 ---
 
@@ -321,6 +323,31 @@ Or manage jobs directly via CLI subcommands:
 
 ## 5. System Utilities
 
+
+### `dreamer doctor`
+
+Run read-only diagnostics for config validity, output-root writability, logs,
+OS sandbox availability, and background-job health. A failing check makes the
+command exit unsuccessfully.
+
+```bash
+dreamer doctor [--json] [--output-root <dir>]
+```
+
+### `dreamer bug`
+
+Create a redacted diagnostic bundle or prepare/file a GitHub issue.
+
+```bash
+dreamer bug report [--output <file.zip>] [--output-root <dir>]
+dreamer bug issue --title <text> [--body <text>] [--yes] [--dry-run] [--output-root <dir>]
+```
+
+`bug report` writes a ZIP after applying the secret-redaction pipeline.
+`bug issue` previews by default; `--yes` submits through an authenticated `gh`
+CLI. If `gh` is missing or signed out, Dreamer saves the composed body locally
+and prints browser instructions instead.
+
 ### `dreamer version`
 
 Print build version, commit hash, build date, Go compiler version, and system OS/architecture.
@@ -343,4 +370,5 @@ dreamer update [--check] [--force]
 
 - `--check`: Perform a dry-run checking for updates and comparing local vs latest versions without downloading.
 - `--force`: Forcefully re-download and overwrite the current binary even if already up to date.
+
 
