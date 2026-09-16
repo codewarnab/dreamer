@@ -118,7 +118,7 @@ func newStopCommand() *cobra.Command {
 				cmd.Printf("stopping verified Dreamer server process (PID %d)...\n", p)
 				// Re-check immediately before a potentially process-group-wide signal.
 				if verifyErr := verifyDreamerProcess(p, expectedExec); verifyErr != nil {
-					return fmt.Errorf("Dreamer process identity changed before termination (PID %d): %w", p, verifyErr)
+					return fmt.Errorf("dreamer process identity changed before termination (PID %d): %w", p, verifyErr)
 				}
 				if killErr := killDaemon(p); killErr != nil {
 					return fmt.Errorf("stop verified Dreamer process (PID %d): %w", p, killErr)
