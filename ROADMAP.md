@@ -1,3 +1,5 @@
+> **Status:** Forward-looking roadmap. Items here are plans, not claims about shipped behavior.
+
 # Dreamer: Understanding Spree Roadmap
 ## Mitigating Cognitive & Intent Debt in the Age of Agentic Coding
 
@@ -128,3 +130,4 @@ To bring this knowledge to life:
 
 4. **Review your configuration:**
    Open `<UserConfigDir>/dreamer/config.yaml` to see how providers, exclusions, and active rule packs are registered.
+
