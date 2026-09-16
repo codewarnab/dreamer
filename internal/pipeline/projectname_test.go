@@ -62,7 +62,13 @@ func TestResolveAbsoluteProjectPathExpandsHomeAndCleans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveAbsoluteProjectPath returned error: %v", err)
 	}
-	if resolved != filepath.Clean(nested) {
-		t.Fatalf("resolved = %q, want %q", resolved, filepath.Clean(nested))
+	// resolveAbsoluteProjectPath canonicalizes symlinks; t.TempDir() may
+	// traverse /var -> /private/var (macOS) or use 8.3 short names (Windows).
+	want, err := filepath.EvalSymlinks(nested)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	if resolved != want {
+		t.Fatalf("resolved = %q, want %q", resolved, want)
 	}
 }

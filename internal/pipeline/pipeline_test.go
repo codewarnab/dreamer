@@ -411,7 +411,14 @@ func TestRunWritesTodosToProjectRoot(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	expectedProjectTodos := filepath.Join(projectDir, "todos.md")
+	// The pipeline canonicalizes the project path (symlinks resolved), so
+	// compare against the resolved form: t.TempDir() may traverse
+	// /var -> /private/var (macOS) or use 8.3 short names (Windows).
+	resolvedProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks projectDir: %v", err)
+	}
+	expectedProjectTodos := filepath.Join(resolvedProjectDir, "todos.md")
 	if result.TodosPath != expectedProjectTodos {
 		t.Fatalf("TodosPath = %q, want %q", result.TodosPath, expectedProjectTodos)
 	}

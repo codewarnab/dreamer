@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -567,6 +568,9 @@ func TestProjectRulesPath(t *testing.T) {
 }
 
 func TestConfigDirBase_UsesXDGWhenSet(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG_CONFIG_HOME is intentionally ignored on Windows; see ConfigDirBase")
+	}
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	got, err := ConfigDirBase()
@@ -579,6 +583,9 @@ func TestConfigDirBase_UsesXDGWhenSet(t *testing.T) {
 }
 
 func TestUserConfigRoot_AppendsDreamer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG_CONFIG_HOME is intentionally ignored on Windows; see ConfigDirBase")
+	}
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	got, err := UserConfigRoot()
@@ -1034,6 +1041,9 @@ daemon:
 }
 
 func TestGlobalConfigPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG_CONFIG_HOME is intentionally ignored on Windows; see ConfigDirBase")
+	}
 	xdg := filepath.Join(t.TempDir(), "xdg")
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	got, err := GlobalConfigPath()

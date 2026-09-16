@@ -5,18 +5,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dreamer/internal/config"
 )
 
 func TestRemoveCommand_RemovesProject(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
-	cfgDir := filepath.Join(home, ".config", "dreamer")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+	cfgPath, err := config.GlobalConfigPath()
+	if err != nil {
+		t.Fatalf("GlobalConfigPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	seed := strings.Replace(minimalSeedConfig, "projects: []",
 		"projects:\n  - name: myrepo\n    path: /abs/myrepo\n    since: 7d\n", 1)
-	cfgPath := filepath.Join(cfgDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(seed), 0o644); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}

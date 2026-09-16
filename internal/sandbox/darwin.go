@@ -36,6 +36,22 @@ func resolveWritableDirs(projectDir string, dirs []string) ([]string, error) {
 	resolved := make([]string, 0, len(dirs))
 	seen := make(map[string]bool)
 
+	// Canonicalize the project dir so overlap checks compare real paths.
+	// Temp-dir style paths may traverse symlinks (/var -> /private/var on
+	// macOS); without resolution a writable dir could alias the project dir
+	// and slip past the overlap rejection below.
+	if projectDir != "" {
+		absProj, err := filepath.Abs(projectDir)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: resolve project dir %q: %w", projectDir, err)
+		}
+		canonicalProj, err := filepath.EvalSymlinks(absProj)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox: resolve symlinks in project dir %q: %w", absProj, err)
+		}
+		projectDir = canonicalProj
+	}
+
 	for _, wdir := range dirs {
 		if wdir == "" {
 			continue

@@ -294,7 +294,9 @@ func (s *windowsScheduler) buildTaskXML(params ScheduleParams) ([]byte, error) {
 		ExecutablePath: xmlEscapeText(s.cfg.ExecutablePath),
 		// Quote paths so spaces in config/store locations don't split the
 		// command line. xmlEscapeText encodes the embedded quotes (&#34;).
-		Arguments: xmlEscapeText(fmt.Sprintf("jobs run %s --config %q --run-token-file %q",
+		// Do not use %q here: it applies Go string quoting and doubles the
+		// backslashes in Windows paths, corrupting them for schtasks.
+		Arguments: xmlEscapeText(fmt.Sprintf("jobs run %s --config \"%s\" --run-token-file \"%s\"",
 			params.JobID, s.cfg.ConfigPath, RunTokenPath(s.cfg.StoreDir))),
 		WorkingDir: xmlEscapeText(s.cfg.StoreDir),
 		TriggerXML: triggerXML,

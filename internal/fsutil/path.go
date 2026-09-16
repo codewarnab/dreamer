@@ -42,6 +42,13 @@ func CanonicalPath(p string) string {
 		}
 	}
 	resolved = filepath.Clean(resolved)
+	// Best-effort symlink resolution so equality comparisons match on the
+	// real path: macOS temp dirs traverse /var -> /private/var and Windows
+	// temp paths may use 8.3 short names. Paths that do not exist keep
+	// their cleaned form.
+	if canonical, err := filepath.EvalSymlinks(resolved); err == nil {
+		resolved = canonical
+	}
 	if runtime.GOOS == "windows" {
 		return strings.ToLower(resolved)
 	}

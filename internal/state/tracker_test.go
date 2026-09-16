@@ -416,4 +416,9 @@ func setTestHome(t *testing.T, home string) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// On Windows the config loader ignores XDG_CONFIG_HOME and resolves
+	// from APPDATA; isolate both AppData roots so state tests never share
+	// the runner's real state directory.
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 }

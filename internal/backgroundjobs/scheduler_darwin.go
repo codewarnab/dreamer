@@ -230,8 +230,10 @@ func (s *darwinScheduler) bootstrap(ctx context.Context, plistPath string) error
 	out, err := s.runCmd(ctx, "launchctl", "bootstrap", "gui/"+strconv.Itoa(os.Getuid()), plistPath)
 	// "already bootstrapped" is not an error. launchctl writes the message
 	// to stderr; CombinedOutput (the default runCmd implementation) merges
-	// stdout+stderr, so search the output bytes, not err.Error().
-	if err != nil && !strings.Contains(string(out), "already bootstrapped") {
+	// stdout+stderr, so search the output bytes, not err.Error(). The casing
+	// varies across macOS versions ("Already bootstrapped"), so match
+	// case-insensitively.
+	if err != nil && !strings.Contains(strings.ToLower(string(out)), "already bootstrapped") {
 		return err
 	}
 	return nil
@@ -285,7 +287,6 @@ func writePlistKey(e *xml.Encoder, key string) error {
 	}
 	return e.EncodeToken(xml.EndElement{Name: xml.Name{Local: "key"}})
 }
-
 
 // nextContentToken returns the next token, skipping whitespace-only CharData
 // that pretty-printed plist XML contains between elements.
@@ -786,4 +787,3 @@ func computeNextCalendarRun(now time.Time, hour, minute, weekday int) time.Time 
 
 	return candidate
 }
-
